@@ -1,0 +1,4 @@
+[mcp_servers.llm-wiki-memory]
+command = "node"
+args = ["__SERVER_INDEX__"]
+env = { MEMORY_DATA_DIR = "__DATA_DIR__" }

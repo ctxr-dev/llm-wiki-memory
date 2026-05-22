@@ -1,0 +1,471 @@
+import fs from "node:fs";
+import path from "node:path";
+import matter from "gray-matter";
+import { wikiRoot, embedCachePath } from "./env.mjs";
+import { ensureIndexes } from "./wiki-cli.mjs";
+import {
+  contentHash,
+  loadCache,
+  saveCache,
+  cachedEmbedding,
+  removeFromCache,
+  embed,
+  cosine,
+} from "./embed.mjs";
+import { dailyDatePath } from "./slug.mjs";
+
+// Drop-in replacement for the boilerplate's dify-write.mjs. Same exported
+// function names/shapes, but every document is a leaf in the local hosted
+// wiki and retrieval is local embeddings. Downstream code (flush, compile,
+// exit-plan-mode, the MCP server) calls only these functions.
+
+// Kept name-compatible with the boilerplate so adapted call sites that used
+// `DifyBridgeUnavailable` still resolve to a real class.
+export class WikiStoreUnavailable extends Error {}
+export const DifyBridgeUnavailable = WikiStoreUnavailable;
+
+export const CATEGORIES = ["knowledge", "self_improvement", "plans", "investigations", "daily"];
+
+export function slotToCategory(slot) {
+  const s = String(slot || "").trim();
+  if (CATEGORIES.includes(s)) return s;
+  // Tolerate a few aliases / raw category dirs.
+  if (s === "lessons") return "self_improvement";
+  if (s === "knowledge_base") return "knowledge";
+  return s || "knowledge";
+}
+
+function root() {
+  return wikiRoot();
+}
+
+function toRel(absPath) {
+  return path.relative(root(), absPath).split(path.sep).join("/");
+}
+
+function toAbs(relOrId) {
+  return path.join(root(), String(relOrId).split("/").join(path.sep));
+}
+
+function readLeaf(absPath) {
+  const raw = fs.readFileSync(absPath, "utf8");
+  const parsed = matter(raw);
+  return { data: parsed.data || {}, body: parsed.content || "" };
+}
+
+function leafMemory(data) {
+  return (data && typeof data.memory === "object" && data.memory) || {};
+}
+
+function isActive(data) {
+  const status = leafMemory(data).status;
+  return status !== "archived";
+}
+
+// Pull a human title from explicit metadata, a leading `# heading`, or the name.
+function deriveTitle({ metadata, text, name }) {
+  if (metadata && metadata.title) return String(metadata.title).trim();
+  const h1 = String(text || "").match(/^#\s+(.+?)\s*$/m);
+  if (h1) return h1[1].trim();
+  return String(name || "untitled").replace(/\.md$/, "").replace(/[-_]/g, " ").slice(0, 80);
+}
+
+function oneLine(s, max = 160) {
+  return String(s || "").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+// Build the >=3-bullet covers[] the validator requires on leaves.
+function buildCovers({ title, tags, atomType }) {
+  const out = [];
+  out.push(oneLine(`memory: ${title}`, 120));
+  for (const t of tags || []) out.push(oneLine(`relates to ${t}`, 80));
+  out.push(oneLine(`why and how-to-apply for ${title}`, 120));
+  out.push(oneLine(`recall context for ${atomType || "memory"} atoms`, 120));
+  const seen = new Set();
+  const deduped = out.filter((c) => c && !seen.has(c) && seen.add(c));
+  while (deduped.length < 3) deduped.push(`memory concern ${deduped.length + 1}`);
+  return deduped.slice(0, 15);
+}
+
+// Compose the on-disk leaf (schema-valid frontmatter + body). `memory` carries
+// our filterable metadata; the rest satisfies skill-llm-wiki's leaf schema.
+function renderLeaf({ id, title, tags, body, memoryMeta }) {
+  const frontmatter = {
+    id,
+    type: "primary",
+    depth_role: "leaf",
+    focus: oneLine(title) || oneLine(id) || "memory entry",
+    parents: ["index.md"],
+    covers: buildCovers({ title, tags, atomType: memoryMeta.atom_type }),
+  };
+  if (Array.isArray(tags) && tags.length) frontmatter.tags = tags;
+  frontmatter.source = { origin: "inline", hash: `sha256:${contentHash(body)}` };
+  frontmatter.updated = new Date().toISOString().slice(0, 10);
+  frontmatter.memory = memoryMeta;
+  return matter.stringify(`\n${body.trim()}\n`, frontmatter);
+}
+
+function normaliseMeta(metadata = {}, extra = {}) {
+  const m = metadata && typeof metadata === "object" ? metadata : {};
+  const out = {
+    atom_type: String(m.atom_type || extra.atom_type || "").trim(),
+    project_module: String(m.project_module || "").trim().toLowerCase(),
+    language: String(m.language || "").trim().toLowerCase(),
+    task_type: String(m.task_type || "").trim().toLowerCase(),
+    error_pattern: String(m.error_pattern || "").trim().toLowerCase(),
+    status: extra.status || m.status || "active",
+  };
+  const tags = m.tags;
+  if (Array.isArray(tags)) out.tags = tags.join(",");
+  else if (tags) out.tags = String(tags);
+  // Strip empties so absent fields aren't matched as "".
+  for (const k of ["project_module", "language", "task_type", "error_pattern", "tags"]) {
+    if (!out[k]) delete out[k];
+  }
+  return out;
+}
+
+function tagsArray(metadata) {
+  const t = metadata && metadata.tags;
+  if (Array.isArray(t)) return t;
+  if (typeof t === "string" && t) return t.split(",").map((x) => x.trim()).filter(Boolean);
+  return [];
+}
+
+// Recursively collect leaf files (not index.md) under a directory.
+function walkLeaves(dirAbs) {
+  const out = [];
+  if (!fs.existsSync(dirAbs)) return out;
+  for (const entry of fs.readdirSync(dirAbs, { withFileTypes: true })) {
+    if (entry.name.startsWith(".")) continue;
+    const abs = path.join(dirAbs, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...walkLeaves(abs));
+    } else if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "index.md") {
+      out.push(abs);
+    }
+  }
+  return out;
+}
+
+function findByName(categoryAbs, name) {
+  for (const leaf of walkLeaves(categoryAbs)) {
+    if (path.basename(leaf) === name) return leaf;
+  }
+  return null;
+}
+
+// Normalise an arbitrary document name (which may come from an MCP caller as
+// "My Plan.md", a unicode title, or a path) into a skill-valid leaf: a
+// kebab-case filename whose stem becomes the leaf `id`. No truncation, so
+// timestamped names like knowledge-…-2026-05-22-120000000.md survive intact.
+// Without this, an arbitrary name produces a non-kebab `id`/filename that
+// fails `skill-llm-wiki validate`.
+export function normalizeLeafName(name) {
+  const raw = String(name || "").trim().replace(/\.md$/i, "");
+  const stem =
+    raw
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/\p{M}/gu, "") // fold diacritics: café -> cafe
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "") || "untitled";
+  return { name: `${stem}.md`, id: stem };
+}
+
+// Reject a slot that is not one of the five contract categories, so we never
+// create a top-level wiki directory the layout contract does not declare
+// (which would break `skill-llm-wiki validate`).
+function assertKnownSlot(slot) {
+  const category = slotToCategory(slot);
+  if (!CATEGORIES.includes(category)) {
+    throw new WikiStoreUnavailable(
+      `unknown memory category '${slot}'. Valid categories: ${CATEGORIES.join(", ")}.`,
+    );
+  }
+  return category;
+}
+
+// Resolve where a NEW leaf for a slot should live (relative dir under wiki).
+function placementDir(slot, { date = new Date() } = {}) {
+  const category = slotToCategory(slot);
+  if (category === "daily") return `daily/${dailyDatePath(date)}`;
+  return category;
+}
+
+// ---- public API (dify-write.mjs parity) ----
+
+// Create (or, when name collides under the slot, replace) a leaf. `metadata`
+// is optional; compile sets it later via updateDocMetadata.
+export function writeMemory({ name, text, datasetId, supersedes, supersedesAction, metadata } = {}) {
+  if (!name || !text || !datasetId) {
+    throw new WikiStoreUnavailable("writeMemory requires name, text, datasetId");
+  }
+  const slot = datasetId;
+  assertKnownSlot(slot);
+  const { name: safeName, id } = normalizeLeafName(name);
+  const title = deriveTitle({ metadata, text, name: safeName });
+  const memoryMeta = normaliseMeta(metadata, { atom_type: slotDefaultAtomType(slot) });
+  const tags = tagsArray(metadata);
+
+  const dir = placementDir(slot);
+  const leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
+  fs.mkdirSync(path.dirname(leafAbs), { recursive: true });
+  fs.writeFileSync(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));
+
+  const touched = [leafAbs];
+  let supersedeResult;
+  if (supersedes) {
+    const action = supersedesAction || "disable";
+    try {
+      supersedeResult =
+        action === "delete"
+          ? deleteDocument({ documentId: supersedes, datasetId: slot })
+          : disableDocument({ documentId: supersedes, datasetId: slot });
+    } catch (err) {
+      supersedeResult = { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  ensureIndexes(root(), touched);
+  upsertEmbedding(toRel(leafAbs), text);
+
+  return {
+    ok: true,
+    datasetId: slot,
+    name: safeName,
+    created: { document: { id: toRel(leafAbs) } },
+    supersedes: supersedes ? { documentId: supersedes, result: supersedeResult } : undefined,
+  };
+}
+
+// Upsert-by-name: same name overwrites in place. Applies metadata immediately.
+export function saveDocument({ name, text, datasetId, metadata } = {}) {
+  if (!name || !text || !datasetId) {
+    throw new WikiStoreUnavailable("saveDocument requires name, text, datasetId");
+  }
+  const slot = datasetId;
+  assertKnownSlot(slot);
+  const { name: safeName, id } = normalizeLeafName(name);
+  const categoryAbs = path.join(root(), slotToCategory(slot));
+  const existing = findByName(categoryAbs, safeName);
+
+  const title = deriveTitle({ metadata, text, name: safeName });
+  const memoryMeta = normaliseMeta(metadata, { atom_type: slotDefaultAtomType(slot) });
+  const tags = tagsArray(metadata);
+
+  let leafAbs;
+  let replacedId;
+  if (existing) {
+    leafAbs = existing;
+    replacedId = toRel(existing);
+  } else {
+    const dir = placementDir(slot);
+    leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
+  }
+  fs.mkdirSync(path.dirname(leafAbs), { recursive: true });
+  fs.writeFileSync(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));
+
+  ensureIndexes(root(), [leafAbs]);
+  upsertEmbedding(toRel(leafAbs), text);
+
+  const metadataAttempted = metadata && Object.keys(metadata).length > 0;
+  return {
+    ok: true,
+    datasetId: slot,
+    name: safeName,
+    created: { document: { id: toRel(leafAbs) } },
+    replacedId,
+    metadataError: undefined,
+    metadataResult: metadataAttempted ? { ok: true } : undefined,
+  };
+}
+
+// Merge metadata into a leaf's frontmatter `memory` block (idempotent).
+export function updateDocMetadata({ datasetId, documentId, metadata } = {}) {
+  const abs = toAbs(documentId);
+  if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
+  if (!metadata || Object.keys(metadata).length === 0) return { ok: true, warning: "no metadata" };
+  const { data, body } = readLeaf(abs);
+  const merged = { ...leafMemory(data), ...normaliseMeta(metadata, { status: leafMemory(data).status }) };
+  const next = { ...data, memory: merged };
+  fs.writeFileSync(abs, matter.stringify(`\n${body.trim()}\n`, next));
+  return { ok: true };
+}
+
+// Soft-delete: mark archived so listings/search skip it; file stays in git.
+export function disableDocument({ documentId, datasetId } = {}) {
+  const abs = toAbs(documentId);
+  if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
+  const { data, body } = readLeaf(abs);
+  const next = { ...data, memory: { ...leafMemory(data), status: "archived" } };
+  fs.writeFileSync(abs, matter.stringify(`\n${body.trim()}\n`, next));
+  removeEmbedding(toRel(abs));
+  return { ok: true, documentId, status: "archived" };
+}
+
+export function enableDocument({ documentId, datasetId } = {}) {
+  const abs = toAbs(documentId);
+  if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
+  const { data, body } = readLeaf(abs);
+  const next = { ...data, memory: { ...leafMemory(data), status: "active" } };
+  fs.writeFileSync(abs, matter.stringify(`\n${body.trim()}\n`, next));
+  upsertEmbedding(toRel(abs), body);
+  return { ok: true, documentId, status: "active" };
+}
+
+export function deleteDocument({ documentId, datasetId } = {}) {
+  const abs = toAbs(documentId);
+  if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
+  fs.rmSync(abs);
+  removeEmbedding(documentId);
+  // Refresh indexes from the (now-deleted leaf's) parent dir up to the wiki
+  // root so the entry disappears from every ancestor index, not just the
+  // immediate parent. ensureIndexes walks abs's dirname upward.
+  try {
+    ensureIndexes(root(), [abs]);
+  } catch {
+    /* best effort; a later heal will reconcile */
+  }
+  return { ok: true, documentId, deleted: true };
+}
+
+export function listDocuments({ prefix, enabled, datasetId } = {}) {
+  const cats = datasetId ? [slotToCategory(datasetId)] : CATEGORIES;
+  const documents = [];
+  for (const cat of cats) {
+    const catAbs = path.join(root(), cat);
+    for (const leaf of walkLeaves(catAbs)) {
+      const name = path.basename(leaf);
+      if (prefix && !name.startsWith(prefix)) continue;
+      const { data } = readLeaf(leaf);
+      const active = isActive(data);
+      if (enabled === "true" || enabled === true) {
+        if (!active) continue;
+      } else if (enabled === "false" || enabled === false) {
+        if (active) continue;
+      }
+      documents.push({ id: toRel(leaf), name, datasetId: cat, enabled: active });
+    }
+  }
+  return { documents };
+}
+
+export function readDocument({ documentId, datasetId } = {}) {
+  const abs = toAbs(documentId);
+  if (!fs.existsSync(abs)) throw new WikiStoreUnavailable(`leaf not found: ${documentId}`);
+  const { data, body } = readLeaf(abs);
+  return { text: body, metadata: leafMemory(data), name: path.basename(abs), documentId };
+}
+
+function metaMatchesFilters(memoryMeta, filters) {
+  if (!filters) return true;
+  for (const [key, val] of Object.entries(filters)) {
+    if (val == null || val === "") continue;
+    const have = String(memoryMeta[key] || "").toLowerCase();
+    const want = String(val).toLowerCase();
+    if (key === "tags") {
+      const haveTags = have.split(",").map((t) => t.trim());
+      const wantTags = want.split(",").map((t) => t.trim()).filter(Boolean);
+      if (!wantTags.every((wt) => haveTags.includes(wt))) return false;
+    } else if (have !== want) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Filter leaves by frontmatter metadata, then rank by embedding similarity.
+export async function searchMemoryFiltered({ query, datasetId, limit = 5, filters, scoreThreshold } = {}) {
+  const cats = datasetId ? [slotToCategory(datasetId)] : CATEGORIES.filter((c) => c !== "daily");
+  const candidates = [];
+  for (const cat of cats) {
+    const catAbs = path.join(root(), cat);
+    for (const leaf of walkLeaves(catAbs)) {
+      const { data, body } = readLeaf(leaf);
+      if (!isActive(data)) continue;
+      const mem = leafMemory(data);
+      if (!metaMatchesFilters(mem, filters)) continue;
+      candidates.push({
+        id: toRel(leaf),
+        text: body,
+        documentName: path.basename(leaf),
+        datasetId: cat,
+      });
+    }
+  }
+  if (candidates.length === 0) return { records: [] };
+
+  const cache = loadCache(embedCachePath());
+  const queryVec = await embed(String(query || ""));
+  const scored = [];
+  for (const c of candidates) {
+    const vec = await cachedEmbedding(cache, c.id, c.text);
+    scored.push({ ...c, score: cosine(queryVec, vec) });
+  }
+  saveCache(embedCachePath(), cache);
+  scored.sort((a, b) => b.score - a.score);
+
+  const records = scored
+    .filter((r) => scoreThreshold == null || r.score >= scoreThreshold)
+    .slice(0, limit)
+    .map((r) => ({
+      datasetId: r.datasetId,
+      documentId: r.id,
+      documentName: r.documentName,
+      score: r.score,
+      content: r.text,
+    }));
+  return { records };
+}
+
+export function listDatasets() {
+  return {
+    datasets: CATEGORIES.map((name) => ({ name, id: name })),
+    declaredLocally: CATEGORIES.map((name) => ({ name, configuredId: name })),
+  };
+}
+
+// ---- embedding cache maintenance ----
+
+export function upsertEmbedding(id, text) {
+  try {
+    const cachePath = embedCachePath();
+    const cache = loadCache(cachePath);
+    const hash = contentHash(text);
+    // Defer the (possibly async) vector compute to search time; we only mark
+    // the entry stale here by removing any outdated vector. This keeps the
+    // synchronous write path fast and avoids blocking hooks on model load.
+    if (cache.entries[id] && cache.entries[id].hash !== hash) {
+      delete cache.entries[id];
+      saveCache(cachePath, cache);
+    }
+  } catch {
+    /* cache is best-effort */
+  }
+}
+
+export function removeEmbedding(id) {
+  try {
+    const cachePath = embedCachePath();
+    const cache = loadCache(cachePath);
+    if (cache.entries[id]) {
+      removeFromCache(cache, id);
+      saveCache(cachePath, cache);
+    }
+  } catch {
+    /* best effort */
+  }
+}
+
+// Default atom_type for a slot when none is supplied (used for daily capture
+// leaves and bare save_to_dataset calls).
+function slotDefaultAtomType(slot) {
+  const category = slotToCategory(slot);
+  if (category === "daily") return "daily-capture";
+  if (category === "plans") return "plan";
+  if (category === "self_improvement") return "self-improvement-lesson";
+  if (category === "investigations") return "investigation";
+  return "reference";
+}

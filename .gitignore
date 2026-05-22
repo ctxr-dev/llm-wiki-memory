@@ -1,0 +1,6 @@
+node_modules/
+*.log
+.DS_Store
+# Local runtime data when this repo is used in-place (dev). In an install it
+# lives under <workspace>/.llm-wiki-memory and is ignored there.
+.build-src/

@@ -1,0 +1,182 @@
+import { test, after } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { setupWorkspace, cleanup, runScript } from "../harness.mjs";
+
+// Full lifecycle against the REAL skill CLI and the REAL flush/compile/
+// exit-plan-mode scripts. The LLM is stubbed via MEMORY_LLM_PROVIDER=mock so
+// the suite is hermetic; embeddings use the lexical backend for speed.
+const { dataDir, wiki } = setupWorkspace();
+after(() => cleanup(dataDir));
+
+const store = await import("../../scripts/lib/wiki-store.mjs");
+const recall = await import("../../scripts/lib/recall.mjs");
+const cli = await import("../../scripts/lib/wiki-cli.mjs");
+const { embedCachePath } = await import("../../scripts/lib/env.mjs");
+
+function writeTranscript(name, turns) {
+  const file = path.join(dataDir, name);
+  const lines = turns.map((t) =>
+    JSON.stringify({ type: t.role, message: { role: t.role, content: [{ type: "text", text: t.text }] } }),
+  );
+  fs.writeFileSync(file, `${lines.join("\n")}\n`);
+  return file;
+}
+
+function runFlush(transcriptPath, atoms, sessionId = "e2e") {
+  const hookInput = JSON.stringify({
+    session_id: sessionId,
+    transcript_path: transcriptPath,
+    hook_event_name: "SessionEnd",
+    cwd: dataDir,
+  });
+  return runScript("scripts/hooks/flush.mjs", ["session-end"], {
+    stdin: hookInput,
+    env: { MEMORY_LLM_PROVIDER: "mock", MEMORY_LLM_MOCK_RESPONSE: JSON.stringify({ atoms }) },
+  });
+}
+
+function runCompile() {
+  return runScript("scripts/compile.mjs", [], {
+    env: { MEMORY_LLM_PROVIDER: "mock", MEMORY_LLM_MOCK_RESPONSE: JSON.stringify({ action: "create", reason: "e2e" }) },
+  });
+}
+
+const LESSON_ATOM = {
+  type: "self-improvement-lesson",
+  title: "Always await async db calls",
+  body: "Always await async database calls before reading the result set.",
+  tags: ["async", "database"],
+  metadata: { project_module: "testproj", language: "typescript", task_type: "implementation", error_pattern: "missing-await-async" },
+};
+const DECISION_ATOM = {
+  type: "decision",
+  title: "Use feature flags for risky rollouts",
+  body: "Use feature flags for risky rollouts. Why: limit blast radius. How to apply: wrap new endpoints.",
+  tags: ["infra", "rollout"],
+  metadata: { project_module: "testproj", language: "", task_type: "deploy" },
+};
+
+test("1. genesis: hosted wiki shell, contract, git op-log, validate clean", () => {
+  assert.ok(fs.existsSync(path.join(wiki, "index.md")), "root index.md");
+  assert.ok(fs.existsSync(path.join(wiki, ".llmwiki.layout.yaml")), "layout contract");
+  assert.ok(fs.existsSync(path.join(wiki, ".llmwiki", "op-log.yaml")), "git op-log");
+  assert.equal(cli.validate(wiki).ok, true);
+});
+
+test("2. daily capture: flush extracts atoms into nested daily leaf", () => {
+  const t = writeTranscript("t1.jsonl", [
+    { role: "user", text: "Let's use feature flags for rollout." },
+    { role: "assistant", text: "Agreed; also always await async db calls." },
+  ]);
+  const r = runFlush(t, [DECISION_ATOM, LESSON_ATOM], "s1");
+  assert.equal(r.status, 0, `flush exit 0: ${r.stderr}`);
+  const dailies = store.listDocuments({ prefix: "daily-", enabled: "true", datasetId: "daily" }).documents;
+  assert.equal(dailies.length, 1, "one daily leaf");
+  assert.match(dailies[0].id, /^daily\/\d{4}\/\d{2}\/\d{2}\/daily-/, "nested by date");
+  assert.equal(cli.validate(wiki).ok, true, "validate clean after capture");
+});
+
+test("3. save_lesson lands in self_improvement (frontmatter filterable)", () => {
+  const r = recall.saveLesson({
+    title: "Resolve PR threads in the same push",
+    body: "Resolve addressed review threads in the same push, never defer.",
+    metadata: { project_module: "testproj", task_type: "review", error_pattern: "deferred-thread-resolve" },
+    tags: ["pr", "review"],
+  });
+  assert.ok(r.created);
+  assert.equal(cli.validate(wiki).ok, true);
+});
+
+test("4. save_to_dataset upserts knowledge/plans/investigations", () => {
+  store.saveDocument({ name: "knowledge-fact.md", text: "# Fact\n\nThe build uses Node 20.", datasetId: "knowledge", metadata: { atom_type: "project-lore", project_module: "testproj" } });
+  store.saveDocument({ name: "investigation-latency.md", text: "# Latency probe\n\nP99 spikes after deploy.", datasetId: "investigations", metadata: { atom_type: "investigation", project_module: "testproj" } });
+  store.saveDocument({ name: "plan-x.md", text: "# Plan X\n\nv1", datasetId: "plans", metadata: { atom_type: "plan" } });
+  store.saveDocument({ name: "plan-x.md", text: "# Plan X\n\nv2", datasetId: "plans", metadata: { atom_type: "plan" } });
+  const plans = store.listDocuments({ datasetId: "plans", enabled: "true" }).documents.filter((d) => d.name === "plan-x.md");
+  assert.equal(plans.length, 1, "upsert by name: no duplicate plan");
+  assert.equal(cli.validate(wiki).ok, true);
+});
+
+test("4b. ExitPlanMode hook captures an approved plan into plans/", () => {
+  const hookInput = JSON.stringify({
+    tool_input: { plan: "# Ship the widget\n\nStep 1. Do the thing." },
+    tool_response: { approved: true },
+  });
+  const r = runScript("scripts/hooks/exit-plan-mode.mjs", [], { stdin: hookInput });
+  assert.equal(r.status, 0, `exit-plan-mode exit 0: ${r.stderr}`);
+  const plans = store.listDocuments({ datasetId: "plans", enabled: "true" }).documents.map((d) => d.name);
+  assert.ok(plans.includes("plan-ship-the-widget.md"), `captured plan present: ${plans.join(", ")}`);
+  assert.equal(cli.validate(wiki).ok, true);
+});
+
+test("5. compile promotes daily atoms into knowledge + self_improvement, archives daily", () => {
+  const r = runCompile();
+  assert.equal(r.status, 0, `compile exit 0: ${r.stderr}`);
+
+  const knowledge = store.listDocuments({ datasetId: "knowledge", enabled: "true" }).documents.map((d) => d.name);
+  assert.ok(knowledge.some((n) => n.startsWith("knowledge-")), `promoted knowledge present: ${knowledge.join(", ")}`);
+
+  const lessons = store.listDocuments({ datasetId: "self_improvement", enabled: "true" }).documents.map((d) => d.name);
+  assert.ok(lessons.some((n) => n.startsWith("lesson-")), "promoted lesson present");
+
+  const activeDailies = store.listDocuments({ prefix: "daily-", enabled: "true", datasetId: "daily" }).documents;
+  assert.equal(activeDailies.length, 0, "source daily archived after promotion");
+  assert.equal(cli.validate(wiki).ok, true);
+});
+
+test("5b. dedup: a second daily lesson with the same error_pattern force-updates, not duplicates", () => {
+  const t = writeTranscript("t2.jsonl", [
+    { role: "user", text: "Reminder about awaiting async db calls." },
+    { role: "assistant", text: "Yes, always await async db calls." },
+  ]);
+  assert.equal(runFlush(t, [LESSON_ATOM], "s2").status, 0);
+  assert.equal(runCompile().status, 0);
+
+  const activeLessons = [];
+  for (const d of store.listDocuments({ datasetId: "self_improvement", enabled: "true" }).documents) {
+    const { metadata } = store.readDocument({ documentId: d.id, datasetId: "self_improvement" });
+    if (metadata.error_pattern === "missing-await-async") activeLessons.push(d.id);
+  }
+  assert.equal(activeLessons.length, 1, "exactly one active lesson per error_pattern (old archived)");
+  assert.equal(cli.validate(wiki).ok, true);
+});
+
+test("6. recall surfaces the promoted lesson by project_module", async () => {
+  const out = await recall.recallLessons({
+    query: "await async database calls",
+    project_module: "testproj",
+    task_type: "implementation",
+  });
+  assert.ok(out.lessonHits >= 1, "recall finds a lesson");
+  assert.ok(out.records.some((r) => r.documentName.startsWith("lesson-")));
+});
+
+test("7. tree stays valid as a category grows (skill nesting/index-rebuild)", () => {
+  for (let i = 0; i < 30; i += 1) {
+    store.saveDocument({
+      name: `knowledge-bulk-${String(i).padStart(2, "0")}.md`,
+      text: `# Bulk fact ${i}\n\nFact number ${i} about subsystem ${i % 5}.`,
+      datasetId: "knowledge",
+      metadata: { atom_type: "reference", project_module: "testproj" },
+    });
+  }
+  const verdict = cli.heal(wiki).verdict;
+  assert.notEqual(verdict, "broken", `heal verdict not broken (was ${verdict})`);
+  if (verdict === "needs-rebuild") {
+    cli.rebuild(wiki, { quality: "deterministic" });
+  } else if (verdict === "fixable") {
+    cli.run(["fix", wiki]);
+  }
+  assert.equal(cli.validate(wiki).ok, true, "validate clean after growth");
+  const count = store.listDocuments({ datasetId: "knowledge", enabled: "true" }).documents.filter((d) => d.name.startsWith("knowledge-bulk-")).length;
+  assert.equal(count, 30, "all 30 bulk leaves remain reachable");
+});
+
+test("8. integrity + idempotency: re-compile is a clean no-op; embed cache present", () => {
+  const r = runCompile();
+  assert.equal(r.status, 0, "re-compile exits 0 with no active dailies");
+  assert.ok(fs.existsSync(embedCachePath()), "embedding cache written");
+  assert.equal(cli.validate(wiki).ok, true, "final validate clean");
+});

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "llm-wiki-memory": {
+      "command": "node",
+      "args": [
+        "./.llm-wiki-memory/src/mcp-server/index.mjs"
+      ],
+      "env": {
+        "MEMORY_DATA_DIR": "${CLAUDE_PROJECT_DIR}/.llm-wiki-memory"
+      }
+    }
+  }
+}

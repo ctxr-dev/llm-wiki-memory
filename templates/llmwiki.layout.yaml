@@ -1,0 +1,26 @@
+mode: hosted
+versioning:
+  style: in-place
+  backup_before_mutate: false
+purpose: "Persistent local memory for the agent across sessions"
+layout:
+  - path: knowledge
+    purpose: "long-lived facts, decisions, lore, and gotchas"
+    allow_entry_types: [primary]
+    max_depth: 3
+  - path: self_improvement
+    purpose: "self-improvement lessons keyed by error_pattern"
+    allow_entry_types: [primary]
+    max_depth: 2
+  - path: plans
+    purpose: "approved and in-flight plans"
+    allow_entry_types: [primary]
+    max_depth: 2
+  - path: investigations
+    purpose: "investigation and analysis artefacts"
+    allow_entry_types: [primary]
+    max_depth: 2
+  - path: daily
+    purpose: "raw captured memory atoms, nested by capture date (yyyy/mm/dd)"
+    allow_entry_types: [primary]
+    max_depth: 5
