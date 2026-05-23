@@ -206,7 +206,7 @@ function placementDir(slot, { date = new Date() } = {}) {
 
 // Create (or, when name collides under the slot, replace) a leaf. `metadata`
 // is optional; compile sets it later via updateDocMetadata.
-export function writeMemory({ name, text, datasetId, supersedes, supersedesAction, metadata } = {}) {
+export function writeMemory({ name, text, datasetId, supersedes, supersedesAction, metadata, date } = {}) {
   if (!name || !text || !datasetId) {
     throw new WikiStoreUnavailable("writeMemory requires name, text, datasetId");
   }
@@ -217,7 +217,10 @@ export function writeMemory({ name, text, datasetId, supersedes, supersedesActio
   const memoryMeta = normaliseMeta(metadata, { atom_type: slotDefaultAtomType(slot) });
   const tags = tagsArray(metadata);
 
-  const dir = placementDir(slot);
+  // `date` (optional) pins daily date-nesting to a caller-supplied time (e.g. a
+  // flush's capture time) rather than the write time, so a background worker
+  // that crosses midnight UTC still nests under the captured day.
+  const dir = placementDir(slot, { date });
   const leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
   fs.mkdirSync(path.dirname(leafAbs), { recursive: true });
   fs.writeFileSync(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));

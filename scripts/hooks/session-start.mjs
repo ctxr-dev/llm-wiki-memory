@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { MEMORY_DIR, COMPILE_STATE_PATH, envValue } from "../lib/env.mjs";
 import { buildSessionStartContext } from "../lib/discipline.mjs";
+import { isReentrant, reentryEnv } from "../lib/reentry.mjs";
 
 const RECURSION_GUARD = "memory_compile";
 
@@ -23,7 +24,7 @@ function spawnCompileDetached() {
   const compileScript = path.join(MEMORY_DIR, "scripts", "compile.mjs");
   if (!fs.existsSync(compileScript)) return false;
 
-  const env = { ...process.env, CLAUDE_INVOKED_BY: RECURSION_GUARD };
+  const env = reentryEnv(RECURSION_GUARD);
   const child = spawn("node", [compileScript], {
     detached: true,
     stdio: "ignore",
@@ -35,7 +36,7 @@ function spawnCompileDetached() {
 }
 
 function maybeTriggerCompile() {
-  if (process.env.CLAUDE_INVOKED_BY === RECURSION_GUARD) return false;
+  if (isReentrant()) return false;
   const state = readState();
   if (state.last_attempted_date === todayUtcDate()) return false;
   return spawnCompileDetached();
