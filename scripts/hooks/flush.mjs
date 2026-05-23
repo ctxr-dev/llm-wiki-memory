@@ -48,6 +48,17 @@ const FLUSH_LOG_PATH = path.join(STATE_DIR, ".flush.log");
 // after this; comfortably longer than the LLM timeout * retries.
 const FLUSH_LOCK_STALE_MS = envInt("MEMORY_FLUSH_LOCK_STALE_MS", 600_000);
 
+// The breadcrumb and any preserved-outcome files can carry session ids, atom
+// titles, and error text, so the state dir is created owner-only (0700) and the
+// files 0600.
+function ensureStateDir() {
+  fs.mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
+}
+
+function safeSession(sessionId) {
+  return String(sessionId || "manual").replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80);
+}
+
 function shortId(id) {
   return String(id || "").slice(0, 8);
 }
@@ -61,7 +72,10 @@ function logBreadcrumb(line) {
   // observability channel. Best-effort: a logging failure must never break
   // the flush.
   try {
-    fs.mkdirSync(STATE_DIR, { recursive: true });
+    ensureStateDir();
+    // Create the log owner-only on first write (appendFileSync would otherwise
+    // create it with the default umask), since the breadcrumb can be sensitive.
+    if (!fs.existsSync(FLUSH_LOG_PATH)) fs.writeFileSync(FLUSH_LOG_PATH, "", { mode: 0o600 });
     fs.appendFileSync(FLUSH_LOG_PATH, `${new Date().toISOString()} ${line}\n`);
   } catch {
     /* best effort */
@@ -359,8 +373,7 @@ function renderRawFallback({ source, reason }) {
 // for DIFFERENT sessions never contend. The session id is sanitised to safe
 // filename characters.
 function flushLockPath(sessionId) {
-  const safe = String(sessionId || "manual").replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80);
-  return path.join(STATE_DIR, `.flush-${safe}.lock`);
+  return path.join(STATE_DIR, `.flush-${safeSession(sessionId)}.lock`);
 }
 
 function cleanupContext(ctxFile) {
@@ -368,6 +381,21 @@ function cleanupContext(ctxFile) {
     if (ctxFile) fs.rmSync(ctxFile, { force: true });
   } catch {
     /* best effort */
+  }
+}
+
+// On a store-write failure we cannot record the outcome in the wiki, so persist
+// the rendered daily document (already redacted) to the owner-only state dir as
+// a recoverable artifact rather than dropping it. The live client transcript
+// also remains, so a later hook event can re-distill.
+function preserveFailedOutcome(text, sessionId) {
+  try {
+    ensureStateDir();
+    const dest = path.join(STATE_DIR, `failed-flush-${safeSession(sessionId)}-${Date.now()}.md`);
+    fs.writeFileSync(dest, text, { mode: 0o600 });
+    return dest;
+  } catch {
+    return null;
   }
 }
 
@@ -445,7 +473,7 @@ async function runWorker(ctxFile, sessionId, mode) {
   // guarantee. The lock is held for the whole distil+write and released in
   // `finally` (and on signals), so a failed worker frees it for a later retry
   // and a crashed worker's lock is reclaimed after the stale TTL.
-  fs.mkdirSync(STATE_DIR, { recursive: true });
+  ensureStateDir();
   const lockPath = flushLockPath(sessionId);
   installLockReleaseHandlers(lockPath);
   const lock = acquireLock(lockPath, { staleMs: FLUSH_LOCK_STALE_MS, label: "flush" });
@@ -545,22 +573,40 @@ async function flushSession({ ctxFile, sessionId, mode, tag }) {
   // store is unavailable. On failure nothing was persisted; the per-session
   // lock is released in runWorker's finally, so a later hook event can retry.
   const docName = dailyDocName();
+  let writeErr;
   try {
     const result = await writeMemory({ name: docName, text, datasetId: datasetName });
     cleanupContext(ctxFile);
     logBreadcrumb(`${tag}: ${outcome} -> ${datasetName}/${docName} (id=${result?.created?.document?.id || "?"})`);
+    return;
   } catch (err) {
-    // Delete the staged context on any write failure: nothing was persisted, so
-    // there is nothing to recover from it (the source transcript still exists in
-    // the client, and a later hook event will re-stage), and retaining redacted
-    // but potentially sensitive content on disk is an unnecessary risk. The
-    // .flush.log breadcrumb records the failure for diagnosis.
-    cleanupContext(ctxFile);
-    if (err instanceof WikiStoreUnavailable) {
-      logBreadcrumb(`${tag}: WIKI STORE UNAVAILABLE, nothing saved (${err.message}); staged context removed`);
+    writeErr = err;
+  }
+
+  // A rejected slot (e.g. a misconfigured MEMORY_FLUSH_SLOT) is recoverable: the
+  // only valid flush destination is the daily category, so retry there once
+  // before giving up.
+  if (writeErr instanceof WikiStoreUnavailable && datasetName !== "daily") {
+    try {
+      const result = await writeMemory({ name: docName, text, datasetId: "daily" });
+      cleanupContext(ctxFile);
+      logBreadcrumb(`${tag}: ${outcome} -> daily/${docName} (slot '${datasetName}' rejected, fell back to daily; id=${result?.created?.document?.id || "?"})`);
       return;
+    } catch (fallbackErr) {
+      writeErr = fallbackErr;
     }
-    logBreadcrumb(`${tag}: write failed (${err?.message || err}); staged context removed`);
+  }
+
+  // Could not persist to the wiki. Preserve the rendered outcome on disk so the
+  // distilled result is recoverable instead of lost; the staged context is then
+  // removed (the live client transcript still allows a later re-distill).
+  const preserved = preserveFailedOutcome(text, sessionId);
+  cleanupContext(ctxFile);
+  const where = preserved ? `; outcome preserved at ${preserved}` : "; could not preserve outcome";
+  if (writeErr instanceof WikiStoreUnavailable) {
+    logBreadcrumb(`${tag}: WIKI STORE rejected the write, not saved (${writeErr.message})${where}`);
+  } else {
+    logBreadcrumb(`${tag}: write failed (${writeErr?.message || writeErr})${where}`);
   }
 }
 

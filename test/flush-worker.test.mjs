@@ -131,3 +131,19 @@ test("a distiller error, after retries, falls back to the truncated raw context"
   assert.match(hit.text, /- outcome: distillation-failed/);
   assert.match(hit.text, /BEGIN UNTRUSTED MEMORY BODY/);
 });
+
+test("a rejected flush slot falls back to the daily category instead of losing the write", async () => {
+  const t = writeTranscript("w-slot.jsonl", TURNS);
+  const r = runFront("w-slot", t, {
+    MEMORY_LLM_PROVIDER: "mock",
+    MEMORY_LLM_MOCK_RESPONSE: JSON.stringify({ atoms: [ATOM] }),
+    MEMORY_FLUSH_DISTILL_ATTEMPTS: "1",
+    MEMORY_FLUSH_SLOT: "bogus-not-a-category",
+  });
+  assert.equal(r.status, 0, `front exit 0: ${r.stderr}`);
+  // The bogus slot is rejected by writeMemory; the worker retries against daily,
+  // so the distilled doc still lands (and is findable in the daily category).
+  const hit = await waitForWorker("w-slot");
+  assert.ok(hit, `daily written via fallback; flush.log:\n${logTail()}`);
+  assert.match(hit.text, /- outcome: distilled/);
+});
