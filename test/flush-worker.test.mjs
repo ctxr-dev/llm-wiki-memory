@@ -49,7 +49,9 @@ async function waitForWorker(sid, timeoutMs = 20000) {
   for (;;) {
     const hit = findDailyForSession(sid);
     if (hit && !fs.existsSync(lock)) return hit;
-    if (Date.now() - start > timeoutMs) return hit;
+    // Hard fail on timeout: returning the hit while the lock still exists would
+    // let a leaked lock (or a never-finished worker) pass silently.
+    if (Date.now() - start > timeoutMs) return null;
     await sleep(50);
   }
 }

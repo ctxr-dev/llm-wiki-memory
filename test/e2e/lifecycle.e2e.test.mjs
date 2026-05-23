@@ -92,7 +92,10 @@ async function waitForDailyOfSession(sid, timeoutMs = 20000) {
   for (;;) {
     const hit = findDailyForSession(sid);
     if (hit && !fs.existsSync(lock)) return hit;
-    if (Date.now() - start > timeoutMs) return hit;
+    // Hard fail on timeout (return null): proceeding while the lock still exists
+    // would let compile race the worker's index rebuild, the exact hazard this
+    // guard exists to prevent.
+    if (Date.now() - start > timeoutMs) return null;
     await sleep(50);
   }
 }

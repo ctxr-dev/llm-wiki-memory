@@ -73,10 +73,11 @@ function logBreadcrumb(line) {
   // the flush.
   try {
     ensureStateDir();
-    // Create the log owner-only on first write (appendFileSync would otherwise
-    // create it with the default umask), since the breadcrumb can be sensitive.
-    if (!fs.existsSync(FLUSH_LOG_PATH)) fs.writeFileSync(FLUSH_LOG_PATH, "", { mode: 0o600 });
-    fs.appendFileSync(FLUSH_LOG_PATH, `${new Date().toISOString()} ${line}\n`);
+    // Single atomic append: appendFileSync uses flag "a" (create-if-absent, no
+    // truncation) and applies mode 0o600 only when it creates the file, so two
+    // concurrent workers never race to truncate it. Owner-only because the
+    // breadcrumb can carry session ids, atom titles, and error text.
+    fs.appendFileSync(FLUSH_LOG_PATH, `${new Date().toISOString()} ${line}\n`, { mode: 0o600 });
   } catch {
     /* best effort */
   }
