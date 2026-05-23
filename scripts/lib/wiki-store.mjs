@@ -87,6 +87,14 @@ function buildCovers({ title, tags, atomType }) {
   return deduped.slice(0, 15);
 }
 
+// gray-matter serialises frontmatter via js-yaml, whose default lineWidth (80)
+// folds long scalars into block scalars (`>-`). skill-llm-wiki's index/validate
+// parser reads frontmatter line-by-line; folded scalars made it drop the doc
+// from its index. lineWidth -1 disables wrapping so scalars stay single-line.
+function stringifyLeaf(body, data) {
+  return matter.stringify(`\n${body.trim()}\n`, data, { lineWidth: -1 });
+}
+
 // Compose the on-disk leaf (schema-valid frontmatter + body). `memory` carries
 // our filterable metadata; the rest satisfies skill-llm-wiki's leaf schema.
 function renderLeaf({ id, title, tags, body, memoryMeta }) {
@@ -102,7 +110,7 @@ function renderLeaf({ id, title, tags, body, memoryMeta }) {
   frontmatter.source = { origin: "inline", hash: `sha256:${contentHash(body)}` };
   frontmatter.updated = new Date().toISOString().slice(0, 10);
   frontmatter.memory = memoryMeta;
-  return matter.stringify(`\n${body.trim()}\n`, frontmatter);
+  return stringifyLeaf(body, frontmatter);
 }
 
 function normaliseMeta(metadata = {}, extra = {}) {
@@ -290,7 +298,7 @@ export function updateDocMetadata({ datasetId, documentId, metadata } = {}) {
   const { data, body } = readLeaf(abs);
   const merged = { ...leafMemory(data), ...normaliseMeta(metadata, { status: leafMemory(data).status }) };
   const next = { ...data, memory: merged };
-  fs.writeFileSync(abs, matter.stringify(`\n${body.trim()}\n`, next));
+  fs.writeFileSync(abs, stringifyLeaf(body, next));
   return { ok: true };
 }
 
@@ -300,7 +308,7 @@ export function disableDocument({ documentId, datasetId } = {}) {
   if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
   const { data, body } = readLeaf(abs);
   const next = { ...data, memory: { ...leafMemory(data), status: "archived" } };
-  fs.writeFileSync(abs, matter.stringify(`\n${body.trim()}\n`, next));
+  fs.writeFileSync(abs, stringifyLeaf(body, next));
   removeEmbedding(toRel(abs));
   return { ok: true, documentId, status: "archived" };
 }
@@ -310,7 +318,7 @@ export function enableDocument({ documentId, datasetId } = {}) {
   if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
   const { data, body } = readLeaf(abs);
   const next = { ...data, memory: { ...leafMemory(data), status: "active" } };
-  fs.writeFileSync(abs, matter.stringify(`\n${body.trim()}\n`, next));
+  fs.writeFileSync(abs, stringifyLeaf(body, next));
   upsertEmbedding(toRel(abs), body);
   return { ok: true, documentId, status: "active" };
 }
