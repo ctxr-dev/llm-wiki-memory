@@ -28,6 +28,36 @@ export const COMPILE_STATE_PATH = path.join(MEMORY_DATA_DIR, "state", ".compile-
 export const COMPILE_LOCK_PATH = path.join(MEMORY_DATA_DIR, "state", ".compile.lock");
 export const PROMPTS_DIR = path.join(MEMORY_DIR, "prompts");
 
+// Parse one .env value. Deliberately small (NOT a full dotenv parser): it
+// trims, honours a simple pair of surrounding single or double quotes (the
+// content from the first quote to the next matching quote is taken literally,
+// including a '#'; escaped quotes / backslashes are NOT handled, which is fine
+// for the simple values this project stores), and otherwise drops an inline
+// "# comment" (a '#' at the start, or preceded by whitespace). Without this, an
+// inline comment on a value line (e.g. `MEMORY_FLUSH_SLOT=daily   # ...`) leaks
+// into the value, so the slot name becomes "daily   # ..." and every consumer
+// silently reads a polluted string.
+export function parseEnvValue(raw) {
+  let v = String(raw ?? "").trim();
+  if (!v) return "";
+  // Quoted value: return the literal inside the first matching quote pair and
+  // ignore anything after the closing quote (e.g. a trailing inline comment,
+  // `"value" # note`). A '#' inside the quotes is kept.
+  const q = v[0];
+  if (q === '"' || q === "'") {
+    const end = v.indexOf(q, 1);
+    if (end !== -1) return v.slice(1, end);
+    // Unterminated quote (malformed): return the trimmed value literally rather
+    // than guessing, so a stray '#' inside it is not mistaken for a comment.
+    return v;
+  }
+  if (v[0] === "#") return "";
+  // Unquoted: a '#' preceded by whitespace starts an inline comment.
+  const hash = v.search(/\s#/);
+  if (hash !== -1) v = v.slice(0, hash);
+  return v.trim();
+}
+
 export function readEnvFile(file = ENV_PATH) {
   if (!fs.existsSync(file)) return {};
   const out = {};
@@ -36,7 +66,7 @@ export function readEnvFile(file = ENV_PATH) {
     if (!line || line.startsWith("#")) continue;
     const i = line.indexOf("=");
     if (i === -1) continue;
-    out[line.slice(0, i)] = line.slice(i + 1);
+    out[line.slice(0, i).trim()] = parseEnvValue(line.slice(i + 1));
   }
   return out;
 }

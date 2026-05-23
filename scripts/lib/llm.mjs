@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { envValue, envInt } from "./env.mjs";
+import { reentryEnv } from "./reentry.mjs";
 
 export class LLMProviderUnavailable extends Error {}
 export class LLMOutputInvalid extends Error {
@@ -93,9 +94,11 @@ function stripCodeFence(text) {
   return fence ? fence[1] : text;
 }
 
-async function spawnCapture(cmd, args, { input, timeoutMs }) {
+async function spawnCapture(cmd, args, { input, timeoutMs, env }) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ["pipe", "pipe", "pipe"] });
+    // env undefined -> Node inherits process.env (the API providers below
+    // never spawn, so only the CLI providers pass an explicit env).
+    const child = spawn(cmd, args, { stdio: ["pipe", "pipe", "pipe"], env });
     const stdout = [];
     const stderr = [];
     // SIGTERM first so the CLI gets a chance to flush auth state /
@@ -133,13 +136,41 @@ async function spawnCapture(cmd, args, { input, timeoutMs }) {
   });
 }
 
-async function callClaudeCli({ systemPrompt, userPrompt, timeoutMs }) {
-  const args = ["-p", "--output-format=json", "--max-turns=1"];
-  if (systemPrompt) {
-    args.push("--system-prompt", systemPrompt);
-  }
+// Build the claude CLI args for a distiller run. Exported for unit tests.
+// The distiller only summarises the provided text, so it runs with NO tools
+// at all (the CLI equivalent of allowed_tools=[]):
+//   --strict-mcp-config + empty --mcp-config -> loads no project MCP servers
+//     (pointless here, and a liability: a project MCP server with an invalid
+//     tool schema would otherwise make the distiller's own API call fail);
+//   --allowedTools "" (empty allow-list) -> no built-in tools either, so the
+//     model cannot try to Write the atoms to a file and burn its single turn
+//     on a denied tool call. With no tools it must return the JSON as text.
+// Do NOT use --bare: it forces ANTHROPIC_API_KEY and never reads subscription
+// auth.
+export function buildClaudeArgs({ systemPrompt, userPrompt }) {
+  const args = [
+    "-p",
+    "--output-format=json",
+    "--max-turns=1",
+    "--strict-mcp-config",
+    "--mcp-config",
+    '{"mcpServers":{}}',
+    "--allowedTools",
+    "",
+  ];
+  if (systemPrompt) args.push("--system-prompt", systemPrompt);
   args.push(userPrompt);
-  const raw = await spawnCapture("claude", args, { timeoutMs });
+  return args;
+}
+
+async function callClaudeCli({ systemPrompt, userPrompt, timeoutMs }) {
+  const args = buildClaudeArgs({ systemPrompt, userPrompt });
+  // reentryEnv marks the forked distiller so its own session does not re-fire
+  // the memory hooks (it would otherwise spawn another distiller, and so on).
+  const raw = await spawnCapture("claude", args, {
+    timeoutMs,
+    env: reentryEnv("memory-distill"),
+  });
   try {
     const wrapper = JSON.parse(raw);
     if (typeof wrapper?.result === "string") return wrapper.result;
@@ -160,10 +191,17 @@ async function callCodexCli({ systemPrompt, userPrompt, timeoutMs }) {
     { args: ["exec", "--json", combined], parse: parseCodexJsonl },
     { args: ["exec", combined], parse: (raw) => raw },
   ];
+  // Carry the re-entry guard so a codex distiller does not re-fire the memory
+  // hooks. MCP isolation is not applied for codex here: codex exec may not
+  // load the project MCP config at all. If a future codex version does, add
+  // its no-MCP flag to the candidate args above.
   let lastErr;
   for (const { args, parse } of candidates) {
     try {
-      const raw = await spawnCapture("codex", args, { timeoutMs });
+      const raw = await spawnCapture("codex", args, {
+        timeoutMs,
+        env: reentryEnv("memory-distill"),
+      });
       const text = parse(raw);
       return text || raw;
     } catch (err) {

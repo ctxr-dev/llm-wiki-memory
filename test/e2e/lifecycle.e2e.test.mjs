@@ -31,9 +31,19 @@ function runFlush(transcriptPath, atoms, sessionId = "e2e") {
     hook_event_name: "SessionEnd",
     cwd: dataDir,
   });
+  // The flush hook front now spawns a DETACHED worker and returns at once, so
+  // the daily leaf is written asynchronously (see waitForDailyOfSession). Clear
+  // any inherited re-entry guard so the front runs; pin attempts=1 so the
+  // success path needs no retry/backoff and stays fast.
   return runScript("scripts/hooks/flush.mjs", ["session-end"], {
     stdin: hookInput,
-    env: { MEMORY_LLM_PROVIDER: "mock", MEMORY_LLM_MOCK_RESPONSE: JSON.stringify({ atoms }) },
+    env: {
+      MEMORY_HOOK_REENTRY: "",
+      CLAUDE_INVOKED_BY: "",
+      MEMORY_LLM_PROVIDER: "mock",
+      MEMORY_LLM_MOCK_RESPONSE: JSON.stringify({ atoms }),
+      MEMORY_FLUSH_DISTILL_ATTEMPTS: "1",
+    },
   });
 }
 
@@ -41,6 +51,50 @@ function runCompile() {
   return runScript("scripts/compile.mjs", [], {
     env: { MEMORY_LLM_PROVIDER: "mock", MEMORY_LLM_MOCK_RESPONSE: JSON.stringify({ action: "create", reason: "e2e" }) },
   });
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const flushLog = path.join(dataDir, "state", ".flush.log");
+function logTail() {
+  try {
+    return fs.readFileSync(flushLog, "utf8");
+  } catch {
+    return "(no .flush.log yet)";
+  }
+}
+
+// The daily's session id lives in the header body, not the filename.
+function findDailyForSession(sid) {
+  const docs = store.listDocuments({ prefix: "daily-", enabled: "true", datasetId: "daily" }).documents;
+  for (const d of docs) {
+    const { text } = store.readDocument({ documentId: d.id, datasetId: "daily" });
+    if (text.includes(`session_id: ${sid}`)) return { id: d.id, text };
+  }
+  return null;
+}
+
+// Session ids used here are simple, so this mirrors flush.mjs:flushLockPath.
+function flushLockPathFor(sid) {
+  const safe = String(sid || "manual").replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80);
+  return path.join(dataDir, "state", `.flush-${safe}.lock`);
+}
+
+// The hook front returns before the detached worker writes. Wait until the
+// daily for this session exists AND the worker has released its session lock
+// (released in a finally AFTER writeMemory + ensureIndexes complete), so a
+// later validate/compile never races the worker's index rebuild.
+async function waitForDailyOfSession(sid, timeoutMs = 20000) {
+  const lock = flushLockPathFor(sid);
+  const start = Date.now();
+  for (;;) {
+    const hit = findDailyForSession(sid);
+    if (hit && !fs.existsSync(lock)) return hit;
+    if (Date.now() - start > timeoutMs) return hit;
+    await sleep(50);
+  }
 }
 
 const LESSON_ATOM = {
@@ -65,13 +119,17 @@ test("1. genesis: hosted wiki shell, contract, git op-log, validate clean", () =
   assert.equal(cli.validate(wiki).ok, true);
 });
 
-test("2. daily capture: flush extracts atoms into nested daily leaf", () => {
+test("2. daily capture: flush extracts atoms into nested daily leaf", async () => {
   const t = writeTranscript("t1.jsonl", [
     { role: "user", text: "Let's use feature flags for rollout." },
     { role: "assistant", text: "Agreed; also always await async db calls." },
   ]);
   const r = runFlush(t, [DECISION_ATOM, LESSON_ATOM], "s1");
   assert.equal(r.status, 0, `flush exit 0: ${r.stderr}`);
+  // The worker is detached, so wait until it has written the daily and released
+  // its session lock (which means ensureIndexes has finished too).
+  const hit = await waitForDailyOfSession("s1");
+  assert.ok(hit, `worker wrote a daily for s1; flush.log:\n${logTail()}`);
   const dailies = store.listDocuments({ prefix: "daily-", enabled: "true", datasetId: "daily" }).documents;
   assert.equal(dailies.length, 1, "one daily leaf");
   assert.match(dailies[0].id, /^daily\/\d{4}\/\d{2}\/\d{2}\/daily-/, "nested by date");
@@ -126,12 +184,15 @@ test("5. compile promotes daily atoms into knowledge + self_improvement, archive
   assert.equal(cli.validate(wiki).ok, true);
 });
 
-test("5b. dedup: a second daily lesson with the same error_pattern force-updates, not duplicates", () => {
+test("5b. dedup: a second daily lesson with the same error_pattern force-updates, not duplicates", async () => {
   const t = writeTranscript("t2.jsonl", [
     { role: "user", text: "Reminder about awaiting async db calls." },
     { role: "assistant", text: "Yes, always await async db calls." },
   ]);
   assert.equal(runFlush(t, [LESSON_ATOM], "s2").status, 0);
+  // Wait for the detached worker to land the s2 daily before compiling, else
+  // compile would run against an empty daily slot.
+  assert.ok(await waitForDailyOfSession("s2"), `s2 daily present before compile; flush.log:\n${logTail()}`);
   assert.equal(runCompile().status, 0);
 
   const activeLessons = [];
