@@ -1,5 +1,6 @@
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -33,6 +34,16 @@ after(async () => {
 function parse(res) {
   return JSON.parse(res.content[0].text);
 }
+
+test("claude-code mcp template has no unexpanded ${...} tokens", () => {
+  const raw = fs.readFileSync(path.join(SRC, "templates/mcp.json"), "utf8");
+  assert.ok(!/\$\{/.test(raw), "template must not contain ${...} (not expanded in MCP env)");
+  const cfg = JSON.parse(raw);
+  const server = cfg.mcpServers["llm-wiki-memory"];
+  assert.ok(server, "llm-wiki-memory server present");
+  // No MEMORY_DATA_DIR override: the server self-locates via env.mjs WORKSPACE_DIR.
+  assert.ok(!(server.env && "MEMORY_DATA_DIR" in server.env), "no MEMORY_DATA_DIR override");
+});
 
 test("server boots and registers the expected tools", async () => {
   const { tools } = await client.listTools();
