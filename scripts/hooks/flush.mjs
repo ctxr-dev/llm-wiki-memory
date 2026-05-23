@@ -48,11 +48,18 @@ const FLUSH_LOG_PATH = path.join(STATE_DIR, ".flush.log");
 // after this; comfortably longer than the LLM timeout * retries.
 const FLUSH_LOCK_STALE_MS = envInt("MEMORY_FLUSH_LOCK_STALE_MS", 600_000);
 
-// The breadcrumb and any preserved-outcome files can carry session ids, atom
-// titles, and error text, so the state dir is created owner-only (0700) and the
-// files 0600.
+// The breadcrumb and any preserved-failure files can carry session ids, atom
+// titles, and error text, so the state dir is owner-only (0700) and the files
+// 0600. mkdir / appendFileSync `mode` only applies on creation, so we also chmod
+// once per process to tighten a dir or log that an earlier run left broader.
+let stateDirSecured = false;
+let flushLogSecured = false;
 function ensureStateDir() {
   fs.mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
+  if (!stateDirSecured) {
+    try { fs.chmodSync(STATE_DIR, 0o700); } catch { /* best effort */ }
+    stateDirSecured = true;
+  }
 }
 
 function safeSession(sessionId) {
@@ -75,9 +82,14 @@ function logBreadcrumb(line) {
     ensureStateDir();
     // Single atomic append: appendFileSync uses flag "a" (create-if-absent, no
     // truncation) and applies mode 0o600 only when it creates the file, so two
-    // concurrent workers never race to truncate it. Owner-only because the
-    // breadcrumb can carry session ids, atom titles, and error text.
+    // concurrent workers never race to truncate it.
     fs.appendFileSync(FLUSH_LOG_PATH, `${new Date().toISOString()} ${line}\n`, { mode: 0o600 });
+    if (!flushLogSecured) {
+      // The mode above is ignored when the file already exists; chmod once so a
+      // pre-existing log with broader perms is tightened to owner-only too.
+      try { fs.chmodSync(FLUSH_LOG_PATH, 0o600); } catch { /* best effort */ }
+      flushLogSecured = true;
+    }
   } catch {
     /* best effort */
   }
@@ -400,6 +412,23 @@ function preserveFailedOutcome(text, sessionId) {
   }
 }
 
+// On spawn failure the hook front has redacted context but no distilled outcome
+// yet, so preserve the staged context (owner-only) for manual recovery instead
+// of dropping it. The /tmp original is always removed.
+function preserveFailedContext(ctxFile, sessionId) {
+  try {
+    ensureStateDir();
+    const dest = path.join(STATE_DIR, `failed-spawn-${safeSession(sessionId)}-${Date.now()}.json`);
+    fs.copyFileSync(ctxFile, dest);
+    fs.chmodSync(dest, 0o600);
+    return dest;
+  } catch {
+    return null;
+  } finally {
+    cleanupContext(ctxFile);
+  }
+}
+
 function flushDatasetName() {
   return envValue("MEMORY_FLUSH_SLOT", "daily");
 }
@@ -457,8 +486,13 @@ function runHookFront(mode) {
     child.unref();
     logBreadcrumb(`hook ${mode}: spawned worker (session ${shortId(source.sessionId)}, ${source.turnCount} turns)`);
   } catch (err) {
-    logBreadcrumb(`hook ${mode}: failed to spawn worker (${err?.message || err})`);
-    cleanupContext(ctxFile);
+    // Spawning failed (rare): preserve the staged context under the owner-only
+    // state dir instead of dropping it, so the capture is recoverable.
+    const preserved = preserveFailedContext(ctxFile, source.sessionId);
+    logBreadcrumb(
+      `hook ${mode}: failed to spawn worker (${err?.message || err})` +
+        (preserved ? `; context preserved at ${preserved}` : "; context removed"),
+    );
   }
 }
 
