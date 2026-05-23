@@ -599,7 +599,10 @@ async function flushSession({ ctxFile, sessionId, mode, tag }) {
     const { result, datasetName: ds, rejected } = await writeFlushDoc(docName, text, source.capturedAtMs);
     cleanupContext(ctxFile);
     const note = rejected ? ` (slot '${rejected}' rejected, fell back to daily)` : "";
-    logBreadcrumb(`${tag}: ${outcome} -> ${ds}/${docName}${note} (id=${result?.created?.document?.id || "?"})`);
+    // Log the real stored path: the document id includes the daily/YYYY/MM/DD
+    // nesting, whereas `${ds}/${docName}` would omit the date dirs and mislead.
+    const dest = result?.created?.document?.id || `${ds}/${docName}`;
+    logBreadcrumb(`${tag}: ${outcome} -> ${dest}${note}`);
   } catch (writeErr) {
     // Could not persist even after the daily fallback. Preserve the rendered
     // outcome on disk so the distilled result is recoverable instead of lost;
