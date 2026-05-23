@@ -525,13 +525,16 @@ async function distillWithRetry(source, tag) {
 // MEMORY_FLUSH_SLOT) is recoverable: the only valid flush destination is the
 // daily category, so retry there once. Returns { result, datasetName, rejected? };
 // throws the final error if even the daily fallback fails.
-async function writeFlushDoc(name, text) {
+async function writeFlushDoc(name, text, capturedAt) {
   const datasetName = flushDatasetName();
+  // Pin daily date-nesting to capture time so a worker that crosses midnight UTC
+  // still nests under the captured day (matching captured_at_utc in the header).
+  const date = capturedAt ? new Date(capturedAt) : undefined;
   try {
-    return { result: await writeMemory({ name, text, datasetId: datasetName }), datasetName };
+    return { result: await writeMemory({ name, text, datasetId: datasetName, date }), datasetName };
   } catch (err) {
     if (err instanceof WikiStoreUnavailable && datasetName !== "daily") {
-      const result = await writeMemory({ name, text, datasetId: "daily" });
+      const result = await writeMemory({ name, text, datasetId: "daily", date });
       return { result, datasetName: "daily", rejected: datasetName };
     }
     throw err;
@@ -591,9 +594,9 @@ async function flushSession({ ctxFile, sessionId, mode, tag }) {
   // Persist. The write is the one step that genuinely cannot proceed if the
   // store is unavailable. On failure nothing was persisted; the per-session
   // lock is released in runWorker's finally, so a later hook event can retry.
-  const docName = dailyDocName();
+  const docName = dailyDocName(source.capturedAtMs ? new Date(source.capturedAtMs) : undefined);
   try {
-    const { result, datasetName: ds, rejected } = await writeFlushDoc(docName, text);
+    const { result, datasetName: ds, rejected } = await writeFlushDoc(docName, text, source.capturedAtMs);
     cleanupContext(ctxFile);
     const note = rejected ? ` (slot '${rejected}' rejected, fell back to daily)` : "";
     logBreadcrumb(`${tag}: ${outcome} -> ${ds}/${docName}${note} (id=${result?.created?.document?.id || "?"})`);

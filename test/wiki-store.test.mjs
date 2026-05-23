@@ -66,6 +66,23 @@ test("daily leaves nest by date and list with prefix", () => {
   assert.equal(list.documents.length, 1);
 });
 
+test("daily placement honours an explicit capture date, not the write time", () => {
+  // A flush worker can run after midnight UTC; the leaf must nest under the
+  // captured day so the directory matches the header's captured_at_utc.
+  const res = store.writeMemory({
+    name: "daily-2024-01-02-030405000.md",
+    text: "# Daily flush\n\nbody",
+    datasetId: "daily",
+    date: new Date(Date.UTC(2024, 0, 2, 3, 4, 5)),
+  });
+  assert.equal(
+    res.created.document.id.startsWith("daily/2024/01/02/"),
+    true,
+    `nested under the capture date: ${res.created.document.id}`,
+  );
+  assert.equal(cli.validate(wiki).ok, true);
+});
+
 test("disableDocument hides from listing and search; enable restores", async () => {
   const res = store.writeMemory({
     name: "knowledge-temp-2026-05-22-140000000.md",
