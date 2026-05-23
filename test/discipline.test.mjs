@@ -19,6 +19,13 @@ test("INSTRUCTIONS names the core discipline tools", () => {
   }
 });
 
+test("INSTRUCTIONS encodes the attempt-first routing rule", () => {
+  assert.match(INSTRUCTIONS, /health check IS the attempt/);
+  assert.match(INSTRUCTIONS, /ALWAYS try the save FIRST/);
+  assert.match(INSTRUCTIONS, /ONLY after an actual tool-call error/);
+  assert.match(INSTRUCTIONS, /the local wiki is the DEFAULT, NOT your client's local file memory/);
+});
+
 test("buildSessionStartContext embeds INSTRUCTIONS and the server name + compile note", () => {
   const ctx = buildSessionStartContext({ serverName: "my-mem", compileTriggered: true });
   assert.ok(ctx.includes("my-mem"), "names the server");

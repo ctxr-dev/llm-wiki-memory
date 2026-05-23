@@ -9,7 +9,7 @@ description: Use the project memory to look up self-improvement lessons before r
 >
 > **Why default to the wiki:** local-file memory (Claude Code's `~/.claude/projects/.../memory/*.md`, Cursor's project memory, etc.) is per-client and per-session: invisible to every other agent and to your future self in another session. The LLM wiki is a local, git-versioned tree of markdown leaves shared across every agent on this project. Each memory is one leaf, with full history in a private git repo. Picking local-file memory when the wiki is available silently bypasses it and gives the user the impression nothing was actually saved where it counts.
 >
-> **Health probe:** treat the wiki path as healthy if a `save_to_dataset` / `save_lesson` call succeeds. If it errors (MCP server not running, wiki not initialised, path unwritable), the wiki path is unhealthy.
+> **Health probe (attempt first):** the health check IS the attempt. ALWAYS try the `save_to_dataset` / `save_lesson` call FIRST and treat success as healthy. Do NOT pre-judge the wiki path as unhealthy or skip the attempt out of caution or uncertainty. Only when a call actually ERRORS (MCP server not running, wiki not initialised, path unwritable) is the wiki path unhealthy, and only then do you fall back.
 >
 > **Decision:**
 >
