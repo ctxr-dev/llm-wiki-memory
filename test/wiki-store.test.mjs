@@ -146,3 +146,36 @@ test("deleteDocument removes the leaf and keeps wiki valid", () => {
   const v = cli.validate(wiki);
   assert.equal(v.ok, true, `validate clean after delete: ${JSON.stringify(v)}`);
 });
+
+test("long scalars are not folded into block scalars (validate stays clean)", () => {
+  // A title long enough that the focus scalar would exceed js-yaml's default
+  // 80-col line width and fold to `>-`, which the skill's frontmatter parser
+  // cannot read. With lineWidth -1 the scalar stays single-line and the
+  // (installed) skill validates the doc instead of dropping it.
+  const longTitle =
+    "Proactively invoke available skills for the task such as frontend-excellence and frontend-design before writing UI";
+  const res = store.writeMemory({
+    name: "knowledge-long-title-2026-05-23-180000000.md",
+    text: `# ${longTitle}\n\nBody with enough prose to embed.\nWhy: regression guard.`,
+    datasetId: "knowledge",
+  });
+  const id = res.created.document.id;
+  store.updateDocMetadata({
+    datasetId: "knowledge",
+    documentId: id,
+    metadata: { atom_type: "reference", project_module: "llm-wiki-memory" },
+  });
+
+  const abs = path.join(wiki, id.split("/").join(path.sep));
+  const raw = fs.readFileSync(abs, "utf8");
+  const fm = raw.split("\n---", 2)[0];
+  assert.ok(!/[|>][+-]?\d?\s*$/m.test(fm), `frontmatter must not fold scalars:\n${fm}`);
+
+  const v = cli.validate(wiki);
+  assert.equal(v.ok, true, `validate clean with a long-titled leaf: ${JSON.stringify(v)}`);
+  const list = store.listDocuments({ datasetId: "knowledge", enabled: "true" });
+  assert.ok(
+    list.documents.some((d) => d.id === id),
+    "long-titled leaf is listed (not dropped from the index)",
+  );
+});
