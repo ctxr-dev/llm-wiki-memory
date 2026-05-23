@@ -476,13 +476,16 @@ async function runWorker(ctxFile, sessionId, mode) {
   // and a crashed worker's lock is reclaimed after the stale TTL.
   ensureStateDir();
   const lockPath = flushLockPath(sessionId);
-  installLockReleaseHandlers(lockPath);
   const lock = acquireLock(lockPath, { staleMs: FLUSH_LOCK_STALE_MS, label: "flush" });
   if (!lock.ok) {
     logBreadcrumb(`${tag}: dedup skip (session lock held: ${lock.reason})`);
     cleanupContext(ctxFile);
     return;
   }
+  // Install release handlers only after we actually own the lock, so a worker
+  // that lost the dedup race never registers a handler that could unlink the
+  // winner's lock (releaseLock matches by pid, which is unsafe under pid reuse).
+  installLockReleaseHandlers(lockPath);
   try {
     await flushSession({ ctxFile, sessionId, mode, tag });
   } finally {
@@ -518,6 +521,23 @@ async function distillWithRetry(source, tag) {
   throw lastErr ?? new Error("distillation failed");
 }
 
+// Write a flush doc to the configured slot. A rejected slot (e.g. a misconfigured
+// MEMORY_FLUSH_SLOT) is recoverable: the only valid flush destination is the
+// daily category, so retry there once. Returns { result, datasetName, rejected? };
+// throws the final error if even the daily fallback fails.
+async function writeFlushDoc(name, text) {
+  const datasetName = flushDatasetName();
+  try {
+    return { result: await writeMemory({ name, text, datasetId: datasetName }), datasetName };
+  } catch (err) {
+    if (err instanceof WikiStoreUnavailable && datasetName !== "daily") {
+      const result = await writeMemory({ name, text, datasetId: "daily" });
+      return { result, datasetName: "daily", rejected: datasetName };
+    }
+    throw err;
+  }
+}
+
 async function flushSession({ ctxFile, sessionId, mode, tag }) {
   let source;
   try {
@@ -528,11 +548,10 @@ async function flushSession({ ctxFile, sessionId, mode, tag }) {
     // when the wiki is initialised.
     if (wikiInitialised()) {
       try {
-        await writeMemory({
-          name: dailyDocName(),
-          text: renderErrorMarker({ sessionId, mode, reason: err?.message || String(err) }),
-          datasetId: flushDatasetName(),
-        });
+        await writeFlushDoc(
+          dailyDocName(),
+          renderErrorMarker({ sessionId, mode, reason: err?.message || String(err) }),
+        );
       } catch (markerErr) {
         logBreadcrumb(`${tag}: could not record context-unreadable marker (${markerErr?.message || markerErr})`);
       }
@@ -553,7 +572,6 @@ async function flushSession({ ctxFile, sessionId, mode, tag }) {
   // Decide WHAT to persist. The distiller never blocks the user (it runs here,
   // in the background) and a failure after retries becomes a raw-context
   // fallback rather than a silent drop.
-  const datasetName = flushDatasetName();
   let text;
   let outcome;
   try {
@@ -574,40 +592,24 @@ async function flushSession({ ctxFile, sessionId, mode, tag }) {
   // store is unavailable. On failure nothing was persisted; the per-session
   // lock is released in runWorker's finally, so a later hook event can retry.
   const docName = dailyDocName();
-  let writeErr;
   try {
-    const result = await writeMemory({ name: docName, text, datasetId: datasetName });
+    const { result, datasetName: ds, rejected } = await writeFlushDoc(docName, text);
     cleanupContext(ctxFile);
-    logBreadcrumb(`${tag}: ${outcome} -> ${datasetName}/${docName} (id=${result?.created?.document?.id || "?"})`);
-    return;
-  } catch (err) {
-    writeErr = err;
-  }
-
-  // A rejected slot (e.g. a misconfigured MEMORY_FLUSH_SLOT) is recoverable: the
-  // only valid flush destination is the daily category, so retry there once
-  // before giving up.
-  if (writeErr instanceof WikiStoreUnavailable && datasetName !== "daily") {
-    try {
-      const result = await writeMemory({ name: docName, text, datasetId: "daily" });
-      cleanupContext(ctxFile);
-      logBreadcrumb(`${tag}: ${outcome} -> daily/${docName} (slot '${datasetName}' rejected, fell back to daily; id=${result?.created?.document?.id || "?"})`);
-      return;
-    } catch (fallbackErr) {
-      writeErr = fallbackErr;
+    const note = rejected ? ` (slot '${rejected}' rejected, fell back to daily)` : "";
+    logBreadcrumb(`${tag}: ${outcome} -> ${ds}/${docName}${note} (id=${result?.created?.document?.id || "?"})`);
+  } catch (writeErr) {
+    // Could not persist even after the daily fallback. Preserve the rendered
+    // outcome on disk so the distilled result is recoverable instead of lost;
+    // the staged context is then removed (the live client transcript still
+    // allows a later re-distill).
+    const preserved = preserveFailedOutcome(text, sessionId);
+    cleanupContext(ctxFile);
+    const where = preserved ? `; outcome preserved at ${preserved}` : "; could not preserve outcome";
+    if (writeErr instanceof WikiStoreUnavailable) {
+      logBreadcrumb(`${tag}: WIKI STORE rejected the write, not saved (${writeErr.message})${where}`);
+    } else {
+      logBreadcrumb(`${tag}: write failed (${writeErr?.message || writeErr})${where}`);
     }
-  }
-
-  // Could not persist to the wiki. Preserve the rendered outcome on disk so the
-  // distilled result is recoverable instead of lost; the staged context is then
-  // removed (the live client transcript still allows a later re-distill).
-  const preserved = preserveFailedOutcome(text, sessionId);
-  cleanupContext(ctxFile);
-  const where = preserved ? `; outcome preserved at ${preserved}` : "; could not preserve outcome";
-  if (writeErr instanceof WikiStoreUnavailable) {
-    logBreadcrumb(`${tag}: WIKI STORE rejected the write, not saved (${writeErr.message})${where}`);
-  } else {
-    logBreadcrumb(`${tag}: write failed (${writeErr?.message || writeErr})${where}`);
   }
 }
 
