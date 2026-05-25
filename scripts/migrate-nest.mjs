@@ -3,7 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import matter from "gray-matter";
 import { MEMORY_DIR, wikiRoot } from "./lib/env.mjs";
-import { CATEGORIES, placementDirForMeta, removeEmbedding } from "./lib/wiki-store.mjs";
+import { CATEGORIES, placementDirForMeta, renameEmbedding } from "./lib/wiki-store.mjs";
 import { ensureIndexes, validate } from "./lib/wiki-cli.mjs";
 import { dailyDatePath, parseDailyDocName } from "./lib/slug.mjs";
 
@@ -107,7 +107,7 @@ export function migrateNest({ wiki = wikiRoot(), dryRun = false, check = false }
     }
     fs.mkdirSync(path.dirname(m.destAbs), { recursive: true });
     fs.renameSync(m.abs, m.destAbs);
-    removeEmbedding(m.from);
+    renameEmbedding(m.from, m.to); // content unchanged, so keep the cached vector
     applied.push({ from: m.from, to: m.to, destAbs: m.destAbs });
   }
 

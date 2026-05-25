@@ -235,6 +235,25 @@ test("missing facets fall back to deterministic sentinels", () => {
   assert.match(l.created.document.id, /^self_improvement\/billing\/unknown\//, "absent task_type -> unknown");
 });
 
+test("renameEmbedding moves a cache entry so a relocation keeps the cached vector", async () => {
+  const { embedCachePath } = await import("../scripts/lib/env.mjs");
+  const { loadCache, saveCache } = await import("../scripts/lib/embed.mjs");
+  const cp = embedCachePath();
+  const cache = loadCache(cp);
+  cache.entries["knowledge/old/x.md"] = { hash: "sha256:abc", vector: [0.1, 0.2, 0.3] };
+  saveCache(cp, cache);
+
+  store.renameEmbedding("knowledge/old/x.md", "knowledge/new/x.md");
+
+  const after = loadCache(embedCachePath());
+  assert.ok(!after.entries["knowledge/old/x.md"], "old cache id removed");
+  assert.deepEqual(
+    after.entries["knowledge/new/x.md"],
+    { hash: "sha256:abc", vector: [0.1, 0.2, 0.3] },
+    "vector preserved under the new id (no cold re-embed)",
+  );
+});
+
 test("placementDirForMeta maps each category to its facet path", () => {
   assert.equal(
     store.placementDirForMeta("knowledge", { project_module: "tradingtune", atom_type: "pattern-gotcha" }),

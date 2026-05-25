@@ -240,9 +240,12 @@ function placementDir(slot, { metadata = {}, date = new Date() } = {}) {
 
 // ---- public API (dify-write.mjs parity) ----
 
-// Create (or, when name collides under the slot, replace) a leaf. `metadata`
-// is optional but, when supplied, drives facet placement at write time (compile
-// passes it here); it may also be re-merged later via updateDocMetadata.
+// Create a leaf at its facet-derived path. `metadata` is optional but, when
+// supplied, drives facet placement (compile passes it here) and may be re-merged
+// later via updateDocMetadata. A name collision is replaced in place only when it
+// lands at the SAME computed path; dedup across facet folders is the caller's job
+// (compile supersedes the prior leaf via `supersedes`). saveDocument is the
+// upsert-by-name path that searches the whole category recursively.
 export function writeMemory({ name, text, datasetId, supersedes, supersedesAction, metadata, date } = {}) {
   if (!name || !text || !datasetId) {
     throw new WikiStoreUnavailable("writeMemory requires name, text, datasetId");
@@ -330,7 +333,12 @@ export function saveDocument({ name, text, datasetId, metadata } = {}) {
   };
 }
 
-// Merge metadata into a leaf's frontmatter `memory` block (idempotent).
+// Merge metadata into a leaf's frontmatter `memory` block (idempotent). NOTE:
+// placement is decided once at write time; this does NOT move the leaf when a
+// facet field (project_module/atom_type/task_type) changes. The only caller
+// (compile) re-applies the SAME metadata it already placed by, so facets never
+// drift in practice; a hypothetical future caller that mutates a facet field
+// would leave the leaf under its original facet dir, by design.
 export function updateDocMetadata({ datasetId, documentId, metadata } = {}) {
   const abs = toAbs(documentId);
   if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
@@ -500,6 +508,25 @@ export function removeEmbedding(id) {
     const cache = loadCache(cachePath);
     if (cache.entries[id]) {
       removeFromCache(cache, id);
+      saveCache(cachePath, cache);
+    }
+  } catch {
+    /* best effort */
+  }
+}
+
+// Move a cache entry from one id to another when a leaf is relocated but its
+// content is unchanged (e.g. migrate-nest moving a flat leaf into a facet
+// folder). The cached vector stays valid since the content hash is unchanged,
+// so this avoids a cold re-embed of the whole moved corpus on the next search.
+export function renameEmbedding(oldId, newId) {
+  if (!oldId || !newId || oldId === newId) return;
+  try {
+    const cachePath = embedCachePath();
+    const cache = loadCache(cachePath);
+    if (cache.entries[oldId]) {
+      cache.entries[newId] = cache.entries[oldId];
+      delete cache.entries[oldId];
       saveCache(cachePath, cache);
     }
   } catch {
