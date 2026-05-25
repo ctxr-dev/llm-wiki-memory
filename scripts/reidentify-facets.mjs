@@ -10,9 +10,11 @@ import { facetIssues, classifyFacetsLLM } from "./lib/facets.mjs";
 // One-shot, idempotent backfill: re-identify placement facets on leaves whose
 // `area` is unknown/unscoped/the workspace name, or (for knowledge) whose
 // `atom_type` is out of the valid set (the doubled `knowledge/<area>/knowledge/`
-// bucket). For each offender it runs the SAME inferFacets the write path uses,
-// rewrites the frontmatter, and RELOCATES the leaf via updateDocMetadata so the
-// on-disk tree matches the corrected facets. Empty source dirs are pruned.
+// bucket). For each offender it runs classifyFacetsLLM (the write path's
+// heuristic baseline, escalated to a single LLM call to pin a precise
+// sub-module / atom_type), rewrites the frontmatter, and RELOCATES the leaf via
+// updateDocMetadata so the on-disk tree matches the corrected facets. Empty
+// source dirs are pruned.
 //
 // `--check` reports offenders without mutating (no LLM); `--dry-run` lists the
 // offenders + their issues (no LLM); a real run calls the LLM only for the

@@ -13,9 +13,12 @@ import { callLLMWithRetry } from "./llm.mjs";
 //
 // Two entry points:
 //   inferFacets        - SYNC, heuristic-only, used on the (synchronous) write
-//                        path. Guarantees a valid value for every facet via a
-//                        deterministic fallback; never `unknown`/invalid. No LLM,
-//                        so the save path stays fast and stays non-async.
+//                        path. Guarantees a VALID value for every facet via a
+//                        deterministic fallback: `area` is never unknown/unscoped/
+//                        the workspace name, and `atom_type` is always in the
+//                        category's valid set. `task_type` may be the documented
+//                        valid `unknown` sentinel when undecidable. No LLM, so the
+//                        save path stays fast and non-async.
 //   classifyFacetsLLM  - ASYNC, heuristic-first then a single LLM call to pin a
 //                        precise sub-module / atom_type. Used by the backfill so
 //                        re-identification is accurate, without infecting saves.
