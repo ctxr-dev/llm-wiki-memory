@@ -1,21 +1,63 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { wikiRoot, embedCachePath, defaultProjectModule, envValue } from "../scripts/lib/env.mjs";
-import {
-  CATEGORIES,
-  writeMemory,
-  saveDocument,
-  disableDocument,
-  enableDocument,
-  deleteDocument,
-  listDocuments,
-  readDocument,
-  listDatasets,
-} from "../scripts/lib/wiki-store.mjs";
-import { recallLessons, searchMemory, saveLesson } from "../scripts/lib/recall.mjs";
 import { activeBackend } from "../scripts/lib/embed.mjs";
 import { INSTRUCTIONS } from "../scripts/lib/discipline.mjs";
+
+// ---- in-process hot reload ----
+// wiki-store.mjs + recall.mjs hold the tool logic. We re-import them
+// (cache-busted) whenever a source file changes, so a plain `git pull` takes
+// effect WITHOUT restarting this long-lived stdio MCP process: the initialize
+// handshake and the stdin/stdout pipe stay intact, and the embedding backend
+// (embed.mjs, kept as a static import) is never re-initialised. INSTRUCTIONS is
+// sent once at initialize, so discipline.mjs stays static too.
+//
+// Limitation: a re-import refreshes wiki-store.mjs / recall.mjs themselves; a
+// change confined to one of their STATIC deps (slug.mjs, facets.mjs, ...)
+// resolves to the cached copy and still needs a one-time restart.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const WATCH_DIRS = [path.join(HERE, "../scripts/lib"), HERE];
+
+let impl = {};
+async function loadImpl() {
+  const v = Date.now();
+  const [store, recall] = await Promise.all([
+    import(`../scripts/lib/wiki-store.mjs?v=${v}`),
+    import(`../scripts/lib/recall.mjs?v=${v}`),
+  ]);
+  // Keep the previous impl if a partial import ever yields nothing usable.
+  impl = { ...store, ...recall };
+}
+await loadImpl();
+
+function watchForReload() {
+  let timer = null;
+  const onChange = () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      try {
+        await loadImpl();
+        // stderr ONLY: stdout carries the JSON-RPC protocol stream.
+        process.stderr.write("[llm-wiki-memory] hot-reloaded after file change\n");
+      } catch (err) {
+        process.stderr.write(
+          `[llm-wiki-memory] hot-reload failed, keeping previous code: ${err?.message || err}\n`,
+        );
+      }
+    }, 200);
+  };
+  for (const dir of WATCH_DIRS) {
+    try {
+      fs.watch(dir, { recursive: true }, onChange);
+    } catch (err) {
+      process.stderr.write(`[llm-wiki-memory] watch failed for ${dir}: ${err?.message || err}\n`);
+    }
+  }
+}
 
 const FilterSchema = z
   .object({
@@ -75,7 +117,7 @@ server.registerTool(
         embedCache: embedCachePath(),
         embedBackend: activeBackend(),
         defaultProjectModule: defaultProjectModule(),
-        categories: CATEGORIES,
+        categories: impl.CATEGORIES,
       });
     } catch (error) {
       return errorResponse(error);
@@ -92,7 +134,7 @@ server.registerTool(
   },
   async () => {
     try {
-      return jsonResponse(listDatasets());
+      return jsonResponse(impl.listDatasets());
     } catch (error) {
       return errorResponse(error);
     }
@@ -115,7 +157,7 @@ server.registerTool(
   },
   async ({ query, datasets, filters, scoreThreshold, maxResults }) => {
     try {
-      return jsonResponse(await searchMemory({ query, datasets, filters, scoreThreshold, maxResults }));
+      return jsonResponse(await impl.searchMemory({ query, datasets, filters, scoreThreshold, maxResults }));
     } catch (error) {
       return errorResponse(error);
     }
@@ -143,7 +185,7 @@ server.registerTool(
   },
   async (args) => {
     try {
-      return jsonResponse(await recallLessons(args));
+      return jsonResponse(await impl.recallLessons(args));
     } catch (error) {
       return errorResponse(error);
     }
@@ -180,7 +222,7 @@ server.registerTool(
   },
   async ({ title, body, metadata, tags, evidence }) => {
     try {
-      const result = saveLesson({ title, body, metadata, tags, evidence });
+      const result = impl.saveLesson({ title, body, metadata, tags, evidence });
       return jsonResponse({ ok: !!result.created, ...result });
     } catch (error) {
       return errorResponse(error);
@@ -203,7 +245,7 @@ server.registerTool(
   },
   async ({ dataset, name, text, metadata }) => {
     try {
-      const result = saveDocument({ name, text, datasetId: dataset, metadata });
+      const result = impl.saveDocument({ name, text, datasetId: dataset, metadata });
       return jsonResponse({ ok: !!result.created, ...result });
     } catch (error) {
       return errorResponse(error);
@@ -228,7 +270,7 @@ server.registerTool(
   },
   async ({ name, text, datasetId, supersedes, supersedesAction, metadata }) => {
     try {
-      return jsonResponse(writeMemory({ name, text, datasetId, supersedes, supersedesAction, metadata }));
+      return jsonResponse(impl.writeMemory({ name, text, datasetId, supersedes, supersedesAction, metadata }));
     } catch (error) {
       return errorResponse(error);
     }
@@ -245,7 +287,7 @@ server.registerTool(
   },
   async ({ dataset, documentId }) => {
     try {
-      return jsonResponse(disableDocument({ documentId, datasetId: dataset }));
+      return jsonResponse(impl.disableDocument({ documentId, datasetId: dataset }));
     } catch (error) {
       return errorResponse(error);
     }
@@ -261,7 +303,7 @@ server.registerTool(
   },
   async ({ dataset, documentId }) => {
     try {
-      return jsonResponse(enableDocument({ documentId, datasetId: dataset }));
+      return jsonResponse(impl.enableDocument({ documentId, datasetId: dataset }));
     } catch (error) {
       return errorResponse(error);
     }
@@ -278,7 +320,7 @@ server.registerTool(
   },
   async ({ dataset, documentId }) => {
     try {
-      return jsonResponse(deleteDocument({ documentId, datasetId: dataset }));
+      return jsonResponse(impl.deleteDocument({ documentId, datasetId: dataset }));
     } catch (error) {
       return errorResponse(error);
     }
@@ -301,9 +343,9 @@ server.registerTool(
       const findings = [];
       const byErrorPattern = new Map();
       for (const slot of ["self_improvement", "knowledge"]) {
-        const { documents } = listDocuments({ datasetId: slot, enabled: "true" });
+        const { documents } = impl.listDocuments({ datasetId: slot, enabled: "true" });
         for (const doc of documents) {
-          const { metadata } = readDocument({ documentId: doc.id, datasetId: slot });
+          const { metadata } = impl.readDocument({ documentId: doc.id, datasetId: slot });
           if (requested.has("missing-metadata")) {
             const at = metadata.atom_type;
             if (
@@ -334,3 +376,4 @@ server.registerTool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+watchForReload();

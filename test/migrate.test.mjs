@@ -15,12 +15,18 @@ const { migrate } = await import("../scripts/migrate.mjs");
 // workspace), no `area`. The project_module_override hatch reproduces a pre-split
 // leaf (the current writer otherwise stamps the workspace).
 function seedLegacy({ name, text, datasetId, submodule, extra = {} }) {
-  return store.writeMemory({
+  const res = store.writeMemory({
     name,
     text,
     datasetId,
     metadata: { project_module_override: submodule, ...extra },
   });
+  // The writer now stamps a valid `area` via facet inference; strip it on disk
+  // to reproduce the true pre-split legacy shape (project_module = sub-module,
+  // no area) that migrate is supposed to fix.
+  const abs = join(wiki, res.created.document.id);
+  writeFileSync(abs, readFileSync(abs, "utf8").replace(/\n[ \t]*area:[^\n]*/g, ""));
+  return res;
 }
 
 test("migrate: legacy project_module -> area, stamps workspace, relocates, default recall works", async () => {
@@ -70,9 +76,12 @@ test("migrate: pre-split leaf with NO project_module gets the workspace stamped"
   });
   const id = doc.created.document.id;
   const abs = join(wiki, id);
-  writeFileSync(abs, readFileSync(abs, "utf8").replace(/\n[ \t]*project_module:[^\n]*/g, ""));
+  // The writer now always stamps BOTH project_module (workspace) and a valid
+  // area (facet inference), so reproduce the pre-split shape by stripping both.
+  writeFileSync(abs, readFileSync(abs, "utf8").replace(/\n[ \t]*(project_module|area):[^\n]*/g, ""));
   const pre = store.readDocument({ documentId: id, datasetId: "knowledge" });
   assert.ok(!pre.metadata.project_module, "leaf now has no project_module (pre-split shape)");
+  assert.ok(!pre.metadata.area, "leaf now has no area (pre-split shape)");
 
   const res = migrate({});
   assert.equal(res.ok, true, `migrate validates clean: ${JSON.stringify(res.validate)}`);
