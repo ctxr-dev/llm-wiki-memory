@@ -1,5 +1,7 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { setupWorkspace, cleanup } from "./harness.mjs";
 
 const { dataDir, wiki } = setupWorkspace();
@@ -53,4 +55,37 @@ test("migrate: legacy project_module -> area, stamps workspace, relocates, defau
   // Idempotent: a second pass finds nothing to migrate.
   const chk = migrate({ check: true });
   assert.equal(chk.ok, true, `no legacy leaves remain: ${JSON.stringify(chk)}`);
+});
+
+test("migrate: pre-split leaf with NO project_module gets the workspace stamped", async () => {
+  // The writer always stamps project_module = workspace, so reproduce a pre-split
+  // unscoped leaf by stripping that line on disk. Without a stamped workspace, the
+  // default recall/search scope (which auto-injects the workspace) would never
+  // match it.
+  const doc = store.writeMemory({
+    name: "unscoped-note-2026-05-25-130000000.md",
+    text: "# Gateway cert rotation\n\nRotate the gateway certificate before the quarterly audit window.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "reference" },
+  });
+  const id = doc.created.document.id;
+  const abs = join(wiki, id);
+  writeFileSync(abs, readFileSync(abs, "utf8").replace(/\n[ \t]*project_module:[^\n]*/g, ""));
+  const pre = store.readDocument({ documentId: id, datasetId: "knowledge" });
+  assert.ok(!pre.metadata.project_module, "leaf now has no project_module (pre-split shape)");
+
+  const res = migrate({});
+  assert.equal(res.ok, true, `migrate validates clean: ${JSON.stringify(res.validate)}`);
+
+  const found = store
+    .listDocuments({ datasetId: "knowledge", enabled: "true" })
+    .documents.find((d) => d.name === "unscoped-note-2026-05-25-130000000.md");
+  assert.ok(found, "leaf still present after migrate");
+  const post = store.readDocument({ documentId: found.id, datasetId: "knowledge" });
+  assert.equal(post.metadata.project_module, "testproj", "workspace stamped so the default scope matches");
+  assert.ok(!post.metadata.area, "area stays empty -> the unscoped facet");
+
+  // Idempotent: the now-stamped leaf is not re-selected.
+  const chk = migrate({ check: true });
+  assert.equal(chk.ok, true, `idempotent: no pending leaves remain: ${JSON.stringify(chk)}`);
 });

@@ -35,14 +35,17 @@ export function migrate({ dryRun = false, check = false } = {}) {
       continue;
     }
     const pm = String(meta.project_module || "").trim().toLowerCase();
-    // Migrate only leaves whose project_module is a legacy sub-module value
-    // (anything other than the workspace) -> the pre-split shape. Leaves already
-    // carrying project_module == workspace are skipped on purpose: either they are
-    // already migrated, or they are post-split leaves written without a sub-module
-    // (correctly placed under the "unscoped" facet). There is no reliable
-    // sub-module to backfill an `area` from when project_module is already the
-    // workspace, so leaving them unscoped is correct rather than guessing.
-    if (pm && pm !== workspace) {
+    // Migrate every leaf whose stored project_module is not already the workspace.
+    // Two pre-split shapes need it: (a) a legacy sub-module value (e.g. "landing")
+    // moves into `area` while project_module is restamped to the workspace; (b) a
+    // leaf written with NO project_module (pre-split unscoped docs) gets
+    // project_module stamped to the workspace so the default recall/search scope
+    // (which auto-injects the workspace) actually matches it -- its `area` stays
+    // empty, i.e. the "unscoped" facet. Leaves already carrying the workspace are
+    // skipped, which keeps a re-run a clean no-op. When no workspace is configured
+    // (defaultProjectModule() empty) recall injects no filter, so an empty pm is
+    // already matchable and pm !== "" correctly leaves it alone.
+    if (pm !== workspace) {
       candidates.push({
         id: doc.id,
         datasetId: doc.datasetId,
