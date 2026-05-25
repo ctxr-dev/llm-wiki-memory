@@ -44,7 +44,7 @@ test("writeMemory + updateDocMetadata: knowledge leaf, validate clean, filterabl
   const found = await store.searchMemoryFiltered({
     query: "oauth billing auth decision",
     datasetId: "knowledge",
-    filters: { atom_type: "decision", project_module: "billing" },
+    filters: { atom_type: "decision", area: "billing" },
   });
   assert.equal(found.records.length, 1, "filter matches the decision");
   assert.equal(found.records[0].documentName, "knowledge-oauth-decision-2026-05-22-120000000.md");
@@ -335,17 +335,17 @@ test("saveDocument does not delete-and-clobber when a duplicate basename exists 
   }
 });
 
-test("placementDirForMeta maps each category to its facet path", () => {
+test("placementDirForMeta maps each category to its facet path (by area)", () => {
   assert.equal(
-    store.placementDirForMeta("knowledge", { project_module: "tradingtune", atom_type: "pattern-gotcha" }),
+    store.placementDirForMeta("knowledge", { area: "tradingtune", atom_type: "pattern-gotcha" }),
     "knowledge/tradingtune/pattern-gotcha",
   );
   assert.equal(
-    store.placementDirForMeta("self_improvement", { project_module: "tt", task_type: "debugging" }),
+    store.placementDirForMeta("self_improvement", { area: "tt", task_type: "debugging" }),
     "self_improvement/tt/debugging",
   );
-  assert.equal(store.placementDirForMeta("plans", { project_module: "tt" }), "plans/tt");
+  assert.equal(store.placementDirForMeta("plans", { area: "tt" }), "plans/tt");
   assert.equal(store.placementDirForMeta("investigations", {}), "investigations/unscoped");
-  assert.equal(store.placementDirForMeta("self_improvement", { project_module: "tt" }), "self_improvement/tt/unknown");
+  assert.equal(store.placementDirForMeta("self_improvement", { area: "tt" }), "self_improvement/tt/unknown");
   assert.equal(store.placementDirForMeta("daily", {}), null, "daily is date-nested, not facet-nested");
 });

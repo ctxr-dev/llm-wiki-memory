@@ -39,7 +39,12 @@ export const ATOM_TYPE_TO_DATASET = {
 export const METADATA_SCHEMA = [
   { name: "atom_type", type: "string" },
   { name: "tags", type: "string" },
+  // project_module is the WORKSPACE identifier (stable per install); `area` is the
+  // fine-grained sub-module (part of the codebase) used for facet placement and
+  // optional fine scoping. Recall defaults to project_module so it matches every
+  // leaf; pass `area` to narrow.
   { name: "project_module", type: "string" },
+  { name: "area", type: "string" },
   { name: "language", type: "string" },
   { name: "task_type", type: "string" },
   { name: "error_pattern", type: "string" },
@@ -76,6 +81,9 @@ export function metadataForDify(atom) {
   };
   if (tagsField) out.tags = tagsField;
   maybe("project_module", md.project_module);
+  // `area` is the sub-module. Accept it directly, or fall back to a legacy
+  // `project_module` value (older atoms used project_module for the sub-module).
+  maybe("area", md.area || md.project_module);
   maybe("language", md.language);
   maybe("task_type", md.task_type);
   maybe("error_pattern", md.error_pattern);

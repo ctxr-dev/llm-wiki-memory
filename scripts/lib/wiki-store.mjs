@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
-import { wikiRoot, embedCachePath } from "./env.mjs";
+import { wikiRoot, embedCachePath, defaultProjectModule } from "./env.mjs";
 import { ensureIndexes } from "./wiki-cli.mjs";
 import {
   contentHash,
@@ -74,16 +74,33 @@ function oneLine(s, max = 160) {
   return String(s || "").replace(/\s+/g, " ").trim().slice(0, max);
 }
 
-// Build the >=3-bullet covers[] the validator requires on leaves.
-function buildCovers({ title, tags, atomType }) {
+// Build the >=3-bullet covers[] the validator requires on leaves. Covers are
+// mined from the actual content (title, the structured Why:/How to apply: lines
+// the capture prompt encourages, a representative body sentence, and tags) rather
+// than boilerplate, so they carry real signal for shared_covers + browsing.
+function buildCovers({ title, tags, atomType, body }) {
   const out = [];
-  out.push(oneLine(`memory: ${title}`, 120));
-  for (const t of tags || []) out.push(oneLine(`relates to ${t}`, 80));
-  out.push(oneLine(`why and how-to-apply for ${title}`, 120));
-  out.push(oneLine(`recall context for ${atomType || "memory"} atoms`, 120));
+  if (title) out.push(oneLine(title, 120));
+  const text = String(body || "");
+  const why = text.match(/^\s*(?:[-*]\s*)?why\s*:\s*(.+)$/im);
+  if (why) out.push(oneLine(`why: ${why[1]}`, 140));
+  const how = text.match(/^\s*(?:[-*]\s*)?how\s*to\s*apply\s*:\s*(.+)$/im);
+  if (how) out.push(oneLine(`how to apply: ${how[1]}`, 140));
+  // First prose sentence that is not a heading or a "- key: value" metadata line.
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#") || /^[-*]\s*\w[\w-]*\s*:/.test(line)) continue;
+    if (/^(why|how to apply)\s*:/i.test(line)) continue;
+    out.push(oneLine(line, 140));
+    break;
+  }
+  for (const t of tags || []) out.push(oneLine(`covers ${t}`, 60));
   const seen = new Set();
   const deduped = out.filter((c) => c && !seen.has(c) && seen.add(c));
-  while (deduped.length < 3) deduped.push(`memory concern ${deduped.length + 1}`);
+  // Floor: the validator requires >= 3 covers. Pad with deterministic, unique fillers.
+  while (deduped.length < 3) {
+    deduped.push(oneLine(`recall context for ${atomType || "memory"} (${deduped.length + 1})`, 80));
+  }
   return deduped.slice(0, 15);
 }
 
@@ -104,7 +121,7 @@ function renderLeaf({ id, title, tags, body, memoryMeta }) {
     depth_role: "leaf",
     focus: oneLine(title) || oneLine(id) || "memory entry",
     parents: ["index.md"],
-    covers: buildCovers({ title, tags, atomType: memoryMeta.atom_type }),
+    covers: buildCovers({ title, tags, atomType: memoryMeta.atom_type, body }),
   };
   if (Array.isArray(tags) && tags.length) frontmatter.tags = tags;
   frontmatter.source = { origin: "inline", hash: `sha256:${contentHash(body)}` };
@@ -115,9 +132,15 @@ function renderLeaf({ id, title, tags, body, memoryMeta }) {
 
 function normaliseMeta(metadata = {}, extra = {}) {
   const m = metadata && typeof metadata === "object" ? metadata : {};
+  // `area` is the fine-grained sub-module (facet + fine scope). Legacy atoms put
+  // it in `project_module`, so fall back to that. `project_module` itself is the
+  // WORKSPACE identifier for this single-project file store, stamped from
+  // defaultProjectModule() so recall's default scope matches every leaf (a caller
+  // may override it explicitly for a deliberate cross-project save).
   const out = {
     atom_type: String(m.atom_type || extra.atom_type || "").trim(),
-    project_module: String(m.project_module || "").trim().toLowerCase(),
+    project_module: String(m.project_module_override || defaultProjectModule() || "").trim().toLowerCase(),
+    area: String(m.area || m.project_module || "").trim().toLowerCase(),
     language: String(m.language || "").trim().toLowerCase(),
     task_type: String(m.task_type || "").trim().toLowerCase(),
     error_pattern: String(m.error_pattern || "").trim().toLowerCase(),
@@ -126,10 +149,12 @@ function normaliseMeta(metadata = {}, extra = {}) {
   const tags = m.tags;
   if (Array.isArray(tags)) out.tags = tags.join(",");
   else if (tags) out.tags = String(tags);
-  // Strip empties so absent fields aren't matched as "".
-  for (const k of ["project_module", "language", "task_type", "error_pattern", "tags"]) {
+  // Strip empties so absent fields aren't matched as "". project_module is kept
+  // (always the workspace) so the default recall scope always has something to match.
+  for (const k of ["area", "language", "task_type", "error_pattern", "tags"]) {
     if (!out[k]) delete out[k];
   }
+  if (!out.project_module) delete out.project_module;
   return out;
 }
 
@@ -201,10 +226,10 @@ function assertKnownSlot(slot) {
 // absent here gets no facet nesting (flat under its root) - assertKnownSlot keeps
 // that from happening for the five contract categories.
 const PLACEMENT_FACETS = {
-  knowledge: ["project_module", "atom_type"],
-  self_improvement: ["project_module", "task_type"],
-  plans: ["project_module"],
-  investigations: ["project_module"],
+  knowledge: ["area", "atom_type"],
+  self_improvement: ["area", "task_type"],
+  plans: ["area"],
+  investigations: ["area"],
 };
 
 // Kebab folder segment for one facet, with deterministic sentinels when the field
@@ -217,7 +242,7 @@ function facetValue(key, meta) {
   // "untyped". atom_type is normally always set by normaliseMeta
   // (slotDefaultAtomType), so "untyped" only surfaces for a malformed legacy
   // leaf during migration.
-  const sentinels = { task_type: "unknown", project_module: "unscoped", atom_type: "untyped" };
+  const sentinels = { area: "unscoped", task_type: "unknown", atom_type: "untyped" };
   return sentinels[key] || "misc";
 }
 
