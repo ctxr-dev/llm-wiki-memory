@@ -35,7 +35,11 @@ export function crossCuttingAreas() {
     .split(",")
     .map((s) => slugify(s.trim()))
     .filter((s) => s && !BAD_AREA.has(s) && s !== workspace);
-  return list.length ? list : ["workspace"];
+  if (list.length) return list;
+  // Fallback must itself be valid and != the workspace name (covers the corner
+  // case where the workspace slugifies to "workspace" and the env list is empty).
+  const fallbacks = ["workspace", "conventions", "memory-wide"].filter((s) => !BAD_AREA.has(s) && s !== workspace);
+  return [fallbacks[0]];
 }
 
 // Valid atom_types for a category (the ones routing to it). For `knowledge`,

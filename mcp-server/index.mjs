@@ -46,9 +46,25 @@ async function loadImpl() {
 }
 await loadImpl();
 
+// Only these modules are re-imported on change; everything else they import
+// statically (facets/slug/datasets/embed) and this entry file itself need a
+// restart, so a reload would be a no-op for them.
+const RELOADABLE = new Set(["wiki-store.mjs", "recall.mjs"]);
+
 function watchForReload() {
   let timer = null;
-  const onChange = () => {
+  const onChange = (_event, filename) => {
+    const base = filename ? path.basename(filename) : null;
+    // When we can identify the changed file and it is NOT one of the hot-reloaded
+    // modules, skip the no-op reload and tell the operator a restart is needed,
+    // rather than logging a misleading "hot-reloaded". When filename is null
+    // (platform-dependent), fall through and reload best-effort.
+    if (base && !RELOADABLE.has(base)) {
+      process.stderr.write(
+        `[llm-wiki-memory] '${base}' changed; restart required to pick it up (only ${[...RELOADABLE].join("/")} hot-reload)\n`,
+      );
+      return;
+    }
     clearTimeout(timer);
     timer = setTimeout(async () => {
       try {
