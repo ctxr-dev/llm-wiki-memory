@@ -159,14 +159,21 @@ server.registerTool(
     inputSchema: {
       title: z.string().trim().min(1).max(180),
       body: z.string().trim().min(1).max(10_000),
-      metadata: z.object({
-        area: z.string().trim().min(1).optional(),
-        project_module: z.string().trim().min(1).optional(),
-        task_type: z.string().trim().min(1),
-        error_pattern: z.string().trim().min(1),
-        language: z.string().trim().optional(),
-        tags: z.string().trim().optional(),
-      }),
+      metadata: z
+        .object({
+          area: z.string().trim().min(1).optional(),
+          project_module: z.string().trim().min(1).optional(),
+          task_type: z.string().trim().min(1),
+          error_pattern: z.string().trim().min(1),
+          language: z.string().trim().optional(),
+          tags: z.string().trim().optional(),
+        })
+        // saveLesson needs a sub-module: `area`, or legacy `project_module` as a
+        // fallback. Enforce here so clients get a validation error, not a runtime throw.
+        .refine((m) => Boolean(m.area || m.project_module), {
+          message: "metadata.area (the sub-module; legacy metadata.project_module is accepted) is required",
+          path: ["area"],
+        }),
       tags: z.array(z.string().trim().min(1)).optional(),
       evidence: z.string().trim().max(500).optional(),
     },

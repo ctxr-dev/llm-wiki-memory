@@ -240,9 +240,9 @@ const PLACEMENT_FACETS = {
 function facetValue(key, meta) {
   const raw = slugify(String((meta && meta[key]) || "").trim());
   if (raw && raw !== "untitled") return raw;
-  // Deterministic sentinels for an absent facet field. `task_type` -> "unknown"
-  // (already a valid TASK_TYPE), `project_module` -> "unscoped", `atom_type` ->
-  // "untyped". atom_type is normally always set by normaliseMeta
+  // Deterministic sentinels for an absent facet field. `area` -> "unscoped" (the
+  // sub-module facet key), `task_type` -> "unknown" (already a valid TASK_TYPE),
+  // `atom_type` -> "untyped". atom_type is normally always set by normaliseMeta
   // (slotDefaultAtomType), so "untyped" only surfaces for a malformed legacy
   // leaf during migration.
   const sentinels = { area: "unscoped", task_type: "unknown", atom_type: "untyped" };
