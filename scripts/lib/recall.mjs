@@ -171,7 +171,7 @@ export async function searchMemory({ query, datasets, filters, scoreThreshold, m
 export function saveLesson({ title, body, metadata = {}, tags, evidence } = {}) {
   const area = String(metadata.area || metadata.project_module || "").trim();
   if (!area || !metadata.task_type || !metadata.error_pattern) {
-    throw new Error("save_lesson requires metadata.area (sub-module), task_type, and error_pattern");
+    throw new Error("save_lesson requires metadata.area (the sub-module; legacy metadata.project_module is accepted), task_type, and error_pattern");
   }
   const tagList = Array.isArray(tags)
     ? tags
