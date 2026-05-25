@@ -93,6 +93,7 @@ test("disableDocument hides from listing and search; enable restores", async () 
     name: "knowledge-temp-2026-05-22-140000000.md",
     text: "# Temp fact\n\nephemeral fact about widgets.",
     datasetId: "knowledge",
+    metadata: { atom_type: "reference", project_module: "billing" },
   });
   store.updateDocMetadata({
     datasetId: "knowledge",
@@ -180,6 +181,7 @@ test("long scalars are not folded into block scalars (validate stays clean)", ()
     name: "knowledge-long-title-2026-05-23-180000000.md",
     text: `# ${longTitle}\n\nBody with enough prose to embed.\nWhy: regression guard.`,
     datasetId: "knowledge",
+    metadata: { atom_type: "reference", project_module: "llm-wiki-memory" },
   });
   const id = res.created.document.id;
   store.updateDocMetadata({
@@ -252,6 +254,35 @@ test("renameEmbedding moves a cache entry so a relocation keeps the cached vecto
     { hash: "sha256:abc", vector: [0.1, 0.2, 0.3] },
     "vector preserved under the new id (no cold re-embed)",
   );
+});
+
+test("updateDocMetadata relocates a leaf when a facet field changes", () => {
+  const res = store.writeMemory({
+    name: "knowledge-relocate-2026-05-25-160000000.md",
+    text: "# Relocate me\n\nstarts unscoped, then gains a project_module.\nWhy: relocation test.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "reference" }, // no project_module -> knowledge/unscoped/reference/
+  });
+  const startId = res.created.document.id;
+  assert.match(startId, /^knowledge\/unscoped\/reference\//, `starts unscoped: ${startId}`);
+
+  const upd = store.updateDocMetadata({
+    datasetId: "knowledge",
+    documentId: startId,
+    metadata: { project_module: "billing" }, // -> knowledge/billing/reference/
+  });
+  assert.ok(upd.relocated, `relocation reported: ${JSON.stringify(upd)}`);
+  assert.match(upd.relocated.to, /^knowledge\/billing\/reference\/knowledge-relocate-/);
+  assert.ok(!fs.existsSync(path.join(wiki, startId.split("/").join(path.sep))), "old location removed");
+  assert.ok(fs.existsSync(path.join(wiki, upd.relocated.to.split("/").join(path.sep))), "leaf at the new facet path");
+  assert.equal(cli.validate(wiki).ok, true, `validate clean after relocation: ${JSON.stringify(cli.validate(wiki))}`);
+
+  const again = store.updateDocMetadata({
+    datasetId: "knowledge",
+    documentId: upd.relocated.to,
+    metadata: { project_module: "billing", atom_type: "reference" },
+  });
+  assert.ok(!again.relocated, "re-applying identical facets is an in-place no-op");
 });
 
 test("placementDirForMeta maps each category to its facet path", () => {

@@ -333,20 +333,42 @@ export function saveDocument({ name, text, datasetId, metadata } = {}) {
   };
 }
 
-// Merge metadata into a leaf's frontmatter `memory` block (idempotent). NOTE:
-// placement is decided once at write time; this does NOT move the leaf when a
-// facet field (project_module/atom_type/task_type) changes. The only caller
-// (compile) re-applies the SAME metadata it already placed by, so facets never
-// drift in practice; a hypothetical future caller that mutates a facet field
-// would leave the leaf under its original facet dir, by design.
+// Merge metadata into a leaf's frontmatter `memory` block (idempotent). When a
+// facet field (project_module/atom_type/task_type) changes so the leaf's facet
+// path no longer matches its current folder, the leaf is RELOCATED so the tree
+// keeps mirroring the metadata: the cached vector is preserved (content is
+// unchanged) and the old + new ancestor indexes are refreshed. compile re-applies
+// the same metadata it placed by, so the common path is a plain in-place rewrite.
 export function updateDocMetadata({ datasetId, documentId, metadata } = {}) {
   const abs = toAbs(documentId);
   if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
   if (!metadata || Object.keys(metadata).length === 0) return { ok: true, warning: "no metadata" };
   const { data, body } = readLeaf(abs);
-  const merged = { ...leafMemory(data), ...normaliseMeta(metadata, { status: leafMemory(data).status }) };
-  const next = { ...data, memory: merged };
-  fs.writeFileSync(abs, stringifyLeaf(body, next));
+  const incoming = normaliseMeta(metadata, { status: leafMemory(data).status });
+  // normaliseMeta always emits atom_type (never stripped); on a PARTIAL update
+  // that omits it, that empty string would clobber the leaf's existing
+  // atom_type. Drop it so a partial merge keeps the current value.
+  if (!incoming.atom_type) delete incoming.atom_type;
+  const merged = { ...leafMemory(data), ...incoming };
+  const rendered = stringifyLeaf(body, { ...data, memory: merged });
+
+  const rel = String(documentId).split("/");
+  const newDir = placementDirForMeta(slotToCategory(rel[0]), merged); // null for daily
+  const curDir = rel.slice(0, -1).join("/");
+  if (newDir && newDir !== curDir) {
+    const newRel = `${newDir}/${rel[rel.length - 1]}`;
+    const newAbs = toAbs(newRel);
+    // Never clobber an occupied destination; fall back to an in-place rewrite.
+    if (!fs.existsSync(newAbs)) {
+      fs.mkdirSync(path.dirname(newAbs), { recursive: true });
+      fs.writeFileSync(newAbs, rendered);
+      fs.rmSync(abs);
+      renameEmbedding(documentId, newRel);
+      ensureIndexes(root(), [abs, newAbs]); // drop the entry from old ancestors, add to new
+      return { ok: true, relocated: { from: documentId, to: newRel } };
+    }
+  }
+  fs.writeFileSync(abs, rendered);
   return { ok: true };
 }
 
