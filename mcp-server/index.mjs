@@ -41,7 +41,9 @@ async function loadImpl() {
     import(`../scripts/lib/wiki-store.mjs?v=${v}`),
     import(`../scripts/lib/recall.mjs?v=${v}`),
   ]);
-  // Keep the previous impl if a partial import ever yields nothing usable.
+  // Only assigned after both imports resolve. A failed/partial import rejects
+  // here and the previous `impl` is left untouched: onChange's catch keeps it
+  // (at startup there is no previous, so a broken module surfaces immediately).
   impl = { ...store, ...recall };
 }
 await loadImpl();

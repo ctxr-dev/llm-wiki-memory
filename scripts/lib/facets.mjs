@@ -63,12 +63,15 @@ function defaultAtomTypeForCategory(category) {
 // unioned with the cross-cutting set. Self-adapting: no hardcoded vocabulary.
 export function knownAreas(category) {
   const areas = new Set();
+  const workspace = slugify(defaultProjectModule() || "");
   try {
     const catAbs = path.join(wikiRoot(), category);
     for (const entry of fs.readdirSync(catAbs, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
       const a = slugify(entry.name);
-      if (a && !BAD_AREA.has(a)) areas.add(a);
+      // Exclude the workspace name even if a folder by that name exists, so a
+      // tag match or an LLM choice can never resurrect workspace-name-as-area.
+      if (a && !BAD_AREA.has(a) && a !== workspace) areas.add(a);
     }
   } catch {
     /* category dir may not exist yet */

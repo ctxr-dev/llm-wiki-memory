@@ -107,8 +107,14 @@ export async function reidentifyFacets({ wiki = wikiRoot(), dryRun = false, chec
     const { meta, body, focus } = leafOf(o.abs);
     const patch = await classifyFacetsLLM({ category: o.category, meta, title: focus, text: body, tags: meta.tags });
     // updateDocMetadata relocates the leaf and refreshes the OLD + NEW ancestor
-    // indexes itself, so moves need no extra index work here.
-    const res = updateDocMetadata({ datasetId: o.category, documentId: o.id, metadata: patch });
+    // indexes itself, so moves need no extra index work here. Guard it: a single
+    // malformed leaf (e.g. unparseable frontmatter) must not abort the whole run.
+    let res;
+    try {
+      res = updateDocMetadata({ datasetId: o.category, documentId: o.id, metadata: patch });
+    } catch (err) {
+      res = { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
     if (res && res.ok) {
       applied.push({ from: o.id, to: res.relocated ? res.relocated.to : o.id, patch });
     } else {
