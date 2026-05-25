@@ -288,7 +288,7 @@ export function scoreAtomQuality(atom) {
   if (!hasEvidence && !hasWhyOrHowTo) reasons.push("no evidence and no 'Why:' / 'How to apply:' lines");
   const metadataDependentTypes = new Set(["self-improvement-lesson", "bug-root-cause"]);
   if (metadataDependentTypes.has(atom?.type) && !(atom?.metadata?.area || atom?.metadata?.project_module)) {
-    reasons.push(`type='${atom.type}' requires metadata.area`);
+    reasons.push(`type='${atom.type}' requires metadata.area (or legacy project_module)`);
   }
   return { ok: reasons.length === 0, reasons };
 }

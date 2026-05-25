@@ -301,13 +301,13 @@ server.registerTool(
             const at = metadata.atom_type;
             if (
               (at === "self-improvement-lesson" || at === "bug-root-cause") &&
-              (!metadata.area || (at === "self-improvement-lesson" && !metadata.error_pattern))
+              (!(metadata.area || metadata.project_module) || (at === "self-improvement-lesson" && !metadata.error_pattern))
             ) {
               findings.push({ class: "missing-metadata", slot, documentId: doc.id, atom_type: at });
             }
           }
           if (requested.has("duplicate-error-pattern") && slot === "self_improvement" && metadata.error_pattern) {
-            const key = `${metadata.area || ""}:${metadata.error_pattern}`;
+            const key = `${metadata.area || metadata.project_module || ""}:${metadata.error_pattern}`;
             if (!byErrorPattern.has(key)) byErrorPattern.set(key, []);
             byErrorPattern.get(key).push(doc.id);
           }
