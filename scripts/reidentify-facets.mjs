@@ -41,23 +41,30 @@ function leafOf(abs) {
   try {
     const parsed = matter(fs.readFileSync(abs, "utf8"));
     const data = parsed.data || {};
-    return { meta: data.memory && typeof data.memory === "object" ? data.memory : {}, body: parsed.content || "", focus: data.focus || "" };
+    return { ok: true, meta: data.memory && typeof data.memory === "object" ? data.memory : {}, body: parsed.content || "", focus: data.focus || "" };
   } catch {
-    return { meta: {}, body: "", focus: "" };
+    return { ok: false, meta: {}, body: "", focus: "" };
   }
 }
 
-// Find offenders cheaply (no LLM).
+// Find offenders cheaply (no LLM). Unparseable leaves are reported separately,
+// not treated as offenders: re-identifying them would be a wasted LLM call and
+// updateDocMetadata would only fail on them anyway (gray-matter can't parse).
 function findOffenders(wiki) {
   const offenders = [];
+  const unparseable = [];
   for (const cat of FACET_CATEGORIES) {
     for (const abs of walkLeaves(path.join(wiki, cat))) {
-      const { meta } = leafOf(abs);
-      const issues = facetIssues(cat, meta);
+      const leaf = leafOf(abs);
+      if (!leaf.ok) {
+        unparseable.push(relPosix(wiki, abs));
+        continue;
+      }
+      const issues = facetIssues(cat, leaf.meta);
       if (issues.length) offenders.push({ category: cat, abs, id: relPosix(wiki, abs), issues });
     }
   }
-  return offenders;
+  return { offenders, unparseable };
 }
 
 // Remove directories under the facet categories that no longer hold any leaf
@@ -98,13 +105,13 @@ export async function reidentifyFacets({ dryRun = false, check = false } = {}) {
   // updateDocMetadata, which resolves paths against wikiRoot() internally, so
   // scanning/pruning/validate MUST use the same root (no divergent `wiki` arg).
   const wiki = wikiRoot();
-  const offenders = findOffenders(wiki);
+  const { offenders, unparseable } = findOffenders(wiki);
 
   if (check) {
-    return { ok: offenders.length === 0, mode: "check", offenderCount: offenders.length, offenders: offenders.map((o) => ({ id: o.id, issues: o.issues })) };
+    return { ok: offenders.length === 0, mode: "check", offenderCount: offenders.length, offenders: offenders.map((o) => ({ id: o.id, issues: o.issues })), unparseable };
   }
   if (dryRun) {
-    return { ok: true, mode: "dry-run", offenderCount: offenders.length, offenders: offenders.map((o) => ({ id: o.id, issues: o.issues })) };
+    return { ok: true, mode: "dry-run", offenderCount: offenders.length, offenders: offenders.map((o) => ({ id: o.id, issues: o.issues })), unparseable };
   }
 
   const applied = [];
@@ -152,6 +159,7 @@ export async function reidentifyFacets({ dryRun = false, check = false } = {}) {
     moves: applied.map(({ from, to }) => ({ from, to })),
     prunedDirs: pruned,
     skipped,
+    unparseable,
     validate: { ok: validation.ok, errors: validation.errors, warnings: validation.warnings },
   };
 }

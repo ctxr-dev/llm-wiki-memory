@@ -55,6 +55,7 @@ const RELOADABLE = new Set(["wiki-store.mjs", "recall.mjs"]);
 
 function watchForReload() {
   let timer = null;
+  let lastBase = null; // basename of the most recent effective change (for the log)
   // Serialise reloads: chain each onto the previous so two debounced bursts can
   // never run loadImpl() concurrently and race on assigning `impl`.
   let chain = Promise.resolve();
@@ -72,14 +73,21 @@ function watchForReload() {
       );
       return;
     }
+    lastBase = base;
     clearTimeout(timer);
     timer = setTimeout(() => {
       chain = chain.then(async () => {
         try {
           reloadSeq += 1;
           await loadImpl();
-          // stderr ONLY: stdout carries the JSON-RPC protocol stream.
-          process.stderr.write("[llm-wiki-memory] hot-reloaded after file change\n");
+          // stderr ONLY: stdout carries the JSON-RPC protocol stream. `lastBase`
+          // is null only when the platform did not report a filename, in which
+          // case this is a best-effort reload on any change under the watched dir.
+          process.stderr.write(
+            lastBase
+              ? `[llm-wiki-memory] hot-reloaded after change to ${lastBase}\n`
+              : "[llm-wiki-memory] hot-reloaded after a file change (filename unavailable; best-effort)\n",
+          );
         } catch (err) {
           process.stderr.write(
             `[llm-wiki-memory] hot-reload failed, keeping previous code: ${err?.message || err}\n`,
@@ -377,13 +385,19 @@ server.registerTool(
   },
   async ({ classes }) => {
     try {
+      // Snapshot the implementation for the whole audit: this is the only
+      // handler that makes MULTIPLE impl calls (listDocuments + readDocument in a
+      // loop), so pinning one version prevents a mid-audit hot-reload from mixing
+      // functions across module versions. (Single-call handlers capture their one
+      // impl.* reference atomically, so they need no snapshot.)
+      const api = impl;
       const requested = new Set(classes && classes.length ? classes : ["duplicate-error-pattern", "missing-metadata"]);
       const findings = [];
       const byErrorPattern = new Map();
       for (const slot of ["self_improvement", "knowledge"]) {
-        const { documents } = impl.listDocuments({ datasetId: slot, enabled: "true" });
+        const { documents } = api.listDocuments({ datasetId: slot, enabled: "true" });
         for (const doc of documents) {
-          const { metadata } = impl.readDocument({ documentId: doc.id, datasetId: slot });
+          const { metadata } = api.readDocument({ documentId: doc.id, datasetId: slot });
           if (requested.has("missing-metadata")) {
             const at = metadata.atom_type;
             if (
