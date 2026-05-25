@@ -140,6 +140,13 @@ function normaliseMeta(metadata = {}, extra = {}) {
   // `metadata.project_module_override`; the plain `metadata.project_module` is
   // reserved as the legacy sub-module alias for `area`, so it is NOT honoured as
   // the workspace value (that is why a separate override key exists).
+  //
+  // This project_module -> area fallback is WRITE-TIME only. The search filter
+  // matcher (metaMatchesFilters) compares stored frontmatter literally, so a
+  // stored legacy leaf (only project_module, no area) matches an `area` filter
+  // only AFTER `migrate` rewrites its frontmatter. A read-time alias is avoided on
+  // purpose: post-split project_module is the workspace, not a sub-module, so
+  // aliasing it to `area` at match time would mis-match every migrated leaf.
   const out = {
     atom_type: String(m.atom_type || extra.atom_type || "").trim(),
     project_module: String(m.project_module_override || defaultProjectModule() || "").trim().toLowerCase(),

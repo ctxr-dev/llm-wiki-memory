@@ -35,17 +35,20 @@ export function migrate({ dryRun = false, check = false } = {}) {
       continue;
     }
     const pm = String(meta.project_module || "").trim().toLowerCase();
-    // Migrate every leaf whose stored project_module is not already the workspace.
-    // Two pre-split shapes need it: (a) a legacy sub-module value (e.g. "landing")
-    // moves into `area` while project_module is restamped to the workspace; (b) a
-    // leaf written with NO project_module (pre-split unscoped docs) gets
-    // project_module stamped to the workspace so the default recall/search scope
-    // (which auto-injects the workspace) actually matches it -- its `area` stays
-    // empty, i.e. the "unscoped" facet. Leaves already carrying the workspace are
-    // skipped, which keeps a re-run a clean no-op. When no workspace is configured
-    // (defaultProjectModule() empty) recall injects no filter, so an empty pm is
-    // already matchable and pm !== "" correctly leaves it alone.
-    if (pm !== workspace) {
+    const hasArea = Boolean(String(meta.area || "").trim());
+    // Migrate a leaf only in a pre-split shape: project_module is not the workspace
+    // AND it has no `area` yet. Two legacy shapes match: (a) a sub-module value in
+    // project_module (e.g. "landing") moves into `area` while project_module is
+    // restamped to the workspace; (b) a leaf written with NO project_module
+    // (pre-split unscoped docs) gets the workspace stamped so the default
+    // recall/search scope (which auto-injects the workspace) matches it -- its
+    // `area` stays empty, i.e. the "unscoped" facet. The `!hasArea` guard protects
+    // a deliberate cross-project save (project_module set via project_module_override,
+    // carrying its own area) from being restamped back to this workspace on a
+    // re-run. Leaves already carrying the workspace are skipped, so a re-run is a
+    // clean no-op; with no workspace configured (defaultProjectModule() empty)
+    // recall injects no filter and pm !== "" leaves an empty project_module alone.
+    if (pm !== workspace && !hasArea) {
       candidates.push({
         id: doc.id,
         datasetId: doc.datasetId,

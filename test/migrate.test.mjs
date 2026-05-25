@@ -89,3 +89,29 @@ test("migrate: pre-split leaf with NO project_module gets the workspace stamped"
   const chk = migrate({ check: true });
   assert.equal(chk.ok, true, `idempotent: no pending leaves remain: ${JSON.stringify(chk)}`);
 });
+
+test("migrate: a deliberate cross-project leaf (override + area) is left untouched", async () => {
+  // A cross-project save sets project_module via the override AND carries its own
+  // area. Its project_module deliberately differs from this workspace; migrate must
+  // NOT restamp it (the `!hasArea` guard), or it would corrupt the cross-project scope.
+  const doc = store.writeMemory({
+    name: "crossproj-note-2026-05-25-140000000.md",
+    text: "# Shared infra decision\n\nThe gateway is owned by the platform project, not this one.",
+    datasetId: "knowledge",
+    metadata: { project_module_override: "otherproj", area: "infra", atom_type: "reference" },
+  });
+  const id = doc.created.document.id;
+  const pre = store.readDocument({ documentId: id, datasetId: "knowledge" });
+  assert.equal(pre.metadata.project_module, "otherproj", "seeded cross-project project_module");
+  assert.equal(pre.metadata.area, "infra", "seeded with its own area");
+
+  migrate({});
+
+  const found = store
+    .listDocuments({ datasetId: "knowledge", enabled: "true" })
+    .documents.find((d) => d.name === "crossproj-note-2026-05-25-140000000.md");
+  assert.ok(found, "cross-project leaf still present");
+  const post = store.readDocument({ documentId: found.id, datasetId: "knowledge" });
+  assert.equal(post.metadata.project_module, "otherproj", "cross-project scope preserved, not restamped");
+  assert.equal(post.metadata.area, "infra", "area preserved");
+});
