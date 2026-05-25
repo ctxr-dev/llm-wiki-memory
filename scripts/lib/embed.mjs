@@ -12,8 +12,9 @@ import { envValue } from "./env.mjs";
 
 // bge-large-en-v1.5 is the strongest drop-in retrieval model for this engine
 // (mean-pooled, no query prefix); quantized ONNX via @xenova/transformers, ~340MB
-// on first download. Override with MEMORY_EMBED_MODEL (e.g. a lighter bge-small for
-// a smaller footprint; see the README model table). A model change invalidates the
+// on first download. Override with MEMORY_EMBED_MODEL (e.g. a lighter
+// Xenova/bge-small-en-v1.5 for a smaller footprint; see the README model table). A
+// model change invalidates the
 // vector cache (loadCache stamps + checks the model), so vectors recompute on next search.
 const DEFAULT_MODEL = "Xenova/bge-large-en-v1.5";
 

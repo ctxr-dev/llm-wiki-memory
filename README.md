@@ -127,7 +127,7 @@ The bootstrap is **idempotent**. It:
 
  MCP server (stdio):  save_lesson, recall_lessons, save_to_dataset, search_memory, ...
  skill-llm-wiki:      builds, nests, index-rebuilds, and validates the tree
- embed.mjs (transformer): ranks recall queries against leaf embeddings (lexical fallback)
+ embed.mjs (transformers): ranks recall queries against leaf embeddings (lexical fallback)
 ```
 
 Top-level wiki categories: **`knowledge`**, **`self_improvement`**, **`plans`**,
