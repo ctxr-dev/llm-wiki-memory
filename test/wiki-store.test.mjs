@@ -22,8 +22,13 @@ test("writeMemory + updateDocMetadata: knowledge leaf, validate clean, filterabl
     name: "knowledge-oauth-decision-2026-05-22-120000000.md",
     text: "# Use OAuth2 over custom auth\n\nUse OAuth2 for billing auth.\nWhy: fewer attack vectors.",
     datasetId: "knowledge",
+    metadata: { atom_type: "decision", project_module: "billing", tags: "auth,billing" },
   });
-  assert.ok(res.created.document.id.startsWith("knowledge/"), "placed under knowledge/");
+  assert.match(
+    res.created.document.id,
+    /^knowledge\/billing\/decision\/knowledge-oauth-decision-/,
+    "nested by project_module/atom_type facets",
+  );
   store.updateDocMetadata({
     datasetId: "knowledge",
     documentId: res.created.document.id,
@@ -88,6 +93,7 @@ test("disableDocument hides from listing and search; enable restores", async () 
     name: "knowledge-temp-2026-05-22-140000000.md",
     text: "# Temp fact\n\nephemeral fact about widgets.",
     datasetId: "knowledge",
+    metadata: { atom_type: "reference", project_module: "billing" },
   });
   store.updateDocMetadata({
     datasetId: "knowledge",
@@ -134,8 +140,8 @@ test("saveDocument with a messy name yields a leaf that passes validate", () => 
     metadata: { atom_type: "plan" },
   });
   assert.equal(res.name, "my-fancy-plan.md", "stored under a sanitised name");
-  assert.equal(res.created.document.id, "plans/my-fancy-plan.md");
-  assert.ok(fs.existsSync(path.join(wiki, "plans", "my-fancy-plan.md")));
+  assert.equal(res.created.document.id, "plans/unscoped/my-fancy-plan.md", "nested by project_module facet (unscoped sentinel)");
+  assert.ok(fs.existsSync(path.join(wiki, "plans", "unscoped", "my-fancy-plan.md")));
   assert.equal(cli.validate(wiki).ok, true, `validate clean: ${JSON.stringify(cli.validate(wiki))}`);
 });
 
@@ -175,6 +181,7 @@ test("long scalars are not folded into block scalars (validate stays clean)", ()
     name: "knowledge-long-title-2026-05-23-180000000.md",
     text: `# ${longTitle}\n\nBody with enough prose to embed.\nWhy: regression guard.`,
     datasetId: "knowledge",
+    metadata: { atom_type: "reference", project_module: "llm-wiki-memory" },
   });
   const id = res.created.document.id;
   store.updateDocMetadata({
@@ -195,4 +202,150 @@ test("long scalars are not folded into block scalars (validate stays clean)", ()
     list.documents.some((d) => d.id === id),
     "long-titled leaf is listed (not dropped from the index)",
   );
+});
+
+test("non-daily leaves nest by metadata facets (search-aligned)", () => {
+  const lesson = store.saveDocument({
+    name: "lesson-always-await-2026-05-25-120000000.md",
+    text: "# Always await\n\nAwait async calls.\nWhy: avoid races.",
+    datasetId: "self_improvement",
+    metadata: { project_module: "billing", task_type: "refactor", error_pattern: "missing-await" },
+  });
+  assert.match(
+    lesson.created.document.id,
+    /^self_improvement\/billing\/refactor\/lesson-always-await-/,
+    "self_improvement nests by project_module/task_type",
+  );
+  assert.equal(cli.validate(wiki).ok, true, `validate clean with nested facet leaf: ${JSON.stringify(cli.validate(wiki))}`);
+});
+
+test("missing facets fall back to deterministic sentinels", () => {
+  const k = store.writeMemory({
+    name: "knowledge-no-scope-2026-05-25-130000000.md",
+    text: "# Unscoped fact\n\nA fact with no project_module.\nWhy: exercise the sentinel.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "reference" }, // no project_module
+  });
+  assert.match(k.created.document.id, /^knowledge\/unscoped\/reference\//, "absent project_module -> unscoped");
+
+  const l = store.saveDocument({
+    name: "lesson-no-task-2026-05-25-140000000.md",
+    text: "# No task\n\nlesson body.\nWhy: exercise the sentinel.",
+    datasetId: "self_improvement",
+    metadata: { project_module: "billing" }, // no task_type
+  });
+  assert.match(l.created.document.id, /^self_improvement\/billing\/unknown\//, "absent task_type -> unknown");
+});
+
+test("renameEmbedding moves a cache entry so a relocation keeps the cached vector", async () => {
+  const { embedCachePath } = await import("../scripts/lib/env.mjs");
+  const { loadCache, saveCache } = await import("../scripts/lib/embed.mjs");
+  const cp = embedCachePath();
+  const cache = loadCache(cp);
+  cache.entries["knowledge/old/x.md"] = { hash: "sha256:abc", vector: [0.1, 0.2, 0.3] };
+  saveCache(cp, cache);
+
+  store.renameEmbedding("knowledge/old/x.md", "knowledge/new/x.md");
+
+  const after = loadCache(embedCachePath());
+  assert.ok(!after.entries["knowledge/old/x.md"], "old cache id removed");
+  assert.deepEqual(
+    after.entries["knowledge/new/x.md"],
+    { hash: "sha256:abc", vector: [0.1, 0.2, 0.3] },
+    "vector preserved under the new id (no cold re-embed)",
+  );
+});
+
+test("updateDocMetadata relocates a leaf when a facet field changes", () => {
+  const res = store.writeMemory({
+    name: "knowledge-relocate-2026-05-25-160000000.md",
+    text: "# Relocate me\n\nstarts unscoped, then gains a project_module.\nWhy: relocation test.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "reference" }, // no project_module -> knowledge/unscoped/reference/
+  });
+  const startId = res.created.document.id;
+  assert.match(startId, /^knowledge\/unscoped\/reference\//, `starts unscoped: ${startId}`);
+
+  const upd = store.updateDocMetadata({
+    datasetId: "knowledge",
+    documentId: startId,
+    metadata: { project_module: "billing" }, // -> knowledge/billing/reference/
+  });
+  assert.ok(upd.relocated, `relocation reported: ${JSON.stringify(upd)}`);
+  assert.match(upd.relocated.to, /^knowledge\/billing\/reference\/knowledge-relocate-/);
+  assert.ok(!fs.existsSync(path.join(wiki, startId.split("/").join(path.sep))), "old location removed");
+  assert.ok(fs.existsSync(path.join(wiki, upd.relocated.to.split("/").join(path.sep))), "leaf at the new facet path");
+  assert.equal(cli.validate(wiki).ok, true, `validate clean after relocation: ${JSON.stringify(cli.validate(wiki))}`);
+
+  const again = store.updateDocMetadata({
+    datasetId: "knowledge",
+    documentId: upd.relocated.to,
+    metadata: { project_module: "billing", atom_type: "reference" },
+  });
+  assert.ok(!again.relocated, "re-applying identical facets is an in-place no-op");
+});
+
+test("saveDocument relocates a same-named leaf when its facets change (upsert, no stale copy)", () => {
+  const first = store.saveDocument({
+    name: "knowledge-upsert-move.md",
+    text: "# Upsert move\n\nv1 under billing.\nWhy: relocation test.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "reference", project_module: "billing" },
+  });
+  assert.match(first.created.document.id, /^knowledge\/billing\/reference\/knowledge-upsert-move\.md$/);
+
+  const second = store.saveDocument({
+    name: "knowledge-upsert-move.md",
+    text: "# Upsert move\n\nv2 under landing.\nWhy: relocation test.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "reference", project_module: "landing" },
+  });
+  assert.match(second.created.document.id, /^knowledge\/landing\/reference\/knowledge-upsert-move\.md$/);
+  assert.equal(second.relocatedFrom, first.created.document.id, "reports the relocation source");
+  assert.ok(
+    !fs.existsSync(path.join(wiki, first.created.document.id.split("/").join(path.sep))),
+    "stale-facet copy removed (no duplicate)",
+  );
+  const matches = store
+    .listDocuments({ datasetId: "knowledge", enabled: "true" })
+    .documents.filter((d) => d.name === "knowledge-upsert-move.md");
+  assert.equal(matches.length, 1, "exactly one leaf with that name after relocation");
+  assert.equal(cli.validate(wiki).ok, true, `validate clean after upsert-relocation: ${JSON.stringify(cli.validate(wiki))}`);
+});
+
+test("saveDocument does not delete-and-clobber when a duplicate basename exists across facets", () => {
+  // Two leaves with the SAME basename in different facet folders (writeMemory
+  // places by exact path without a recursive dedup, so this is reachable).
+  store.writeMemory({ name: "knowledge-dup-name.md", text: "# A\n\nbilling copy.\nWhy: x.", datasetId: "knowledge", metadata: { atom_type: "reference", project_module: "billing" } });
+  store.writeMemory({ name: "knowledge-dup-name.md", text: "# B\n\nlanding copy.\nWhy: y.", datasetId: "knowledge", metadata: { atom_type: "reference", project_module: "landing" } });
+  const before = store.listDocuments({ datasetId: "knowledge", enabled: "true" }).documents.filter((d) => d.name === "knowledge-dup-name.md").length;
+  assert.equal(before, 2, "two cross-facet duplicates seeded");
+
+  // An upsert that would relocate onto the occupied target must not delete one
+  // leaf while clobbering the other.
+  store.saveDocument({ name: "knowledge-dup-name.md", text: "# C\n\nupsert.\nWhy: z.", datasetId: "knowledge", metadata: { atom_type: "reference", project_module: "landing" } });
+
+  const after = store.listDocuments({ datasetId: "knowledge", enabled: "true" }).documents.filter((d) => d.name === "knowledge-dup-name.md").length;
+  assert.equal(after, 2, "no leaf was deleted-and-clobbered (count preserved)");
+  // NB: two same-basename leaves share one leaf id, so this seeded state is
+  // intentionally DUP-ID-invalid; the point here is purely that saveDocument did
+  // not destroy data. Clean up so the duplicate id doesn't fail later validate.
+  for (const d of store.listDocuments({ datasetId: "knowledge", enabled: "true" }).documents.filter((x) => x.name === "knowledge-dup-name.md")) {
+    store.deleteDocument({ documentId: d.id, datasetId: "knowledge" });
+  }
+});
+
+test("placementDirForMeta maps each category to its facet path", () => {
+  assert.equal(
+    store.placementDirForMeta("knowledge", { project_module: "tradingtune", atom_type: "pattern-gotcha" }),
+    "knowledge/tradingtune/pattern-gotcha",
+  );
+  assert.equal(
+    store.placementDirForMeta("self_improvement", { project_module: "tt", task_type: "debugging" }),
+    "self_improvement/tt/debugging",
+  );
+  assert.equal(store.placementDirForMeta("plans", { project_module: "tt" }), "plans/tt");
+  assert.equal(store.placementDirForMeta("investigations", {}), "investigations/unscoped");
+  assert.equal(store.placementDirForMeta("self_improvement", { project_module: "tt" }), "self_improvement/tt/unknown");
+  assert.equal(store.placementDirForMeta("daily", {}), null, "daily is date-nested, not facet-nested");
 });

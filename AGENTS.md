@@ -15,7 +15,16 @@ local-embedding recall. No RAG, no Docker.
 - `scripts/lib/wiki-store.mjs`: the storage seam, a drop-in for a RAG bridge whose every
   document is a wiki leaf. Drives `skill-llm-wiki` for index-rebuild, validate, heal,
   rebuild (it owns tree-building; we own category routing). Hardens arbitrary names via
-  `normalizeLeafName` and rejects unknown categories.
+  `normalizeLeafName` and rejects unknown categories. **Placement is always nested, never a
+  flat category root:** non-daily categories nest by the metadata facets they are searched by
+  (`knowledge/<project_module>/<atom_type>/`, `self_improvement/<project_module>/<task_type>/`,
+  `plans/<project_module>/`, `investigations/<project_module>/`), daily by capture date (`daily/<yyyy>/<mm>/<dd>/`);
+  absent facets use the sentinels `unscoped` (project_module) / `unknown` (task_type) / `untyped` (atom_type). Browsing the tree then mirrors how
+  `searchMemoryFiltered` filters. Do NOT run the skill's topical `rebuild` on these memory
+  wikis (it would re-cluster by meaning and fight the facet layout); re-nest deterministically
+  with `node scripts/cli.mjs nest`.
+- `scripts/migrate-nest.mjs`: `cli.mjs nest` - moves pre-existing flat leaves into the nested
+  layout by reading each leaf's frontmatter facets (idempotent; `--dry-run`, `--check`).
 - `scripts/lib/embed.mjs`: MiniLM embeddings (`@xenova/transformers`), cosine, content-hash
   cache, lexical fallback. The only retrieval engine (the skill has no query command).
 - `scripts/lib/recall.mjs`: `recallLessons` (fall-back ladder), `searchMemory`, `saveLesson`.

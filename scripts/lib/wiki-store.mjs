@@ -12,7 +12,7 @@ import {
   embed,
   cosine,
 } from "./embed.mjs";
-import { dailyDatePath } from "./slug.mjs";
+import { slugify, dailyDatePath } from "./slug.mjs";
 
 // Drop-in replacement for the boilerplate's dify-write.mjs. Same exported
 // function names/shapes, but every document is a leaf in the local hosted
@@ -195,17 +195,57 @@ function assertKnownSlot(slot) {
   return category;
 }
 
+// Per-category placement facets: the leaf nests under these metadata fields, in
+// order, so the on-disk tree mirrors the SAME fields searchMemoryFiltered filters
+// on. `daily` is the exception (date-nested, chronological raw intake). A category
+// absent here gets no facet nesting (flat under its root) - assertKnownSlot keeps
+// that from happening for the five contract categories.
+const PLACEMENT_FACETS = {
+  knowledge: ["project_module", "atom_type"],
+  self_improvement: ["project_module", "task_type"],
+  plans: ["project_module"],
+  investigations: ["project_module"],
+};
+
+// Kebab folder segment for one facet, with deterministic sentinels when the field
+// is absent so a missing facet never collapses leaves back into the category root.
+function facetValue(key, meta) {
+  const raw = slugify(String((meta && meta[key]) || "").trim());
+  if (raw && raw !== "untitled") return raw;
+  // Deterministic sentinels for an absent facet field. `task_type` -> "unknown"
+  // (already a valid TASK_TYPE), `project_module` -> "unscoped", `atom_type` ->
+  // "untyped". atom_type is normally always set by normaliseMeta
+  // (slotDefaultAtomType), so "untyped" only surfaces for a malformed legacy
+  // leaf during migration.
+  const sentinels = { task_type: "unknown", project_module: "unscoped", atom_type: "untyped" };
+  return sentinels[key] || "misc";
+}
+
+// Relative dir (under the wiki root) for a leaf, derived from its NORMALISED
+// `memory` metadata. Exported so migrate-nest computes the same target from an
+// existing leaf's frontmatter. Returns null for `daily` (caller date-nests it).
+export function placementDirForMeta(category, meta = {}) {
+  if (category === "daily") return null;
+  const facets = PLACEMENT_FACETS[category] || [];
+  if (facets.length === 0) return category;
+  return [category, ...facets.map((k) => facetValue(k, meta))].join("/");
+}
+
 // Resolve where a NEW leaf for a slot should live (relative dir under wiki).
-function placementDir(slot, { date = new Date() } = {}) {
+function placementDir(slot, { metadata = {}, date = new Date() } = {}) {
   const category = slotToCategory(slot);
   if (category === "daily") return `daily/${dailyDatePath(date)}`;
-  return category;
+  return placementDirForMeta(category, metadata) ?? category;
 }
 
 // ---- public API (dify-write.mjs parity) ----
 
-// Create (or, when name collides under the slot, replace) a leaf. `metadata`
-// is optional; compile sets it later via updateDocMetadata.
+// Create a leaf at its facet-derived path. `metadata` is optional but, when
+// supplied, drives facet placement (compile passes it here) and may be re-merged
+// later via updateDocMetadata. A name collision is replaced in place only when it
+// lands at the SAME computed path; dedup across facet folders is the caller's job
+// (compile supersedes the prior leaf via `supersedes`). saveDocument is the
+// upsert-by-name path that searches the whole category recursively.
 export function writeMemory({ name, text, datasetId, supersedes, supersedesAction, metadata, date } = {}) {
   if (!name || !text || !datasetId) {
     throw new WikiStoreUnavailable("writeMemory requires name, text, datasetId");
@@ -220,7 +260,7 @@ export function writeMemory({ name, text, datasetId, supersedes, supersedesActio
   // `date` (optional) pins daily date-nesting to a caller-supplied time (e.g. a
   // flush's capture time) rather than the write time, so a background worker
   // that crosses midnight UTC still nests under the captured day.
-  const dir = placementDir(slot, { date });
+  const dir = placementDir(slot, { metadata: memoryMeta, date });
   const leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
   fs.mkdirSync(path.dirname(leafAbs), { recursive: true });
   fs.writeFileSync(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));
@@ -251,7 +291,10 @@ export function writeMemory({ name, text, datasetId, supersedes, supersedesActio
   };
 }
 
-// Upsert-by-name: same name overwrites in place. Applies metadata immediately.
+// Upsert-by-name: the leaf is written at the facet path its metadata implies. A
+// same-named leaf already at that path is overwritten in place; one found at a
+// STALE facet path (its metadata changed) is relocated there so the on-disk path
+// always matches the leaf's facets. Applies metadata immediately.
 export function saveDocument({ name, text, datasetId, metadata } = {}) {
   if (!name || !text || !datasetId) {
     throw new WikiStoreUnavailable("saveDocument requires name, text, datasetId");
@@ -266,19 +309,35 @@ export function saveDocument({ name, text, datasetId, metadata } = {}) {
   const memoryMeta = normaliseMeta(metadata, { atom_type: slotDefaultAtomType(slot) });
   const tags = tagsArray(metadata);
 
-  let leafAbs;
-  let replacedId;
-  if (existing) {
-    leafAbs = existing;
-    replacedId = toRel(existing);
-  } else {
-    const dir = placementDir(slot);
-    leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
+  const dir = placementDir(slot, { metadata: memoryMeta });
+  const leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
+  const replacedId = existing ? toRel(existing) : undefined;
+  const moved = Boolean(existing) && path.resolve(existing) !== path.resolve(leafAbs);
+
+  // If relocating but a DIFFERENT leaf already occupies the target facet path,
+  // refuse rather than clobber it and then delete `existing` (double data loss).
+  // Such cross-facet basename duplicates can exist because writeMemory places by
+  // exact path without a recursive dedup.
+  if (moved && fs.existsSync(leafAbs)) {
+    return {
+      ok: false,
+      datasetId: slot,
+      name: safeName,
+      reason: `destination ${dir}/${safeName} is occupied by a different leaf; refusing to overwrite`,
+      conflict: { existing: replacedId, destination: toRel(leafAbs) },
+    };
   }
+
   fs.mkdirSync(path.dirname(leafAbs), { recursive: true });
   fs.writeFileSync(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));
 
-  ensureIndexes(root(), [leafAbs]);
+  const touched = [leafAbs];
+  if (moved) {
+    fs.rmSync(existing); // relocate: drop the stale-facet copy after the new one is written
+    renameEmbedding(toRel(existing), toRel(leafAbs));
+    touched.push(existing);
+  }
+  ensureIndexes(root(), touched);
   upsertEmbedding(toRel(leafAbs), text);
 
   const metadataAttempted = metadata && Object.keys(metadata).length > 0;
@@ -288,20 +347,48 @@ export function saveDocument({ name, text, datasetId, metadata } = {}) {
     name: safeName,
     created: { document: { id: toRel(leafAbs) } },
     replacedId,
+    relocatedFrom: moved ? replacedId : undefined,
     metadataError: undefined,
     metadataResult: metadataAttempted ? { ok: true } : undefined,
   };
 }
 
-// Merge metadata into a leaf's frontmatter `memory` block (idempotent).
+// Merge metadata into a leaf's frontmatter `memory` block (idempotent). When a
+// facet field (project_module/atom_type/task_type) changes so the leaf's facet
+// path no longer matches its current folder, the leaf is RELOCATED so the tree
+// keeps mirroring the metadata: the cached vector is preserved (content is
+// unchanged) and the old + new ancestor indexes are refreshed. compile re-applies
+// the same metadata it placed by, so the common path is a plain in-place rewrite.
 export function updateDocMetadata({ datasetId, documentId, metadata } = {}) {
   const abs = toAbs(documentId);
   if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
   if (!metadata || Object.keys(metadata).length === 0) return { ok: true, warning: "no metadata" };
   const { data, body } = readLeaf(abs);
-  const merged = { ...leafMemory(data), ...normaliseMeta(metadata, { status: leafMemory(data).status }) };
-  const next = { ...data, memory: merged };
-  fs.writeFileSync(abs, stringifyLeaf(body, next));
+  const incoming = normaliseMeta(metadata, { status: leafMemory(data).status });
+  // normaliseMeta always emits atom_type (never stripped); on a PARTIAL update
+  // that omits it, that empty string would clobber the leaf's existing
+  // atom_type. Drop it so a partial merge keeps the current value.
+  if (!incoming.atom_type) delete incoming.atom_type;
+  const merged = { ...leafMemory(data), ...incoming };
+  const rendered = stringifyLeaf(body, { ...data, memory: merged });
+
+  const rel = String(documentId).split("/");
+  const newDir = placementDirForMeta(slotToCategory(rel[0]), merged); // null for daily
+  const curDir = rel.slice(0, -1).join("/");
+  if (newDir && newDir !== curDir) {
+    const newRel = `${newDir}/${rel[rel.length - 1]}`;
+    const newAbs = toAbs(newRel);
+    // Never clobber an occupied destination; fall back to an in-place rewrite.
+    if (!fs.existsSync(newAbs)) {
+      fs.mkdirSync(path.dirname(newAbs), { recursive: true });
+      fs.writeFileSync(newAbs, rendered);
+      fs.rmSync(abs);
+      renameEmbedding(documentId, newRel);
+      ensureIndexes(root(), [abs, newAbs]); // drop the entry from old ancestors, add to new
+      return { ok: true, relocated: { from: documentId, to: newRel } };
+    }
+  }
+  fs.writeFileSync(abs, rendered);
   return { ok: true };
 }
 
@@ -463,6 +550,25 @@ export function removeEmbedding(id) {
     const cache = loadCache(cachePath);
     if (cache.entries[id]) {
       removeFromCache(cache, id);
+      saveCache(cachePath, cache);
+    }
+  } catch {
+    /* best effort */
+  }
+}
+
+// Move a cache entry from one id to another when a leaf is relocated but its
+// content is unchanged (e.g. migrate-nest moving a flat leaf into a facet
+// folder). The cached vector stays valid since the content hash is unchanged,
+// so this avoids a cold re-embed of the whole moved corpus on the next search.
+export function renameEmbedding(oldId, newId) {
+  if (!oldId || !newId || oldId === newId) return;
+  try {
+    const cachePath = embedCachePath();
+    const cache = loadCache(cachePath);
+    if (cache.entries[oldId]) {
+      cache.entries[newId] = cache.entries[oldId];
+      delete cache.entries[oldId];
       saveCache(cachePath, cache);
     }
   } catch {
