@@ -84,7 +84,7 @@ save_lesson({
 - `pr-comment-on-stale-head`
 - `wrong-test-import-path`
 
-A `save_lesson` call lands a lesson atom in today's `daily/<yyyy>/<mm>/<dd>/` leaves. If a future session corrects you on the same trap, the next compile pass will MERGE your new lesson into the existing `self_improvement/<project_module>/<task_type>/` leaf (same `error_pattern`), not multiply it. Compile runs once per day automatically (PreCompact / PostCompact / SessionEnd hooks feed it; the daily promotion runs the merge); you can force it now with `node .llm-wiki-memory/src/scripts/cli.mjs compile`.
+A `save_lesson` call persists a lesson directly into `self_improvement/<project_module>/<task_type>/` (the MCP tool writes the `self_improvement` dataset, not `daily`). Lessons that instead surface from a session's auto-capture are extracted into `daily/<yyyy>/<mm>/<dd>/` by flush and promoted later by compile. Either way, when a future session hits the same trap, compile MERGEs the new lesson into the existing `self_improvement/...` leaf with the same `error_pattern` rather than multiplying it. Compile runs once per day automatically (PreCompact / PostCompact / SessionEnd hooks feed it); you can force it now with `node .llm-wiki-memory/src/scripts/cli.mjs compile`.
 
 ## Do NOT save a lesson when
 
