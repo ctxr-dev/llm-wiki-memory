@@ -91,9 +91,17 @@ async function main() {
       if (res.mode === "migrate" && !res.ok) process.exit(2);
       return;
     }
+    case "migrate": {
+      const { migrate } = await import("./migrate.mjs");
+      const res = migrate({ dryRun: rest.includes("--dry-run"), check: rest.includes("--check") });
+      out(res);
+      if (res.mode === "check" && !res.ok) process.exit(3);
+      if (res.mode === "migrate" && !res.ok) process.exit(2);
+      return;
+    }
     default:
       out(
-        "Usage: llm-wiki-memory <init|validate|heal|where|compile|nest [--dry-run|--check]|recall <q>|search <q>>",
+        "Usage: llm-wiki-memory <init|validate|heal|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|recall <q>|search <q>>",
       );
       process.exit(cmd ? 1 : 0);
   }
