@@ -10,11 +10,12 @@ import { envValue } from "./env.mjs";
 // skill); we fall back to a deterministic lexical cosine if the model can't load,
 // so the system never hard-fails on a missing model download.
 
-// bge-small-en-v1.5 is a notably stronger retrieval model than all-MiniLM-L6-v2
-// at a similar local footprint (quantized ONNX via @xenova/transformers). Override
-// with MEMORY_EMBED_MODEL. A model change invalidates the vector cache (loadCache
-// stamps + checks the model), so vectors recompute on next search.
-const DEFAULT_MODEL = "Xenova/bge-small-en-v1.5";
+// bge-large-en-v1.5 is the strongest drop-in retrieval model for this engine
+// (mean-pooled, no query prefix); quantized ONNX via @xenova/transformers, ~340MB
+// on first download. Override with MEMORY_EMBED_MODEL (e.g. a lighter bge-small for
+// a smaller footprint; see the README model table). A model change invalidates the
+// vector cache (loadCache stamps + checks the model), so vectors recompute on next search.
+const DEFAULT_MODEL = "Xenova/bge-large-en-v1.5";
 
 let _extractorPromise = null;
 let _backend = null; // "transformers" | "lexical"

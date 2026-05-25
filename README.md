@@ -14,7 +14,7 @@ stored as a local [LLM wiki](https://github.com/ctxr-dev/skill-llm-wiki) with lo
 [![node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-stdio_server-6E40C9?logo=anthropic&logoColor=white)](https://modelcontextprotocol.io)
-[![recall](https://img.shields.io/badge/recall-bge_embeddings-FF6F00)](https://huggingface.co/Xenova/bge-small-en-v1.5)
+[![recall](https://img.shields.io/badge/recall-bge_embeddings-FF6F00)](https://huggingface.co/Xenova/bge-large-en-v1.5)
 [![infra](https://img.shields.io/badge/infra-no_Docker_·_no_RAG-success)](#)
 [![built on](https://img.shields.io/badge/built_on-%40ctxr%2Fskill--llm--wiki-1f6feb)](https://github.com/ctxr-dev/skill-llm-wiki)
 [![tests](https://img.shields.io/badge/tests-36_passing-brightgreen)](#testing)
@@ -28,7 +28,7 @@ stored as a local [LLM wiki](https://github.com/ctxr-dev/skill-llm-wiki) with lo
 - **Zero infrastructure.** Everything lives in a local `.llm-wiki-memory/` folder. No vector DB, no container, no API service to run.
 - **Git-versioned memory.** Every memory is a markdown leaf in a hierarchical wiki with full history, maintained by [`@ctxr/skill-llm-wiki`](https://github.com/ctxr-dev/skill-llm-wiki).
 - **Self-improving.** Lessons are captured the moment you correct the agent, deduped by failure pattern, and recalled before related work.
-- **Local semantic recall.** Transformer embeddings (default `Xenova/bge-small-en-v1.5`) rank queries on-device, and one env var swaps in a stronger model (lexical fallback if no model is available).
+- **Local semantic recall.** Transformer embeddings (default `Xenova/bge-large-en-v1.5`) rank queries on-device, and one env var swaps in a lighter model (lexical fallback if no model is available).
 - **Works with any MCP client.** Claude Code, Cursor, Codex, Claude Desktop, and generic clients all get the same tools and the same memory discipline.
 - **One-prompt install.** Paste a prompt into your agent, or run one script. Idempotent.
 
@@ -159,7 +159,7 @@ All settings live in `./.llm-wiki-memory/settings/.env` (see [`templates/env.exa
 | --- | --- | --- |
 | `MEMORY_LLM_PROVIDER` | `claude` | Atom extractor: `claude`, `codex`, `anthropic`, or `openai`. |
 | `MEMORY_EMBED_BACKEND` | `transformers` | `transformers` (on-device model) or `lexical` (no model download). |
-| `MEMORY_EMBED_MODEL` | `Xenova/bge-small-en-v1.5` | Embedding model (see [Choosing an embedding model](#choosing-an-embedding-model)). |
+| `MEMORY_EMBED_MODEL` | `Xenova/bge-large-en-v1.5` | Embedding model (see [Choosing an embedding model](#choosing-an-embedding-model)). |
 | `MEMORY_FLUSH_SLOT` / `MEMORY_COMPILE_SLOT` | `daily` / `knowledge` | Capture and promotion targets. |
 | `MEMORY_HOOK_MAX_TURNS` / `MEMORY_HOOK_MAX_CHARS` | `30` / `80000` | Transcript window per flush. |
 | `MEMORY_COMPILE_QUALITY_STRICT` | `false` | Drop low-signal atoms before promotion. |
@@ -167,23 +167,22 @@ All settings live in `./.llm-wiki-memory/settings/.env` (see [`templates/env.exa
 ### Choosing an embedding model
 
 Recall ranks queries with an on-device [transformers.js](https://github.com/xenova/transformers.js)
-model, set by `MEMORY_EMBED_MODEL`. The default `Xenova/bge-small-en-v1.5` is the best quality
-per megabyte; a larger model sharpens routing at the cost of a bigger one-time download. The sizes
+model, set by `MEMORY_EMBED_MODEL`. The default `Xenova/bge-large-en-v1.5` gives the best
+routing quality; lighter models trade some accuracy for a much smaller download. The sizes
 below are the **quantized** ONNX weights transformers.js downloads by default (full-precision
-weights are roughly 4x larger). Listed lightest first, up to the largest still worth running
-locally:
+weights are roughly 4x larger), listed lightest first:
 
 | Model | Dim | Download | Notes |
 | --- | :---: | :---: | --- |
-| `Xenova/all-MiniLM-L6-v2` | 384 | ~25 MB | Smallest and fastest; the previous default. Modest retrieval quality. |
-| `Xenova/bge-small-en-v1.5` | 384 | ~35 MB | **Current default.** Strong quality for its size. |
+| `Xenova/all-MiniLM-L6-v2` | 384 | ~25 MB | Smallest and fastest. Modest retrieval quality. |
+| `Xenova/bge-small-en-v1.5` | 384 | ~35 MB | Strong quality for a small download. |
 | `Xenova/bge-base-en-v1.5` | 768 | ~110 MB | Noticeably better routing than `small`. |
-| `Xenova/bge-large-en-v1.5` | 1024 | ~340 MB | **Best effective.** Top routing quality; on par with `mixedbread-ai/mxbai-embed-large-v1` (same size). |
+| `Xenova/bge-large-en-v1.5` | 1024 | ~340 MB | **Current default.** Best routing quality; on par with `mixedbread-ai/mxbai-embed-large-v1` (same size). |
 
-Switch models in `./.llm-wiki-memory/settings/.env`:
+Prefer a smaller download? Set a lighter model in `./.llm-wiki-memory/settings/.env`:
 
 ```bash
-MEMORY_EMBED_MODEL=Xenova/bge-large-en-v1.5
+MEMORY_EMBED_MODEL=Xenova/bge-small-en-v1.5
 ```
 
 Changing the model invalidates the embedding cache automatically, so the next recall re-embeds
@@ -215,7 +214,7 @@ hand: `./.llm-wiki-memory/src/bootstrap.sh --schedule daily` installs a once-dai
 | Path | Role |
 | --- | --- |
 | `scripts/lib/wiki-store.mjs` | Storage seam: every document is a wiki leaf. Drives the skill for index-rebuild, validate, heal, and rebuild. |
-| `scripts/lib/embed.mjs` | Transformer embeddings (default `Xenova/bge-small-en-v1.5`), cosine, content-hash cache (lexical fallback). The only retrieval engine. |
+| `scripts/lib/embed.mjs` | Transformer embeddings (default `Xenova/bge-large-en-v1.5`), cosine, content-hash cache (lexical fallback). The only retrieval engine. |
 | `scripts/lib/recall.mjs` | The `recall_lessons` ladder, `search_memory`, and `save_lesson`. |
 | `scripts/lib/discipline.mjs` | Single source of the memory discipline (MCP `instructions` and the SessionStart context). |
 | `scripts/lib/wiki-cli.mjs` | Wrapper around the `skill-llm-wiki` bin (bottom-up `index-rebuild-one`). |
