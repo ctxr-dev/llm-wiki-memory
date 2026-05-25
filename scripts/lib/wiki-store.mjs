@@ -314,6 +314,20 @@ export function saveDocument({ name, text, datasetId, metadata } = {}) {
   const replacedId = existing ? toRel(existing) : undefined;
   const moved = Boolean(existing) && path.resolve(existing) !== path.resolve(leafAbs);
 
+  // If relocating but a DIFFERENT leaf already occupies the target facet path,
+  // refuse rather than clobber it and then delete `existing` (double data loss).
+  // Such cross-facet basename duplicates can exist because writeMemory places by
+  // exact path without a recursive dedup.
+  if (moved && fs.existsSync(leafAbs)) {
+    return {
+      ok: false,
+      datasetId: slot,
+      name: safeName,
+      reason: `destination ${dir}/${safeName} is occupied by a different leaf; refusing to overwrite`,
+      conflict: { existing: replacedId, destination: toRel(leafAbs) },
+    };
+  }
+
   fs.mkdirSync(path.dirname(leafAbs), { recursive: true });
   fs.writeFileSync(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));
 

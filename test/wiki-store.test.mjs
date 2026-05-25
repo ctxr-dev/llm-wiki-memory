@@ -313,6 +313,28 @@ test("saveDocument relocates a same-named leaf when its facets change (upsert, n
   assert.equal(cli.validate(wiki).ok, true, `validate clean after upsert-relocation: ${JSON.stringify(cli.validate(wiki))}`);
 });
 
+test("saveDocument does not delete-and-clobber when a duplicate basename exists across facets", () => {
+  // Two leaves with the SAME basename in different facet folders (writeMemory
+  // places by exact path without a recursive dedup, so this is reachable).
+  store.writeMemory({ name: "knowledge-dup-name.md", text: "# A\n\nbilling copy.\nWhy: x.", datasetId: "knowledge", metadata: { atom_type: "reference", project_module: "billing" } });
+  store.writeMemory({ name: "knowledge-dup-name.md", text: "# B\n\nlanding copy.\nWhy: y.", datasetId: "knowledge", metadata: { atom_type: "reference", project_module: "landing" } });
+  const before = store.listDocuments({ datasetId: "knowledge", enabled: "true" }).documents.filter((d) => d.name === "knowledge-dup-name.md").length;
+  assert.equal(before, 2, "two cross-facet duplicates seeded");
+
+  // An upsert that would relocate onto the occupied target must not delete one
+  // leaf while clobbering the other.
+  store.saveDocument({ name: "knowledge-dup-name.md", text: "# C\n\nupsert.\nWhy: z.", datasetId: "knowledge", metadata: { atom_type: "reference", project_module: "landing" } });
+
+  const after = store.listDocuments({ datasetId: "knowledge", enabled: "true" }).documents.filter((d) => d.name === "knowledge-dup-name.md").length;
+  assert.equal(after, 2, "no leaf was deleted-and-clobbered (count preserved)");
+  // NB: two same-basename leaves share one leaf id, so this seeded state is
+  // intentionally DUP-ID-invalid; the point here is purely that saveDocument did
+  // not destroy data. Clean up so the duplicate id doesn't fail later validate.
+  for (const d of store.listDocuments({ datasetId: "knowledge", enabled: "true" }).documents.filter((x) => x.name === "knowledge-dup-name.md")) {
+    store.deleteDocument({ documentId: d.id, datasetId: "knowledge" });
+  }
+});
+
 test("placementDirForMeta maps each category to its facet path", () => {
   assert.equal(
     store.placementDirForMeta("knowledge", { project_module: "tradingtune", atom_type: "pattern-gotcha" }),
