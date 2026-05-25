@@ -19,7 +19,7 @@ local-embedding recall. No RAG, no Docker.
   flat category root:** non-daily categories nest by the metadata facets they are searched by
   (`knowledge/<project_module>/<atom_type>/`, `self_improvement/<project_module>/<task_type>/`,
   `plans/<project_module>/`, `investigations/<project_module>/`), daily by capture date (`daily/<yyyy>/<mm>/<dd>/`);
-  absent facets use the sentinels `unscoped` / `unknown`. Browsing the tree then mirrors how
+  absent facets use the sentinels `unscoped` (project_module) / `unknown` (task_type) / `untyped` (atom_type). Browsing the tree then mirrors how
   `searchMemoryFiltered` filters. Do NOT run the skill's topical `rebuild` on these memory
   wikis (it would re-cluster by meaning and fight the facet layout); re-nest deterministically
   with `node scripts/cli.mjs nest`.

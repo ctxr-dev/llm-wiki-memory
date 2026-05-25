@@ -14,7 +14,9 @@ purpose: "Persistent local memory for the agent across sessions"
 #   plans            -> plans/<project_module>/
 #   investigations   -> investigations/<project_module>/
 #   daily            -> daily/<yyyy>/<mm>/<dd>/
-# Missing-facet sentinels: project_module -> "unscoped", task_type -> "unknown".
+# Missing-facet sentinels: project_module -> "unscoped", task_type -> "unknown",
+# atom_type -> "untyped" (atom_type is normally always set, so "untyped" only
+# appears for a malformed legacy leaf during migration).
 layout:
   - path: knowledge
     purpose: "long-lived facts, decisions, lore, and gotchas; nested by project_module/atom_type"

@@ -212,9 +212,13 @@ const PLACEMENT_FACETS = {
 function facetValue(key, meta) {
   const raw = slugify(String((meta && meta[key]) || "").trim());
   if (raw && raw !== "untitled") return raw;
-  if (key === "task_type") return "unknown"; // already a valid TASK_TYPE value
-  if (key === "project_module") return "unscoped";
-  return "misc";
+  // Deterministic sentinels for an absent facet field. `task_type` -> "unknown"
+  // (already a valid TASK_TYPE), `project_module` -> "unscoped", `atom_type` ->
+  // "untyped". atom_type is normally always set by normaliseMeta
+  // (slotDefaultAtomType), so "untyped" only surfaces for a malformed legacy
+  // leaf during migration.
+  const sentinels = { task_type: "unknown", project_module: "unscoped", atom_type: "untyped" };
+  return sentinels[key] || "misc";
 }
 
 // Relative dir (under the wiki root) for a leaf, derived from its NORMALISED

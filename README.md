@@ -123,7 +123,7 @@ The bootstrap is **idempotent**. It:
                                                      self_improvement/<module>/<task_type>/...
                                                      (archives the source daily leaves)
 
- ExitPlanMode hook ......................> plans/<module>/plan-<slug>.md
+ ExitPlanMode hook ......................> plans/unscoped/plan-<slug>.md
 
  MCP server (stdio):  save_lesson, recall_lessons, save_to_dataset, search_memory, ...
  skill-llm-wiki:      builds, nests, index-rebuilds, and validates the tree
