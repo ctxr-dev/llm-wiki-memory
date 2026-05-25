@@ -15,7 +15,7 @@ Produce a small set of typed atoms that will be useful to a different agent in a
       "body": "≤ {{ATOM_BODY_MAX_CHARS}} chars. Lead with the rule/fact. Include 'Why:' and 'How to apply:' lines when applicable.",
       "tags": ["lowercase-hyphenated", "scope", "or-area"],
       "metadata": {
-        "project_module": "auth | billing | infra | frontend | ... (lowercase, hyphen-free)",
+        "area": "auth | billing | infra | frontend | browser-plugin | ... (the sub-module / part of the codebase this belongs to; lowercase, hyphenated; 'unknown' if you cannot infer it)",
         "language": "swift | python | typescript | bash | ... (empty when language-agnostic)",
         "task_type": "planning | implementation | debugging | refactor | review | deploy | docs | unknown",
         "error_pattern": "short kebab-case slug (only for self-improvement-lesson and bug-root-cause)"
@@ -41,11 +41,11 @@ If nothing in the transcript is durable, return exactly: `{"atoms": []}`.
   - Repeat correction: "I told you before", "again", "same mistake", "we've covered this".
   - Wrong-tool / wrong-step: the user pointed out you used the wrong file, command, format, or skipped a step.
   - DO NOT extract a self-improvement-lesson for routine clarification, neutral redirection ("let's switch to X instead"), the user changing their mind, or user mistakes attributed to themselves.
-  - For these atoms `metadata.project_module`, `metadata.task_type`, AND `metadata.error_pattern` are REQUIRED; the atom is dropped if they are absent.
+  - For these atoms `metadata.area`, `metadata.task_type`, AND `metadata.error_pattern` are REQUIRED; the atom is dropped if they are absent.
 
 # Metadata guidance
 
-- `project_module` is a stable identifier of the part of the codebase the lesson belongs to (e.g. `auth`, `billing`, `frontend`, `infra`, `cli`). Use lowercase, hyphenated. Use `unknown` if you cannot infer it.
+- `area` is the part of the codebase the atom belongs to (e.g. `auth`, `billing`, `frontend`, `infra`, `cli`). Use lowercase, hyphenated. Use `unknown` if you cannot infer it. The workspace identifier is recorded automatically, so do NOT emit a `project_module`.
 - `language` is the programming language of the affected code, lowercase (`swift`, `python`, `typescript`, `bash`, `sql`). Use `""` for language-agnostic lessons.
 - `task_type` constrains to one of: `planning`, `implementation`, `debugging`, `refactor`, `review`, `deploy`, `docs`, `unknown`.
 - `error_pattern` is a short kebab-case identifier for the failure mode. Required for `self-improvement-lesson`. Optional for `bug-root-cause`. Empty for the rest.
@@ -68,7 +68,7 @@ Each atom must:
 2. Lead with the fact, not the narrative ("X over Y because Z", not "we discussed and decided X").
 3. Be ≤ 80 chars title, ≤ {{ATOM_BODY_MAX_CHARS}} chars body.
 4. Have at least one tag.
-5. For `self-improvement-lesson`: have `metadata.project_module`, `metadata.task_type`, AND `metadata.error_pattern` set.
+5. For `self-improvement-lesson`: have `metadata.area`, `metadata.task_type`, AND `metadata.error_pattern` set.
 
 If you are unsure whether an atom meets the bar, omit it.
 

@@ -175,7 +175,11 @@ function nameBuilderForAtom(atom) {
 // create.
 function compileFilters(atom) {
   const filters = { atom_type: atom.type };
-  if (atom.metadata?.project_module) filters.project_module = atom.metadata.project_module;
+  // Scope candidate retrieval by `area` (the sub-module). project_module is now
+  // the uniform workspace id, so it no longer discriminates; legacy atoms that
+  // still carry project_module as the sub-module fall back to it.
+  const area = atom.metadata?.area || atom.metadata?.project_module;
+  if (area) filters.area = area;
   if (atom.metadata?.language) filters.language = atom.metadata.language;
   if (atom.metadata?.error_pattern) filters.error_pattern = atom.metadata.error_pattern;
   return filters;
@@ -210,7 +214,7 @@ function buildPromotedDocText(atom, mergedTextOverride) {
     "",
     `- type: ${atom.type}`,
     `- tags: [${atom.tags.join(", ")}]`,
-    `- project_module: ${md.project_module || ""}`,
+    `- area: ${md.area || md.project_module || ""}`,
     `- language: ${md.language || ""}`,
     `- task_type: ${md.task_type || ""}`,
     `- error_pattern: ${md.error_pattern || ""}`,
@@ -268,10 +272,11 @@ function buildPromotedDocText(atom, mergedTextOverride) {
 //    documented format in prompts/flush.md; an unstructured wall of
 //    text is usually narrative leaking through.
 // 4. For `self-improvement-lesson` and `bug-root-cause`:
-//    `metadata.project_module` is set - these atoms are the most
-//    metadata-dependent in retrieval (recall_lessons filters by
-//    project_module by default). An atom without one is invisible to
-//    the scoped recall path.
+//    `metadata.area` (the sub-module) is set - these atoms are the most
+//    metadata-dependent in retrieval (recall scopes by area; project_module
+//    is the workspace, stamped automatically). An atom without an area is not
+//    facet-placed or area-scopable. (Legacy atoms' project_module is accepted
+//    as the area fallback.)
 export function scoreAtomQuality(atom) {
   const reasons = [];
   const body = String(atom?.body || "");
@@ -282,8 +287,8 @@ export function scoreAtomQuality(atom) {
   const hasWhyOrHowTo = /(^|\n)\s*(why|how to apply)\s*:/i.test(body);
   if (!hasEvidence && !hasWhyOrHowTo) reasons.push("no evidence and no 'Why:' / 'How to apply:' lines");
   const metadataDependentTypes = new Set(["self-improvement-lesson", "bug-root-cause"]);
-  if (metadataDependentTypes.has(atom?.type) && !atom?.metadata?.project_module) {
-    reasons.push(`type='${atom.type}' requires metadata.project_module`);
+  if (metadataDependentTypes.has(atom?.type) && !(atom?.metadata?.area || atom?.metadata?.project_module)) {
+    reasons.push(`type='${atom.type}' requires metadata.area (or legacy project_module)`);
   }
   return { ok: reasons.length === 0, reasons };
 }

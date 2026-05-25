@@ -70,6 +70,34 @@ test("recall appends supplementary knowledge cross-refs", async () => {
   assert.ok(out.records.some((r) => r.kind === "knowledge"));
 });
 
+test("sub-module lessons are recalled by DEFAULT (project_module=workspace) + area scopes", async () => {
+  const r = recall.saveLesson({
+    title: "Frontend cards must render derived badges",
+    body: "Backtest cards derive badges from data, not hardcoded values.\nWhy: avoid misleading identical values.",
+    metadata: { area: "frontend", task_type: "implementation", error_pattern: "hardcoded-badge" },
+    tags: ["cards", "badges"],
+  });
+  assert.ok(r.created, "lesson created");
+
+  // project_module is stamped to the workspace; the sub-module lives in `area`.
+  const doc = store.readDocument({ documentId: r.created.document.id, datasetId: "self_improvement" });
+  assert.equal(doc.metadata.area, "frontend", "area = sub-module");
+  assert.equal(doc.metadata.project_module, "testproj", "project_module = workspace, not the sub-module");
+
+  // THE FIX: default recall (no project_module, no area) finds the sub-module-tagged
+  // lesson. Previously the workspace-vs-submodule mismatch returned 0 hits.
+  const def = await recall.recallLessons({ query: "cards badges derived" });
+  assert.ok(def.lessonHits >= 1, "default recall finds the sub-module-tagged lesson");
+
+  // Explicit area narrows to the sub-module.
+  const scoped = await recall.recallLessons({ query: "cards badges", area: "frontend" });
+  assert.ok(scoped.lessonHits >= 1, "area-scoped recall finds it");
+
+  // An over-tight area still recovers via the final-rung drop (area then project_module).
+  const broadened = await recall.recallLessons({ query: "cards badges", area: "no-such-area" });
+  assert.ok(broadened.lessonHits >= 1, "over-tight area scope recovers by dropping area");
+});
+
 test("searchMemory ranks the matching leaf across categories", async () => {
   const out = await recall.searchMemory({
     query: "stale cache after migrate schema",

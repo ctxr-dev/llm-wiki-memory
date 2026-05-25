@@ -5,12 +5,16 @@ import { envValue } from "./env.mjs";
 
 // Local recall engine. The skill-llm-wiki package has NO query/search command
 // (retrieval is "walk the index tree" by design), so ranking a free-text query
-// against existing leaves is our job. Primary backend is MiniLM embeddings via
-// @xenova/transformers (already a transitive dep of the skill); we fall back to
-// a deterministic lexical cosine if the model can't load, so the system never
-// hard-fails on a missing model download.
+// against existing leaves is our job. Primary backend is transformer embeddings
+// (DEFAULT_MODEL below) via @xenova/transformers (already a transitive dep of the
+// skill); we fall back to a deterministic lexical cosine if the model can't load,
+// so the system never hard-fails on a missing model download.
 
-const DEFAULT_MODEL = "Xenova/all-MiniLM-L6-v2";
+// bge-small-en-v1.5 is a notably stronger retrieval model than all-MiniLM-L6-v2
+// at a similar local footprint (quantized ONNX via @xenova/transformers). Override
+// with MEMORY_EMBED_MODEL. A model change invalidates the vector cache (loadCache
+// stamps + checks the model), so vectors recompute on next search.
+const DEFAULT_MODEL = "Xenova/bge-small-en-v1.5";
 
 let _extractorPromise = null;
 let _backend = null; // "transformers" | "lexical"
@@ -109,13 +113,16 @@ export function activeBackend() {
 // ---- embedding cache (keyed by leaf id + content hash) ----
 
 export function loadCache(cachePath) {
+  const currentModel = envValue("MEMORY_EMBED_MODEL", DEFAULT_MODEL);
   try {
     const raw = JSON.parse(fs.readFileSync(cachePath, "utf8"));
-    if (raw && typeof raw === "object" && raw.entries) return raw;
+    // Drop the cache when the embedding model changed: vectors from a different
+    // model are not comparable, so reusing them would corrupt similarity ranking.
+    if (raw && typeof raw === "object" && raw.entries && raw.model === currentModel) return raw;
   } catch {
     /* fresh cache */
   }
-  return { model: envValue("MEMORY_EMBED_MODEL", DEFAULT_MODEL), entries: {} };
+  return { model: currentModel, entries: {} };
 }
 
 export function saveCache(cachePath, cache) {

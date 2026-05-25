@@ -60,7 +60,7 @@ test("migrate-nest is idempotent, search still works, and --check flags flat lea
   const found = await store.searchMemoryFiltered({
     query: "fact about billing",
     datasetId: "knowledge",
-    filters: { project_module: "billing" },
+    filters: { area: "billing" },
   });
   assert.ok(found.records.length >= 1, "re-nested leaf is still found by folder-agnostic search");
 

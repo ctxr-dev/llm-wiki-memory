@@ -9,13 +9,16 @@ function canonicalKey(filters) {
   return JSON.stringify(Object.fromEntries(Object.entries(filters).sort()));
 }
 
-// Recall self-improvement lessons with the boilerplate's fall-back ladder:
-// drop error_pattern -> language -> task_type, broadening until >= min(3,limit)
-// distinct hits. project_module and tags are never dropped. Optionally append
-// up to 2 bug-root-cause/feedback-rule knowledge atoms.
+// Recall self-improvement lessons with a fall-back ladder: drop error_pattern ->
+// language -> task_type -> area -> project_module, broadening until >= min(3,limit)
+// distinct hits. project_module (the workspace) defaults so the base scope matches
+// every leaf; `area` narrows to a sub-module. Both are dropped LAST (area, then
+// project_module) so an over-tight scope still recovers; `tags` is never dropped.
+// Optionally append up to 2 bug-root-cause/feedback-rule knowledge atoms.
 export async function recallLessons({
   query,
   project_module,
+  area,
   language,
   task_type,
   error_pattern,
@@ -26,18 +29,23 @@ export async function recallLessons({
 } = {}) {
   const limit = maxResults || 5;
   const threshold = scoreThreshold ?? 0.0; // local recall: don't over-prune
+  // project_module defaults to the workspace, which every leaf carries, so the
+  // default scope matches (no more 0-hit-by-default). Pass `area` to narrow to a
+  // sub-module. Both are dropped as the LAST ladder rungs so an over-tight scope
+  // still recovers.
   const effectiveProjectModule = project_module || defaultProjectModule() || undefined;
 
   const baseFilters = {
     atom_type: LESSON_ATOM_TYPE,
     ...(effectiveProjectModule ? { project_module: effectiveProjectModule } : {}),
+    ...(area ? { area } : {}),
     ...(language ? { language } : {}),
     ...(task_type ? { task_type } : {}),
     ...(error_pattern ? { error_pattern } : {}),
     ...(tags ? { tags } : {}),
   };
 
-  const dropOrder = ["error_pattern", "language", "task_type"];
+  const dropOrder = ["error_pattern", "language", "task_type", "area", "project_module"];
   const ladderRaw = [{ ...baseFilters }];
   const dropped = [];
   for (const key of dropOrder) {
@@ -161,8 +169,9 @@ export async function searchMemory({ query, datasets, filters, scoreThreshold, m
 // Render + persist a self-improvement lesson into the self_improvement
 // category. Mirrors the boilerplate's save_lesson doc format.
 export function saveLesson({ title, body, metadata = {}, tags, evidence } = {}) {
-  if (!metadata.project_module || !metadata.task_type || !metadata.error_pattern) {
-    throw new Error("save_lesson requires metadata.project_module, task_type, and error_pattern");
+  const area = String(metadata.area || metadata.project_module || "").trim();
+  if (!area || !metadata.task_type || !metadata.error_pattern) {
+    throw new Error("save_lesson requires metadata.area (the sub-module; legacy metadata.project_module is accepted), task_type, and error_pattern");
   }
   const tagList = Array.isArray(tags)
     ? tags
@@ -172,7 +181,7 @@ export function saveLesson({ title, body, metadata = {}, tags, evidence } = {}) 
 
   const lines = [`# ${title}`, "", `- type: ${LESSON_ATOM_TYPE}`];
   if (tagList.length) lines.push(`- tags: [${tagList.join(", ")}]`);
-  lines.push(`- project_module: ${metadata.project_module}`);
+  lines.push(`- area: ${area}`);
   if (metadata.language) lines.push(`- language: ${metadata.language}`);
   lines.push(`- task_type: ${metadata.task_type}`);
   lines.push(`- error_pattern: ${metadata.error_pattern}`);
@@ -183,7 +192,7 @@ export function saveLesson({ title, body, metadata = {}, tags, evidence } = {}) 
 
   const fullMetadata = {
     atom_type: LESSON_ATOM_TYPE,
-    project_module: metadata.project_module,
+    area,
     task_type: metadata.task_type,
     error_pattern: metadata.error_pattern,
   };

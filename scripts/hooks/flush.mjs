@@ -206,7 +206,9 @@ function normaliseMetadata(raw) {
   const clean = (v) => String(v || "").replace(/[\r\n]+/g, " ").trim();
   const taskType = clean(md.task_type).toLowerCase();
   return {
-    project_module: clean(md.project_module).toLowerCase(),
+    // `area` is the sub-module (facet + fine scope). Accept it directly, or fall
+    // back to a legacy `project_module` value. The workspace id is stamped at write.
+    area: clean(md.area || md.project_module).toLowerCase(),
     language: clean(md.language).toLowerCase(),
     // Out-of-set task_type collapses to "unknown" so the lesson is still
     // filterable; previously it became "" which dropped the atom.
@@ -245,10 +247,10 @@ function validateAtoms(parsed) {
     if (tags.length === 0) continue;
     const metadata = normaliseMetadata(atom.metadata);
     if (type === "self-improvement-lesson") {
-      // Lessons MUST have project_module, task_type, and error_pattern so
-      // recall_lessons can filter them precisely. Drop malformed lessons
-      // rather than flooding the store with un-filterable noise.
-      if (!metadata.project_module || !metadata.task_type || !metadata.error_pattern) {
+      // Lessons MUST have area, task_type, and error_pattern so recall_lessons
+      // can filter them precisely. Drop malformed lessons rather than flooding
+      // the store with un-filterable noise.
+      if (!metadata.area || !metadata.task_type || !metadata.error_pattern) {
         logBreadcrumb(`dropped self-improvement-lesson '${title.slice(0, 40)}' (missing required metadata)`);
         continue;
       }

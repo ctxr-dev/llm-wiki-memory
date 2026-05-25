@@ -3,8 +3,8 @@ You decide how to merge a NEW project-memory atom into the existing knowledge st
 # Inputs
 
 You receive:
-- ONE new atom: `{ type, title, body, tags, metadata, evidence? }` where `metadata` carries `project_module`, `language`, `task_type`, and (for self-improvement-lesson and bug-root-cause) `error_pattern`.
-- Up to 5 existing entries from the same dataset, ALREADY filtered to the same `atom_type` and (when present) the same `project_module`, `language`, and `error_pattern`. Candidates carry `documentId`, `documentName`, `score`, `content`.
+- ONE new atom: `{ type, title, body, tags, metadata, evidence? }` where `metadata` carries `area`, `language`, `task_type`, and (for self-improvement-lesson and bug-root-cause) `error_pattern`.
+- Up to 5 existing entries from the same dataset, ALREADY filtered to the same `atom_type` and (when present) the same `area`, `language`, and `error_pattern`. Candidates carry `documentId`, `documentName`, `score`, `content`.
 
 # Output schema (STRICT - pick exactly ONE action)
 

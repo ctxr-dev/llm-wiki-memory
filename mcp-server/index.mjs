@@ -21,6 +21,7 @@ const FilterSchema = z
   .object({
     atom_type: z.string().trim().min(1).optional(),
     project_module: z.string().trim().min(1).optional(),
+    area: z.string().trim().min(1).optional(),
     language: z.string().trim().min(1).optional(),
     task_type: z.string().trim().min(1).optional(),
     error_pattern: z.string().trim().min(1).optional(),
@@ -33,6 +34,7 @@ const MetadataSchema = z
     atom_type: z.string().optional(),
     tags: z.string().optional(),
     project_module: z.string().optional(),
+    area: z.string().optional(),
     language: z.string().optional(),
     task_type: z.string().optional(),
     error_pattern: z.string().optional(),
@@ -102,7 +104,7 @@ server.registerTool(
   {
     title: "Search project memory",
     description:
-      "Search the local wiki memory and return scored chunks. Pass `filters` (atom_type, project_module, language, task_type, error_pattern, tags) to pre-filter by frontmatter metadata before embedding rank. `datasets` accepts category names; default searches every category. If you pass `filters` without `project_module`, the workspace identifier is auto-injected to avoid cross-project leakage.",
+      "Search the local wiki memory and return scored chunks. Pass `filters` (atom_type, area, language, task_type, error_pattern, tags) to pre-filter by frontmatter metadata before embedding rank. `area` scopes to a sub-module. `datasets` accepts category names; default searches every category. project_module is the workspace identifier and is auto-injected when you pass `filters` (so results stay within this install).",
     inputSchema: {
       query: z.string().trim().min(1).max(1000),
       datasets: z.array(z.string().trim().min(1)).optional(),
@@ -125,10 +127,11 @@ server.registerTool(
   {
     title: "Recall relevant self-improvement lessons",
     description:
-      "BEFORE a non-trivial task, call this with the inferred context (project_module, language, task_type, optional error_pattern). Filters the self_improvement category, broadening via a fall-back ladder (drop error_pattern, then language, then task_type) until enough hits. project_module/tags are never dropped. When project_module is provided and includeKnowledge !== false, up to 2 bug-root-cause/feedback-rule knowledge atoms are appended. Omit project_module to auto-scope to this workspace.",
+      "BEFORE a non-trivial task, call this. It scopes to THIS workspace by default (so it returns hits without you guessing a module); pass `area` (the sub-module, e.g. frontend/billing/infra) to narrow, plus language/task_type (optional error_pattern). Broadens via a fall-back ladder (drop error_pattern, language, task_type, area, then project_module last) until enough hits; tags is never dropped. When includeKnowledge !== false, up to 2 bug-root-cause/feedback-rule knowledge atoms are appended.",
     inputSchema: {
       query: z.string().trim().min(1).max(1000),
       project_module: z.string().trim().min(1).optional(),
+      area: z.string().trim().min(1).optional(),
       language: z.string().trim().min(1).optional(),
       task_type: z.string().trim().min(1).optional(),
       error_pattern: z.string().trim().min(1).optional(),
@@ -152,17 +155,25 @@ server.registerTool(
   {
     title: "Save a self-improvement lesson",
     description:
-      "Persist a self-improvement lesson into the self_improvement category. Use MID-SESSION the moment the user corrects you so the next turn can recall it. metadata.project_module, task_type, and error_pattern are required. Same title overwrites in place.",
+      "Persist a self-improvement lesson into the self_improvement category. Use MID-SESSION the moment the user corrects you so the next turn can recall it. metadata.area (the sub-module the lesson belongs to), task_type, and error_pattern are required (project_module is stamped to the workspace automatically). Same title overwrites in place.",
     inputSchema: {
       title: z.string().trim().min(1).max(180),
       body: z.string().trim().min(1).max(10_000),
-      metadata: z.object({
-        project_module: z.string().trim().min(1),
-        task_type: z.string().trim().min(1),
-        error_pattern: z.string().trim().min(1),
-        language: z.string().trim().optional(),
-        tags: z.string().trim().optional(),
-      }),
+      metadata: z
+        .object({
+          area: z.string().trim().min(1).optional(),
+          project_module: z.string().trim().min(1).optional(),
+          task_type: z.string().trim().min(1),
+          error_pattern: z.string().trim().min(1),
+          language: z.string().trim().optional(),
+          tags: z.string().trim().optional(),
+        })
+        // saveLesson needs a sub-module: `area`, or legacy `project_module` as a
+        // fallback. Enforce here so clients get a validation error, not a runtime throw.
+        .refine((m) => Boolean(m.area || m.project_module), {
+          message: "metadata.area (the sub-module; legacy metadata.project_module is accepted) is required",
+          path: ["area"],
+        }),
       tags: z.array(z.string().trim().min(1)).optional(),
       evidence: z.string().trim().max(500).optional(),
     },
@@ -297,13 +308,13 @@ server.registerTool(
             const at = metadata.atom_type;
             if (
               (at === "self-improvement-lesson" || at === "bug-root-cause") &&
-              (!metadata.project_module || (at === "self-improvement-lesson" && !metadata.error_pattern))
+              (!(metadata.area || metadata.project_module) || (at === "self-improvement-lesson" && !metadata.error_pattern))
             ) {
               findings.push({ class: "missing-metadata", slot, documentId: doc.id, atom_type: at });
             }
           }
           if (requested.has("duplicate-error-pattern") && slot === "self_improvement" && metadata.error_pattern) {
-            const key = `${metadata.project_module || ""}:${metadata.error_pattern}`;
+            const key = `${metadata.area || metadata.project_module || ""}:${metadata.error_pattern}`;
             if (!byErrorPattern.has(key)) byErrorPattern.set(key, []);
             byErrorPattern.get(key).push(doc.id);
           }
