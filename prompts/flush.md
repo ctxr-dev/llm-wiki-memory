@@ -15,7 +15,7 @@ Produce a small set of typed atoms that will be useful to a different agent in a
       "body": "≤ {{ATOM_BODY_MAX_CHARS}} chars. Lead with the rule/fact. Include 'Why:' and 'How to apply:' lines when applicable.",
       "tags": ["lowercase-hyphenated", "scope", "or-area"],
       "metadata": {
-        "area": "auth | billing | infra | frontend | ... (the sub-module / part of the codebase this belongs to; lowercase, hyphen-free; 'unknown' if you cannot infer it)",
+        "area": "auth | billing | infra | frontend | browser-plugin | ... (the sub-module / part of the codebase this belongs to; lowercase, hyphenated; 'unknown' if you cannot infer it)",
         "language": "swift | python | typescript | bash | ... (empty when language-agnostic)",
         "task_type": "planning | implementation | debugging | refactor | review | deploy | docs | unknown",
         "error_pattern": "short kebab-case slug (only for self-improvement-lesson and bug-root-cause)"

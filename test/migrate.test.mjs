@@ -33,7 +33,7 @@ test("migrate: legacy project_module -> area, stamps workspace, relocates, defau
   assert.equal(pre.metadata.project_module, "frontend", "seeded legacy project_module = sub-module");
   assert.ok(!pre.metadata.area, "no area yet (legacy shape)");
 
-  const res = migrate({ wiki });
+  const res = migrate({});
   assert.equal(res.ok, true, `migrate validates clean: ${JSON.stringify(res.validate)}`);
   assert.ok(res.migrated >= 1, "migrated at least the seeded leaf");
 
@@ -51,6 +51,6 @@ test("migrate: legacy project_module -> area, stamps workspace, relocates, defau
   assert.ok(out.lessonHits >= 1, "default recall finds the migrated lesson");
 
   // Idempotent: a second pass finds nothing to migrate.
-  const chk = migrate({ wiki, check: true });
+  const chk = migrate({ check: true });
   assert.equal(chk.ok, true, `no legacy leaves remain: ${JSON.stringify(chk)}`);
 });

@@ -272,10 +272,11 @@ function buildPromotedDocText(atom, mergedTextOverride) {
 //    documented format in prompts/flush.md; an unstructured wall of
 //    text is usually narrative leaking through.
 // 4. For `self-improvement-lesson` and `bug-root-cause`:
-//    `metadata.project_module` is set - these atoms are the most
-//    metadata-dependent in retrieval (recall_lessons filters by
-//    project_module by default). An atom without one is invisible to
-//    the scoped recall path.
+//    `metadata.area` (the sub-module) is set - these atoms are the most
+//    metadata-dependent in retrieval (recall scopes by area; project_module
+//    is the workspace, stamped automatically). An atom without an area is not
+//    facet-placed or area-scopable. (Legacy atoms' project_module is accepted
+//    as the area fallback.)
 export function scoreAtomQuality(atom) {
   const reasons = [];
   const body = String(atom?.body || "");

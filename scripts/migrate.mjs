@@ -18,7 +18,12 @@ import { indexRebuildAll, validate } from "./lib/wiki-cli.mjs";
 // `--check` reports leaves still on the legacy shape (exit non-zero if any);
 // `--dry-run` lists them without mutating.
 
-export function migrate({ wiki = wikiRoot(), dryRun = false, check = false } = {}) {
+export function migrate({ dryRun = false, check = false } = {}) {
+  // wiki-store ops (listDocuments / readDocument / updateDocMetadata) and wiki-cli
+  // (indexRebuildAll / validate) all resolve the wiki from env via wikiRoot(), so
+  // migrate always targets the env-configured wiki. Bind it once for the calls
+  // that take an explicit path, so scan + rebuild + validate cannot diverge.
+  const wiki = wikiRoot();
   const workspace = String(defaultProjectModule() || "").trim().toLowerCase();
   const { documents } = listDocuments({});
   const candidates = [];
@@ -30,9 +35,13 @@ export function migrate({ wiki = wikiRoot(), dryRun = false, check = false } = {
       continue;
     }
     const pm = String(meta.project_module || "").trim().toLowerCase();
-    // A leaf needs migrating when its project_module is a sub-module (anything
-    // other than the workspace). Already-migrated leaves carry project_module ==
-    // workspace and are skipped.
+    // Migrate only leaves whose project_module is a legacy sub-module value
+    // (anything other than the workspace) -> the pre-split shape. Leaves already
+    // carrying project_module == workspace are skipped on purpose: either they are
+    // already migrated, or they are post-split leaves written without a sub-module
+    // (correctly placed under the "unscoped" facet). There is no reliable
+    // sub-module to backfill an `area` from when project_module is already the
+    // workspace, so leaving them unscoped is correct rather than guessing.
     if (pm && pm !== workspace) {
       candidates.push({
         id: doc.id,

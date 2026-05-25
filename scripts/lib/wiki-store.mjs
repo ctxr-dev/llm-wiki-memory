@@ -135,8 +135,11 @@ function normaliseMeta(metadata = {}, extra = {}) {
   // `area` is the fine-grained sub-module (facet + fine scope). Legacy atoms put
   // it in `project_module`, so fall back to that. `project_module` itself is the
   // WORKSPACE identifier for this single-project file store, stamped from
-  // defaultProjectModule() so recall's default scope matches every leaf (a caller
-  // may override it explicitly for a deliberate cross-project save).
+  // defaultProjectModule() so recall's default scope matches every leaf. A
+  // deliberate cross-project save can override the workspace via
+  // `metadata.project_module_override`; the plain `metadata.project_module` is
+  // reserved as the legacy sub-module alias for `area`, so it is NOT honoured as
+  // the workspace value (that is why a separate override key exists).
   const out = {
     atom_type: String(m.atom_type || extra.atom_type || "").trim(),
     project_module: String(m.project_module_override || defaultProjectModule() || "").trim().toLowerCase(),
