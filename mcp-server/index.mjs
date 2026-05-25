@@ -55,12 +55,17 @@ const RELOADABLE = new Set(["wiki-store.mjs", "recall.mjs"]);
 
 function watchForReload() {
   let timer = null;
+  // Serialise reloads: chain each onto the previous so two debounced bursts can
+  // never run loadImpl() concurrently and race on assigning `impl`.
+  let chain = Promise.resolve();
   const onChange = (_event, filename) => {
     const base = filename ? path.basename(filename) : null;
     // When we can identify the changed file and it is NOT one of the hot-reloaded
     // modules, skip the no-op reload and tell the operator a restart is needed,
-    // rather than logging a misleading "hot-reloaded". When filename is null
-    // (platform-dependent), fall through and reload best-effort.
+    // rather than logging a misleading "hot-reloaded". We deliberately do NOT
+    // clear a pending timer here: a git pull often changes a hot module AND a
+    // static dep together, and the queued reload (for the hot module) must still
+    // fire. When filename is null (platform-dependent), fall through and reload.
     if (base && !RELOADABLE.has(base)) {
       process.stderr.write(
         `[llm-wiki-memory] '${base}' changed; restart required to pick it up (only ${[...RELOADABLE].join("/")} hot-reload)\n`,
@@ -68,17 +73,19 @@ function watchForReload() {
       return;
     }
     clearTimeout(timer);
-    timer = setTimeout(async () => {
-      try {
-        reloadSeq += 1;
-        await loadImpl();
-        // stderr ONLY: stdout carries the JSON-RPC protocol stream.
-        process.stderr.write("[llm-wiki-memory] hot-reloaded after file change\n");
-      } catch (err) {
-        process.stderr.write(
-          `[llm-wiki-memory] hot-reload failed, keeping previous code: ${err?.message || err}\n`,
-        );
-      }
+    timer = setTimeout(() => {
+      chain = chain.then(async () => {
+        try {
+          reloadSeq += 1;
+          await loadImpl();
+          // stderr ONLY: stdout carries the JSON-RPC protocol stream.
+          process.stderr.write("[llm-wiki-memory] hot-reloaded after file change\n");
+        } catch (err) {
+          process.stderr.write(
+            `[llm-wiki-memory] hot-reload failed, keeping previous code: ${err?.message || err}\n`,
+          );
+        }
+      });
     }, 200);
   };
   for (const dir of WATCH_DIRS) {

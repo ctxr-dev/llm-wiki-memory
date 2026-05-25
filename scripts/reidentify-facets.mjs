@@ -93,7 +93,11 @@ function pruneEmptyDirs(wiki) {
   return pruned;
 }
 
-export async function reidentifyFacets({ wiki = wikiRoot(), dryRun = false, check = false } = {}) {
+export async function reidentifyFacets({ dryRun = false, check = false } = {}) {
+  // Always operate on the env-bound wiki root: the relocations go through
+  // updateDocMetadata, which resolves paths against wikiRoot() internally, so
+  // scanning/pruning/validate MUST use the same root (no divergent `wiki` arg).
+  const wiki = wikiRoot();
   const offenders = findOffenders(wiki);
 
   if (check) {

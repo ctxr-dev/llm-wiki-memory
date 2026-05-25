@@ -55,12 +55,12 @@ export function validAtomTypes(category) {
   );
 }
 
-function defaultAtomTypeForCategory(category) {
-  if (category === "self_improvement") return "self-improvement-lesson";
-  if (category === "plans") return "plan";
-  if (category === "investigations") return "investigation";
-  return "reference"; // knowledge + anything else: the most generic knowledge type
-}
+// Fallback when a knowledge atom_type is missing/out-of-set. `atom_type` is a
+// placement facet ONLY for knowledge, so this is the one category that forces a
+// valid default; "reference" is the most generic knowledge type (and is in
+// validAtomTypes("knowledge")). Other categories keep whatever atom_type the
+// caller supplied (or none), so no per-category default table is needed.
+const KNOWLEDGE_FALLBACK_ATOM_TYPE = "reference";
 
 // Discover existing sub-module folders for a category from the on-disk tree,
 // unioned with the cross-cutting set. Self-adapting: no hardcoded vocabulary.
@@ -147,7 +147,7 @@ export function inferFacets({ category, meta = {}, tags = [] } = {}) {
 
   const atomType = String(meta.atom_type || "").trim().toLowerCase();
   if (category === "knowledge") {
-    patch.atom_type = validTypes.has(atomType) ? atomType : defaultAtomTypeForCategory(category);
+    patch.atom_type = validTypes.has(atomType) ? atomType : KNOWLEDGE_FALLBACK_ATOM_TYPE;
   } else if (atomType) {
     patch.atom_type = atomType;
   }
