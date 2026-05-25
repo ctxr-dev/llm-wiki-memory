@@ -337,7 +337,10 @@ async function executeAction(atom, decision, candidates, targetDataset) {
     const text = buildPromotedDocText(atom);
     const name = buildName(atom.title);
     if (DRY_RUN) return { ok: true, dryRun: true, action: "create", name, datasetId: targetDataset };
-    return writeMemory({ name, text, datasetId: targetDataset });
+    // Pass metadata at write so placement nests by the atom's facets
+    // (project_module / atom_type / task_type). applyMetadataToWritten still
+    // re-merges it afterwards (idempotent) for the retry/un-filterable bookkeeping.
+    return writeMemory({ name, text, datasetId: targetDataset, metadata: metadataForDify(atom) });
   }
   if (decision.action === "update") {
     if (!decision.supersedes) throw new Error("update action missing supersedes");
@@ -367,6 +370,7 @@ async function executeAction(atom, decision, candidates, targetDataset) {
       name,
       text,
       datasetId: targetDataset,
+      metadata: metadataForDify(atom),
       supersedes: decision.supersedes,
       supersedesAction: "disable",
     });

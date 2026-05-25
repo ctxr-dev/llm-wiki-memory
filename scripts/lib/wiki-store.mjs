@@ -12,7 +12,7 @@ import {
   embed,
   cosine,
 } from "./embed.mjs";
-import { dailyDatePath } from "./slug.mjs";
+import { slugify, dailyDatePath } from "./slug.mjs";
 
 // Drop-in replacement for the boilerplate's dify-write.mjs. Same exported
 // function names/shapes, but every document is a leaf in the local hosted
@@ -195,11 +195,43 @@ function assertKnownSlot(slot) {
   return category;
 }
 
+// Per-category placement facets: the leaf nests under these metadata fields, in
+// order, so the on-disk tree mirrors the SAME fields searchMemoryFiltered filters
+// on. `daily` is the exception (date-nested, chronological raw intake). A category
+// absent here gets no facet nesting (flat under its root) - assertKnownSlot keeps
+// that from happening for the five contract categories.
+const PLACEMENT_FACETS = {
+  knowledge: ["project_module", "atom_type"],
+  self_improvement: ["project_module", "task_type"],
+  plans: ["project_module"],
+  investigations: ["project_module"],
+};
+
+// Kebab folder segment for one facet, with deterministic sentinels when the field
+// is absent so a missing facet never collapses leaves back into the category root.
+function facetValue(key, meta) {
+  const raw = slugify(String((meta && meta[key]) || "").trim());
+  if (raw && raw !== "untitled") return raw;
+  if (key === "task_type") return "unknown"; // already a valid TASK_TYPE value
+  if (key === "project_module") return "unscoped";
+  return "misc";
+}
+
+// Relative dir (under the wiki root) for a leaf, derived from its NORMALISED
+// `memory` metadata. Exported so migrate-nest computes the same target from an
+// existing leaf's frontmatter. Returns null for `daily` (caller date-nests it).
+export function placementDirForMeta(category, meta = {}) {
+  if (category === "daily") return null;
+  const facets = PLACEMENT_FACETS[category] || [];
+  if (facets.length === 0) return category;
+  return [category, ...facets.map((k) => facetValue(k, meta))].join("/");
+}
+
 // Resolve where a NEW leaf for a slot should live (relative dir under wiki).
-function placementDir(slot, { date = new Date() } = {}) {
+function placementDir(slot, { metadata = {}, date = new Date() } = {}) {
   const category = slotToCategory(slot);
   if (category === "daily") return `daily/${dailyDatePath(date)}`;
-  return category;
+  return placementDirForMeta(category, metadata) ?? category;
 }
 
 // ---- public API (dify-write.mjs parity) ----
@@ -220,7 +252,7 @@ export function writeMemory({ name, text, datasetId, supersedes, supersedesActio
   // `date` (optional) pins daily date-nesting to a caller-supplied time (e.g. a
   // flush's capture time) rather than the write time, so a background worker
   // that crosses midnight UTC still nests under the captured day.
-  const dir = placementDir(slot, { date });
+  const dir = placementDir(slot, { metadata: memoryMeta, date });
   const leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
   fs.mkdirSync(path.dirname(leafAbs), { recursive: true });
   fs.writeFileSync(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));
@@ -272,7 +304,7 @@ export function saveDocument({ name, text, datasetId, metadata } = {}) {
     leafAbs = existing;
     replacedId = toRel(existing);
   } else {
-    const dir = placementDir(slot);
+    const dir = placementDir(slot, { metadata: memoryMeta });
     leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
   }
   fs.mkdirSync(path.dirname(leafAbs), { recursive: true });

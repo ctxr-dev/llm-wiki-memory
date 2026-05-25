@@ -3,23 +3,35 @@ versioning:
   style: in-place
   backup_before_mutate: false
 purpose: "Persistent local memory for the agent across sessions"
+# Layout rule (enforced in code by scripts/lib/wiki-store.mjs placementDir, and by
+# scripts/migrate-nest.mjs for pre-existing leaves): every category is NESTED, never
+# a flat pile in the category root. Non-daily categories nest by the SAME metadata
+# facets the store is searched by (so browsing the tree mirrors searching it); daily
+# nests by capture date. Do NOT topically re-cluster these wikis; re-nest
+# deterministically with `node scripts/cli.mjs nest`.
+#   knowledge        -> knowledge/<project_module>/<atom_type>/
+#   self_improvement -> self_improvement/<project_module>/<task_type>/
+#   plans            -> plans/<project_module>/
+#   investigations   -> investigations/<project_module>/
+#   daily            -> daily/<yyyy>/<mm>/<dd>/
+# Missing-facet sentinels: project_module -> "unscoped", task_type -> "unknown".
 layout:
   - path: knowledge
-    purpose: "long-lived facts, decisions, lore, and gotchas"
+    purpose: "long-lived facts, decisions, lore, and gotchas; nested by project_module/atom_type"
     allow_entry_types: [primary]
-    max_depth: 3
+    max_depth: 5
   - path: self_improvement
-    purpose: "self-improvement lessons keyed by error_pattern"
+    purpose: "self-improvement lessons; nested by project_module/task_type (dedup keyed by error_pattern)"
     allow_entry_types: [primary]
-    max_depth: 2
+    max_depth: 5
   - path: plans
-    purpose: "approved and in-flight plans"
+    purpose: "approved and in-flight plans; nested by project_module"
     allow_entry_types: [primary]
-    max_depth: 2
+    max_depth: 5
   - path: investigations
-    purpose: "investigation and analysis artefacts"
+    purpose: "investigation and analysis artefacts; nested by project_module"
     allow_entry_types: [primary]
-    max_depth: 2
+    max_depth: 5
   - path: daily
     purpose: "raw captured memory atoms, nested by capture date (yyyy/mm/dd)"
     allow_entry_types: [primary]

@@ -83,9 +83,17 @@ async function main() {
     }
     case "compile":
       return cmdCompile(rest);
+    case "nest": {
+      const { migrateNest } = await import("./migrate-nest.mjs");
+      const res = migrateNest({ dryRun: rest.includes("--dry-run"), check: rest.includes("--check") });
+      out(res);
+      if (res.mode === "check" && !res.ok) process.exit(3);
+      if (res.mode === "migrate" && !res.ok) process.exit(2);
+      return;
+    }
     default:
       out(
-        "Usage: llm-wiki-memory <init|validate|heal|where|compile|recall <q>|search <q>>",
+        "Usage: llm-wiki-memory <init|validate|heal|where|compile|nest [--dry-run|--check]|recall <q>|search <q>>",
       );
       process.exit(cmd ? 1 : 0);
   }

@@ -84,7 +84,7 @@ save_lesson({
 - `pr-comment-on-stale-head`
 - `wrong-test-import-path`
 
-A `save_lesson` call lands a lesson atom in today's `daily/<yyyy>/<mm>/<dd>/` leaves. If a future session corrects you on the same trap, the next compile pass will MERGE your new lesson into the existing `self_improvement` leaf (same `error_pattern`), not multiply it. Compile runs once per day automatically (PreCompact / PostCompact / SessionEnd hooks feed it; the daily promotion runs the merge); you can force it now with `node .llm-wiki-memory/src/scripts/cli.mjs compile`.
+A `save_lesson` call lands a lesson atom in today's `daily/<yyyy>/<mm>/<dd>/` leaves. If a future session corrects you on the same trap, the next compile pass will MERGE your new lesson into the existing `self_improvement/<project_module>/<task_type>/` leaf (same `error_pattern`), not multiply it. Compile runs once per day automatically (PreCompact / PostCompact / SessionEnd hooks feed it; the daily promotion runs the merge); you can force it now with `node .llm-wiki-memory/src/scripts/cli.mjs compile`.
 
 ## Do NOT save a lesson when
 

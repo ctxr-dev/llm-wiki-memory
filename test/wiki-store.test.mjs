@@ -22,8 +22,13 @@ test("writeMemory + updateDocMetadata: knowledge leaf, validate clean, filterabl
     name: "knowledge-oauth-decision-2026-05-22-120000000.md",
     text: "# Use OAuth2 over custom auth\n\nUse OAuth2 for billing auth.\nWhy: fewer attack vectors.",
     datasetId: "knowledge",
+    metadata: { atom_type: "decision", project_module: "billing", tags: "auth,billing" },
   });
-  assert.ok(res.created.document.id.startsWith("knowledge/"), "placed under knowledge/");
+  assert.match(
+    res.created.document.id,
+    /^knowledge\/billing\/decision\/knowledge-oauth-decision-/,
+    "nested by project_module/atom_type facets",
+  );
   store.updateDocMetadata({
     datasetId: "knowledge",
     documentId: res.created.document.id,
@@ -134,8 +139,8 @@ test("saveDocument with a messy name yields a leaf that passes validate", () => 
     metadata: { atom_type: "plan" },
   });
   assert.equal(res.name, "my-fancy-plan.md", "stored under a sanitised name");
-  assert.equal(res.created.document.id, "plans/my-fancy-plan.md");
-  assert.ok(fs.existsSync(path.join(wiki, "plans", "my-fancy-plan.md")));
+  assert.equal(res.created.document.id, "plans/unscoped/my-fancy-plan.md", "nested by project_module facet (unscoped sentinel)");
+  assert.ok(fs.existsSync(path.join(wiki, "plans", "unscoped", "my-fancy-plan.md")));
   assert.equal(cli.validate(wiki).ok, true, `validate clean: ${JSON.stringify(cli.validate(wiki))}`);
 });
 
@@ -195,4 +200,52 @@ test("long scalars are not folded into block scalars (validate stays clean)", ()
     list.documents.some((d) => d.id === id),
     "long-titled leaf is listed (not dropped from the index)",
   );
+});
+
+test("non-daily leaves nest by metadata facets (search-aligned)", () => {
+  const lesson = store.saveDocument({
+    name: "lesson-always-await-2026-05-25-120000000.md",
+    text: "# Always await\n\nAwait async calls.\nWhy: avoid races.",
+    datasetId: "self_improvement",
+    metadata: { project_module: "billing", task_type: "refactor", error_pattern: "missing-await" },
+  });
+  assert.match(
+    lesson.created.document.id,
+    /^self_improvement\/billing\/refactor\/lesson-always-await-/,
+    "self_improvement nests by project_module/task_type",
+  );
+  assert.equal(cli.validate(wiki).ok, true, `validate clean with nested facet leaf: ${JSON.stringify(cli.validate(wiki))}`);
+});
+
+test("missing facets fall back to deterministic sentinels", () => {
+  const k = store.writeMemory({
+    name: "knowledge-no-scope-2026-05-25-130000000.md",
+    text: "# Unscoped fact\n\nA fact with no project_module.\nWhy: exercise the sentinel.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "reference" }, // no project_module
+  });
+  assert.match(k.created.document.id, /^knowledge\/unscoped\/reference\//, "absent project_module -> unscoped");
+
+  const l = store.saveDocument({
+    name: "lesson-no-task-2026-05-25-140000000.md",
+    text: "# No task\n\nlesson body.\nWhy: exercise the sentinel.",
+    datasetId: "self_improvement",
+    metadata: { project_module: "billing" }, // no task_type
+  });
+  assert.match(l.created.document.id, /^self_improvement\/billing\/unknown\//, "absent task_type -> unknown");
+});
+
+test("placementDirForMeta maps each category to its facet path", () => {
+  assert.equal(
+    store.placementDirForMeta("knowledge", { project_module: "tradingtune", atom_type: "pattern-gotcha" }),
+    "knowledge/tradingtune/pattern-gotcha",
+  );
+  assert.equal(
+    store.placementDirForMeta("self_improvement", { project_module: "tt", task_type: "debugging" }),
+    "self_improvement/tt/debugging",
+  );
+  assert.equal(store.placementDirForMeta("plans", { project_module: "tt" }), "plans/tt");
+  assert.equal(store.placementDirForMeta("investigations", {}), "investigations/unscoped");
+  assert.equal(store.placementDirForMeta("self_improvement", { project_module: "tt" }), "self_improvement/tt/unknown");
+  assert.equal(store.placementDirForMeta("daily", {}), null, "daily is date-nested, not facet-nested");
 });
