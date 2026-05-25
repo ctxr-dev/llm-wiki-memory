@@ -28,10 +28,13 @@ const BAD_AREA = new Set(["", "unknown", "unscoped", "untyped", "misc", "untitle
 // FIRST entry is the deterministic fallback.
 export function crossCuttingAreas() {
   const raw = envValue("MEMORY_CROSS_CUTTING_AREAS", "workspace,conventions");
+  const workspace = slugify(defaultProjectModule() || "");
+  // Defend the "never unknown/unscoped/workspace-name area" guarantee even if
+  // the env var is misconfigured: drop bad-sentinel and workspace-name entries.
   const list = String(raw)
     .split(",")
     .map((s) => slugify(s.trim()))
-    .filter((s) => s && s !== "untitled");
+    .filter((s) => s && !BAD_AREA.has(s) && s !== workspace);
   return list.length ? list : ["workspace"];
 }
 

@@ -103,26 +103,30 @@ export async function reidentifyFacets({ wiki = wikiRoot(), dryRun = false, chec
 
   const applied = [];
   const skipped = [];
-  const touchedParents = new Set();
   for (const o of offenders) {
     const { meta, body, focus } = leafOf(o.abs);
     const patch = await classifyFacetsLLM({ category: o.category, meta, title: focus, text: body, tags: meta.tags });
+    // updateDocMetadata relocates the leaf and refreshes the OLD + NEW ancestor
+    // indexes itself, so moves need no extra index work here.
     const res = updateDocMetadata({ datasetId: o.category, documentId: o.id, metadata: patch });
     if (res && res.ok) {
-      const to = res.relocated ? res.relocated.to : o.id;
-      applied.push({ from: o.id, to, patch });
-      touchedParents.add(path.dirname(o.abs));
+      applied.push({ from: o.id, to: res.relocated ? res.relocated.to : o.id, patch });
     } else {
       skipped.push({ id: o.id, reason: res && res.reason ? res.reason : "update failed" });
     }
   }
 
+  // Prune dirs emptied by the relocations, then rebuild each pruned dir's PARENT
+  // index. ensureIndexes() expects LEAF paths (it walks up from path.dirname),
+  // so pass a synthetic `<parent>/index.md` whose dirname is the parent to rebuild.
   const pruned = pruneEmptyDirs(wiki);
-  // Refresh indexes for every parent that lost a leaf or a pruned subdir.
-  const refresh = [...touchedParents, ...pruned.map((p) => path.dirname(path.join(wiki, p.split("/").join(path.sep))))];
-  if (refresh.length) {
+  if (pruned.length) {
+    const synthetic = pruned.map((rel) => {
+      const prunedAbs = path.join(wiki, rel.split("/").join(path.sep));
+      return path.join(path.dirname(prunedAbs), "index.md");
+    });
     try {
-      ensureIndexes(wiki, refresh);
+      ensureIndexes(wiki, synthetic);
     } catch {
       /* best effort; validate will surface anything left */
     }

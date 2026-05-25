@@ -20,11 +20,23 @@ import { INSTRUCTIONS } from "../scripts/lib/discipline.mjs";
 // change confined to one of their STATIC deps (slug.mjs, facets.mjs, ...)
 // resolves to the cached copy and still needs a one-time restart.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+// Flat directories that hold the reloadable logic (no nested subdirs), so a
+// NON-recursive watch suffices. Recursive fs.watch is unsupported on some
+// platforms (historically throws on Linux), so avoiding it keeps reload working
+// cross-platform.
 const WATCH_DIRS = [path.join(HERE, "../scripts/lib"), HERE];
 
 let impl = {};
+// Monotonic, not Date.now(): each value busts the ESM module cache so a changed
+// file is re-evaluated. Node's ESM loader retains prior specifiers, so every
+// reload keeps an extra copy of these two small modules in memory. Reloads fire
+// only on an actual file change (a `git pull`), which is rare for a memory
+// server, so the retained-module growth is negligible. A tear-down-able worker
+// was rejected because it would re-initialise the embedding backend on every
+// reload, the exact cost this in-process design avoids.
+let reloadSeq = 0;
 async function loadImpl() {
-  const v = Date.now();
+  const v = reloadSeq;
   const [store, recall] = await Promise.all([
     import(`../scripts/lib/wiki-store.mjs?v=${v}`),
     import(`../scripts/lib/recall.mjs?v=${v}`),
@@ -40,6 +52,7 @@ function watchForReload() {
     clearTimeout(timer);
     timer = setTimeout(async () => {
       try {
+        reloadSeq += 1;
         await loadImpl();
         // stderr ONLY: stdout carries the JSON-RPC protocol stream.
         process.stderr.write("[llm-wiki-memory] hot-reloaded after file change\n");
@@ -52,7 +65,7 @@ function watchForReload() {
   };
   for (const dir of WATCH_DIRS) {
     try {
-      fs.watch(dir, { recursive: true }, onChange);
+      fs.watch(dir, onChange);
     } catch (err) {
       process.stderr.write(`[llm-wiki-memory] watch failed for ${dir}: ${err?.message || err}\n`);
     }
