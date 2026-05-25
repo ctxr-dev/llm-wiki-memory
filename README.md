@@ -134,7 +134,7 @@ Top-level wiki categories: **`knowledge`**, **`self_improvement`**, **`plans`**,
 **`investigations`**, **`daily`**. Every category is a nested tree (never a flat pile), so no
 directory grows unbounded. Non-daily categories nest by the **same metadata facets you search
 by** (`knowledge/<project_module>/<atom_type>/`, `self_improvement/<project_module>/<task_type>/`,
-`plans`/`investigations/<project_module>/`); `daily` nests by capture date
+`plans/<project_module>/`, `investigations/<project_module>/`); `daily` nests by capture date
 (`daily/<yyyy>/<mm>/<dd>/`). Browsing the tree therefore mirrors how recall filters; finding by
 content is independent of layout (recall embeds and walks every leaf). Existing flat installs
 re-nest with `node .llm-wiki-memory/src/scripts/cli.mjs nest`.

@@ -237,7 +237,8 @@ function placementDir(slot, { metadata = {}, date = new Date() } = {}) {
 // ---- public API (dify-write.mjs parity) ----
 
 // Create (or, when name collides under the slot, replace) a leaf. `metadata`
-// is optional; compile sets it later via updateDocMetadata.
+// is optional but, when supplied, drives facet placement at write time (compile
+// passes it here); it may also be re-merged later via updateDocMetadata.
 export function writeMemory({ name, text, datasetId, supersedes, supersedesAction, metadata, date } = {}) {
   if (!name || !text || !datasetId) {
     throw new WikiStoreUnavailable("writeMemory requires name, text, datasetId");
