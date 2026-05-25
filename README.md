@@ -17,7 +17,7 @@ stored as a local [LLM wiki](https://github.com/ctxr-dev/skill-llm-wiki) with lo
 [![recall](https://img.shields.io/badge/recall-bge_embeddings-FF6F00)](https://huggingface.co/Xenova/bge-large-en-v1.5)
 [![infra](https://img.shields.io/badge/infra-no_Docker_·_no_RAG-success)](#)
 [![built on](https://img.shields.io/badge/built_on-%40ctxr%2Fskill--llm--wiki-1f6feb)](https://github.com/ctxr-dev/skill-llm-wiki)
-[![tests](https://img.shields.io/badge/tests-36_passing-brightgreen)](#testing)
+[![tests](https://img.shields.io/badge/tests-81_passing-brightgreen)](#testing)
 
 </div>
 
@@ -229,7 +229,7 @@ npm test          # unit: wiki-store, recall, slug, discipline, MCP boot + round
 npm run test:e2e  # full lifecycle vs the REAL skill CLI (LLM stubbed, lexical embeddings)
 ```
 
-36 tests in total. The end-to-end suite builds a wiki from scratch in a temp directory and
+81 tests in total (71 unit, 10 end-to-end). The end-to-end suite builds a wiki from scratch in a temp directory and
 asserts genesis, daily capture, lesson, knowledge, plan, and investigation absorption,
 compile promotion and dedup, recall, tree-growth integrity, and idempotency, all against the
 real `skill-llm-wiki` CLI.
