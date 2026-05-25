@@ -69,3 +69,30 @@ test("migrate-nest is idempotent, search still works, and --check flags flat lea
   assert.equal(chk2.ok, false, "a freshly introduced flat leaf is detected");
   assert.equal(chk2.flatCount, 1);
 });
+
+test("migrate-nest refuses to clobber an existing destination (no data loss)", () => {
+  // A nested leaf already lives at its facet path.
+  const nested = store.writeMemory({
+    name: "knowledge-clash-2026-05-25-150000000.md",
+    text: "# Nested original\n\nthe original nested leaf.\nWhy: keep it.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "decision", project_module: "billing" },
+  });
+  const nestedRel = nested.created.document.id; // knowledge/billing/decision/knowledge-clash-...md
+  const nestedAbs = abs(nestedRel);
+  const before = fs.readFileSync(nestedAbs, "utf8");
+
+  // A flat leaf with the SAME basename that would migrate onto the nested one.
+  const flatRel = `knowledge/${path.basename(nestedRel)}`;
+  const flatAbs = abs(flatRel);
+  fs.copyFileSync(nestedAbs, flatAbs);
+  fs.appendFileSync(flatAbs, "\nDISTINCT FLAT MARKER\n");
+
+  const res = migrateNest({ wiki });
+  assert.equal(res.ok, false, "a destination collision makes the run not-ok");
+  assert.ok(res.conflicts.some((c) => c.from === flatRel), `collision recorded: ${JSON.stringify(res.conflicts)}`);
+  assert.ok(fs.existsSync(flatAbs), "flat source left in place, not deleted");
+  assert.equal(fs.readFileSync(nestedAbs, "utf8"), before, "existing nested leaf not overwritten");
+
+  fs.rmSync(flatAbs); // tidy up so the leftover flat leaf does not perturb later runs
+});

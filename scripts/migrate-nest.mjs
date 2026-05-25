@@ -81,30 +81,48 @@ export function migrateNest({ wiki = wikiRoot(), dryRun = false, check = false }
     return { ok: flats.length === 0, mode: "check", flatCount: flats.length, flat: moves.map((m) => m.from) };
   }
   if (dryRun) {
-    return { ok: true, mode: "dry-run", flatCount: flats.length, moves: moves.map(({ from, to }) => ({ from, to })) };
+    const wouldConflict = moves.filter((m) => fs.existsSync(m.destAbs)).map(({ from, to }) => ({ from, to }));
+    return {
+      ok: wouldConflict.length === 0,
+      mode: "dry-run",
+      flatCount: flats.length,
+      moves: moves.map(({ from, to }) => ({ from, to })),
+      conflicts: wouldConflict,
+    };
   }
 
   refreshContract(wiki);
 
-  const movedAbs = [];
+  const applied = [];
+  const conflicts = [];
   for (const m of moves) {
+    // Never clobber an existing destination. If a leaf with the same basename
+    // already lives at the target facet path (a same-named nested leaf, or a
+    // re-introduced flat copy), renaming onto it would overwrite it (data loss
+    // on POSIX) or abort the whole run (Windows EEXIST). Skip and record it so
+    // the caller can resolve it by hand; the rest of the migration proceeds.
+    if (fs.existsSync(m.destAbs)) {
+      conflicts.push({ from: m.from, to: m.to });
+      continue;
+    }
     fs.mkdirSync(path.dirname(m.destAbs), { recursive: true });
     fs.renameSync(m.abs, m.destAbs);
     removeEmbedding(m.from);
-    movedAbs.push(m.destAbs);
+    applied.push({ from: m.from, to: m.to, destAbs: m.destAbs });
   }
 
   let validation = { ok: true, errors: 0, warnings: 0 };
-  if (movedAbs.length > 0) {
-    ensureIndexes(wiki, movedAbs);
+  if (applied.length > 0) {
+    ensureIndexes(wiki, applied.map((m) => m.destAbs));
     validation = validate(wiki);
   }
 
   return {
-    ok: validation.ok,
+    ok: validation.ok && conflicts.length === 0,
     mode: "migrate",
-    moved: movedAbs.length,
-    moves: moves.map(({ from, to }) => ({ from, to })),
+    moved: applied.length,
+    moves: applied.map(({ from, to }) => ({ from, to })),
+    conflicts,
     validate: { ok: validation.ok, errors: validation.errors, warnings: validation.warnings },
   };
 }
