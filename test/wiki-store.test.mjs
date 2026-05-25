@@ -285,6 +285,34 @@ test("updateDocMetadata relocates a leaf when a facet field changes", () => {
   assert.ok(!again.relocated, "re-applying identical facets is an in-place no-op");
 });
 
+test("saveDocument relocates a same-named leaf when its facets change (upsert, no stale copy)", () => {
+  const first = store.saveDocument({
+    name: "knowledge-upsert-move.md",
+    text: "# Upsert move\n\nv1 under billing.\nWhy: relocation test.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "reference", project_module: "billing" },
+  });
+  assert.match(first.created.document.id, /^knowledge\/billing\/reference\/knowledge-upsert-move\.md$/);
+
+  const second = store.saveDocument({
+    name: "knowledge-upsert-move.md",
+    text: "# Upsert move\n\nv2 under landing.\nWhy: relocation test.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "reference", project_module: "landing" },
+  });
+  assert.match(second.created.document.id, /^knowledge\/landing\/reference\/knowledge-upsert-move\.md$/);
+  assert.equal(second.relocatedFrom, first.created.document.id, "reports the relocation source");
+  assert.ok(
+    !fs.existsSync(path.join(wiki, first.created.document.id.split("/").join(path.sep))),
+    "stale-facet copy removed (no duplicate)",
+  );
+  const matches = store
+    .listDocuments({ datasetId: "knowledge", enabled: "true" })
+    .documents.filter((d) => d.name === "knowledge-upsert-move.md");
+  assert.equal(matches.length, 1, "exactly one leaf with that name after relocation");
+  assert.equal(cli.validate(wiki).ok, true, `validate clean after upsert-relocation: ${JSON.stringify(cli.validate(wiki))}`);
+});
+
 test("placementDirForMeta maps each category to its facet path", () => {
   assert.equal(
     store.placementDirForMeta("knowledge", { project_module: "tradingtune", atom_type: "pattern-gotcha" }),

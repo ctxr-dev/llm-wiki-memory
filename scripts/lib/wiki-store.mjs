@@ -291,7 +291,10 @@ export function writeMemory({ name, text, datasetId, supersedes, supersedesActio
   };
 }
 
-// Upsert-by-name: same name overwrites in place. Applies metadata immediately.
+// Upsert-by-name: the leaf is written at the facet path its metadata implies. A
+// same-named leaf already at that path is overwritten in place; one found at a
+// STALE facet path (its metadata changed) is relocated there so the on-disk path
+// always matches the leaf's facets. Applies metadata immediately.
 export function saveDocument({ name, text, datasetId, metadata } = {}) {
   if (!name || !text || !datasetId) {
     throw new WikiStoreUnavailable("saveDocument requires name, text, datasetId");
@@ -306,19 +309,21 @@ export function saveDocument({ name, text, datasetId, metadata } = {}) {
   const memoryMeta = normaliseMeta(metadata, { atom_type: slotDefaultAtomType(slot) });
   const tags = tagsArray(metadata);
 
-  let leafAbs;
-  let replacedId;
-  if (existing) {
-    leafAbs = existing;
-    replacedId = toRel(existing);
-  } else {
-    const dir = placementDir(slot, { metadata: memoryMeta });
-    leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
-  }
+  const dir = placementDir(slot, { metadata: memoryMeta });
+  const leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
+  const replacedId = existing ? toRel(existing) : undefined;
+  const moved = Boolean(existing) && path.resolve(existing) !== path.resolve(leafAbs);
+
   fs.mkdirSync(path.dirname(leafAbs), { recursive: true });
   fs.writeFileSync(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));
 
-  ensureIndexes(root(), [leafAbs]);
+  const touched = [leafAbs];
+  if (moved) {
+    fs.rmSync(existing); // relocate: drop the stale-facet copy after the new one is written
+    renameEmbedding(toRel(existing), toRel(leafAbs));
+    touched.push(existing);
+  }
+  ensureIndexes(root(), touched);
   upsertEmbedding(toRel(leafAbs), text);
 
   const metadataAttempted = metadata && Object.keys(metadata).length > 0;
@@ -328,6 +333,7 @@ export function saveDocument({ name, text, datasetId, metadata } = {}) {
     name: safeName,
     created: { document: { id: toRel(leafAbs) } },
     replacedId,
+    relocatedFrom: moved ? replacedId : undefined,
     metadataError: undefined,
     metadataResult: metadataAttempted ? { ok: true } : undefined,
   };
