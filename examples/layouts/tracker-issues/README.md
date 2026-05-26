@@ -56,12 +56,13 @@ custom scaffolding.
 Callers write through the MCP `write_memory` / `save_to_dataset` tools (or
 `writeMemory()` / `saveDocument()` libs) using the optional `path` parameter
 as the placementOverride. Don't compute paths by hand — load the topology
-and use the helper:
+and let the generic runtime execute the `path_compiler` declared in this
+YAML:
 
 ```javascript
-import { loadTopology, pathFor } from "llm-wiki-memory/topologies/tracker-issue";
+import { loadTopology, pathFor } from "llm-wiki-memory/topology-runtime";
 
-const topo = loadTopology(wikiRoot);
+const topo = await loadTopology(wikiRoot);
 
 const knowledgePath = pathFor(topo, "knowledge", {
   tracker: "JIRA",
@@ -82,6 +83,12 @@ const planPath = pathFor(topo, "plan", {
 
 Then pass the **directory** (path minus the trailing filename) as the
 `path` parameter on the MCP tool, with the leaf's basename as `name`.
+
+The digit-bucket math lives in this YAML's `path_compiler` (sandboxed
+inline JS), not in the runtime — the runtime is generic across topologies.
+See [`../PROTOCOL.md`](../PROTOCOL.md) for the full schema, the sandbox
+rules, and the `path_compiler_file` alternative for moving logic into a
+sibling .mjs file.
 
 ## Required facets
 
@@ -124,6 +131,9 @@ The `issues/` category will appear automatically on the first write.
 
 ## Reference
 
-- Topology helper: [`scripts/lib/topologies/tracker-issue.mjs`](../../../scripts/lib/topologies/tracker-issue.mjs)
-- Tests: [`test/tracker-issue-topology.test.mjs`](../../../test/tracker-issue-topology.test.mjs)
+- Generic topology runtime: [`scripts/lib/topology-runtime.mjs`](../../../scripts/lib/topology-runtime.mjs)
+- Path-compiler sandbox: [`scripts/lib/path-compiler.mjs`](../../../scripts/lib/path-compiler.mjs)
+- Protocol spec (this YAML's contract): [`../PROTOCOL.md`](../PROTOCOL.md)
+- Tests: [`test/topology-runtime.test.mjs`](../../../test/topology-runtime.test.mjs), [`test/path-compiler.test.mjs`](../../../test/path-compiler.test.mjs)
 - Layout validator: `node scripts/cli.mjs validate-layout examples/layouts/tracker-issues/.llmwiki.layout.yaml`
+- Compiler dry-run: `node scripts/cli.mjs test-path-compiler knowledge tracker=JIRA prefix=DEV number=129957`

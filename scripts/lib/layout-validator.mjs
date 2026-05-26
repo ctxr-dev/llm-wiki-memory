@@ -38,14 +38,51 @@ export const FileKindSchema = z
   .object({
     required_facets: z.array(z.string()).min(1, "file_kind must list at least one required_facet"),
     enums: z.record(z.string(), z.array(z.string())).optional(),
+    // One of the three forward mechanisms is required (validated in
+    // .superRefine below):
+    //   path_compiler_file > path_compiler > path_template
     path_template: z
       .string()
       .min(1, "path_template cannot be empty")
       .refine((s) => /\{[a-zA-Z_][a-zA-Z0-9_]*\}/.test(s), {
         message: "path_template must contain at least one {variable} placeholder",
-      }),
+      })
+      .optional(),
+    path_compiler: z.string().min(1, "path_compiler cannot be empty").optional(),
+    path_compiler_file: z.string().min(1).optional(),
+    // Reverse mechanisms (all optional). When none is supplied, parsePath
+    // falls back to regex-from(path_template).
+    parse_compiler: z.string().min(1).optional(),
+    parse_compiler_file: z.string().min(1).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((val, ctx) => {
+    const forwardCount =
+      (val.path_template ? 1 : 0) +
+      (val.path_compiler ? 1 : 0) +
+      (val.path_compiler_file ? 1 : 0);
+    if (forwardCount === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "file_kind must declare exactly one of path_template, path_compiler, or path_compiler_file",
+      });
+    }
+    if (forwardCount > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "file_kind must declare ONLY ONE of path_template, path_compiler, path_compiler_file (got multiple)",
+      });
+    }
+    if (val.parse_compiler && val.parse_compiler_file) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "file_kind must declare AT MOST ONE of parse_compiler / parse_compiler_file (got both)",
+      });
+    }
+  });
 
 export const HelperSchema = z
   .object({

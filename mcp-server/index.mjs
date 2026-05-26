@@ -449,6 +449,64 @@ server.registerTool(
   },
 );
 
+server.registerTool(
+  "test_path_compiler",
+  {
+    title: "Test a custom-topology path compiler",
+    description:
+      "Dry-run a topology file_kind's path_compiler (or path_template) against caller-supplied facets and return the computed relative path. Use this to sanity-check a layout's topology block before writing real leaves; reports validation errors, runtime errors from the compiler, and any unresolved {variable} placeholders in the result. Reads <wiki>/.llmwiki.layout.yaml (or the supplied `wiki_root` override).",
+    inputSchema: {
+      file_kind: z.string().trim().min(1),
+      facets: z.record(z.string(), z.any()),
+      category: z.string().trim().min(1).optional(),
+      wiki_root: z.string().trim().min(1).optional(),
+    },
+  },
+  async ({ file_kind, facets, category, wiki_root }) => {
+    try {
+      const { loadTopology, pathFor, validateFacets, findUnresolvedPlaceholders } =
+        await import("../scripts/lib/topology-runtime.mjs");
+      const root = wiki_root || wikiRoot();
+      const topology = await loadTopology(root, { categoryPath: category || "issues" });
+      const v = validateFacets(topology, file_kind, facets || {});
+      if (!v.ok) {
+        return jsonResponse({
+          ok: false,
+          file_kind,
+          facets: facets || {},
+          stage: "validate_facets",
+          errors: v.errors,
+        });
+      }
+      try {
+        const resolved = pathFor(topology, file_kind, facets || {});
+        const unresolved = findUnresolvedPlaceholders(resolved);
+        return jsonResponse({
+          ok: unresolved.length === 0,
+          file_kind,
+          facets,
+          path: resolved,
+          unresolved_placeholders: unresolved,
+          warnings:
+            unresolved.length > 0
+              ? [`compiler left unresolved placeholders in the result: ${unresolved.join(", ")}`]
+              : [],
+        });
+      } catch (err) {
+        return jsonResponse({
+          ok: false,
+          file_kind,
+          facets,
+          stage: "compile",
+          error: err.message,
+        });
+      }
+    } catch (error) {
+      return errorResponse(error);
+    }
+  },
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);
 // Module-level binding keeps the FSWatcher handles reachable for the process

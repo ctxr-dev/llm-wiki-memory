@@ -17,7 +17,8 @@
   },
   "exports": {
     ".": "./scripts/lib/wiki-store.mjs",
-    "./topologies/tracker-issue": "./scripts/lib/topologies/tracker-issue.mjs"
+    "./topology-runtime": "./scripts/lib/topology-runtime.mjs",
+    "./path-compiler": "./scripts/lib/path-compiler.mjs"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",

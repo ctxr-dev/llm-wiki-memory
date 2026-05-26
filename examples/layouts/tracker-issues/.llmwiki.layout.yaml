@@ -5,23 +5,12 @@ versioning:
 purpose: "Persistent local memory for the agent across sessions"
 # tracker-issues layout (template).
 #
-# Extends the default 5 categories with an `issues` category that stores
-# knowledge and plan leaves for tracker-system issues (Jira, GitHub, Linear,
-# ZenDesk, or anything with a "{PREFIX}-{N}" key shape) in a deterministic
-# digit-bucketed tree:
-#
-#   issues/<TRACKER>/<PREFIX>/<thousands>/<hundreds_tens>/<units>/<PREFIX>-<N>.md
-#   issues/<TRACKER>/<PREFIX>/<thousands>/<hundreds_tens>/<units>/<lifecycle>/<PREFIX>-<N>-<slug>.plan.md
-#
-# Derived facets (computed deterministically from the issue number):
-#   thousands     = floor(number / 1000)
-#   hundreds_tens = floor((number % 1000) / 10)
-#   units         = number % 10
-#
-# Callers (e.g. a Jira sync hook) load the topology via the helper at
-# `scripts/lib/topologies/tracker-issue.mjs`, call `pathFor(topology, kind, facets)`
-# to compute the path, and pass it as the `path` parameter on the MCP
-# `write_memory` / `save_to_dataset` tools.
+# Extends the default 5 categories with an `issues` category storing knowledge
+# and plan leaves for tracker-system issues (Jira, GitHub, Linear, ZenDesk, or
+# anything with a "{PREFIX}-{N}" key shape). Path computation is DECLARED
+# entirely in this YAML via `path_compiler` (sandboxed inline JS), so the
+# digit-bucket math below is part of the layout's contract — not hidden in a
+# language helper. See examples/layouts/PROTOCOL.md for the full schema.
 layout:
   - path: knowledge
     purpose: "long-lived facts, decisions, lore, and gotchas; nested by area/atom_type"
@@ -55,18 +44,60 @@ layout:
     topology:
       strategy: caller_path
       helper:
-        module: scripts/lib/topologies/tracker-issue.mjs
+        module: scripts/lib/topology-runtime.mjs
         package: llm-wiki-memory
         schema_version: 1
       file_kinds:
         knowledge:
           required_facets: [tracker, prefix, number]
-          path_template: "issues/{tracker}/{prefix}/{thousands}/{hundreds_tens}/{units}/{prefix}-{number}.md"
+          # Forward: facets -> relative path. Inline JS, sandboxed (no
+          # require/process/fs; only Math/String/Number/Array/Object/JSON/
+          # RegExp/Date in scope). Either a named function declaration
+          # (`function path_template(facets) { return ... }`) or an arrow
+          # expression — both are accepted.
+          path_compiler: |
+            function path_template({ tracker, prefix, number }) {
+              const n = Number(number);
+              const thousands = Math.floor(n / 1000);
+              const hundredsTens = Math.floor((n % 1000) / 10);
+              const units = n % 10;
+              return `issues/${tracker}/${prefix}/${thousands}/${hundredsTens}/${units}/${prefix}-${n}.md`;
+            }
+          # Reverse: relative path -> facets, or null if it doesn't match.
+          parse_compiler: |
+            function parse_template(relPath) {
+              const m = /^issues\/([^/]+)\/([^/]+)\/(\d+)\/(\d+)\/(\d+)\/[^/]+-(\d+)\.md$/.exec(relPath);
+              if (!m) return null;
+              return {
+                tracker: m[1],
+                prefix: m[2],
+                number: parseInt(m[6], 10),
+              };
+            }
         plan:
           required_facets: [tracker, prefix, number, lifecycle, slug]
           enums:
             lifecycle: [pending, in-progress, done, archived]
-          path_template: "issues/{tracker}/{prefix}/{thousands}/{hundreds_tens}/{units}/{lifecycle}/{prefix}-{number}-{slug}.plan.md"
+          path_compiler: |
+            function path_template({ tracker, prefix, number, lifecycle, slug }) {
+              const n = Number(number);
+              const thousands = Math.floor(n / 1000);
+              const hundredsTens = Math.floor((n % 1000) / 10);
+              const units = n % 10;
+              return `issues/${tracker}/${prefix}/${thousands}/${hundredsTens}/${units}/${lifecycle}/${prefix}-${n}-${slug}.plan.md`;
+            }
+          parse_compiler: |
+            function parse_template(relPath) {
+              const m = /^issues\/([^/]+)\/([^/]+)\/(\d+)\/(\d+)\/(\d+)\/([^/]+)\/[^/]+-(\d+)-(.+)\.plan\.md$/.exec(relPath);
+              if (!m) return null;
+              return {
+                tracker: m[1],
+                prefix: m[2],
+                number: parseInt(m[7], 10),
+                lifecycle: m[6],
+                slug: m[8],
+              };
+            }
       facet_inputs:
         tracker:
           type: string

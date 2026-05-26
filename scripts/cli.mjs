@@ -72,6 +72,68 @@ async function main() {
       process.stdout.write(formatValidationResult(result));
       process.exit(result.ok ? 0 : 2);
     }
+    case "test-path-compiler": {
+      // Usage:
+      //   llm-wiki-memory test-path-compiler <file_kind> [--category issues] [--layout <wiki-root>] key=val ...
+      // Compiles the file_kind's path_compiler (or path_template), runs it
+      // against the supplied facets, and prints the resolved path plus any
+      // unresolved placeholders.
+      const {
+        loadTopology,
+        pathFor,
+        validateFacets,
+        findUnresolvedPlaceholders,
+      } = await import("./lib/topology-runtime.mjs");
+      let categoryPath = "issues";
+      let wikiOverride = null;
+      const fkArgs = [];
+      const facets = {};
+      for (let i = 0; i < rest.length; i++) {
+        const a = rest[i];
+        if (a === "--category") {
+          categoryPath = rest[++i];
+        } else if (a === "--layout") {
+          wikiOverride = rest[++i];
+        } else if (a.includes("=")) {
+          const eq = a.indexOf("=");
+          const k = a.slice(0, eq);
+          let v = a.slice(eq + 1);
+          if (/^-?\d+$/.test(v)) v = Number(v);
+          facets[k] = v;
+        } else {
+          fkArgs.push(a);
+        }
+      }
+      const fileKind = fkArgs[0];
+      if (!fileKind) {
+        process.stderr.write(
+          "usage: llm-wiki-memory test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...\n",
+        );
+        process.exit(64);
+      }
+      const root = wikiOverride || wikiRoot();
+      const topology = await loadTopology(root, { categoryPath });
+      const v = validateFacets(topology, fileKind, facets);
+      if (!v.ok) {
+        out({ ok: false, errors: v.errors, facets });
+        process.exit(2);
+      }
+      try {
+        const resolved = pathFor(topology, fileKind, facets);
+        const unresolved = findUnresolvedPlaceholders(resolved);
+        out({
+          ok: unresolved.length === 0,
+          file_kind: fileKind,
+          facets,
+          path: resolved,
+          unresolved_placeholders: unresolved,
+        });
+        process.exit(unresolved.length === 0 ? 0 : 2);
+      } catch (err) {
+        out({ ok: false, file_kind: fileKind, facets, error: err.message });
+        process.exit(2);
+      }
+    }
     case "heal":
       return out(heal(wikiRoot()));
     case "where":
@@ -111,7 +173,7 @@ async function main() {
     }
     default:
       out(
-        "Usage: llm-wiki-memory <init|validate|validate-layout [path]|heal|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|recall <q>|search <q>>",
+        "Usage: llm-wiki-memory <init|validate|validate-layout [path]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|recall <q>|search <q>>",
       );
       process.exit(cmd ? 1 : 0);
   }
