@@ -5,41 +5,75 @@ versioning:
 purpose: "Persistent local memory for the agent across sessions"
 # Default layout (template).
 #
-# This is the baseline 5-category topology that ships with llm-wiki-memory:
-#   knowledge        -> knowledge/<area>/<atom_type>/
-#   self_improvement -> self_improvement/<area>/<task_type>/
-#   plans            -> plans/<area>/
-#   investigations   -> investigations/<area>/
+# This is the baseline 5-category topology that ships with llm-wiki-memory.
+# Beyond the structural facets (area, atom_type/task_type), every long-lived
+# category carries a SEMANTIC `subject` axis: a hierarchical, broad->narrow path
+# (e.g. [observability, kamon]) that scatters leaves by what they are ABOUT, so
+# a single area/atom_type folder doesn't accumulate thousands of files:
+#   knowledge        -> knowledge/<area>/<atom_type>/<subject…>/
+#   self_improvement -> self_improvement/<area>/<task_type>/<subject…>/
+#   plans            -> plans/<area>/<subject…>/
+#   investigations   -> investigations/<area>/<subject…>/
 #   daily            -> daily/<yyyy>/<mm>/<dd>/
+#
+# `subject` is a `kind: path` facet (see `facet_rules` below): its value is an
+# array (or "/"-joined string) and expands to one directory segment each. Its
+# FIRST segment must be one of the controlled `subject_domains` vocabulary; an
+# absent subject collapses to the `general` fallback. This keeps the top tier
+# tidy while deeper segments stay free-form.
 #
 # Missing-facet sentinels: area -> "unscoped", task_type -> "unknown",
 # atom_type -> "untyped" (atom_type is normally always set; "untyped" only
 # appears for a malformed legacy leaf during migration).
 #
-# Use this template for a fresh install with no custom topology requirements.
-# Layer additional categories on top (see examples/layouts/tracker-issues/)
-# when your workspace needs them.
+# Use this template for a fresh install. Layer additional categories on top
+# (see examples/layouts/tracker-issues/) when your workspace needs them.
+
+# Controlled top-level subject domains (the first `subject` segment). Curate
+# this list for your workspace; `validate-layout` enforces references to it.
+vocabularies:
+  subject_domains:
+    - languages      # programming languages & their ecosystems (scala, ruby, cats-effect, ...)
+    - frameworks     # libraries & frameworks (pekko, rails, react, ...)
+    - architecture   # system design, patterns, lifecycle, refactoring
+    - observability  # metrics, logging, tracing, monitoring (kamon, grafana, ...)
+    - infra          # infrastructure, gateways, k8s, networking (apisix, ...)
+    - data           # databases, storage, schemas, pipelines
+    - security       # auth, secrets, compliance
+    - testing        # test strategy, frameworks, flakiness
+    - process        # workflow, planning, conventions, ways-of-working
+    - tooling        # build, CI/CD, editors, dev tooling (sbt, intellij, ...)
+    - general        # fallback when no domain fits
+
 layout:
   - path: knowledge
-    purpose: "long-lived facts, decisions, lore, and gotchas; nested by area/atom_type"
-    placement_facets: [area, atom_type]
+    purpose: "long-lived facts, decisions, lore, and gotchas; nested by area/atom_type/subject"
+    placement_facets: [area, atom_type, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
-    max_depth: 5
+    max_depth: 8
   - path: self_improvement
-    purpose: "self-improvement lessons; nested by area/task_type (dedup keyed by error_pattern)"
-    placement_facets: [area, task_type]
+    purpose: "self-improvement lessons; nested by area/task_type/subject (dedup keyed by error_pattern)"
+    placement_facets: [area, task_type, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
-    max_depth: 5
+    max_depth: 8
   - path: plans
-    purpose: "approved and in-flight plans; nested by area"
-    placement_facets: [area]
+    purpose: "approved and in-flight plans; nested by area/subject"
+    placement_facets: [area, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
-    max_depth: 5
+    max_depth: 8
   - path: investigations
-    purpose: "investigation and analysis artefacts; nested by area"
-    placement_facets: [area]
+    purpose: "investigation and analysis artefacts; nested by area/subject"
+    placement_facets: [area, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
-    max_depth: 5
+    max_depth: 8
   - path: daily
     purpose: "raw captured memory atoms, nested by capture date (yyyy/mm/dd)"
     placement_strategy: daily-date

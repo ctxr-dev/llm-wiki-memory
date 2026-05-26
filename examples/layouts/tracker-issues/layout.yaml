@@ -22,27 +22,56 @@ purpose: "Persistent local memory for the agent across sessions"
 # everything that defines this layout lives inside the layout/ folder.
 #
 # See ../PROTOCOL.md for the full schema.
+#
+# The standard categories also carry a semantic `subject` axis (a `kind: path`
+# facet): a broad->narrow array that nests leaves by what they are ABOUT, with a
+# controlled `subject_domains` first segment and a `general` fallback. See
+# examples/layouts/default/layout.yaml for the rationale.
+
+# Controlled top-level subject domains (the first `subject` segment).
+vocabularies:
+  subject_domains:
+    - languages      # programming languages & their ecosystems (scala, ruby, cats-effect, ...)
+    - frameworks     # libraries & frameworks (pekko, rails, react, ...)
+    - architecture   # system design, patterns, lifecycle, refactoring
+    - observability  # metrics, logging, tracing, monitoring (kamon, grafana, ...)
+    - infra          # infrastructure, gateways, k8s, networking (apisix, ...)
+    - data           # databases, storage, schemas, pipelines
+    - security       # auth, secrets, compliance
+    - testing        # test strategy, frameworks, flakiness
+    - process        # workflow, planning, conventions, ways-of-working
+    - tooling        # build, CI/CD, editors, dev tooling (sbt, intellij, ...)
+    - general        # fallback when no domain fits
+
 layout:
   - path: knowledge
-    purpose: "long-lived facts, decisions, lore, and gotchas; nested by area/atom_type"
-    placement_facets: [area, atom_type]
+    purpose: "long-lived facts, decisions, lore, and gotchas; nested by area/atom_type/subject"
+    placement_facets: [area, atom_type, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
-    max_depth: 5
+    max_depth: 8
   - path: self_improvement
-    purpose: "self-improvement lessons; nested by area/task_type (dedup keyed by error_pattern)"
-    placement_facets: [area, task_type]
+    purpose: "self-improvement lessons; nested by area/task_type/subject (dedup keyed by error_pattern)"
+    placement_facets: [area, task_type, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
-    max_depth: 5
+    max_depth: 8
   - path: plans
-    purpose: "approved and in-flight plans; nested by area"
-    placement_facets: [area]
+    purpose: "approved and in-flight plans; nested by area/subject"
+    placement_facets: [area, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
-    max_depth: 5
+    max_depth: 8
   - path: investigations
-    purpose: "investigation and analysis artefacts; nested by area"
-    placement_facets: [area]
+    purpose: "investigation and analysis artefacts; nested by area/subject"
+    placement_facets: [area, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
-    max_depth: 5
+    max_depth: 8
   - path: daily
     purpose: "raw captured memory atoms, nested by capture date (yyyy/mm/dd)"
     placement_strategy: daily-date

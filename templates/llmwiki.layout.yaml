@@ -3,79 +3,77 @@ versioning:
   style: in-place
   backup_before_mutate: false
 purpose: "Persistent local memory for the agent across sessions"
-# Layout rule (enforced in code by scripts/lib/wiki-store.mjs placementDir, and by
-# scripts/migrate-nest.mjs for pre-existing leaves): every category is NESTED, never
-# a flat pile in the category root. Non-daily categories nest by the SAME metadata
-# facets the store is searched by (so browsing the tree mirrors searching it); daily
-# nests by capture date. Do NOT topically re-cluster these wikis; re-nest
-# deterministically with `node scripts/cli.mjs nest`.
-#   knowledge        -> knowledge/<project_module>/<atom_type>/
-#   self_improvement -> self_improvement/<project_module>/<task_type>/
-#   plans            -> plans/<project_module>/
-#   investigations   -> investigations/<project_module>/
+# Default layout (template).
+#
+# This is the baseline 5-category topology that ships with llm-wiki-memory.
+# Beyond the structural facets (area, atom_type/task_type), every long-lived
+# category carries a SEMANTIC `subject` axis: a hierarchical, broad->narrow path
+# (e.g. [observability, kamon]) that scatters leaves by what they are ABOUT, so
+# a single area/atom_type folder doesn't accumulate thousands of files:
+#   knowledge        -> knowledge/<area>/<atom_type>/<subject…>/
+#   self_improvement -> self_improvement/<area>/<task_type>/<subject…>/
+#   plans            -> plans/<area>/<subject…>/
+#   investigations   -> investigations/<area>/<subject…>/
 #   daily            -> daily/<yyyy>/<mm>/<dd>/
-# Missing-facet sentinels: project_module -> "unscoped", task_type -> "unknown",
-# atom_type -> "untyped" (atom_type is normally always set, so "untyped" only
+#
+# `subject` is a `kind: path` facet (see `facet_rules` below): its value is an
+# array (or "/"-joined string) and expands to one directory segment each. Its
+# FIRST segment must be one of the controlled `subject_domains` vocabulary; an
+# absent subject collapses to the `general` fallback. This keeps the top tier
+# tidy while deeper segments stay free-form.
+#
+# Missing-facet sentinels: area -> "unscoped", task_type -> "unknown",
+# atom_type -> "untyped" (atom_type is normally always set; "untyped" only
 # appears for a malformed legacy leaf during migration).
 #
-# This YAML is the source of truth for CATEGORIES and per-category facets. Each
-# entry has:
-#   - path                : the top-level dir name under the wiki root (required)
-#   - placement_facets    : ordered list of memory.<key> fields the leaf nests
-#                           under; omit to keep the baked-in default for the
-#                           historical 4 facet categories (knowledge,
-#                           self_improvement, plans, investigations). For a NEW
-#                           category, omit to make the category flat under its
-#                           root, or set explicitly. Use placementOverride on
-#                           writeMemory / `path` on the MCP tools to bypass facet
-#                           derivation entirely for a single write (custom
-#                           topologies like Jira issue trees).
-#   - placement_strategy  : optional; `daily-date` is the only recognised value
-#                           today (used for `daily`, which nests by capture date
-#                           rather than facets). Setting this on another category
-#                           is a no-op for now.
-#   - allow_entry_types   : forwarded to skill-llm-wiki validate
-#   - max_depth           : forwarded to skill-llm-wiki validate
-#   - topology            : optional STRUCTURED declaration for a custom-topology
-#                           category (see scripts/lib/topologies/*.mjs helpers).
-#                           Schema:
-#                             strategy: caller_path | (future strategies)
-#                             helper:
-#                               module: relative path to the JS helper exporting
-#                                       loadTopology / pathFor / parsePath
-#                               package: npm package name when imported externally
-#                               schema_version: integer
-#                             file_kinds.<kind>:
-#                               required_facets: list of facet keys callers MUST
-#                                                supply in metadata
-#                               enums.<facet>: optional list of allowed values
-#                               path_template: string with "{var}" placeholders;
-#                                              substituted with facet values +
-#                                              helper-derived facets
-#                             facet_inputs.<facet>: { type, minimum, pattern }
-#                                                   contract per facet
-#                           Default behaviour is unchanged when `topology` is absent.
+# Use this template for a fresh install. Layer additional categories on top
+# (see examples/layouts/tracker-issues/) when your workspace needs them.
+
+# Controlled top-level subject domains (the first `subject` segment). Curate
+# this list for your workspace; `validate-layout` enforces references to it.
+vocabularies:
+  subject_domains:
+    - languages      # programming languages & their ecosystems (scala, ruby, cats-effect, ...)
+    - frameworks     # libraries & frameworks (pekko, rails, react, ...)
+    - architecture   # system design, patterns, lifecycle, refactoring
+    - observability  # metrics, logging, tracing, monitoring (kamon, grafana, ...)
+    - infra          # infrastructure, gateways, k8s, networking (apisix, ...)
+    - data           # databases, storage, schemas, pipelines
+    - security       # auth, secrets, compliance
+    - testing        # test strategy, frameworks, flakiness
+    - process        # workflow, planning, conventions, ways-of-working
+    - tooling        # build, CI/CD, editors, dev tooling (sbt, intellij, ...)
+    - general        # fallback when no domain fits
+
 layout:
   - path: knowledge
-    purpose: "long-lived facts, decisions, lore, and gotchas; nested by project_module/atom_type"
-    placement_facets: [area, atom_type]
+    purpose: "long-lived facts, decisions, lore, and gotchas; nested by area/atom_type/subject"
+    placement_facets: [area, atom_type, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
-    max_depth: 5
+    max_depth: 8
   - path: self_improvement
-    purpose: "self-improvement lessons; nested by project_module/task_type (dedup keyed by error_pattern)"
-    placement_facets: [area, task_type]
+    purpose: "self-improvement lessons; nested by area/task_type/subject (dedup keyed by error_pattern)"
+    placement_facets: [area, task_type, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
-    max_depth: 5
+    max_depth: 8
   - path: plans
-    purpose: "approved and in-flight plans; nested by project_module"
-    placement_facets: [area]
+    purpose: "approved and in-flight plans; nested by area/subject"
+    placement_facets: [area, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
-    max_depth: 5
+    max_depth: 8
   - path: investigations
-    purpose: "investigation and analysis artefacts; nested by project_module"
-    placement_facets: [area]
+    purpose: "investigation and analysis artefacts; nested by area/subject"
+    placement_facets: [area, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
-    max_depth: 5
+    max_depth: 8
   - path: daily
     purpose: "raw captured memory atoms, nested by capture date (yyyy/mm/dd)"
     placement_strategy: daily-date
