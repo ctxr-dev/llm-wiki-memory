@@ -93,8 +93,12 @@ node "$SRC_DIR/scripts/merge-config.mjs" \
   mcpServers
 
 # --- vendor-neutral .agents/ config (Cursor, Codex, Claude Desktop, generic) ---
-INDEX_ABS="$SRC_DIR/mcp-server/index.mjs"
-render_agent() { sed -e "s#__SERVER_INDEX__#$INDEX_ABS#g" -e "s#__DATA_DIR__#$DATA_DIR#g" "$1" > "$2"; }
+# Use a path RELATIVE to the workspace root so the config survives the workspace
+# being moved/renamed: clients launch the stdio server with the project root as
+# cwd, and the server self-discovers its data dir from its own file location
+# (see scripts/lib/env.mjs), so no MEMORY_DATA_DIR env is needed here.
+INDEX_REL="./.llm-wiki-memory/src/mcp-server/index.mjs"
+render_agent() { sed -e "s#__SERVER_INDEX__#$INDEX_REL#g" "$1" > "$2"; }
 mkdir -p "$WORKSPACE_DIR/.agents/clients"
 cp "$SRC_DIR/templates/agents/README.md" "$WORKSPACE_DIR/.agents/README.md"
 render_agent "$SRC_DIR/templates/agents/mcp.json" "$WORKSPACE_DIR/.agents/mcp.json"
