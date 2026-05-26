@@ -807,6 +807,10 @@ export function deleteDocument({ documentId, datasetId } = {}) {
   } catch {
     /* best effort; a later heal will reconcile */
   }
+  // Drop any ancestor dir the deletion just emptied (left holding only an
+  // orphaned index.md) — same invariant the relocation paths enforce, so a
+  // delete never leaves a blind nested dir with no real leaves behind.
+  pruneEmptyAncestors(path.dirname(abs), root());
   return { ok: true, documentId, deleted: true };
 }
 

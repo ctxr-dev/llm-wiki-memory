@@ -201,6 +201,23 @@ test("deleteDocument removes the leaf and keeps wiki valid", () => {
   assert.equal(v.ok, true, `validate clean after delete: ${JSON.stringify(v)}`);
 });
 
+test("deleteDocument prunes the dir it emptied (no orphan index.md left)", () => {
+  // Sole occupant of a unique area dir; deleting it must remove that emptied
+  // dir, not leave a blind nested dir holding only an auto-generated index.md.
+  const res = store.saveDocument({
+    name: "delete-prune-probe.md",
+    text: "# Prune probe\n\nsole occupant of a unique area.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "reference", project_module: "deleteproneprobe" },
+  });
+  const id = res.created.document.id;
+  const areaDir = path.join(wiki, "knowledge", "deleteproneprobe");
+  assert.ok(fs.existsSync(areaDir), "area dir exists before delete");
+  store.deleteDocument({ documentId: id, datasetId: "knowledge" });
+  assert.ok(!fs.existsSync(areaDir), "emptied area dir pruned after delete");
+  assert.equal(cli.validate(wiki).ok, true, "validate clean after delete+prune");
+});
+
 test("long scalars are not folded into block scalars (validate stays clean)", () => {
   // A title long enough that the focus scalar would exceed js-yaml's default
   // 80-col line width and fold to `>-`, which the skill's frontmatter parser

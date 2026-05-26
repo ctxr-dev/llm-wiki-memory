@@ -113,6 +113,10 @@ export function migrateNest({ wiki = wikiRoot(), dryRun = false, check = false }
     applied.push({ from: m.from, to: m.to, destAbs: m.destAbs });
   }
 
+  // No ancestor-prune here: flatLeaves() only moves leaves sitting at the
+  // CATEGORY ROOT into facet subdirs, and a category root never empties — so a
+  // move can never orphan a dir. (Mis-placed already-nested leaves are out of
+  // scope for nest.)
   let validation = { ok: true, errors: 0, warnings: 0 };
   if (applied.length > 0) {
     ensureIndexes(wiki, applied.map((m) => m.destAbs));
