@@ -168,7 +168,7 @@ server.registerTool(
         embedCache: embedCachePath(),
         embedBackend: activeBackend(),
         defaultProjectModule: defaultProjectModule(),
-        categories: impl.CATEGORIES,
+        categories: impl.getCategories(),
       });
     } catch (error) {
       return errorResponse(error);
@@ -286,17 +286,24 @@ server.registerTool(
   {
     title: "Upsert a document into a named category",
     description:
-      "Write `text` as a wiki leaf with the given exact `name`, replacing any existing leaf in the category that has the same name. Use for plans, investigations, and knowledge artefacts. `dataset` is a category name (knowledge, plans, investigations, self_improvement). Optional `metadata` applies filterable frontmatter.",
+      "Write `text` as a wiki leaf with the given exact `name`, replacing any existing leaf in the category that has the same name. Use for plans, investigations, and knowledge artefacts. `dataset` is a category name (knowledge, plans, investigations, self_improvement, or any extra category declared in <wiki>/.llmwiki.layout.yaml). Optional `metadata` applies filterable frontmatter. Optional `path` is a relative directory under the wiki root (e.g. \"issues/JIRA/DEV/129/95/7\") and, when supplied, overrides facet-derived placement so the leaf is written verbatim at <path>/<name>; casing is preserved. Use `path` for custom topologies (Jira/GitHub/Linear issue trees, multi-faceted hierarchies) the default facet machinery cannot express.",
     inputSchema: {
       dataset: z.string().trim().min(1),
       name: z.string().trim().min(1).max(180),
       text: z.string().trim().min(1).max(500_000),
       metadata: MetadataSchema.optional(),
+      path: z.string().trim().min(1).max(500).optional(),
     },
   },
-  async ({ dataset, name, text, metadata }) => {
+  async ({ dataset, name, text, metadata, path }) => {
     try {
-      const result = impl.saveDocument({ name, text, datasetId: dataset, metadata });
+      const result = impl.saveDocument({
+        name,
+        text,
+        datasetId: dataset,
+        metadata,
+        placementOverride: path,
+      });
       return jsonResponse({ ok: !!result.created, ...result });
     } catch (error) {
       return errorResponse(error);
@@ -309,7 +316,7 @@ server.registerTool(
   {
     title: "Write project memory",
     description:
-      "Create a new wiki leaf from concise memory text. Optionally supersede an existing leaf by passing its documentId (the old leaf is archived, or deleted with supersedesAction='delete').",
+      "Create a new wiki leaf from concise memory text. Optionally supersede an existing leaf by passing its documentId (the old leaf is archived, or deleted with supersedesAction='delete'). Optional `path` is a relative directory under the wiki root and, when supplied, overrides facet-derived placement so the leaf is written verbatim at <path>/<name>; casing is preserved. Use `path` for custom topologies the default facet machinery cannot express.",
     inputSchema: {
       name: z.string().trim().min(1).max(180),
       text: z.string().trim().min(20).max(200_000),
@@ -317,11 +324,22 @@ server.registerTool(
       supersedes: z.string().trim().min(1).optional(),
       supersedesAction: z.enum(["disable", "delete"]).optional(),
       metadata: MetadataSchema.optional(),
+      path: z.string().trim().min(1).max(500).optional(),
     },
   },
-  async ({ name, text, datasetId, supersedes, supersedesAction, metadata }) => {
+  async ({ name, text, datasetId, supersedes, supersedesAction, metadata, path }) => {
     try {
-      return jsonResponse(impl.writeMemory({ name, text, datasetId, supersedes, supersedesAction, metadata }));
+      return jsonResponse(
+        impl.writeMemory({
+          name,
+          text,
+          datasetId,
+          supersedes,
+          supersedesAction,
+          metadata,
+          placementOverride: path,
+        }),
+      );
     } catch (error) {
       return errorResponse(error);
     }

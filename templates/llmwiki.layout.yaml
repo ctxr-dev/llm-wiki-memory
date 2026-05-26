@@ -17,24 +17,48 @@ purpose: "Persistent local memory for the agent across sessions"
 # Missing-facet sentinels: project_module -> "unscoped", task_type -> "unknown",
 # atom_type -> "untyped" (atom_type is normally always set, so "untyped" only
 # appears for a malformed legacy leaf during migration).
+#
+# This YAML is the source of truth for CATEGORIES and per-category facets. Each
+# entry has:
+#   - path                : the top-level dir name under the wiki root (required)
+#   - placement_facets    : ordered list of memory.<key> fields the leaf nests
+#                           under; omit to keep the baked-in default for the
+#                           historical 4 facet categories (knowledge,
+#                           self_improvement, plans, investigations). For a NEW
+#                           category, omit to make the category flat under its
+#                           root, or set explicitly. Use placementOverride on
+#                           writeMemory / `path` on the MCP tools to bypass facet
+#                           derivation entirely for a single write (custom
+#                           topologies like Jira issue trees).
+#   - placement_strategy  : optional; `daily-date` is the only recognised value
+#                           today (used for `daily`, which nests by capture date
+#                           rather than facets). Setting this on another category
+#                           is a no-op for now.
+#   - allow_entry_types   : forwarded to skill-llm-wiki validate
+#   - max_depth           : forwarded to skill-llm-wiki validate
 layout:
   - path: knowledge
     purpose: "long-lived facts, decisions, lore, and gotchas; nested by project_module/atom_type"
+    placement_facets: [area, atom_type]
     allow_entry_types: [primary]
     max_depth: 5
   - path: self_improvement
     purpose: "self-improvement lessons; nested by project_module/task_type (dedup keyed by error_pattern)"
+    placement_facets: [area, task_type]
     allow_entry_types: [primary]
     max_depth: 5
   - path: plans
     purpose: "approved and in-flight plans; nested by project_module"
+    placement_facets: [area]
     allow_entry_types: [primary]
     max_depth: 5
   - path: investigations
     purpose: "investigation and analysis artefacts; nested by project_module"
+    placement_facets: [area]
     allow_entry_types: [primary]
     max_depth: 5
   - path: daily
     purpose: "raw captured memory atoms, nested by capture date (yyyy/mm/dd)"
+    placement_strategy: daily-date
     allow_entry_types: [primary]
     max_depth: 5

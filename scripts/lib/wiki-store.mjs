@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
+import { parse as parseYaml } from "yaml";
 import { wikiRoot, embedCachePath, defaultProjectModule } from "./env.mjs";
 import { ensureIndexes } from "./wiki-cli.mjs";
 import {
@@ -25,9 +26,123 @@ import { inferFacets } from "./facets.mjs";
 export class WikiStoreUnavailable extends Error {}
 export const DifyBridgeUnavailable = WikiStoreUnavailable;
 
-export const CATEGORIES = ["knowledge", "self_improvement", "plans", "investigations", "daily"];
+// --- layout (YAML-driven, falls back to baked-in defaults) ---
+//
+// CATEGORIES and PLACEMENT_FACETS were previously hardcoded module-level
+// constants. They are now sourced from <wiki>/.llmwiki.layout.yaml on first
+// access. The defaults below preserve historical behavior for any wiki that
+// does NOT declare `layout[].placement_facets` (or has no layout YAML at all).
+//
+// The YAML schema is:
+//   layout:
+//     - path: <category-dir-name>            # required
+//       placement_facets: [<meta key>, ...]  # optional; if absent we use the
+//                                            #   baked-in default for this name
+//                                            #   (knowledge/self_improvement/
+//                                            #   plans/investigations); for any
+//                                            #   NEW category, omitting facets
+//                                            #   means flat under the category
+//       placement_strategy: daily-date       # optional; only `daily-date` is
+//                                            #   recognized (used today for the
+//                                            #   `daily` category which nests
+//                                            #   by capture date, not facets)
+//
+// Callers can opt into an exact-placement OVERRIDE per write by passing
+// `placementOverride` to writeMemory / saveDocument (or `path` on the MCP
+// tools). When supplied, the override bypasses category facet derivation; the
+// only remaining role of CATEGORIES is to gate which slots are accepted as a
+// `datasetId`.
+const DEFAULT_CATEGORIES = Object.freeze([
+  "knowledge",
+  "self_improvement",
+  "plans",
+  "investigations",
+  "daily",
+]);
+const DEFAULT_PLACEMENT_FACETS = Object.freeze({
+  knowledge: Object.freeze(["area", "atom_type"]),
+  self_improvement: Object.freeze(["area", "task_type"]),
+  plans: Object.freeze(["area"]),
+  investigations: Object.freeze(["area"]),
+});
+
+export const CATEGORIES = [];
+const PLACEMENT_FACETS = {};
+let _layoutLoaded = false;
+let _layoutRootSeen = null;
+
+function ensureLayoutLoaded() {
+  // Re-load if the wiki root changed (test isolation flips MEMORY_DATA_DIR).
+  const r = root();
+  if (_layoutLoaded && _layoutRootSeen === r) return;
+
+  const cats = [...DEFAULT_CATEGORIES];
+  const facets = {};
+  for (const k of Object.keys(DEFAULT_PLACEMENT_FACETS)) {
+    facets[k] = [...DEFAULT_PLACEMENT_FACETS[k]];
+  }
+
+  const layoutPath = path.join(r, ".llmwiki.layout.yaml");
+  if (fs.existsSync(layoutPath)) {
+    try {
+      const parsed = parseYaml(fs.readFileSync(layoutPath, "utf8")) || {};
+      const entries = Array.isArray(parsed.layout) ? parsed.layout : [];
+      if (entries.length > 0) {
+        // Replace categories wholesale from the YAML (the YAML is the
+        // declared contract).
+        cats.length = 0;
+        for (const e of entries) {
+          const name = String((e && e.path) || "").trim();
+          if (!name) continue;
+          cats.push(name);
+          if (Array.isArray(e.placement_facets)) {
+            facets[name] = e.placement_facets.map((s) => String(s));
+          } else if (DEFAULT_PLACEMENT_FACETS[name]) {
+            facets[name] = [...DEFAULT_PLACEMENT_FACETS[name]];
+          } else if (name === "daily" || e.placement_strategy === "daily-date") {
+            // daily is special-cased downstream; no facets entry needed.
+          } else {
+            // Declared but unspecified -> flat under category root.
+            facets[name] = [];
+          }
+        }
+        // Drop default facet keys for categories the YAML did NOT declare.
+        for (const k of Object.keys(facets)) {
+          if (!cats.includes(k)) delete facets[k];
+        }
+      }
+    } catch (_err) {
+      // Malformed YAML -> keep defaults; do not crash callers.
+    }
+  }
+
+  CATEGORIES.length = 0;
+  CATEGORIES.push(...cats);
+  for (const k of Object.keys(PLACEMENT_FACETS)) delete PLACEMENT_FACETS[k];
+  Object.assign(PLACEMENT_FACETS, facets);
+
+  _layoutLoaded = true;
+  _layoutRootSeen = r;
+}
+
+// Test/maintenance hook: forces the next layout-touching call to re-parse
+// .llmwiki.layout.yaml. Tests rotate MEMORY_DATA_DIR between cases; production
+// code never needs this.
+export function _resetLayoutCacheForTests() {
+  _layoutLoaded = false;
+  _layoutRootSeen = null;
+}
+
+// Public accessor for category names. Triggers layout load on demand so a
+// caller (e.g. the MCP `get_memory_config` tool) that does not first touch a
+// write/search path still gets the populated list. Returns a fresh copy.
+export function getCategories() {
+  ensureLayoutLoaded();
+  return [...CATEGORIES];
+}
 
 export function slotToCategory(slot) {
+  ensureLayoutLoaded();
   const s = String(slot || "").trim();
   if (CATEGORIES.includes(s)) return s;
   // Tolerate a few aliases / raw category dirs.
@@ -231,17 +346,10 @@ function assertKnownSlot(slot) {
   return category;
 }
 
-// Per-category placement facets: the leaf nests under these metadata fields, in
-// order, so the on-disk tree mirrors the SAME fields searchMemoryFiltered filters
-// on. `daily` is the exception (date-nested, chronological raw intake). A category
-// absent here gets no facet nesting (flat under its root) - assertKnownSlot keeps
-// that from happening for the five contract categories.
-const PLACEMENT_FACETS = {
-  knowledge: ["area", "atom_type"],
-  self_improvement: ["area", "task_type"],
-  plans: ["area"],
-  investigations: ["area"],
-};
+// (PLACEMENT_FACETS is initialised by ensureLayoutLoaded() at the top of this
+// module; the YAML in <wiki>/.llmwiki.layout.yaml is the source of truth and
+// the baked-in defaults preserve historical behavior when the YAML is absent
+// or declares no `placement_facets` for a category.)
 
 // Kebab folder segment for one facet, with deterministic sentinels when the field
 // is absent so a missing facet never collapses leaves back into the category root.
@@ -261,6 +369,7 @@ function facetValue(key, meta) {
 // `memory` metadata. Exported so migrate-nest computes the same target from an
 // existing leaf's frontmatter. Returns null for `daily` (caller date-nests it).
 export function placementDirForMeta(category, meta = {}) {
+  ensureLayoutLoaded();
   if (category === "daily") return null;
   const facets = PLACEMENT_FACETS[category] || [];
   if (facets.length === 0) return category;
@@ -274,6 +383,41 @@ function placementDir(slot, { metadata = {}, date = new Date() } = {}) {
   return placementDirForMeta(category, metadata) ?? category;
 }
 
+// Validate a caller-supplied `placementOverride` path: must be a relative
+// directory under the wiki root, no traversal, no nulls, no leading slash.
+// Returns the normalised relative dir (forward-slash separated) on success;
+// throws WikiStoreUnavailable on a rejected path.
+function normalisePlacementOverride(raw) {
+  if (typeof raw !== "string" || raw.length === 0) {
+    throw new WikiStoreUnavailable(
+      `placementOverride must be a non-empty string; got: ${JSON.stringify(raw)}`,
+    );
+  }
+  if (raw.includes("\0")) {
+    throw new WikiStoreUnavailable("placementOverride contains a NUL byte");
+  }
+  // Reject absolute paths and Windows drive letters defensively.
+  if (raw.startsWith("/") || /^[A-Za-z]:[\\/]/.test(raw)) {
+    throw new WikiStoreUnavailable(
+      `placementOverride must be relative to the wiki root; got: ${raw}`,
+    );
+  }
+  // Forbid `..` segments so a caller can't escape the wiki root, even though
+  // path.join would normalise some of them away. We also strip empty segments.
+  const segs = raw.split(/[\\/]+/).filter((s) => s !== "" && s !== ".");
+  if (segs.length === 0) {
+    throw new WikiStoreUnavailable(
+      `placementOverride must include at least one path segment; got: ${raw}`,
+    );
+  }
+  if (segs.some((s) => s === "..")) {
+    throw new WikiStoreUnavailable(
+      `placementOverride must not contain '..' segments; got: ${raw}`,
+    );
+  }
+  return segs.join("/");
+}
+
 // ---- public API (dify-write.mjs parity) ----
 
 // Create a leaf at its facet-derived path. `metadata` is optional but, when
@@ -282,7 +426,16 @@ function placementDir(slot, { metadata = {}, date = new Date() } = {}) {
 // lands at the SAME computed path; dedup across facet folders is the caller's job
 // (compile supersedes the prior leaf via `supersedes`). saveDocument is the
 // upsert-by-name path that searches the whole category recursively.
-export function writeMemory({ name, text, datasetId, supersedes, supersedesAction, metadata, date } = {}) {
+export function writeMemory({
+  name,
+  text,
+  datasetId,
+  supersedes,
+  supersedesAction,
+  metadata,
+  date,
+  placementOverride,
+} = {}) {
   if (!name || !text || !datasetId) {
     throw new WikiStoreUnavailable("writeMemory requires name, text, datasetId");
   }
@@ -290,18 +443,34 @@ export function writeMemory({ name, text, datasetId, supersedes, supersedesActio
   const category = assertKnownSlot(slot);
   const { name: safeName, id } = normalizeLeafName(name);
   const title = deriveTitle({ metadata, text, name: safeName });
-  // Infer/validate placement facets so a leaf is never written under an
-  // unknown/unscoped area or an out-of-set atom_type (daily is a no-op).
-  // Heuristic + deterministic fallback only, so this stays synchronous.
-  const facets = inferFacets({ category, meta: metadata || {}, tags: tagsArray(metadata) });
-  const effectiveMeta = { ...(metadata || {}), ...facets };
-  const memoryMeta = normaliseMeta(effectiveMeta, { atom_type: slotDefaultAtomType(slot) });
-  const tags = tagsArray(effectiveMeta);
 
-  // `date` (optional) pins daily date-nesting to a caller-supplied time (e.g. a
-  // flush's capture time) rather than the write time, so a background worker
-  // that crosses midnight UTC still nests under the captured day.
-  const dir = placementDir(slot, { metadata: memoryMeta, date });
+  // `placementOverride` (optional): when supplied, the leaf is written verbatim
+  // at <override>/<safeName> and facet inference is skipped. Metadata is still
+  // normalised for the frontmatter `memory` block so the leaf remains
+  // searchable / filterable by `searchMemoryFiltered`. Casing in the override
+  // is preserved (no slugify on the directory segments) so callers can
+  // build human-readable custom topologies (e.g. issues/JIRA/DEV/...).
+  let dir;
+  let memoryMeta;
+  let tags;
+  if (placementOverride !== undefined && placementOverride !== null) {
+    dir = normalisePlacementOverride(placementOverride);
+    memoryMeta = normaliseMeta(metadata || {}, { atom_type: slotDefaultAtomType(slot) });
+    tags = tagsArray(metadata);
+  } else {
+    // Infer/validate placement facets so a leaf is never written under an
+    // unknown/unscoped area or an out-of-set atom_type (daily is a no-op).
+    // Heuristic + deterministic fallback only, so this stays synchronous.
+    const facets = inferFacets({ category, meta: metadata || {}, tags: tagsArray(metadata) });
+    const effectiveMeta = { ...(metadata || {}), ...facets };
+    memoryMeta = normaliseMeta(effectiveMeta, { atom_type: slotDefaultAtomType(slot) });
+    tags = tagsArray(effectiveMeta);
+
+    // `date` (optional) pins daily date-nesting to a caller-supplied time (e.g. a
+    // flush's capture time) rather than the write time, so a background worker
+    // that crosses midnight UTC still nests under the captured day.
+    dir = placementDir(slot, { metadata: memoryMeta, date });
+  }
   const leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
   fs.mkdirSync(path.dirname(leafAbs), { recursive: true });
   fs.writeFileSync(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));
@@ -336,26 +505,43 @@ export function writeMemory({ name, text, datasetId, supersedes, supersedesActio
 // same-named leaf already at that path is overwritten in place; one found at a
 // STALE facet path (its metadata changed) is relocated there so the on-disk path
 // always matches the leaf's facets. Applies metadata immediately.
-export function saveDocument({ name, text, datasetId, metadata } = {}) {
+export function saveDocument({ name, text, datasetId, metadata, placementOverride } = {}) {
   if (!name || !text || !datasetId) {
     throw new WikiStoreUnavailable("saveDocument requires name, text, datasetId");
   }
   const slot = datasetId;
   const category = assertKnownSlot(slot);
   const { name: safeName, id } = normalizeLeafName(name);
-  const categoryAbs = path.join(root(), slotToCategory(slot));
-  const existing = findByName(categoryAbs, safeName);
-
   const title = deriveTitle({ metadata, text, name: safeName });
-  // Infer/validate placement facets so a leaf is never saved under an
-  // unknown/unscoped area or an out-of-set atom_type. Heuristic + deterministic
-  // fallback only, so this stays synchronous.
-  const facets = inferFacets({ category, meta: metadata || {}, tags: tagsArray(metadata) });
-  const effectiveMeta = { ...(metadata || {}), ...facets };
-  const memoryMeta = normaliseMeta(effectiveMeta, { atom_type: slotDefaultAtomType(slot) });
-  const tags = tagsArray(effectiveMeta);
 
-  const dir = placementDir(slot, { metadata: memoryMeta });
+  // `placementOverride` (optional): when supplied, the existence check is
+  // scoped to the override path only (we do NOT broad-search the category
+  // tree by name, because the caller is asserting a specific location). This
+  // also disables the cross-facet "relocate" behaviour - the override IS the
+  // target. Metadata is still normalised so the leaf stays searchable.
+  let dir;
+  let memoryMeta;
+  let tags;
+  let existing;
+  if (placementOverride !== undefined && placementOverride !== null) {
+    dir = normalisePlacementOverride(placementOverride);
+    memoryMeta = normaliseMeta(metadata || {}, { atom_type: slotDefaultAtomType(slot) });
+    tags = tagsArray(metadata);
+    const candidateAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
+    existing = fs.existsSync(candidateAbs) ? candidateAbs : null;
+  } else {
+    const categoryAbs = path.join(root(), slotToCategory(slot));
+    existing = findByName(categoryAbs, safeName);
+    // Infer/validate placement facets so a leaf is never saved under an
+    // unknown/unscoped area or an out-of-set atom_type. Heuristic + deterministic
+    // fallback only, so this stays synchronous.
+    const facets = inferFacets({ category, meta: metadata || {}, tags: tagsArray(metadata) });
+    const effectiveMeta = { ...(metadata || {}), ...facets };
+    memoryMeta = normaliseMeta(effectiveMeta, { atom_type: slotDefaultAtomType(slot) });
+    tags = tagsArray(effectiveMeta);
+    dir = placementDir(slot, { metadata: memoryMeta });
+  }
+
   const leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
   const replacedId = existing ? toRel(existing) : undefined;
   const moved = Boolean(existing) && path.resolve(existing) !== path.resolve(leafAbs);
@@ -522,6 +708,7 @@ function metaMatchesFilters(memoryMeta, filters) {
 
 // Filter leaves by frontmatter metadata, then rank by embedding similarity.
 export async function searchMemoryFiltered({ query, datasetId, limit = 5, filters, scoreThreshold } = {}) {
+  ensureLayoutLoaded();
   const cats = datasetId ? [slotToCategory(datasetId)] : CATEGORIES.filter((c) => c !== "daily");
   const candidates = [];
   for (const cat of cats) {
@@ -565,6 +752,7 @@ export async function searchMemoryFiltered({ query, datasetId, limit = 5, filter
 }
 
 export function listDatasets() {
+  ensureLayoutLoaded();
   return {
     datasets: CATEGORIES.map((name) => ({ name, id: name })),
     declaredLocally: CATEGORIES.map((name) => ({ name, configuredId: name })),
