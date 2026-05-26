@@ -80,6 +80,17 @@ async function main() {
       return cmdInit();
     case "validate":
       return out(validate(wikiRoot()));
+    case "validate-topology": {
+      const { validateTopologyAgainstSamples, formatValidationReport } = await import(
+        "./lib/topology-validator.mjs"
+      );
+      const target = rest[0] || wikiRoot();
+      const category = rest[1] || "issues";
+      const result = await validateTopologyAgainstSamples(target, { categoryPath: category });
+      process.stdout.write(`validate-topology on ${target} (category=${category}):\n`);
+      process.stdout.write(formatValidationReport(result));
+      process.exit(result.ok ? 0 : 2);
+    }
     case "validate-layout": {
       const { validateLayoutFile, formatValidationResult } = await import(
         "./lib/layout-validator.mjs"

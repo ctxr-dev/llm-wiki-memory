@@ -450,6 +450,33 @@ server.registerTool(
 );
 
 server.registerTool(
+  "validate_topology",
+  {
+    title: "Pre-flight check that a topology's path compilers round-trip",
+    description:
+      "Iterates every declared file_kind in the topology, picks sample facets from facet_inputs (examples / enum-first / type defaults), runs pathFor with the round-trip safety net ON, and reports pass/fail per kind. Use BEFORE the first write against a layout to catch ambiguous from_path regexes, dropped facets, or no-placeholder templates. Inputs: optional `wiki_root` (defaults to env-resolved wiki) + optional `category` (defaults to 'issues').",
+    inputSchema: {
+      wiki_root: z.string().trim().min(1).optional(),
+      category: z.string().trim().min(1).optional(),
+    },
+  },
+  async ({ wiki_root, category }) => {
+    try {
+      const { validateTopologyAgainstSamples } = await import(
+        "../scripts/lib/topology-validator.mjs"
+      );
+      const root = wiki_root || wikiRoot();
+      const result = await validateTopologyAgainstSamples(root, {
+        categoryPath: category || "issues",
+      });
+      return jsonResponse(result);
+    } catch (error) {
+      return errorResponse(error);
+    }
+  },
+);
+
+server.registerTool(
   "test_path_compiler",
   {
     title: "Test a custom-topology path compiler",
