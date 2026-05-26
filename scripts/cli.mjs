@@ -62,6 +62,16 @@ async function main() {
       return cmdInit();
     case "validate":
       return out(validate(wikiRoot()));
+    case "validate-layout": {
+      const { validateLayoutFile, formatValidationResult } = await import(
+        "./lib/layout-validator.mjs"
+      );
+      const target =
+        rest[0] || path.join(wikiRoot(), ".llmwiki.layout.yaml");
+      const result = validateLayoutFile(target);
+      process.stdout.write(formatValidationResult(result));
+      process.exit(result.ok ? 0 : 2);
+    }
     case "heal":
       return out(heal(wikiRoot()));
     case "where":
@@ -101,7 +111,7 @@ async function main() {
     }
     default:
       out(
-        "Usage: llm-wiki-memory <init|validate|heal|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|recall <q>|search <q>>",
+        "Usage: llm-wiki-memory <init|validate|validate-layout [path]|heal|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|recall <q>|search <q>>",
       );
       process.exit(cmd ? 1 : 0);
   }

@@ -1,0 +1,86 @@
+mode: hosted
+versioning:
+  style: in-place
+  backup_before_mutate: false
+purpose: "Persistent local memory for the agent across sessions"
+# tracker-issues layout (template).
+#
+# Extends the default 5 categories with an `issues` category that stores
+# knowledge and plan leaves for tracker-system issues (Jira, GitHub, Linear,
+# ZenDesk, or anything with a "{PREFIX}-{N}" key shape) in a deterministic
+# digit-bucketed tree:
+#
+#   issues/<TRACKER>/<PREFIX>/<thousands>/<hundreds_tens>/<units>/<PREFIX>-<N>.md
+#   issues/<TRACKER>/<PREFIX>/<thousands>/<hundreds_tens>/<units>/<lifecycle>/<PREFIX>-<N>-<slug>.plan.md
+#
+# Derived facets (computed deterministically from the issue number):
+#   thousands     = floor(number / 1000)
+#   hundreds_tens = floor((number % 1000) / 10)
+#   units         = number % 10
+#
+# Callers (e.g. a Jira sync hook) load the topology via the helper at
+# `scripts/lib/topologies/tracker-issue.mjs`, call `pathFor(topology, kind, facets)`
+# to compute the path, and pass it as the `path` parameter on the MCP
+# `write_memory` / `save_to_dataset` tools.
+layout:
+  - path: knowledge
+    purpose: "long-lived facts, decisions, lore, and gotchas; nested by area/atom_type"
+    placement_facets: [area, atom_type]
+    allow_entry_types: [primary]
+    max_depth: 5
+  - path: self_improvement
+    purpose: "self-improvement lessons; nested by area/task_type (dedup keyed by error_pattern)"
+    placement_facets: [area, task_type]
+    allow_entry_types: [primary]
+    max_depth: 5
+  - path: plans
+    purpose: "approved and in-flight plans; nested by area"
+    placement_facets: [area]
+    allow_entry_types: [primary]
+    max_depth: 5
+  - path: investigations
+    purpose: "investigation and analysis artefacts; nested by area"
+    placement_facets: [area]
+    allow_entry_types: [primary]
+    max_depth: 5
+  - path: daily
+    purpose: "raw captured memory atoms, nested by capture date (yyyy/mm/dd)"
+    placement_strategy: daily-date
+    allow_entry_types: [primary]
+    max_depth: 5
+  - path: issues
+    placement_facets: []
+    allow_entry_types: [primary]
+    max_depth: 8
+    topology:
+      strategy: caller_path
+      helper:
+        module: scripts/lib/topologies/tracker-issue.mjs
+        package: llm-wiki-memory
+        schema_version: 1
+      file_kinds:
+        knowledge:
+          required_facets: [tracker, prefix, number]
+          path_template: "issues/{tracker}/{prefix}/{thousands}/{hundreds_tens}/{units}/{prefix}-{number}.md"
+        plan:
+          required_facets: [tracker, prefix, number, lifecycle, slug]
+          enums:
+            lifecycle: [pending, in-progress, done, archived]
+          path_template: "issues/{tracker}/{prefix}/{thousands}/{hundreds_tens}/{units}/{lifecycle}/{prefix}-{number}-{slug}.plan.md"
+      facet_inputs:
+        tracker:
+          type: string
+          description: "Tracker system name, used verbatim as a directory segment (e.g. JIRA, GITHUB, LINEAR)"
+        prefix:
+          type: string
+          description: "Tracker-specific project key (Jira project, github org-repo slug, etc.)"
+        number:
+          type: integer
+          minimum: 1
+        lifecycle:
+          type: string
+          description: "Plan file lifecycle state; constrained by the enum above"
+        slug:
+          type: string
+          pattern: "^[A-Za-z0-9-]+$"
+          description: "Plan title slug; used to disambiguate multiple plans per issue"
