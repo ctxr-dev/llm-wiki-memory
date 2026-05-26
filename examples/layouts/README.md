@@ -8,16 +8,16 @@ During installation (or any time later), copy the WHOLE template folder
 into the wiki:
 
 ```bash
-cp -r examples/layouts/<name>  <wiki-root>/layout
+cp -r examples/layouts/<name>  <wiki-root>/.layout
 node scripts/cli.mjs validate-layout
 ```
 
 Everything that defines the layout lives inside the resulting
-`<wiki-root>/layout/` folder — the contract YAML and its sibling helpers
-are next to each other. No symlinks, no second copy at the wiki root.
-The skill (`skill-llm-wiki`) recognises this canonical location natively;
-the older `<wiki-root>/.llmwiki.layout.yaml` placement still works as a
-fallback for pre-existing wikis.
+`<wiki-root>/.layout/` folder — the contract YAML and its sibling helpers
+are next to each other. No symlinks, no second copy at the wiki root. The
+dotted folder groups with other special dirs (`.llmwiki/`) and is skipped by
+content indexing. The skill (`skill-llm-wiki`) recognises this canonical
+location natively.
 
 Then bootstrap or rebuild the wiki as usual.
 

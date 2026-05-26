@@ -19,11 +19,12 @@ ignore_max_depth: true
 # folder into a wiki with a single command.
 #
 # Install:
-#   cp -r examples/layouts/tracker-issues  <wiki-root>/layout
+#   cp -r examples/layouts/tracker-issues  <wiki-root>/.layout
 #
-# skill-llm-wiki recognises <wiki-root>/layout/.llmwiki.layout.yaml as the
-# canonical hosted-mode contract path. No symlink, no copy-to-root step:
-# everything that defines this layout lives inside the layout/ folder.
+# skill-llm-wiki recognises <wiki-root>/.layout/layout.yaml as the canonical
+# hosted-mode contract path. No symlink, no copy-to-root step: everything that
+# defines this layout lives inside the .layout/ folder (dotted, so content
+# indexing skips it).
 #
 # See ../PROTOCOL.md for the full schema.
 #
