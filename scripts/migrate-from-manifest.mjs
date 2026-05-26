@@ -3,7 +3,8 @@
 //
 // Reads a dry-run-manifest.json (the schema produced by the Phase D
 // inventory builder), then for every non-skip entry:
-//   - reads the source file (or extracts a `#section heading` slice)
+//   - reads the source file (or, when the source ends with `#<heading>`,
+//     extracts that `## <heading>` H2 section's slice)
 //   - derives metadata (area / atom_type / task_type / issue_key / status)
 //     from the manifest entry + path segments
 //   - calls saveDocument({ ..., placementOverride: <dir> }) — the SAME

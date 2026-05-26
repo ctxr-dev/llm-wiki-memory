@@ -27,7 +27,7 @@ function assertFullyRendered(out, client) {
   assert.ok(!/MEMORY_DATA_DIR/.test(out), `${client}: must not set MEMORY_DATA_DIR`);
 }
 
-for (const client of ["claude-code", "cursor", "generic"]) {
+for (const client of ["claude-code", "cursor"]) {
   test(`mcp-config.sh ${client}: relative server path, no env override`, () => {
     const out = emit(client);
     assertFullyRendered(out, client);
@@ -40,7 +40,9 @@ for (const client of ["claude-code", "cursor", "generic"]) {
   });
 }
 
-for (const client of ["claude-desktop", "codex"]) {
+// Global / unknown-cwd clients get an absolute path (resolved at print time,
+// never committed). generic joins these: a generic client has no guaranteed cwd.
+for (const client of ["claude-desktop", "codex", "generic"]) {
   test(`mcp-config.sh ${client}: absolute server path (global, no project cwd), no env override`, () => {
     const out = emit(client);
     assertFullyRendered(out, client);
@@ -77,4 +79,20 @@ test("bootstrap renders .agents/ with the relative path (no absolute INDEX)", ()
   // The old absolute-substituting render must be gone.
   assert.ok(!/INDEX_ABS=.*mcp-server\/index\.mjs/.test(raw), "stale INDEX_ABS render present");
   assert.ok(!/__DATA_DIR__/.test(raw), "bootstrap should no longer substitute __DATA_DIR__");
+});
+
+test("the relative server path actually resolves to the real mcp-server entry", () => {
+  // REL_PATH is workspace-root-relative (./.llm-wiki-memory/src/...); SRC is
+  // <workspace>/.llm-wiki-memory/src, so strip that prefix to map onto disk.
+  const tail = REL_PATH.replace("./.llm-wiki-memory/src/", "");
+  assert.ok(fs.existsSync(path.join(SRC, tail)), `relative path must point at a real file: ${tail}`);
+});
+
+test("shipped default + install template declare the subject axis", () => {
+  for (const rel of ["examples/layouts/default/layout.yaml", "templates/llmwiki.layout.yaml"]) {
+    const raw = fs.readFileSync(path.join(SRC, rel), "utf8");
+    assert.match(raw, /vocabularies:/, `${rel}: must declare vocabularies`);
+    assert.match(raw, /subject_domains:/, `${rel}: must declare subject_domains`);
+    assert.match(raw, /subject:\s*\{\s*kind:\s*path/, `${rel}: knowledge must use a kind:path subject facet`);
+  }
 });

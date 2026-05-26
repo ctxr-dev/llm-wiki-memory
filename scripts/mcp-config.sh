@@ -44,8 +44,11 @@ emit() {
       echo "# Codex/OpenAI - add to ~/.codex/config.toml (global; absolute path) (or: codex mcp add):"
       render_abs "$TEMPLATES/agents/clients/openai-codex.toml" ;;
     generic)
-      echo "# Generic MCP client - stdio server config (relative; launch from project root):"
-      render_rel "$TEMPLATES/agents/clients/generic-mcp.json" ;;
+      # A generic client has no guaranteed cwd, so emit an absolute path here
+      # (the committed .agents/clients/generic-mcp.json stays relative for the
+      # project-root-cwd case; this on-demand snippet is paste-anywhere).
+      echo "# Generic MCP client - stdio server config (absolute; works from any cwd):"
+      render_abs "$TEMPLATES/agents/clients/generic-mcp.json" ;;
     *)
       echo "unknown client: $1" >&2
       echo "valid: claude-code | cursor | claude-desktop | codex | generic | all" >&2

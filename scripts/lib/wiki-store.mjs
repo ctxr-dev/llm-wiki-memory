@@ -73,10 +73,12 @@ const PLACEMENT_FACETS = {};
 // `kind: path` (array-valued -> one directory segment per element) and can pin
 // its first segment to a declared vocabulary, with a `fallback` sentinel used
 // when the facet is absent/empty. Facets without a rule stay single-segment.
-const PLACEMENT_RULES = {};
+// null-prototype: keys are author-controlled layout category/vocab names, so a
+// `__proto__`/`constructor` key can never reach a prototype slot.
+const PLACEMENT_RULES = Object.create(null);
 // Declared `vocabularies` (name -> Set<slug>): controlled value sets a
 // `kind: path` facet's first segment must belong to.
-const VOCABULARIES = {};
+const VOCABULARIES = Object.create(null);
 let _layoutLoaded = false;
 let _layoutRootSeen = null;
 
@@ -90,8 +92,10 @@ function ensureLayoutLoaded() {
   for (const k of Object.keys(DEFAULT_PLACEMENT_FACETS)) {
     facets[k] = [...DEFAULT_PLACEMENT_FACETS[k]];
   }
-  const rules = {};
-  const vocabs = {};
+  // null-prototype maps: layout keys are author-controlled, so never let a
+  // key like `__proto__`/`constructor` reach a prototype slot.
+  const rules = Object.create(null);
+  const vocabs = Object.create(null);
 
   // Layout YAML canonical location is <wiki>/layout/layout.yaml.
   const layoutPath = path.join(r, "layout", "layout.yaml");
@@ -125,7 +129,7 @@ function ensureLayoutLoaded() {
             facets[name] = [];
           }
           if (e.facet_rules && typeof e.facet_rules === "object") {
-            const r2 = {};
+            const r2 = Object.create(null);
             for (const [fname, spec] of Object.entries(e.facet_rules)) {
               if (!spec || typeof spec !== "object") continue;
               r2[fname] = {
@@ -458,7 +462,10 @@ function pathFacetSegments(key, meta, rule) {
   }
   const fallback = slugify(String(rule.fallback || "general")) || "general";
   if (parts.length === 0) return [fallback];
-  const vocab = rule.vocabulary ? VOCABULARIES[rule.vocabulary] : null;
+  const vocab =
+    rule.vocabulary && Object.hasOwn(VOCABULARIES, rule.vocabulary)
+      ? VOCABULARIES[rule.vocabulary]
+      : null;
   if (vocab && vocab.size > 0 && !vocab.has(parts[0])) {
     throw new WikiStoreUnavailable(
       `placement: '${key}' domain '${parts[0]}' is not in vocabulary '${rule.vocabulary}'. ` +
@@ -822,15 +829,22 @@ function metaMatchesFilters(memoryMeta, filters) {
   if (!filters) return true;
   for (const [key, val] of Object.entries(filters)) {
     if (val == null || val === "") continue;
+    // `subject` is stored as a slug ARRAY; `tags` as a comma string. Both are
+    // membership filters (every wanted value must be present), not exact match.
+    if (key === "tags" || key === "subject") {
+      const raw = memoryMeta[key];
+      const haveList = (Array.isArray(raw) ? raw : String(raw || "").split(","))
+        .map((t) => String(t).trim().toLowerCase())
+        .filter(Boolean);
+      const wantList = (Array.isArray(val) ? val : String(val).split(","))
+        .map((t) => String(t).trim().toLowerCase())
+        .filter(Boolean);
+      if (!wantList.every((wt) => haveList.includes(wt))) return false;
+      continue;
+    }
     const have = String(memoryMeta[key] || "").toLowerCase();
     const want = String(val).toLowerCase();
-    if (key === "tags") {
-      const haveTags = have.split(",").map((t) => t.trim());
-      const wantTags = want.split(",").map((t) => t.trim()).filter(Boolean);
-      if (!wantTags.every((wt) => haveTags.includes(wt))) return false;
-    } else if (have !== want) {
-      return false;
-    }
+    if (have !== want) return false;
   }
   return true;
 }

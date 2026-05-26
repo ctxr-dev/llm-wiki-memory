@@ -141,6 +141,54 @@ test("a facet WITHOUT a path rule stays single-segment (backward compat)", () =>
   assert.equal(placementDirForMeta("plans", { area: "webhooks" }), "plans/webhooks");
 });
 
+test("a kind:path facet with NO vocabulary accepts any first segment (free-form)", () => {
+  useLayout(`
+layout:
+  - path: knowledge
+    placement_facets: [area, atom_type, subject]
+    facet_rules:
+      subject: { kind: path, fallback: general }
+    max_depth: 8
+`);
+  // No vocabulary declared -> any first segment is allowed (no throw).
+  assert.equal(
+    placementDirForMeta("knowledge", {
+      area: "x",
+      atom_type: "concept",
+      subject: ["anything-goes", "deeper"],
+    }),
+    "knowledge/x/concept/anything-goes/deeper",
+  );
+});
+
+test("vocabulary members are slugified, so a cased subject domain still matches", () => {
+  useLayout(`
+vocabularies:
+  subject_domains: ["Observability", "General"]
+layout:
+  - path: knowledge
+    placement_facets: [area, atom_type, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: General }
+    max_depth: 8
+`);
+  // "Observability" (cased in both vocab and input) is slugified to
+  // "observability" on both sides and matches without throwing.
+  assert.equal(
+    placementDirForMeta("knowledge", {
+      area: "x",
+      atom_type: "concept",
+      subject: ["Observability", "Kamon"],
+    }),
+    "knowledge/x/concept/observability/kamon",
+  );
+  // absent -> the (cased) fallback, also slugified.
+  assert.equal(
+    placementDirForMeta("knowledge", { area: "x", atom_type: "concept" }),
+    "knowledge/x/concept/general",
+  );
+});
+
 test("normaliseMeta persists subject as a slug array", () => {
   const m = normaliseMeta({ area: "x", atom_type: "concept", subject: ["Observability", "Kamon"] });
   assert.deepEqual(m.subject, ["observability", "kamon"]);

@@ -20,6 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseDocument } from "yaml";
 import { z } from "zod";
+import { slugify } from "./slug.mjs";
 
 // --- Zod schemas (composable; exported for tests / external tools) ---
 
@@ -175,6 +176,8 @@ export const LayoutYamlSchema = z
     entries.forEach((entry, i) => {
       for (const [fname, rule] of Object.entries(entry.facet_rules || {})) {
         if (!rule || typeof rule !== "object") continue;
+        // A fallback WITHOUT a vocabulary is allowed (free-form first segment),
+        // so membership is only checked when a vocabulary is referenced.
         if (rule.vocabulary) {
           if (!vocabNames.has(rule.vocabulary)) {
             ctx.addIssue({
@@ -183,8 +186,11 @@ export const LayoutYamlSchema = z
               message: `references vocabulary '${rule.vocabulary}' which is not declared under top-level 'vocabularies'`,
             });
           } else if (rule.fallback) {
-            const members = doc.vocabularies[rule.vocabulary] || [];
-            if (!members.includes(rule.fallback)) {
+            // Compare under slugify: the runtime slugifies both vocab members
+            // and the fallback, so "General"/"general" must be treated as equal
+            // here too (otherwise a cosmetically-cased fallback false-fails).
+            const members = (doc.vocabularies[rule.vocabulary] || []).map((m) => slugify(m));
+            if (!members.includes(slugify(rule.fallback))) {
               ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ["layout", i, "facet_rules", fname, "fallback"],
