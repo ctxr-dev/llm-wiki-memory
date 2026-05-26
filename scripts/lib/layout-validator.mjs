@@ -95,6 +95,18 @@ export const HelperSchema = z
   })
   .strict();
 
+// Per-facet placement rule (layout entry `facet_rules`). `kind: path` marks an
+// array-valued facet that expands to one directory segment per element
+// (broad->narrow). `vocabulary` pins the FIRST segment to a declared top-level
+// vocabulary; `fallback` is the sentinel segment used when the facet is absent.
+export const FacetRuleSchema = z
+  .object({
+    kind: z.enum(["path", "segment"]).optional(),
+    vocabulary: z.string().min(1).optional(),
+    fallback: z.string().min(1).optional(),
+  })
+  .strict();
+
 export const TopologySchema = z
   .object({
     strategy: z.literal("caller_path", {
@@ -121,11 +133,26 @@ export const LayoutEntrySchema = z
     purpose: z.string().optional(),
     placement_facets: z.array(z.string()).optional(),
     placement_strategy: z.enum(["daily-date"]).optional(),
+    facet_rules: z.record(z.string(), FacetRuleSchema).optional(),
     allow_entry_types: z.array(z.string()).optional(),
     max_depth: z.number().int().positive().optional(),
     topology: TopologySchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((entry, ctx) => {
+    // Every facet that has a rule must also be listed in placement_facets,
+    // otherwise the rule is dead config.
+    const declared = new Set(entry.placement_facets || []);
+    for (const fname of Object.keys(entry.facet_rules || {})) {
+      if (!declared.has(fname)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["facet_rules", fname],
+          message: `facet_rules.${fname} is not listed in placement_facets, so the rule has no effect`,
+        });
+      }
+    }
+  });
 
 export const LayoutYamlSchema = z
   .object({
@@ -138,9 +165,37 @@ export const LayoutYamlSchema = z
       .passthrough()
       .optional(),
     purpose: z.string().optional(),
+    vocabularies: z.record(z.string(), z.array(z.string().min(1)).min(1)).optional(),
     layout: z.array(LayoutEntrySchema).min(1, "`layout` must declare at least one entry"),
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((doc, ctx) => {
+    const vocabNames = new Set(Object.keys(doc.vocabularies || {}));
+    const entries = Array.isArray(doc.layout) ? doc.layout : [];
+    entries.forEach((entry, i) => {
+      for (const [fname, rule] of Object.entries(entry.facet_rules || {})) {
+        if (!rule || typeof rule !== "object") continue;
+        if (rule.vocabulary) {
+          if (!vocabNames.has(rule.vocabulary)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["layout", i, "facet_rules", fname, "vocabulary"],
+              message: `references vocabulary '${rule.vocabulary}' which is not declared under top-level 'vocabularies'`,
+            });
+          } else if (rule.fallback) {
+            const members = doc.vocabularies[rule.vocabulary] || [];
+            if (!members.includes(rule.fallback)) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["layout", i, "facet_rules", fname, "fallback"],
+                message: `fallback '${rule.fallback}' is not a member of vocabulary '${rule.vocabulary}' (a fallback segment must be a valid domain)`,
+              });
+            }
+          }
+        }
+      }
+    });
+  });
 
 // --- YAML node -> position resolution ---
 

@@ -68,6 +68,14 @@ const DEFAULT_PLACEMENT_FACETS = Object.freeze({
 
 export const CATEGORIES = [];
 const PLACEMENT_FACETS = {};
+// Per-category facet rules from layout `facet_rules`. A rule marks a facet as
+// `kind: path` (array-valued -> one directory segment per element) and can pin
+// its first segment to a declared vocabulary, with a `fallback` sentinel used
+// when the facet is absent/empty. Facets without a rule stay single-segment.
+const PLACEMENT_RULES = {};
+// Declared `vocabularies` (name -> Set<slug>): controlled value sets a
+// `kind: path` facet's first segment must belong to.
+const VOCABULARIES = {};
 let _layoutLoaded = false;
 let _layoutRootSeen = null;
 
@@ -81,12 +89,21 @@ function ensureLayoutLoaded() {
   for (const k of Object.keys(DEFAULT_PLACEMENT_FACETS)) {
     facets[k] = [...DEFAULT_PLACEMENT_FACETS[k]];
   }
+  const rules = {};
+  const vocabs = {};
 
   // Layout YAML canonical location is <wiki>/layout/layout.yaml.
   const layoutPath = path.join(r, "layout", "layout.yaml");
   if (fs.existsSync(layoutPath)) {
     try {
       const parsed = parseYaml(fs.readFileSync(layoutPath, "utf8")) || {};
+      // Controlled value sets referenced by `kind: path` facet rules.
+      if (parsed.vocabularies && typeof parsed.vocabularies === "object") {
+        for (const [vname, vals] of Object.entries(parsed.vocabularies)) {
+          if (!Array.isArray(vals)) continue;
+          vocabs[vname] = new Set(vals.map((v) => slugify(String(v))).filter(Boolean));
+        }
+      }
       const entries = Array.isArray(parsed.layout) ? parsed.layout : [];
       if (entries.length > 0) {
         // Replace categories wholesale from the YAML (the YAML is the
@@ -106,6 +123,18 @@ function ensureLayoutLoaded() {
             // Declared but unspecified -> flat under category root.
             facets[name] = [];
           }
+          if (e.facet_rules && typeof e.facet_rules === "object") {
+            const r2 = {};
+            for (const [fname, spec] of Object.entries(e.facet_rules)) {
+              if (!spec || typeof spec !== "object") continue;
+              r2[fname] = {
+                kind: spec.kind === "path" ? "path" : "segment",
+                vocabulary: spec.vocabulary ? String(spec.vocabulary) : null,
+                fallback: spec.fallback != null ? String(spec.fallback) : null,
+              };
+            }
+            rules[name] = r2;
+          }
         }
         // Drop default facet keys for categories the YAML did NOT declare.
         for (const k of Object.keys(facets)) {
@@ -121,6 +150,10 @@ function ensureLayoutLoaded() {
   CATEGORIES.push(...cats);
   for (const k of Object.keys(PLACEMENT_FACETS)) delete PLACEMENT_FACETS[k];
   Object.assign(PLACEMENT_FACETS, facets);
+  for (const k of Object.keys(PLACEMENT_RULES)) delete PLACEMENT_RULES[k];
+  Object.assign(PLACEMENT_RULES, rules);
+  for (const k of Object.keys(VOCABULARIES)) delete VOCABULARIES[k];
+  Object.assign(VOCABULARIES, vocabs);
 
   _layoutLoaded = true;
   _layoutRootSeen = r;
@@ -247,7 +280,7 @@ function renderLeaf({ id, title, tags, body, memoryMeta }) {
   return stringifyLeaf(body, frontmatter);
 }
 
-function normaliseMeta(metadata = {}, extra = {}) {
+export function normaliseMeta(metadata = {}, extra = {}) {
   const m = metadata && typeof metadata === "object" ? metadata : {};
   // `area` is the fine-grained sub-module (facet + fine scope). Legacy atoms put
   // it in `project_module`, so fall back to that. `project_module` itself is the
@@ -276,6 +309,18 @@ function normaliseMeta(metadata = {}, extra = {}) {
   const tags = m.tags;
   if (Array.isArray(tags)) out.tags = tags.join(",");
   else if (tags) out.tags = String(tags);
+  // `subject`: the hierarchical semantic path (broad->narrow). Persisted as a
+  // slug array so it survives into frontmatter (placement reads it back when a
+  // leaf is relocated, and it stays browsable/searchable). Accepts an array or
+  // a "/"-joined string. Absent -> omitted (placement applies its fallback).
+  const subj = m.subject;
+  let subjectArr = [];
+  if (Array.isArray(subj)) {
+    subjectArr = subj.map((s) => slugify(String(s))).filter(Boolean);
+  } else if (typeof subj === "string" && subj.trim()) {
+    subjectArr = subj.split("/").map((s) => slugify(String(s))).filter(Boolean);
+  }
+  if (subjectArr.length) out.subject = subjectArr;
   // Strip empties so absent fields aren't matched as "". project_module is kept
   // (always the workspace) so the default recall scope always has something to match.
   for (const k of ["area", "language", "task_type", "error_pattern", "tags"]) {
@@ -396,6 +441,33 @@ function facetValue(key, meta) {
   return sentinels[key] || "misc";
 }
 
+// Expand a `kind: path` facet into one-or-more directory segments (broad->narrow).
+// The facet value may be an array (`subject: [a, b, c]`) or a "/"-joined string.
+// An absent/empty value collapses to the rule's `fallback` sentinel so a leaf is
+// never dropped at the category root. When a `vocabulary` is declared, the FIRST
+// segment must belong to it; otherwise we throw (FAIL LOUD) rather than write a
+// leaf under an un-curated top-level domain.
+function pathFacetSegments(key, meta, rule) {
+  const raw = meta ? meta[key] : undefined;
+  let parts = [];
+  if (Array.isArray(raw)) {
+    parts = raw.map((s) => slugify(String(s))).filter(Boolean);
+  } else if (typeof raw === "string" && raw.trim()) {
+    parts = raw.split("/").map((s) => slugify(String(s))).filter(Boolean);
+  }
+  const fallback = slugify(String(rule.fallback || "general")) || "general";
+  if (parts.length === 0) return [fallback];
+  const vocab = rule.vocabulary ? VOCABULARIES[rule.vocabulary] : null;
+  if (vocab && vocab.size > 0 && !vocab.has(parts[0])) {
+    throw new WikiStoreUnavailable(
+      `placement: '${key}' domain '${parts[0]}' is not in vocabulary '${rule.vocabulary}'. ` +
+        `Allowed: ${[...vocab].join(", ")}. ` +
+        `Provide a valid first '${key}' segment, or omit '${key}' to use the '${fallback}' fallback.`,
+    );
+  }
+  return parts;
+}
+
 // Relative dir (under the wiki root) for a leaf, derived from its NORMALISED
 // `memory` metadata. Exported so migrate-nest computes the same target from an
 // existing leaf's frontmatter. Returns null for `daily` (caller date-nests it).
@@ -404,7 +476,17 @@ export function placementDirForMeta(category, meta = {}) {
   if (category === "daily") return null;
   const facets = PLACEMENT_FACETS[category] || [];
   if (facets.length === 0) return category;
-  return [category, ...facets.map((k) => facetValue(k, meta))].join("/");
+  const catRules = PLACEMENT_RULES[category] || {};
+  const segs = [category];
+  for (const k of facets) {
+    const rule = catRules[k];
+    if (rule && rule.kind === "path") {
+      segs.push(...pathFacetSegments(k, meta, rule));
+    } else {
+      segs.push(facetValue(k, meta));
+    }
+  }
+  return segs.join("/");
 }
 
 // Resolve where a NEW leaf for a slot should live (relative dir under wiki).
