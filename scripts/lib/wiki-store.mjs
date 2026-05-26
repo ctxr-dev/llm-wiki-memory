@@ -285,6 +285,30 @@ function renderLeaf({ id, title, tags, body, memoryMeta }) {
   return stringifyLeaf(body, frontmatter);
 }
 
+// Normalize a `kind: path` facet value (an array, or a "/"-joined string) into
+// clean slug segments. Segments carrying NO sluggable content (empty, pure
+// whitespace, or punctuation-only) are DROPPED — not collapsed to slugify's
+// "untitled" placeholder — so an empty/odd subject never leaks junk path
+// segments. A segment whose content literally slugs to "untitled" is kept
+// (it had real content).
+export function slugSegments(value) {
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split("/")
+      : [];
+  const out = [];
+  for (const s of raw) {
+    const str = String(s);
+    // slugify yields "untitled" only when the base normalizes to empty; detect
+    // that here so we can drop the segment instead of emitting the placeholder.
+    const hasContent = /[a-z0-9]/.test(str.toLowerCase().normalize("NFKD").replace(/\p{M}/gu, ""));
+    if (!hasContent) continue;
+    out.push(slugify(str));
+  }
+  return out;
+}
+
 export function normaliseMeta(metadata = {}, extra = {}) {
   const m = metadata && typeof metadata === "object" ? metadata : {};
   // `area` is the fine-grained sub-module (facet + fine scope). Legacy atoms put
@@ -317,14 +341,9 @@ export function normaliseMeta(metadata = {}, extra = {}) {
   // `subject`: the hierarchical semantic path (broad->narrow). Persisted as a
   // slug array so it survives into frontmatter (placement reads it back when a
   // leaf is relocated, and it stays browsable/searchable). Accepts an array or
-  // a "/"-joined string. Absent -> omitted (placement applies its fallback).
-  const subj = m.subject;
-  let subjectArr = [];
-  if (Array.isArray(subj)) {
-    subjectArr = subj.map((s) => slugify(String(s))).filter(Boolean);
-  } else if (typeof subj === "string" && subj.trim()) {
-    subjectArr = subj.split("/").map((s) => slugify(String(s))).filter(Boolean);
-  }
+  // a "/"-joined string; content-free segments are dropped. Absent/empty ->
+  // omitted (placement applies its fallback).
+  const subjectArr = slugSegments(m.subject);
   if (subjectArr.length) out.subject = subjectArr;
   // Strip empties so absent fields aren't matched as "". project_module is kept
   // (always the workspace) so the default recall scope always has something to match.
@@ -453,13 +472,7 @@ function facetValue(key, meta) {
 // segment must belong to it; otherwise we throw (FAIL LOUD) rather than write a
 // leaf under an un-curated top-level domain.
 function pathFacetSegments(key, meta, rule) {
-  const raw = meta ? meta[key] : undefined;
-  let parts = [];
-  if (Array.isArray(raw)) {
-    parts = raw.map((s) => slugify(String(s))).filter(Boolean);
-  } else if (typeof raw === "string" && raw.trim()) {
-    parts = raw.split("/").map((s) => slugify(String(s))).filter(Boolean);
-  }
+  const parts = slugSegments(meta ? meta[key] : undefined);
   const fallback = slugify(String(rule.fallback || "general")) || "general";
   if (parts.length === 0) return [fallback];
   const vocab =

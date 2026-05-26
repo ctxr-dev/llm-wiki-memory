@@ -110,6 +110,50 @@ test("subject segments are slugified (caps/spaces -> kebab)", () => {
   );
 });
 
+test("content-free subject segments are dropped (no 'untitled' leak)", () => {
+  useLayout();
+  // empty / whitespace / punctuation-only segments must NOT become 'untitled'.
+  assert.equal(
+    placementDirForMeta("knowledge", {
+      area: "x",
+      atom_type: "concept",
+      subject: ["", "  ", "!!!", "observability", "kamon"],
+    }),
+    "knowledge/x/concept/observability/kamon",
+  );
+});
+
+test("a subject of only content-free segments collapses to the fallback", () => {
+  useLayout();
+  assert.equal(
+    placementDirForMeta("knowledge", { area: "x", atom_type: "concept", subject: ["", "  ", "@@@"] }),
+    "knowledge/x/concept/general",
+  );
+});
+
+test("a segment whose content literally slugs to 'untitled' is kept", () => {
+  useLayout(`
+vocabularies:
+  subject_domains: [general, untitled]
+layout:
+  - path: knowledge
+    placement_facets: [area, atom_type, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
+`);
+  assert.equal(
+    placementDirForMeta("knowledge", { area: "x", atom_type: "concept", subject: ["untitled", "edge"] }),
+    "knowledge/x/concept/untitled/edge",
+  );
+});
+
+test("normaliseMeta drops content-free subject segments", () => {
+  const m = normaliseMeta({ subject: ["", "  ", "Kamon", "!!!"] });
+  assert.deepEqual(m.subject, ["kamon"]);
+  const empty = normaliseMeta({ subject: ["", "   "] });
+  assert.ok(!("subject" in empty), "all-empty subject is omitted");
+});
+
 test("invalid first domain throws (FAIL LOUD, no garbage path)", () => {
   useLayout();
   assert.throws(
