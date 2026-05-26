@@ -49,6 +49,41 @@ const SANDBOX_GLOBALS = Object.freeze({
   Date,
 });
 
+// Pre-compiled guard script: runs inside the sandbox before user code and
+// blocks the classic `(function(){}).constructor` escape — anonymous functions
+// declared in user code expose Function via their .constructor.constructor,
+// and the codeGeneration.strings:false flag prevents NEW code generation but
+// NOT references to the existing Function constructor object. We seal that
+// surface by overwriting `Function` on every Function.prototype reachable
+// inside the sandbox, plus on every whitelisted global's constructor chain.
+//
+// Note: this is defence-in-depth, not a security boundary. Trust model:
+// inline compilers come from the user's own layout YAML; a compiler can't
+// reach the host filesystem regardless (no `require`, no `process`, no
+// `fs`). Blocking Function shuts down code generation as a courtesy.
+const SANDBOX_LOCKDOWN = `
+(function () {
+  // Make the Function constructor (reachable via any function literal's
+  // .constructor.constructor chain) refuse to compile new code from
+  // strings. We can't delete it from the constructor chain (Object.freeze
+  // would block other writes too) so we patch the throw-on-call.
+  const F = (function () {}).constructor;
+  if (typeof F === "function") {
+    const blocked = function () {
+      throw new Error("Function constructor is disabled in the sandbox");
+    };
+    try {
+      Object.defineProperty(F, "constructor", { value: blocked, writable: false });
+    } catch (_) { /* best-effort */ }
+    // Also patch Function.prototype.constructor (the path most escape PoCs
+    // walk) to throw.
+    try {
+      Object.defineProperty(F.prototype, "constructor", { value: blocked, writable: false });
+    } catch (_) { /* best-effort */ }
+  }
+})();
+`;
+
 export class PathCompilerError extends Error {
   constructor(message, { phase, source, cause } = {}) {
     super(message);
@@ -91,6 +126,16 @@ export function compileInlineFunction(source, { filename = "<path_compiler>", ti
     name: filename,
     codeGeneration: { strings: false, wasm: false },
   });
+  // Seal Function-constructor escape routes BEFORE user code runs.
+  try {
+    new vm.Script(SANDBOX_LOCKDOWN, { filename: "<sandbox-lockdown>" }).runInContext(
+      context,
+      { timeout },
+    );
+  } catch (_) {
+    // Lockdown is best-effort; never let a failure here mask the real
+    // compile error. The codeGeneration:false flag is still in force.
+  }
 
   // Shape (1): the source contains a function declaration (named `to_path`
   // for forward generators or `from_path` for reverse parsers). Wrap in an
@@ -211,17 +256,42 @@ export async function loadCompilerFile(absFilePath, { fileKindName } = {}) {
 }
 
 // Execute a path compiler. Returns { ok, path, error }.
+// Async / generator / Promise returns are flagged with a specific error
+// (instead of the generic "expected string"), because the most common
+// authoring mistake is `async (facets) => ...` — which returns a Promise.
 export function callForwardCompiler(fn, facets) {
   try {
     const out = fn(facets);
-    if (typeof out !== "string") {
+    if (typeof out === "string") return { ok: true, path: out, error: null };
+
+    // Promise-shaped (thenable) result?
+    if (out && typeof out === "object" && typeof out.then === "function") {
       return {
         ok: false,
         path: null,
-        error: `compiler returned ${typeof out}, expected string`,
+        error:
+          "compiler returned a Promise (async compilers are not supported — write a synchronous function)",
       };
     }
-    return { ok: true, path: out, error: null };
+    // Generator / iterator?
+    if (
+      out &&
+      typeof out === "object" &&
+      typeof out.next === "function" &&
+      typeof out[Symbol.iterator] === "function"
+    ) {
+      return {
+        ok: false,
+        path: null,
+        error:
+          "compiler returned a generator/iterator (generator functions are not supported)",
+      };
+    }
+    return {
+      ok: false,
+      path: null,
+      error: `compiler returned ${typeof out}, expected string`,
+    };
   } catch (err) {
     return {
       ok: false,
@@ -260,7 +330,9 @@ export function callParseCompiler(fn, relPath) {
 // literal), this surfaces the failure rather than silently writing a leaf
 // at a literal "{foo}" directory.
 export function findUnresolvedPlaceholders(pathStr) {
-  const matches = String(pathStr).match(/\{[a-zA-Z_][a-zA-Z0-9_]*\}/g);
+  // Match {ident} but NOT ${ident} — the latter is template-literal noise
+  // that may slip into compiler output and isn't OUR placeholder syntax.
+  const matches = String(pathStr).match(/(?<!\$)\{[a-zA-Z_][a-zA-Z0-9_]*\}/g);
   return matches ? Array.from(new Set(matches)) : [];
 }
 

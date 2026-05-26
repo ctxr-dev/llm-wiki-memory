@@ -82,14 +82,8 @@ function ensureLayoutLoaded() {
     facets[k] = [...DEFAULT_PLACEMENT_FACETS[k]];
   }
 
-  // Layout YAML canonical location is <wiki>/layout/layout.yaml. Fallbacks
-  // preserve compat with older wikis (legacy filename and/or legacy location).
-  const candidates = [
-    path.join(r, "layout", "layout.yaml"),
-    path.join(r, "layout", ".llmwiki.layout.yaml"),
-    path.join(r, ".llmwiki.layout.yaml"),
-  ];
-  const layoutPath = candidates.find((p) => fs.existsSync(p)) || candidates[candidates.length - 1];
+  // Layout YAML canonical location is <wiki>/layout/layout.yaml.
+  const layoutPath = path.join(r, "layout", "layout.yaml");
   if (fs.existsSync(layoutPath)) {
     try {
       const parsed = parseYaml(fs.readFileSync(layoutPath, "utf8")) || {};

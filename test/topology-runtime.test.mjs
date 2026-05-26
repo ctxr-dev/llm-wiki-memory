@@ -14,7 +14,8 @@ import {
 // Helper: writes a fresh tmp wiki dir with a single layout YAML at the root.
 function tmpWiki(layoutYaml) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "topo-runtime-test-"));
-  fs.writeFileSync(path.join(dir, ".llmwiki.layout.yaml"), layoutYaml);
+  fs.mkdirSync(path.join(dir, "layout"));
+  fs.writeFileSync(path.join(dir, "layout", "layout.yaml"), layoutYaml);
   return dir;
 }
 
@@ -264,13 +265,15 @@ layout:
 });
 
 test("to_path_file: reads a sibling .mjs file's default export", async () => {
+  // The .mjs helper sits in the layout/ folder next to the YAML.
   const wiki = fs.mkdtempSync(path.join(os.tmpdir(), "topo-file-"));
+  fs.mkdirSync(path.join(wiki, "layout"));
   fs.writeFileSync(
-    path.join(wiki, "knowledge-path.mjs"),
+    path.join(wiki, "layout", "knowledge-path.mjs"),
     "export default ({ tracker, prefix, number }) => `issues/${tracker}/${prefix}/${prefix}-${number}.md`;\n",
   );
   fs.writeFileSync(
-    path.join(wiki, ".llmwiki.layout.yaml"),
+    path.join(wiki, "layout", "layout.yaml"),
     `
 layout:
   - path: issues
@@ -295,10 +298,8 @@ layout:
   );
 });
 
-test("loadTopology reads from <wiki>/layout/.llmwiki.layout.yaml (canonical location)", async () => {
-  // Place the YAML in the new canonical location and write a sibling .mjs
-  // file in the same folder. This is the shape produced by
-  //   `cp -r examples/layouts/<name>/  <wiki>/layout`
+test("loadTopology reads from <wiki>/layout/layout.yaml (canonical location)", async () => {
+  // The canonical (and only) location for the layout YAML.
   const wiki = fs.mkdtempSync(path.join(os.tmpdir(), "topo-layout-folder-"));
   fs.mkdirSync(path.join(wiki, "layout"));
   fs.writeFileSync(
@@ -306,7 +307,7 @@ test("loadTopology reads from <wiki>/layout/.llmwiki.layout.yaml (canonical loca
     "export function knowledge({ tracker, prefix, number }) { return `issues/${tracker}/${prefix}/${prefix}-${number}.md`; }\n",
   );
   fs.writeFileSync(
-    path.join(wiki, "layout", ".llmwiki.layout.yaml"),
+    path.join(wiki, "layout", "layout.yaml"),
     `
 layout:
   - path: issues
@@ -331,8 +332,15 @@ layout:
   );
 });
 
-test("loadTopology falls back to <wiki>/.llmwiki.layout.yaml when layout/ is absent", async () => {
-  // Legacy / pre-layout-move wikis keep working.
+test("loadTopology throws when layout/layout.yaml is missing", async () => {
+  const wiki = fs.mkdtempSync(path.join(os.tmpdir(), "topo-no-layout-"));
+  _resetCacheForTests();
+  await assert.rejects(() => loadTopology(wiki), /layout\.yaml not found/);
+});
+
+// Sanity: with a fully-formed canonical layout, validateFacets-only path
+// works and surfaces enum / required errors without a successful build.
+test("validateFacets surfaces required + enum violations even before pathFor", async () => {
   const wiki = tmpWiki(`
 layout:
   - path: issues
@@ -347,7 +355,9 @@ layout:
 `);
   _resetCacheForTests();
   const topo = await loadTopology(wiki);
-  assert.equal(pathFor(topo, "knowledge", { x: "hi" }), "issues/hi.md");
+  const v = validateFacets(topo, "knowledge", {});
+  assert.equal(v.ok, false);
+  assert.ok(v.errors.some((e) => e.includes("missing required facet 'x'")));
 });
 
 test("loadTopology rejects BOTH inline and file compiler in the same file_kind", async () => {

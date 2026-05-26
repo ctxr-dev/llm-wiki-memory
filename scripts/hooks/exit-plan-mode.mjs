@@ -127,11 +127,7 @@ async function main() {
 
   // Refuse cleanly if the wiki hasn't been materialised yet.
   const wiki = wikiRoot();
-  const contractPresent =
-    fs.existsSync(path.join(wiki, "layout", "layout.yaml")) ||
-    fs.existsSync(path.join(wiki, "layout", ".llmwiki.layout.yaml")) ||
-    fs.existsSync(path.join(wiki, ".llmwiki.layout.yaml"));
-  if (!contractPresent) {
+  if (!fs.existsSync(path.join(wiki, "layout", "layout.yaml"))) {
     throw new SkipPlanCapture(
       `wiki not initialised at ${wiki}; run ./.llm-wiki-memory/src/bootstrap.sh`,
     );

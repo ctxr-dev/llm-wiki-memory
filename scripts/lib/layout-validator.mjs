@@ -242,21 +242,58 @@ export function validateLayoutText(text, { filePath = "<inline>" } = {}) {
 
 export function validateLayoutFile(filePath) {
   const abs = path.resolve(filePath);
-  if (!fs.existsSync(abs)) {
+  let stat;
+  try {
+    stat = fs.lstatSync(abs);
+  } catch (err) {
     return {
       ok: false,
       errors: [
         {
           filePath: abs,
           path: "<file>",
-          message: `layout file not found: ${abs}`,
+          message:
+            err.code === "ENOENT"
+              ? `layout file not found: ${abs}`
+              : `cannot stat layout file ${abs}: ${err.message}`,
           line: 0,
           col: 0,
         },
       ],
     };
   }
-  return validateLayoutText(fs.readFileSync(abs, "utf8"), { filePath: abs });
+  if (stat.isDirectory()) {
+    return {
+      ok: false,
+      errors: [
+        {
+          filePath: abs,
+          path: "<file>",
+          message: `layout path points to a directory, not a YAML file: ${abs}`,
+          line: 0,
+          col: 0,
+        },
+      ],
+    };
+  }
+  let text;
+  try {
+    text = fs.readFileSync(abs, "utf8");
+  } catch (err) {
+    return {
+      ok: false,
+      errors: [
+        {
+          filePath: abs,
+          path: "<file>",
+          message: `cannot read layout file ${abs}: ${err.message}`,
+          line: 0,
+          col: 0,
+        },
+      ],
+    };
+  }
+  return validateLayoutText(text, { filePath: abs });
 }
 
 // Pretty-print a result for CLI output (one error per line).

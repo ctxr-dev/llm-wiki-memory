@@ -63,21 +63,12 @@ export function _resetCacheForTests() {
 // --- loader ---
 
 // Resolve the layout YAML's canonical location. The user-facing source of
-// truth is `<wiki>/layout/layout.yaml` (everything that makes up a layout —
-// yaml + sibling .mjs helpers — lives in that one folder, so a template
-// can be copied with a single `cp -r examples/layouts/<name>/  <wiki>/layout`).
-// Fallbacks in order keep older wikis working without any rename:
-//   1. <wiki>/layout/layout.yaml          (canonical)
-//   2. <wiki>/layout/.llmwiki.layout.yaml (canonical, legacy filename)
-//   3. <wiki>/.llmwiki.layout.yaml        (legacy location at wiki root)
+// truth is `<wiki>/layout/layout.yaml` — everything that makes up a layout
+// (yaml + sibling .mjs helpers) lives in that one folder, so a template
+// can be copied with a single `cp -r examples/layouts/<name>  <wiki>/layout`.
 function resolveLayoutYamlPath(wikiRoot) {
-  const candidates = [
-    path.join(wikiRoot, "layout", "layout.yaml"),
-    path.join(wikiRoot, "layout", ".llmwiki.layout.yaml"),
-    path.join(wikiRoot, ".llmwiki.layout.yaml"),
-  ];
-  for (const p of candidates) if (fs.existsSync(p)) return p;
-  return null;
+  const p = path.join(wikiRoot, "layout", "layout.yaml");
+  return fs.existsSync(p) ? p : null;
 }
 
 export async function loadTopology(wikiRoot, { categoryPath = "issues" } = {}) {
@@ -86,9 +77,7 @@ export async function loadTopology(wikiRoot, { categoryPath = "issues" } = {}) {
 
   const layoutPath = resolveLayoutYamlPath(wikiRoot);
   if (!layoutPath) {
-    throw new Error(
-      `layout.yaml not found at ${wikiRoot}/layout/ (also checked legacy .llmwiki.layout.yaml in layout/ and at the wiki root)`,
-    );
+    throw new Error(`layout.yaml not found at ${wikiRoot}/layout/layout.yaml`);
   }
   const yamlDir = path.dirname(layoutPath);
 
@@ -158,6 +147,16 @@ export function validateFacets(topology, kindName, facets) {
   if (!kind) {
     return { ok: false, errors: [`unknown file_kind '${kindName}'`] };
   }
+  // facets MUST be a plain non-null object. null / primitives / arrays are
+  // not valid and would otherwise crash on property access below.
+  if (facets === null || typeof facets !== "object" || Array.isArray(facets)) {
+    return {
+      ok: false,
+      errors: [
+        `facets must be a plain object; got ${facets === null ? "null" : Array.isArray(facets) ? "array" : typeof facets}`,
+      ],
+    };
+  }
   const errors = [];
   for (const key of kind.required_facets || []) {
     if (facets[key] === undefined || facets[key] === null || facets[key] === "") {
@@ -165,6 +164,12 @@ export function validateFacets(topology, kindName, facets) {
     }
   }
   for (const [key, allowed] of Object.entries(kind.enums || {})) {
+    if (!Array.isArray(allowed)) {
+      errors.push(
+        `enums.${key} must be an array in the layout YAML; got ${typeof allowed}`,
+      );
+      continue;
+    }
     if (facets[key] !== undefined && !allowed.includes(facets[key])) {
       errors.push(
         `facet '${key}' value '${facets[key]}' not in ${JSON.stringify(allowed)}`,
@@ -174,20 +179,46 @@ export function validateFacets(topology, kindName, facets) {
   for (const [key, spec] of Object.entries(topology.facetInputs || {})) {
     if (facets[key] === undefined) continue;
     if (spec.type === "integer") {
-      const n = Number(facets[key]);
-      if (!Number.isInteger(n) || n < 0) {
+      // Reject booleans (typeof "boolean") even though Number(true)===1 would
+      // pass the integer check otherwise — silent boolean→int coercion is a
+      // bug source, not a feature.
+      if (typeof facets[key] === "boolean") {
         errors.push(
-          `facet '${key}' must be a non-negative integer; got ${JSON.stringify(facets[key])}`,
+          `facet '${key}' must be an integer; got boolean ${facets[key]}`,
         );
-      } else if (typeof spec.minimum === "number" && n < spec.minimum) {
-        errors.push(`facet '${key}' must be >= ${spec.minimum}; got ${n}`);
+      } else {
+        const n = Number(facets[key]);
+        if (!Number.isInteger(n) || n < 0) {
+          errors.push(
+            `facet '${key}' must be a non-negative integer; got ${JSON.stringify(facets[key])}`,
+          );
+        } else if (typeof spec.minimum === "number" && n < spec.minimum) {
+          errors.push(`facet '${key}' must be >= ${spec.minimum}; got ${n}`);
+        }
       }
     }
-    if (spec.pattern && typeof facets[key] === "string") {
-      if (!new RegExp(spec.pattern).test(facets[key])) {
+    if (spec.pattern !== undefined) {
+      // Pattern MUST be checked on string values; numeric/boolean facets with
+      // a pattern declared are a layout-side bug and we surface it explicitly.
+      if (typeof facets[key] !== "string") {
         errors.push(
-          `facet '${key}' value '${facets[key]}' does not match /${spec.pattern}/`,
+          `facet '${key}' has a pattern but value is ${typeof facets[key]}; pattern requires a string`,
         );
+      } else {
+        let re;
+        try {
+          re = new RegExp(spec.pattern);
+        } catch (err) {
+          errors.push(
+            `facet '${key}' pattern is not a valid regex (${err.message}); fix the layout YAML`,
+          );
+          continue;
+        }
+        if (!re.test(facets[key])) {
+          errors.push(
+            `facet '${key}' value '${facets[key]}' does not match /${spec.pattern}/`,
+          );
+        }
       }
     }
   }
@@ -233,7 +264,14 @@ export function pathFor(topology, kindName, facets) {
 // --- reverse (relative path -> { kind, facets }) ---
 
 export function parsePath(topology, relPath) {
-  const norm = String(relPath).split(path.sep).join("/").replace(/^\/+/, "");
+  // Reject obviously-broken inputs rather than coercing them to "null" /
+  // "undefined" strings (which would then "successfully" return null after a
+  // useless regex scan).
+  if (relPath === null || relPath === undefined || typeof relPath !== "string") {
+    return null;
+  }
+  if (relPath.includes("\0")) return null;
+  const norm = relPath.split(path.sep).join("/").replace(/^\/+/, "");
 
   for (const [kindName, kind] of Object.entries(topology.fileKinds)) {
     // Prefer the explicit parse_compiler[_file] if present.
