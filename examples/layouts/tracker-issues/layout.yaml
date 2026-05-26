@@ -3,6 +3,10 @@ versioning:
   style: in-place
   backup_before_mutate: false
 purpose: "Persistent local memory for the agent across sessions"
+# This wiki nests deep (the subject axis), so directory-depth limits are
+# intentionally NOT enforced: llm-wiki-memory never passes --max-depth to
+# skill-llm-wiki, and per-entry `max_depth` is omitted. This flag documents that.
+ignore_max_depth: true
 # tracker-issues layout (template).
 #
 # Extends the default 5 categories with an `issues` category storing knowledge
@@ -50,37 +54,31 @@ layout:
     facet_rules:
       subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
-    max_depth: 8
   - path: self_improvement
     purpose: "self-improvement lessons; nested by area/task_type/subject (dedup keyed by error_pattern)"
     placement_facets: [area, task_type, subject]
     facet_rules:
       subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
-    max_depth: 8
   - path: plans
     purpose: "approved and in-flight plans; nested by area/subject"
     placement_facets: [area, subject]
     facet_rules:
       subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
-    max_depth: 8
   - path: investigations
     purpose: "investigation and analysis artefacts; nested by area/subject"
     placement_facets: [area, subject]
     facet_rules:
       subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
-    max_depth: 8
   - path: daily
     purpose: "raw captured memory atoms, nested by capture date (yyyy/mm/dd)"
     placement_strategy: daily-date
     allow_entry_types: [primary]
-    max_depth: 5
   - path: issues
     placement_facets: []
     allow_entry_types: [primary]
-    max_depth: 8
     topology:
       strategy: caller_path
       helper:

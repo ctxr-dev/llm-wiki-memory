@@ -258,6 +258,52 @@ test("frontmatter subject round-trips: stored array recomputes the same path", (
   );
 });
 
+test("layout with ignore_max_depth and NO max_depth validates + places a deep subject", () => {
+  useLayout(`
+ignore_max_depth: true
+vocabularies:
+  subject_domains: [languages, general]
+layout:
+  - path: knowledge
+    placement_facets: [area, atom_type, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
+`);
+  // No max_depth anywhere; a deep subject places without error.
+  assert.equal(
+    placementDirForMeta("knowledge", {
+      area: "scala-toolkit",
+      atom_type: "concept",
+      subject: ["languages", "scala", "cats-effect", "resource", "lifecycle"],
+    }),
+    "knowledge/scala-toolkit/concept/languages/scala/cats-effect/resource/lifecycle",
+  );
+});
+
+test("validator accepts ignore_max_depth and a layout with no max_depth", () => {
+  const f = tmpLayoutFile(`
+ignore_max_depth: true
+vocabularies:
+  subject_domains: [general]
+layout:
+  - path: knowledge
+    placement_facets: [area, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
+`);
+  assert.equal(validateLayoutFile(f).ok, true);
+});
+
+test("validator rejects a non-boolean ignore_max_depth", () => {
+  const f = tmpLayoutFile(`
+ignore_max_depth: "yes"
+layout:
+  - path: knowledge
+    placement_facets: [area]
+`);
+  assert.equal(validateLayoutFile(f).ok, false);
+});
+
 // --- layout validator ---
 
 test("validator accepts a well-formed subject layout", () => {

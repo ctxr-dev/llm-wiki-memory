@@ -166,6 +166,11 @@ export const LayoutYamlSchema = z
       .passthrough()
       .optional(),
     purpose: z.string().optional(),
+    // Declarative marker: this wiki nests deep (e.g. by the subject axis) and
+    // depth limits should NOT be enforced. llm-wiki-memory never passes
+    // --max-depth to skill-llm-wiki, so depth is unbounded by construction;
+    // this flag documents that intent and lets per-entry `max_depth` be omitted.
+    ignore_max_depth: z.boolean().optional(),
     vocabularies: z.record(z.string(), z.array(z.string().min(1)).min(1)).optional(),
     layout: z.array(LayoutEntrySchema).min(1, "`layout` must declare at least one entry"),
   })
