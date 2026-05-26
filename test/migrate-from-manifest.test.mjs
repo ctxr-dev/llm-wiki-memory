@@ -114,6 +114,23 @@ test("guard: unknown classification -> per-entry failure", async () => {
   assert.match(s.results[0].error, /no dataset mapping/);
 });
 
+test("guard: collision key matches the normalized write target (X.MD vs X.md)", async () => {
+  // saveDocument lowercases the .md extension, so "Dup.MD" and "dup.md" land on
+  // the SAME file — the collision guard must catch that despite the raw spelling.
+  const dir = tmpdir();
+  const a = path.join(dir, "a.md");
+  const b = path.join(dir, "b.md");
+  fs.writeFileSync(a, "# A\n\nbody\n");
+  fs.writeFileSync(b, "# B\n\nbody\n");
+  const manifest = writeManifest(dir, [
+    { source: a, classification: "knowledge", target: "wiki/knowledge/x/concept/Dup.MD" },
+    { source: b, classification: "knowledge", target: "wiki/knowledge/x/concept/Dup.md" },
+  ]);
+  const s = await migrateManifest(manifest, { dryRun: true });
+  assert.equal(s.fail, 1, "case-differing extension still collides");
+  assert.match(s.results.find((r) => !r.ok).error, /target collision/);
+});
+
 test("guard: duplicate target leaf -> second entry fails (collision)", async () => {
   const dir = tmpdir();
   const a = path.join(dir, "a.md");
