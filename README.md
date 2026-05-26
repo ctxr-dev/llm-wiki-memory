@@ -27,6 +27,7 @@ stored as a local [LLM wiki](https://github.com/ctxr-dev/skill-llm-wiki) with lo
 
 - **Zero infrastructure.** Everything lives in a local `.llm-wiki-memory/` folder. No vector DB, no container, no API service to run.
 - **Git-versioned memory.** Every memory is a markdown leaf in a hierarchical wiki with full history, maintained by [`@ctxr/skill-llm-wiki`](https://github.com/ctxr-dev/skill-llm-wiki).
+- **Clean separation of concerns.** This package owns *content + placement + retrieval*; the engine owns *structure + indexing*. Full responsibility matrix + the package boundary: [**ARCHITECTURE.md**](ARCHITECTURE.md).
 - **Self-improving.** Lessons are captured the moment you correct the agent, deduped by failure pattern, and recalled before related work.
 - **Local semantic recall.** Transformer embeddings (default `Xenova/bge-large-en-v1.5`) rank queries on-device, and one env var swaps in a lighter model (lexical fallback if no model is available).
 - **Works with any MCP client.** Claude Code, Cursor, Codex, Claude Desktop, and generic clients all get the same tools and the same memory discipline.
