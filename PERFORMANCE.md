@@ -1,166 +1,169 @@
 # Performance characteristics
 
-Empirical measurements of write, search, and lookup latency for
-`llm-wiki-memory` (Xenova `bge-large-en-v1.5` embedder + `@ctxr/skill-llm-wiki`
-index-rebuild pipeline). All numbers from a single-process Node 25.9 run on
-macOS (Apple Silicon) against a small wiki (≤30 leaves). Re-measure on
-your own hardware if you care about absolute numbers; relative shape and
-asymptotic behaviour will match.
+Empirical latency for `llm-wiki-memory` — the Xenova `bge-large-en-v1.5`
+embedder + the `@ctxr/skill-llm-wiki` index pipeline.
+
+> **Measured:** Apple **M4 Pro** (14 cores) · **Node 25.9** · macOS · production
+> backend (real `bge-large`, model already cached on disk) · an **isolated**
+> throwaway wiki grown to **~280 leaves** (the live install is never touched).
+> Numbers are medians of repeated runs. Re-measure on your own hardware for
+> absolute values — the *shape* (what dominates what) is what transfers.
+
+---
 
 ## TL;DR
 
-- **Adding a leaf**: ~300 ms for a shallow path, ~500 ms for a 7-deep
-  tracker-issues path. Dominated by `skill-llm-wiki index-rebuild-one`
-  subprocess spawns (one per ancestor directory; ~50 ms each).
-- **Searching**: ~40 ms once the embedder is warm. First search in a
-  process pays ~8.5 s to load the 340 MB Xenova model.
-- **Looking up by key** (issue tree): **0 ms** — the topology helper
-  computes the path with pure arithmetic. No I/O.
-- **Browsing the tree**: ≤ 7 `index.md` reads worst-case for the
-  `tracker-issues` layout, even at 100 k+ issues per tracker (digit
-  bucketing caps fan-out at ~100 per folder).
-- **No LLM is involved** in writes. Xenova handles embeddings locally;
-  the caller supplies the leaf body.
+| Operation | Latency | Notes |
+|---|---|---|
+| **Add a leaf** (shallow → deep) | **~350 ms → ~590 ms** | Dominated by `index-rebuild-one` subprocess spawns (~67 ms each, one per ancestor dir). Writes do **not** embed. |
+| **Search, warm** | **~30–80 ms** | Query embed + cosine over the corpus. Scales gently with leaf count. |
+| **Search, cold cache** | **~24 ms × (uncached leaves)** | First search after a bulk import / model change lazily embeds candidates once. ~9 s over 280 cold leaves; warm forever after. |
+| **Lookup by key** (topology) | **< 1 µs** | Pure arithmetic. O(1) regardless of wiki size. No I/O. |
+| **recall_lessons** | **~65 ms** | Drop-rung ladder over `self_improvement`. |
+| **validate** (full wiki, 280 leaves) | **~210 ms** | One `skill-llm-wiki validate` subprocess. |
+| **gc-embeddings** (sweep 280 entries) | **~15 ms** | Pure in-memory set diff + cache rewrite. |
+| **Cold model load** | **~500 ms** | One-time per process; decode of the locally-cached 340 MB model. |
+
+**No LLM is involved in writes, search, or lookup.** Claude only *generates*
+content; absorbing it is pure local code + on-device embeddings.
+
+---
+
+## Embedding (Xenova `bge-large-en-v1.5`)
+
+| Measurement | Latency |
+|---|---|
+| Cold model load (first `embed()` in a process — local-cache decode) | **~500 ms** |
+| Warm query embed (short query, model loaded) | **~12 ms** |
+| Warm leaf embed (leaf-sized body, ~150 chars) | **~24 ms** |
+
+The model loads **once per process**. The MCP server stays alive, so it pays the
+~500 ms exactly once and every later call is warm. (Historically this was ~8.5 s
+because the model was downloaded on first use; once cached on disk it's ~500 ms.)
+
+---
 
 ## Adding a leaf
 
-Each leaf write does:
+A write (`saveDocument` / `save_to_dataset`) does, synchronously:
 
-1. `fs.writeFileSync` of the leaf with normalised frontmatter — sub-ms
-2. `ensureIndexes(root, [leaf])` — one `skill-llm-wiki index-rebuild-one`
-   subprocess per ancestor directory, **deepest first**
-3. `upsertEmbedding(rel, text)` — Xenova embed + write to
-   `<data>/index/embeddings.json`
+1. `renderLeaf` + `fs.writeFileSync` — frontmatter (id, covers, sha256, memory block) + body. **Sub-millisecond.**
+2. `ensureIndexes(root, [leaf])` — one `skill-llm-wiki index-rebuild-one` **subprocess per ancestor directory**, deepest-first. **This dominates.**
+3. `upsertEmbedding(rel, text)` — **lazy**: only *invalidates* a stale cache entry. The vector is **not** computed here — it's deferred to the next search that needs it (see below).
 
-Step (2) dominates. Each subprocess pays Node startup (~50 ms).
+| Scenario | Ancestor dirs | Wall clock (median) |
+|---|:---:|:---:|
+| `knowledge/<area>/<atom_type>/` | 3 | **~347 ms** |
+| `knowledge/<area>/<atom_type>/<subject…>/` (subject axis) | 5 | **~413 ms** |
+| 7-deep path (e.g. `issues/JIRA/DEV/<k>/<h>/<u>/<lifecycle>/`) | 7 | **~586 ms** |
 
-| Scenario | Ancestor dirs | Wall clock (avg, N=3 warm) |
-|---|---|---|
-| `knowledge/<area>/<atom_type>/leaf.md` | 3 | **~280 ms** |
-| `issues/JIRA/DEV/<k>/<h>/<u>/<issue>.md` | 6 | **~470 ms** |
-| `issues/JIRA/DEV/<k>/<h>/<u>/<lifecycle>/<plan>.plan.md` | 7 | **~520 ms** |
+Per-`index-rebuild-one` subprocess: **~67 ms** (Node startup + the skill's
+single-dir index regen). Total write ≈ a fixed render/cache overhead + `K × 67 ms`
+for `K` ancestors. **Leaf body size is irrelevant** to write cost — nothing is
+embedded at write time.
 
-Leaf body size (1 KB vs 10 KB) had no measurable effect: the embedding
-model amortises away inside the warm Node process, and the file write +
-markdown render are dwarfed by the index-rebuild spawn cost.
+> ⚠️ **Bulk-write hazard.** N leaves at depth K = **N × K subprocess spawns**.
+> A 1 000-leaf import at depth 7 ≈ 7 000 spawns ≈ **8 min** single-threaded.
+> Mitigation: write the leaves, then call `ensureIndexes(root, allLeaves)` **once**
+> at the end (it dedupes ancestor dirs) instead of per-leaf. (No batch save API
+> yet — see follow-ups.)
 
-### Bulk-write hazard
-
-For N leaves at depth K the cost is **N × K subprocess spawns**. A 1 000-issue
-bulk migration in the `tracker-issues` layout would do ~7 000 spawns,
-~6 minutes of wall clock on a single thread. If you need this, batch the
-writes and call `ensureIndexes(root, allLeaves)` **once** at the end
-instead of per-leaf — the helper dedupes ancestor dirs automatically.
+---
 
 ## Searching
 
-Two distinct search modes:
+`searchMemoryFiltered` (lib / MCP `search_memory`): frontmatter-prefilter the
+candidate leaves, embed the query once, rank by cosine.
 
-### Semantic search (Xenova)
+### Warm (vectors cached — the normal case)
 
-`node scripts/cli.mjs search "<query>"` (or `searchMemory` via the lib /
-MCP). Walks every leaf under the queried categories, embeds the query
-once, ranks by cosine similarity.
+| Corpus size | Warm search latency |
+|---:|:---:|
+| 25 leaves | **~29 ms** |
+| 100 leaves | **~40 ms** |
+| 250 leaves | **~61 ms** |
+| 280 leaves | **~81 ms** |
 
-| Query against the seeded 5-leaf wiki | Top score | Latency (warm) |
-|---|---|---|
-| `"APISIX gateway migration ArgoCD"` | 0.699 | 38 ms |
-| `"ResourceIO cats-effect memory leak Kamon"` | 0.839 | 38 ms |
-| `"GaugeMaxSampler sampler endpoint"` | 0.711 | 38 ms |
-| `"tracker-agnostic GitHub demo topology"` | 0.846 | 39 ms |
-| `"lorem ipsum dolor sit amet consectetur"` | 0.744 | 45 ms |
+Roughly **~25 ms base + ~0.2 ms/leaf** — the walk + cosine grow linearly, the
+single query-embed is fixed. Comfortable into the low thousands of leaves.
 
-First query in a fresh process is **+8.5 s** for the one-time Xenova
-model download / decode. Subsequent queries reuse the in-process model.
+### Cold cache (first search after a bulk import, or after a model change)
 
-The MCP server stays alive across calls, so production latency is the
-warm number (≤ 50 ms) once the server has answered its first query.
+Because embedding is **lazy**, the first search that sees an uncached leaf embeds
+it then (~24 ms each), once. A search over **280 fully-cold leaves ≈ 9.0 s**;
+every subsequent search is warm (~80 ms). A model change wipes the cache and
+re-pays this once. The `SessionStart` warm-up + the persistent MCP server keep
+this off the interactive path in normal use.
 
-### Direct lookup by Jira key
+### Direct lookup by key (topology) — **O(1), < 1 µs**
 
-For any tracker-issue with a known `{tracker, prefix, number}`, the
-topology helper computes the path with pure arithmetic:
+For any tracker issue with a known `{tracker, prefix, number}`, the topology
+helper computes the path with pure arithmetic — **sub-microsecond**, no I/O, no
+embedding, constant regardless of wiki size:
 
 ```js
 pathFor(topo, "knowledge", { tracker: "JIRA", prefix: "DEV", number: 129957 })
-// -> "issues/JIRA/DEV/129/95/7/DEV-129957.md"   (~0 ms)
-
-pathFor(topo, "plan", {
-  tracker: "JIRA", prefix: "DEV", number: 129957,
-  lifecycle: "in-progress", slug: "investigate-timeout",
-})
-// -> "issues/JIRA/DEV/129/95/7/in-progress/DEV-129957-investigate-timeout.plan.md"
-//    (~0 ms)
+// → "issues/JIRA/DEV/129/95/7/DEV-129957.md"
+parsePath(topo, "issues/JIRA/DEV/129/95/7/DEV-129957.md")
+// → { tracker:"JIRA", prefix:"DEV", number:129957 }
 ```
 
-Zero I/O, zero embedding, no cache lookup. Constant time regardless of
-how big the wiki is.
+100 000 iterations of each measured below the timer's resolution (≈ 0 µs/call).
+
+---
+
+## Maintenance & lifecycle ops
+
+| Operation | Latency | What it is |
+|---|:---:|---|
+| `recall_lessons` | **~65 ms** | Drop-rung ladder (error_pattern → language → task_type → area) over `self_improvement`, warm. |
+| `validate` (full wiki, 280 leaves) | **~210 ms** | One `skill-llm-wiki validate` subprocess (invariants + git fsck). |
+| `gc-embeddings` sweep (280 entries) | **~15 ms** | Walk live leaves, drop orphan cache entries, rewrite JSON. |
+
+---
 
 ## Browsing the tree
 
-Auto-generated `index.md` files at every directory level give Markdown-
-clickable navigation. For the `tracker-issues` layout with 100 k+
-issues per tracker:
+Auto-generated `index.md` at every level gives markdown-clickable navigation.
+The `tracker-issues` digit-bucket scheme caps fan-out so the tree **widens**, not
+**deepens**, as issue counts grow:
 
 | Layer | Depth | Max children |
-|---|---|---|
-| `wiki/` | 0 | ≤ 5 categories + `issues/` |
-| `wiki/issues/` | 1 | ≤ N trackers (JIRA, GITHUB, …) |
-| `wiki/issues/JIRA/` | 2 | ≤ N project prefixes (DEV, OPS, …) |
-| `wiki/issues/JIRA/DEV/` | 3 | ≤ 1 000 buckets (thousands digit, capped at floor(maxN/1000)) |
-| `wiki/issues/JIRA/DEV/<k>/` | 4 | ≤ 100 buckets (hundreds-tens) |
-| `wiki/issues/JIRA/DEV/<k>/<h>/` | 5 | ≤ 10 buckets (units digit) |
-| `wiki/issues/JIRA/DEV/<k>/<h>/<u>/` | 6 | 1 knowledge file + N plan-lifecycle dirs |
-| `wiki/issues/JIRA/DEV/<k>/<h>/<u>/<lifecycle>/` | 7 | N plan files |
+|---|:---:|---|
+| `wiki/` | 0 | categories + `issues/` |
+| `issues/JIRA/DEV/` | 3 | ≤ 1 000 thousands-buckets |
+| `issues/JIRA/DEV/<k>/` | 4 | ≤ 100 hundreds-tens |
+| `issues/JIRA/DEV/<k>/<h>/` | 5 | ≤ 10 units |
+| `issues/JIRA/DEV/<k>/<h>/<u>/` | 6 | 1 knowledge file + lifecycle dirs |
+| `issues/JIRA/DEV/<k>/<h>/<u>/<lifecycle>/` | 7 | plan files |
 
-Worst-case browsing path for our deepest layout: **7 `index.md` reads**.
-The digit-bucket scheme means adding 100 000 more issues *widens* the
-middle level (more entries under the thousands digit) rather than
-*deepening* the tree.
+Worst-case browse for the deepest layout: **7 `index.md` reads**, even at
+100 k+ issues per tracker.
 
-## Writing a leaf without an LLM
-
-Adding a leaf is a deterministic write through `wiki-store.mjs`:
-
-```js
-import { saveDocument } from "llm-wiki-memory";
-
-saveDocument({
-  name: "DEV-129957.md",
-  text: "<your body — supplied by you, not by an LLM>",
-  datasetId: "issues",
-  metadata: { atom_type: "jira_issue", area: "hermes-service" },
-  placementOverride: "issues/JIRA/DEV/129/95/7",
-});
-```
-
-The pipeline is:
-
-1. Caller supplies content
-2. `renderLeaf` composes the frontmatter (id, type, parents, covers,
-   tags, sha256 of body, updated, memory block) — no LLM
-3. `fs.writeFileSync`
-4. `skill-llm-wiki index-rebuild-one` for each ancestor — no LLM
-5. Xenova embeds the body locally and writes to the embedding cache —
-   no LLM
-
-Claude is only needed for *generating* content (drafting an investigation
-note from a transcript, deciding tags, deduping atoms). Once the content
-exists, absorbing it into the wiki is pure code.
+---
 
 ## Open performance follow-ups
 
-These are real issues we know about but haven't fixed:
+Known, unfixed:
 
-1. **No batch write API.** Bulk imports of N leaves spawn ~N×K
-   `index-rebuild-one` subprocesses. A `saveDocuments({leaves})` that
-   amortises `ensureIndexes` over the whole batch would cut 1 k-leaf
-   imports from minutes to seconds.
-2. **Topology cache is process-lifetime.** `loadTopology` caches the
-   compiled topology object indefinitely. Long-running processes (the
-   MCP server) won't see edits to `.layout/layout.yaml` or its sibling
-   `.mjs` helpers until restart. A file-mtime check or a manual reset
-   API would close this.
-3. **Cold-start embedding model.** ~8.5 s on first search. The
-   `SessionStart` warm-up hook addresses this for Claude Code sessions;
-   bare CLI invocations still pay it.
+1. **No batch write API.** Bulk imports spawn ~N×K `index-rebuild-one`
+   subprocesses (~67 ms each). A `saveDocuments({ leaves })` that amortises
+   `ensureIndexes` over the batch would cut a 1 000-leaf import from minutes to
+   seconds.
+2. **Per-write subprocess fan-out.** Even a single deep write spawns one Node
+   process per ancestor dir. An in-process index regen (importing the skill lib
+   instead of shelling out) would remove the ~67 ms × K tax — at the cost of the
+   clean CLI boundary (see [ARCHITECTURE.md](ARCHITECTURE.md)).
+3. **Cold-cache first search.** Lazy embedding means the first search after a
+   bulk import pays ~24 ms × (uncached leaves). A background "warm the cache"
+   pass after bulk writes would hide it.
+4. **Topology cache is process-lifetime.** `loadTopology` caches indefinitely;
+   a long-running MCP server won't see edits to `.layout/layout.yaml` or its
+   sibling `.mjs` helpers until restart.
+
+---
+
+*Methodology: `bench.mjs` built an isolated temp wiki (own `MEMORY_DATA_DIR`),
+ran each scenario with the real `bge-large` backend, and was deleted afterward —
+the live wiki and its embedding cache were never written to. Reproduce by
+benchmarking against a throwaway `MEMORY_DATA_DIR` so your install stays clean.*
