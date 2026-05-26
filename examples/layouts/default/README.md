@@ -53,8 +53,10 @@ If you need:
 ## Install
 
 ```bash
-cp examples/layouts/default/.llmwiki.layout.yaml <wiki-root>/.llmwiki.layout.yaml
-node scripts/cli.mjs validate-layout <wiki-root>/.llmwiki.layout.yaml
+cp -r examples/layouts/default  <wiki-root>/layout
+node scripts/cli.mjs validate-layout
 ```
 
 Then `node scripts/cli.mjs init` (or `bootstrap.sh`) to materialise the wiki.
+The contract lives at `<wiki-root>/layout/layout.yaml`; the skill picks it
+up automatically.

@@ -63,17 +63,20 @@ export function _resetCacheForTests() {
 // --- loader ---
 
 // Resolve the layout YAML's canonical location. The user-facing source of
-// truth is `<wiki>/layout/.llmwiki.layout.yaml` (everything that makes up a
-// layout — yaml + sibling .mjs helpers — lives in that one folder, so a
-// template can be copied with a single `cp -r examples/layouts/<name>/
-// <wiki>/layout`). For backward compatibility (and the brief windows when
-// only the skill's root copy exists), we fall back to
-// `<wiki>/.llmwiki.layout.yaml`.
+// truth is `<wiki>/layout/layout.yaml` (everything that makes up a layout —
+// yaml + sibling .mjs helpers — lives in that one folder, so a template
+// can be copied with a single `cp -r examples/layouts/<name>/  <wiki>/layout`).
+// Fallbacks in order keep older wikis working without any rename:
+//   1. <wiki>/layout/layout.yaml          (canonical)
+//   2. <wiki>/layout/.llmwiki.layout.yaml (canonical, legacy filename)
+//   3. <wiki>/.llmwiki.layout.yaml        (legacy location at wiki root)
 function resolveLayoutYamlPath(wikiRoot) {
-  const inLayoutDir = path.join(wikiRoot, "layout", ".llmwiki.layout.yaml");
-  if (fs.existsSync(inLayoutDir)) return inLayoutDir;
-  const atRoot = path.join(wikiRoot, ".llmwiki.layout.yaml");
-  if (fs.existsSync(atRoot)) return atRoot;
+  const candidates = [
+    path.join(wikiRoot, "layout", "layout.yaml"),
+    path.join(wikiRoot, "layout", ".llmwiki.layout.yaml"),
+    path.join(wikiRoot, ".llmwiki.layout.yaml"),
+  ];
+  for (const p of candidates) if (fs.existsSync(p)) return p;
   return null;
 }
 
@@ -84,7 +87,7 @@ export async function loadTopology(wikiRoot, { categoryPath = "issues" } = {}) {
   const layoutPath = resolveLayoutYamlPath(wikiRoot);
   if (!layoutPath) {
     throw new Error(
-      `.llmwiki.layout.yaml not found at ${wikiRoot}/layout/ or ${wikiRoot}/`,
+      `layout.yaml not found at ${wikiRoot}/layout/ (also checked legacy .llmwiki.layout.yaml in layout/ and at the wiki root)`,
     );
   }
   const yamlDir = path.dirname(layoutPath);

@@ -24,9 +24,9 @@ test("default layout exposes the historical 5 categories", () => {
   );
 });
 
-test("adding a custom category to .llmwiki.layout.yaml makes it a valid datasetId", () => {
+test("adding a custom category to layout.yaml makes it a valid datasetId", () => {
   // Append a sixth category to this wiki's layout YAML and reset the cache.
-  const layoutPath = path.join(wiki, ".llmwiki.layout.yaml");
+  const layoutPath = path.join(wiki, "layout", "layout.yaml");
   const original = fs.readFileSync(layoutPath, "utf8");
   fs.writeFileSync(
     layoutPath,
@@ -67,7 +67,7 @@ test("adding a custom category to .llmwiki.layout.yaml makes it a valid datasetI
 test("searchMemoryFiltered scans newly-added categories", async () => {
   // Re-add issues, write a leaf, search via the unscoped path that walks all
   // non-daily categories.
-  const layoutPath = path.join(wiki, ".llmwiki.layout.yaml");
+  const layoutPath = path.join(wiki, "layout", "layout.yaml");
   const original = fs.readFileSync(layoutPath, "utf8");
   fs.writeFileSync(
     layoutPath,
@@ -102,7 +102,7 @@ test("searchMemoryFiltered scans newly-added categories", async () => {
 });
 
 test("malformed YAML falls back to defaults (no crash)", () => {
-  const layoutPath = path.join(wiki, ".llmwiki.layout.yaml");
+  const layoutPath = path.join(wiki, "layout", "layout.yaml");
   const original = fs.readFileSync(layoutPath, "utf8");
   fs.writeFileSync(layoutPath, "layout: [this is: not: valid yaml\n  - oops");
   store._resetLayoutCacheForTests();

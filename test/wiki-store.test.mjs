@@ -12,7 +12,10 @@ const cli = await import("../scripts/lib/wiki-cli.mjs");
 
 test("init produced a valid empty hosted wiki", () => {
   assert.ok(fs.existsSync(path.join(wiki, "index.md")), "root index.md exists");
-  assert.ok(fs.existsSync(path.join(wiki, ".llmwiki.layout.yaml")), "contract exists");
+  assert.ok(
+    fs.existsSync(path.join(wiki, "layout", "layout.yaml")),
+    "contract exists at the canonical layout/layout.yaml location",
+  );
   const v = cli.validate(wiki);
   assert.equal(v.ok, true, `validate clean: ${JSON.stringify(v)}`);
 });

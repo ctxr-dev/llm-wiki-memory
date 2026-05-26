@@ -21,8 +21,11 @@ plans. You want:
 ## What it adds
 
 A sixth category, `issues/`, with a `caller_path` topology and a structured
-schema (no prose rules) that the [`tracker-issue` helper](../../../scripts/lib/topologies/tracker-issue.mjs)
-applies at runtime.
+schema (no prose rules) that the generic
+[`topology-runtime`](../../../scripts/lib/topology-runtime.mjs) helper
+applies at runtime. The digit-bucket path math lives in this template's
+sibling `to_path.mjs` / `from_path.mjs` files — the runtime is generic
+across topologies.
 
 Two file kinds:
 
@@ -122,12 +125,15 @@ issues/LINEAR/ENG/1/23/4/ENG-1234.md
 ## Install
 
 ```bash
-cp examples/layouts/tracker-issues/.llmwiki.layout.yaml <wiki-root>/.llmwiki.layout.yaml
-node scripts/cli.mjs validate-layout <wiki-root>/.llmwiki.layout.yaml
+cp -r examples/layouts/tracker-issues  <wiki-root>/layout
+node scripts/cli.mjs validate-layout
 ```
 
-Then `node scripts/cli.mjs init` (or `bootstrap.sh`) to materialise the wiki.
-The `issues/` category will appear automatically on the first write.
+Everything that defines the layout — the contract YAML, the `to_path.mjs`
+and `from_path.mjs` helpers, and this README — ends up inside
+`<wiki-root>/layout/` in a single copy. The skill recognises the canonical
+`<wiki-root>/layout/layout.yaml` location natively; no symlinks. The
+`issues/` category appears automatically on the first write.
 
 ## Reference
 
@@ -135,5 +141,5 @@ The `issues/` category will appear automatically on the first write.
 - Path-compiler sandbox: [`scripts/lib/path-compiler.mjs`](../../../scripts/lib/path-compiler.mjs)
 - Protocol spec (this YAML's contract): [`../PROTOCOL.md`](../PROTOCOL.md)
 - Tests: [`test/topology-runtime.test.mjs`](../../../test/topology-runtime.test.mjs), [`test/path-compiler.test.mjs`](../../../test/path-compiler.test.mjs)
-- Layout validator: `node scripts/cli.mjs validate-layout examples/layouts/tracker-issues/.llmwiki.layout.yaml`
+- Layout validator: `node scripts/cli.mjs validate-layout examples/layouts/tracker-issues/layout.yaml`
 - Compiler dry-run: `node scripts/cli.mjs test-path-compiler knowledge tracker=JIRA prefix=DEV number=129957`

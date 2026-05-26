@@ -58,8 +58,18 @@ function flatLeaves(wiki) {
 
 function refreshContract(wiki) {
   const tmpl = path.join(MEMORY_DIR, "templates", "llmwiki.layout.yaml");
-  const dest = path.join(wiki, ".llmwiki.layout.yaml");
-  if (fs.existsSync(tmpl)) fs.copyFileSync(tmpl, dest);
+  if (!fs.existsSync(tmpl)) return;
+  // Prefer the canonical <wiki>/layout/layout.yaml location. If a legacy
+  // contract already exists, refresh THAT one in place so we don't leave
+  // two competing copies on disk.
+  const canonical = path.join(wiki, "layout", "layout.yaml");
+  const legacyCanonical = path.join(wiki, "layout", ".llmwiki.layout.yaml");
+  const legacyRoot = path.join(wiki, ".llmwiki.layout.yaml");
+  let dest = canonical;
+  if (fs.existsSync(legacyCanonical)) dest = legacyCanonical;
+  else if (fs.existsSync(legacyRoot)) dest = legacyRoot;
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.copyFileSync(tmpl, dest);
 }
 
 export function migrateNest({ wiki = wikiRoot(), dryRun = false, check = false } = {}) {

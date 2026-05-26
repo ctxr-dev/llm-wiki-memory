@@ -20,17 +20,34 @@ function out(obj) {
 }
 
 // Materialise the hosted wiki: write the contract from the template (if
-// absent) and run the skill build. Idempotent.
+// absent) into the canonical <wiki>/layout/layout.yaml location, and run
+// the skill build. Idempotent. If a legacy contract already exists at
+// <wiki>/.llmwiki.layout.yaml (or <wiki>/layout/.llmwiki.layout.yaml),
+// we leave it where it is — the patched skill recognises all three
+// locations, and we don't want to silently move user-edited files.
 function cmdInit() {
   const wiki = wikiRoot();
   fs.mkdirSync(wiki, { recursive: true });
   fs.mkdirSync(path.dirname(embedCachePath()), { recursive: true });
   fs.mkdirSync(path.dirname(COMPILE_STATE_PATH), { recursive: true });
 
-  const contractPath = path.join(wiki, ".llmwiki.layout.yaml");
-  if (!fs.existsSync(contractPath)) {
+  const canonicalContractPath = path.join(wiki, "layout", "layout.yaml");
+  const legacyCanonicalPath = path.join(wiki, "layout", ".llmwiki.layout.yaml");
+  const legacyRootPath = path.join(wiki, ".llmwiki.layout.yaml");
+  const alreadyPresent =
+    fs.existsSync(canonicalContractPath) ||
+    fs.existsSync(legacyCanonicalPath) ||
+    fs.existsSync(legacyRootPath);
+  let contractPath = canonicalContractPath;
+  if (fs.existsSync(canonicalContractPath)) contractPath = canonicalContractPath;
+  else if (fs.existsSync(legacyCanonicalPath)) contractPath = legacyCanonicalPath;
+  else if (fs.existsSync(legacyRootPath)) contractPath = legacyRootPath;
+
+  if (!alreadyPresent) {
+    fs.mkdirSync(path.join(wiki, "layout"), { recursive: true });
     const tmpl = path.join(MEMORY_DIR, "templates", "llmwiki.layout.yaml");
-    fs.copyFileSync(tmpl, contractPath);
+    fs.copyFileSync(tmpl, canonicalContractPath);
+    contractPath = canonicalContractPath;
   }
 
   // Build needs a source folder; an empty one yields an empty wiki shell.
@@ -64,9 +81,14 @@ async function main() {
       );
       let target = rest[0];
       if (!target) {
-        const inLayoutDir = path.join(wikiRoot(), "layout", ".llmwiki.layout.yaml");
-        const atRoot = path.join(wikiRoot(), ".llmwiki.layout.yaml");
-        target = fs.existsSync(inLayoutDir) ? inLayoutDir : atRoot;
+        const candidates = [
+          path.join(wikiRoot(), "layout", "layout.yaml"),
+          path.join(wikiRoot(), "layout", ".llmwiki.layout.yaml"),
+          path.join(wikiRoot(), ".llmwiki.layout.yaml"),
+        ];
+        target =
+          candidates.find((p) => fs.existsSync(p)) ||
+          candidates[candidates.length - 1];
       }
       const result = validateLayoutFile(target);
       process.stdout.write(formatValidationResult(result));

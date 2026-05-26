@@ -441,7 +441,12 @@ function flushDatasetName() {
 // on demand. If the wiki is not initialised there is nowhere to write at all,
 // not even a fallback record.
 function wikiInitialised() {
-  return fs.existsSync(path.join(wikiRoot(), ".llmwiki.layout.yaml"));
+  const wiki = wikiRoot();
+  return (
+    fs.existsSync(path.join(wiki, "layout", "layout.yaml")) ||
+    fs.existsSync(path.join(wiki, "layout", ".llmwiki.layout.yaml")) ||
+    fs.existsSync(path.join(wiki, ".llmwiki.layout.yaml"))
+  );
 }
 
 // ---- Phase 1: hook front (fast, deterministic, no network) ----

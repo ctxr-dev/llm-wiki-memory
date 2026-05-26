@@ -9,13 +9,13 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.resolve(here, "..");
 
 test("validator accepts the shipped default layout template", () => {
-  const fp = path.join(SRC, "examples/layouts/default/.llmwiki.layout.yaml");
+  const fp = path.join(SRC, "examples/layouts/default/layout.yaml");
   const result = validateLayoutFile(fp);
   assert.equal(result.ok, true, JSON.stringify(result, null, 2));
 });
 
 test("validator accepts the shipped tracker-issues layout template", () => {
-  const fp = path.join(SRC, "examples/layouts/tracker-issues/.llmwiki.layout.yaml");
+  const fp = path.join(SRC, "examples/layouts/tracker-issues/layout.yaml");
   const result = validateLayoutFile(fp);
   assert.equal(result.ok, true, JSON.stringify(result, null, 2));
 });

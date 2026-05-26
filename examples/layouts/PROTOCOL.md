@@ -1,4 +1,4 @@
-# Layout file protocol (`.llmwiki.layout.yaml`)
+# Layout file protocol (`layout.yaml`)
 
 This document is the **machine-checkable contract** for the layout YAML.
 Every shipped template (under `examples/layouts/`) and every user wiki must
@@ -164,7 +164,7 @@ helper subfolder:
 
 ```
 wiki/
-├── .llmwiki.layout.yaml          # references ./layout/to_path.mjs etc.
+├── layout.yaml          # references ./layout/to_path.mjs etc.
 └── layout/
     ├── to_path.mjs               # one file per direction, multiple kinds
     └── from_path.mjs
