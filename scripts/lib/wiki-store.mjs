@@ -82,7 +82,13 @@ function ensureLayoutLoaded() {
     facets[k] = [...DEFAULT_PLACEMENT_FACETS[k]];
   }
 
-  const layoutPath = path.join(r, ".llmwiki.layout.yaml");
+  // Layout YAML canonical location is <wiki>/layout/.llmwiki.layout.yaml
+  // (the user-facing one-folder layout convention). Fall back to the legacy
+  // <wiki>/.llmwiki.layout.yaml location so old wikis keep working until a
+  // user runs `cli.mjs init` (or `migrate-layout`) to move things.
+  const inLayoutDir = path.join(r, "layout", ".llmwiki.layout.yaml");
+  const atRoot = path.join(r, ".llmwiki.layout.yaml");
+  const layoutPath = fs.existsSync(inLayoutDir) ? inLayoutDir : atRoot;
   if (fs.existsSync(layoutPath)) {
     try {
       const parsed = parseYaml(fs.readFileSync(layoutPath, "utf8")) || {};

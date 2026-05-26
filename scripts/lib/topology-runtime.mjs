@@ -62,14 +62,32 @@ export function _resetCacheForTests() {
 
 // --- loader ---
 
+// Resolve the layout YAML's canonical location. The user-facing source of
+// truth is `<wiki>/layout/.llmwiki.layout.yaml` (everything that makes up a
+// layout — yaml + sibling .mjs helpers — lives in that one folder, so a
+// template can be copied with a single `cp -r examples/layouts/<name>/
+// <wiki>/layout`). For backward compatibility (and the brief windows when
+// only the skill's root copy exists), we fall back to
+// `<wiki>/.llmwiki.layout.yaml`.
+function resolveLayoutYamlPath(wikiRoot) {
+  const inLayoutDir = path.join(wikiRoot, "layout", ".llmwiki.layout.yaml");
+  if (fs.existsSync(inLayoutDir)) return inLayoutDir;
+  const atRoot = path.join(wikiRoot, ".llmwiki.layout.yaml");
+  if (fs.existsSync(atRoot)) return atRoot;
+  return null;
+}
+
 export async function loadTopology(wikiRoot, { categoryPath = "issues" } = {}) {
   const cacheKey = `${wikiRoot}::${categoryPath}`;
   if (_topologyCache.has(cacheKey)) return _topologyCache.get(cacheKey);
 
-  const layoutPath = path.join(wikiRoot, ".llmwiki.layout.yaml");
-  if (!fs.existsSync(layoutPath)) {
-    throw new Error(`.llmwiki.layout.yaml not found at ${layoutPath}`);
+  const layoutPath = resolveLayoutYamlPath(wikiRoot);
+  if (!layoutPath) {
+    throw new Error(
+      `.llmwiki.layout.yaml not found at ${wikiRoot}/layout/ or ${wikiRoot}/`,
+    );
   }
+  const yamlDir = path.dirname(layoutPath);
 
   const parsed = parseYaml(fs.readFileSync(layoutPath, "utf8")) || {};
   const entries = Array.isArray(parsed.layout) ? parsed.layout : [];
@@ -95,14 +113,14 @@ export async function loadTopology(wikiRoot, { categoryPath = "issues" } = {}) {
     if (!fk || typeof fk !== "object") continue;
 
     const pathFn = await resolveCompiler(fk, {
-      yamlDir: wikiRoot,
+      yamlDir,
       slotInline: "to_path",
       slotFile: "to_path_file",
       kindName: categoryPath,
       fileKindName: fkName,
     });
     const parseFn = await resolveCompiler(fk, {
-      yamlDir: wikiRoot,
+      yamlDir,
       slotInline: "from_path",
       slotFile: "from_path_file",
       kindName: categoryPath,
@@ -118,7 +136,8 @@ export async function loadTopology(wikiRoot, { categoryPath = "issues" } = {}) {
 
   const topo = Object.freeze({
     categoryPath,
-    yamlDir: wikiRoot,
+    yamlDir,
+    layoutPath,
     strategy: entry.topology.strategy,
     helper: entry.topology.helper || null,
     fileKinds: compiled,

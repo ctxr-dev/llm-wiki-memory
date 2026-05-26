@@ -20,8 +20,7 @@ function out(obj) {
 }
 
 // Materialise the hosted wiki: write the contract from the template (if
-// absent) and run the skill build. Idempotent - re-running on an existing
-// wiki is a no-op build that leaves content intact.
+// absent) and run the skill build. Idempotent.
 function cmdInit() {
   const wiki = wikiRoot();
   fs.mkdirSync(wiki, { recursive: true });
@@ -38,9 +37,6 @@ function cmdInit() {
   const src = path.join(MEMORY_DATA_DIR, ".build-src");
   fs.mkdirSync(src, { recursive: true });
 
-  // Only run a fresh build when the wiki has not been initialised yet
-  // (no root index.md). Re-building a populated hosted wiki is handled by
-  // the skill's own collision rules, so we skip it here.
   if (!fs.existsSync(path.join(wiki, "index.md"))) {
     buildHosted({ wiki, source: src });
   }
@@ -66,8 +62,12 @@ async function main() {
       const { validateLayoutFile, formatValidationResult } = await import(
         "./lib/layout-validator.mjs"
       );
-      const target =
-        rest[0] || path.join(wikiRoot(), ".llmwiki.layout.yaml");
+      let target = rest[0];
+      if (!target) {
+        const inLayoutDir = path.join(wikiRoot(), "layout", ".llmwiki.layout.yaml");
+        const atRoot = path.join(wikiRoot(), ".llmwiki.layout.yaml");
+        target = fs.existsSync(inLayoutDir) ? inLayoutDir : atRoot;
+      }
       const result = validateLayoutFile(target);
       process.stdout.write(formatValidationResult(result));
       process.exit(result.ok ? 0 : 2);

@@ -295,6 +295,61 @@ layout:
   );
 });
 
+test("loadTopology reads from <wiki>/layout/.llmwiki.layout.yaml (canonical location)", async () => {
+  // Place the YAML in the new canonical location and write a sibling .mjs
+  // file in the same folder. This is the shape produced by
+  //   `cp -r examples/layouts/<name>/  <wiki>/layout`
+  const wiki = fs.mkdtempSync(path.join(os.tmpdir(), "topo-layout-folder-"));
+  fs.mkdirSync(path.join(wiki, "layout"));
+  fs.writeFileSync(
+    path.join(wiki, "layout", "to_path.mjs"),
+    "export function knowledge({ tracker, prefix, number }) { return `issues/${tracker}/${prefix}/${prefix}-${number}.md`; }\n",
+  );
+  fs.writeFileSync(
+    path.join(wiki, "layout", ".llmwiki.layout.yaml"),
+    `
+layout:
+  - path: issues
+    topology:
+      strategy: caller_path
+      file_kinds:
+        knowledge:
+          required_facets: [tracker, prefix, number]
+          to_path_file: ./to_path.mjs
+      facet_inputs:
+        tracker: { type: string }
+        prefix: { type: string }
+        number: { type: integer }
+`,
+  );
+  _resetCacheForTests();
+  const topo = await loadTopology(wiki);
+  assert.equal(
+    pathFor(topo, "knowledge", { tracker: "JIRA", prefix: "DEV", number: 42 }),
+    "issues/JIRA/DEV/DEV-42.md",
+    "yaml-relative `./to_path.mjs` resolves against the YAML's directory (layout/), not the wiki root",
+  );
+});
+
+test("loadTopology falls back to <wiki>/.llmwiki.layout.yaml when layout/ is absent", async () => {
+  // Legacy / pre-layout-move wikis keep working.
+  const wiki = tmpWiki(`
+layout:
+  - path: issues
+    topology:
+      strategy: caller_path
+      file_kinds:
+        knowledge:
+          required_facets: [x]
+          path_template: "issues/{x}.md"
+      facet_inputs:
+        x: { type: string }
+`);
+  _resetCacheForTests();
+  const topo = await loadTopology(wiki);
+  assert.equal(pathFor(topo, "knowledge", { x: "hi" }), "issues/hi.md");
+});
+
 test("loadTopology rejects BOTH inline and file compiler in the same file_kind", async () => {
   const wiki = tmpWiki(`
 layout:

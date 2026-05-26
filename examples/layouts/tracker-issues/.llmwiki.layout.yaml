@@ -8,13 +8,18 @@ purpose: "Persistent local memory for the agent across sessions"
 # Extends the default 5 categories with an `issues` category storing knowledge
 # and plan leaves for tracker-system issues (Jira, GitHub, Linear, ZenDesk, or
 # any "{PREFIX}-{N}" key-shape tracker) in a deterministic digit-bucketed
-# tree. Path computation lives in the sibling layout/ folder — one .mjs file
-# per direction (forward / reverse), with one named export per file_kind.
+# tree. Path computation lives in sibling .mjs helpers (`./to_path.mjs` and
+# `./from_path.mjs`) — one file per direction, with one named export per
+# file_kind. Everything that makes up a layout — the contract YAML, the
+# helpers, and the README — sits in ONE folder so a user can drop the whole
+# folder into a wiki with a single command.
 #
 # Install:
-#   cp -a examples/layouts/tracker-issues/. <wiki-root>/
-# This copies BOTH .llmwiki.layout.yaml (root) AND the layout/ subfolder
-# (helpers) into the wiki in a single step.
+#   cp -r examples/layouts/tracker-issues  <wiki-root>/layout
+#
+# skill-llm-wiki recognises <wiki-root>/layout/.llmwiki.layout.yaml as the
+# canonical hosted-mode contract path. No symlink, no copy-to-root step:
+# everything that defines this layout lives inside the layout/ folder.
 #
 # See ../PROTOCOL.md for the full schema.
 layout:
@@ -56,14 +61,14 @@ layout:
       file_kinds:
         knowledge:
           required_facets: [tracker, prefix, number]
-          to_path_file: ./layout/to_path.mjs       # picks the `knowledge` named export
-          from_path_file: ./layout/from_path.mjs   # picks the `knowledge` named export
+          to_path_file: ./to_path.mjs       # picks the `knowledge` named export
+          from_path_file: ./from_path.mjs   # picks the `knowledge` named export
         plan:
           required_facets: [tracker, prefix, number, lifecycle, slug]
           enums:
             lifecycle: [pending, in-progress, done, archived]
-          to_path_file: ./layout/to_path.mjs       # picks the `plan` named export
-          from_path_file: ./layout/from_path.mjs   # picks the `plan` named export
+          to_path_file: ./to_path.mjs       # picks the `plan` named export
+          from_path_file: ./from_path.mjs   # picks the `plan` named export
       facet_inputs:
         tracker:
           type: string
