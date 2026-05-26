@@ -87,11 +87,12 @@ function pruneEmptyDirs(wiki) {
     };
     collect(catAbs);
     for (const dir of dirs.sort((a, b) => b.length - a.length)) {
-      // deepest first
+      // deepest first. Only prune when the directory holds NOTHING but its own
+      // index.md (plus dotfiles): any other entry (a non-md file, a stray data
+      // file, or a subdirectory) means real content we must not delete.
       const entries = fs.readdirSync(dir).filter((n) => !n.startsWith("."));
-      const hasLeaf = entries.some((n) => n.endsWith(".md") && n !== "index.md");
-      const hasSubdir = entries.some((n) => fs.statSync(path.join(dir, n)).isDirectory());
-      if (!hasLeaf && !hasSubdir) {
+      const onlyIndex = entries.every((n) => n === "index.md");
+      if (onlyIndex) {
         fs.rmSync(dir, { recursive: true, force: true });
         pruned.push(relPosix(wiki, dir));
       }

@@ -96,13 +96,18 @@ function watchForReload() {
       });
     }, 200);
   };
+  const watchers = [];
   for (const dir of WATCH_DIRS) {
     try {
-      fs.watch(dir, onChange);
+      // Retain the FSWatcher: an unreferenced watcher can be garbage-collected,
+      // silently stopping hot reload. The caller keeps the returned array alive
+      // for the process lifetime.
+      watchers.push(fs.watch(dir, onChange));
     } catch (err) {
       process.stderr.write(`[llm-wiki-memory] watch failed for ${dir}: ${err?.message || err}\n`);
     }
   }
+  return watchers;
 }
 
 const FilterSchema = z
@@ -428,4 +433,7 @@ server.registerTool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-watchForReload();
+// Module-level binding keeps the FSWatcher handles reachable for the process
+// lifetime (an unreferenced watcher can be GC'd, stopping hot reload).
+const activeWatchers = watchForReload();
+void activeWatchers;
