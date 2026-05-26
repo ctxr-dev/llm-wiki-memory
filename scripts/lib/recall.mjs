@@ -1,5 +1,5 @@
 import { defaultProjectModule } from "./env.mjs";
-import { searchMemoryFiltered, saveDocument, CATEGORIES } from "./wiki-store.mjs";
+import { searchMemoryFiltered, saveDocument, getCategories } from "./wiki-store.mjs";
 import { lessonDocName } from "./slug.mjs";
 
 export const LESSON_ATOM_TYPE = "self-improvement-lesson";
@@ -127,7 +127,10 @@ export async function recallLessons({
 // Cross-category search with optional project_module auto-injection.
 export async function searchMemory({ query, datasets, filters, scoreThreshold, maxResults } = {}) {
   const limit = maxResults || 8;
-  const slots = Array.isArray(datasets) && datasets.length ? datasets : CATEGORIES;
+  // Use getCategories() not the raw CATEGORIES export — getCategories()
+  // calls ensureLayoutLoaded() so fresh CLI invocations see the
+  // YAML-declared categories (including any custom ones like `issues`).
+  const slots = Array.isArray(datasets) && datasets.length ? datasets : getCategories();
   const effectiveFilters = filters
     ? filters.project_module
       ? filters
