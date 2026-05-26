@@ -1,21 +1,114 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { wikiRoot, embedCachePath, defaultProjectModule, envValue } from "../scripts/lib/env.mjs";
-import {
-  CATEGORIES,
-  writeMemory,
-  saveDocument,
-  disableDocument,
-  enableDocument,
-  deleteDocument,
-  listDocuments,
-  readDocument,
-  listDatasets,
-} from "../scripts/lib/wiki-store.mjs";
-import { recallLessons, searchMemory, saveLesson } from "../scripts/lib/recall.mjs";
 import { activeBackend } from "../scripts/lib/embed.mjs";
 import { INSTRUCTIONS } from "../scripts/lib/discipline.mjs";
+
+// ---- in-process hot reload ----
+// wiki-store.mjs + recall.mjs hold the tool logic. We re-import them
+// (cache-busted) whenever a source file changes, so a plain `git pull` takes
+// effect WITHOUT restarting this long-lived stdio MCP process: the initialize
+// handshake and the stdin/stdout pipe stay intact, and the embedding backend
+// (embed.mjs, kept as a static import) is never re-initialised. INSTRUCTIONS is
+// sent once at initialize, so discipline.mjs stays static too.
+//
+// Limitation: a re-import refreshes wiki-store.mjs / recall.mjs themselves; a
+// change confined to one of their STATIC deps (slug.mjs, facets.mjs, ...)
+// resolves to the cached copy and still needs a one-time restart.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+// Flat directories that hold the reloadable logic (no nested subdirs), so a
+// NON-recursive watch suffices. Recursive fs.watch is unsupported on some
+// platforms (historically throws on Linux), so avoiding it keeps reload working
+// cross-platform.
+const WATCH_DIRS = [path.join(HERE, "../scripts/lib"), HERE];
+
+let impl = {};
+// Monotonic, not Date.now(): each value busts the ESM module cache so a changed
+// file is re-evaluated. Node's ESM loader retains prior specifiers, so every
+// reload keeps an extra copy of these two small modules in memory. Reloads fire
+// only on an actual file change (a `git pull`), which is rare for a memory
+// server, so the retained-module growth is negligible. A tear-down-able worker
+// was rejected because it would re-initialise the embedding backend on every
+// reload, the exact cost this in-process design avoids.
+let reloadSeq = 0;
+async function loadImpl() {
+  const v = reloadSeq;
+  const [store, recall] = await Promise.all([
+    import(`../scripts/lib/wiki-store.mjs?v=${v}`),
+    import(`../scripts/lib/recall.mjs?v=${v}`),
+  ]);
+  // Only assigned after both imports resolve. A failed/partial import rejects
+  // here and the previous `impl` is left untouched: onChange's catch keeps it
+  // (at startup there is no previous, so a broken module surfaces immediately).
+  impl = { ...store, ...recall };
+}
+await loadImpl();
+
+// Only these modules are re-imported on change; everything else they import
+// statically (facets/slug/datasets/embed) and this entry file itself need a
+// restart, so a reload would be a no-op for them.
+const RELOADABLE = new Set(["wiki-store.mjs", "recall.mjs"]);
+
+function watchForReload() {
+  let timer = null;
+  let lastBase = null; // basename of the most recent effective change (for the log)
+  // Serialise reloads: chain each onto the previous so two debounced bursts can
+  // never run loadImpl() concurrently and race on assigning `impl`.
+  let chain = Promise.resolve();
+  const onChange = (_event, filename) => {
+    const base = filename ? path.basename(filename) : null;
+    // When we can identify the changed file and it is NOT one of the hot-reloaded
+    // modules, skip the no-op reload and tell the operator a restart is needed,
+    // rather than logging a misleading "hot-reloaded". We deliberately do NOT
+    // clear a pending timer here: a git pull often changes a hot module AND a
+    // static dep together, and the queued reload (for the hot module) must still
+    // fire. When filename is null (platform-dependent), fall through and reload.
+    if (base && !RELOADABLE.has(base)) {
+      process.stderr.write(
+        `[llm-wiki-memory] '${base}' changed; restart required to pick it up (only ${[...RELOADABLE].join("/")} hot-reload)\n`,
+      );
+      return;
+    }
+    lastBase = base;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      chain = chain.then(async () => {
+        try {
+          reloadSeq += 1;
+          await loadImpl();
+          // stderr ONLY: stdout carries the JSON-RPC protocol stream. `lastBase`
+          // is null only when the platform did not report a filename, in which
+          // case this is a best-effort reload on any change under the watched dir.
+          process.stderr.write(
+            lastBase
+              ? `[llm-wiki-memory] hot-reloaded after change to ${lastBase}\n`
+              : "[llm-wiki-memory] hot-reloaded after a file change (filename unavailable; best-effort)\n",
+          );
+        } catch (err) {
+          process.stderr.write(
+            `[llm-wiki-memory] hot-reload failed, keeping previous code: ${err?.message || err}\n`,
+          );
+        }
+      });
+    }, 200);
+  };
+  const watchers = [];
+  for (const dir of WATCH_DIRS) {
+    try {
+      // Retain the FSWatcher: an unreferenced watcher can be garbage-collected,
+      // silently stopping hot reload. The caller keeps the returned array alive
+      // for the process lifetime.
+      watchers.push(fs.watch(dir, onChange));
+    } catch (err) {
+      process.stderr.write(`[llm-wiki-memory] watch failed for ${dir}: ${err?.message || err}\n`);
+    }
+  }
+  return watchers;
+}
 
 const FilterSchema = z
   .object({
@@ -75,7 +168,7 @@ server.registerTool(
         embedCache: embedCachePath(),
         embedBackend: activeBackend(),
         defaultProjectModule: defaultProjectModule(),
-        categories: CATEGORIES,
+        categories: impl.CATEGORIES,
       });
     } catch (error) {
       return errorResponse(error);
@@ -92,7 +185,7 @@ server.registerTool(
   },
   async () => {
     try {
-      return jsonResponse(listDatasets());
+      return jsonResponse(impl.listDatasets());
     } catch (error) {
       return errorResponse(error);
     }
@@ -115,7 +208,7 @@ server.registerTool(
   },
   async ({ query, datasets, filters, scoreThreshold, maxResults }) => {
     try {
-      return jsonResponse(await searchMemory({ query, datasets, filters, scoreThreshold, maxResults }));
+      return jsonResponse(await impl.searchMemory({ query, datasets, filters, scoreThreshold, maxResults }));
     } catch (error) {
       return errorResponse(error);
     }
@@ -143,7 +236,7 @@ server.registerTool(
   },
   async (args) => {
     try {
-      return jsonResponse(await recallLessons(args));
+      return jsonResponse(await impl.recallLessons(args));
     } catch (error) {
       return errorResponse(error);
     }
@@ -180,7 +273,7 @@ server.registerTool(
   },
   async ({ title, body, metadata, tags, evidence }) => {
     try {
-      const result = saveLesson({ title, body, metadata, tags, evidence });
+      const result = impl.saveLesson({ title, body, metadata, tags, evidence });
       return jsonResponse({ ok: !!result.created, ...result });
     } catch (error) {
       return errorResponse(error);
@@ -203,7 +296,7 @@ server.registerTool(
   },
   async ({ dataset, name, text, metadata }) => {
     try {
-      const result = saveDocument({ name, text, datasetId: dataset, metadata });
+      const result = impl.saveDocument({ name, text, datasetId: dataset, metadata });
       return jsonResponse({ ok: !!result.created, ...result });
     } catch (error) {
       return errorResponse(error);
@@ -228,7 +321,7 @@ server.registerTool(
   },
   async ({ name, text, datasetId, supersedes, supersedesAction, metadata }) => {
     try {
-      return jsonResponse(writeMemory({ name, text, datasetId, supersedes, supersedesAction, metadata }));
+      return jsonResponse(impl.writeMemory({ name, text, datasetId, supersedes, supersedesAction, metadata }));
     } catch (error) {
       return errorResponse(error);
     }
@@ -245,7 +338,7 @@ server.registerTool(
   },
   async ({ dataset, documentId }) => {
     try {
-      return jsonResponse(disableDocument({ documentId, datasetId: dataset }));
+      return jsonResponse(impl.disableDocument({ documentId, datasetId: dataset }));
     } catch (error) {
       return errorResponse(error);
     }
@@ -261,7 +354,7 @@ server.registerTool(
   },
   async ({ dataset, documentId }) => {
     try {
-      return jsonResponse(enableDocument({ documentId, datasetId: dataset }));
+      return jsonResponse(impl.enableDocument({ documentId, datasetId: dataset }));
     } catch (error) {
       return errorResponse(error);
     }
@@ -278,7 +371,7 @@ server.registerTool(
   },
   async ({ dataset, documentId }) => {
     try {
-      return jsonResponse(deleteDocument({ documentId, datasetId: dataset }));
+      return jsonResponse(impl.deleteDocument({ documentId, datasetId: dataset }));
     } catch (error) {
       return errorResponse(error);
     }
@@ -297,13 +390,19 @@ server.registerTool(
   },
   async ({ classes }) => {
     try {
+      // Snapshot the implementation for the whole audit: this is the only
+      // handler that makes MULTIPLE impl calls (listDocuments + readDocument in a
+      // loop), so pinning one version prevents a mid-audit hot-reload from mixing
+      // functions across module versions. (Single-call handlers capture their one
+      // impl.* reference atomically, so they need no snapshot.)
+      const api = impl;
       const requested = new Set(classes && classes.length ? classes : ["duplicate-error-pattern", "missing-metadata"]);
       const findings = [];
       const byErrorPattern = new Map();
       for (const slot of ["self_improvement", "knowledge"]) {
-        const { documents } = listDocuments({ datasetId: slot, enabled: "true" });
+        const { documents } = api.listDocuments({ datasetId: slot, enabled: "true" });
         for (const doc of documents) {
-          const { metadata } = readDocument({ documentId: doc.id, datasetId: slot });
+          const { metadata } = api.readDocument({ documentId: doc.id, datasetId: slot });
           if (requested.has("missing-metadata")) {
             const at = metadata.atom_type;
             if (
@@ -334,3 +433,7 @@ server.registerTool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+// Module-level binding keeps the FSWatcher handles reachable for the process
+// lifetime (an unreferenced watcher can be GC'd, stopping hot reload).
+const activeWatchers = watchForReload();
+void activeWatchers;

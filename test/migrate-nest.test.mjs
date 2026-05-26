@@ -45,7 +45,7 @@ test("migrate-nest moves flat leaves into their facet folders and validates", ()
   // expected facet destinations
   assert.ok(seeds[0].nestedRel.startsWith("knowledge/billing/decision/"), seeds[0].nestedRel);
   assert.ok(seeds[1].nestedRel.startsWith("self_improvement/billing/refactor/"), seeds[1].nestedRel);
-  assert.ok(seeds[2].nestedRel.startsWith("knowledge/unscoped/reference/"), seeds[2].nestedRel);
+  assert.ok(seeds[2].nestedRel.startsWith("knowledge/workspace/reference/"), seeds[2].nestedRel);
   assert.equal(cli.validate(wiki).ok, true);
 });
 

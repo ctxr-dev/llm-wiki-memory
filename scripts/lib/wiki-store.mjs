@@ -13,6 +13,7 @@ import {
   cosine,
 } from "./embed.mjs";
 import { slugify, dailyDatePath } from "./slug.mjs";
+import { inferFacets } from "./facets.mjs";
 
 // Drop-in replacement for the boilerplate's dify-write.mjs. Same exported
 // function names/shapes, but every document is a leaf in the local hosted
@@ -286,11 +287,16 @@ export function writeMemory({ name, text, datasetId, supersedes, supersedesActio
     throw new WikiStoreUnavailable("writeMemory requires name, text, datasetId");
   }
   const slot = datasetId;
-  assertKnownSlot(slot);
+  const category = assertKnownSlot(slot);
   const { name: safeName, id } = normalizeLeafName(name);
   const title = deriveTitle({ metadata, text, name: safeName });
-  const memoryMeta = normaliseMeta(metadata, { atom_type: slotDefaultAtomType(slot) });
-  const tags = tagsArray(metadata);
+  // Infer/validate placement facets so a leaf is never written under an
+  // unknown/unscoped area or an out-of-set atom_type (daily is a no-op).
+  // Heuristic + deterministic fallback only, so this stays synchronous.
+  const facets = inferFacets({ category, meta: metadata || {}, tags: tagsArray(metadata) });
+  const effectiveMeta = { ...(metadata || {}), ...facets };
+  const memoryMeta = normaliseMeta(effectiveMeta, { atom_type: slotDefaultAtomType(slot) });
+  const tags = tagsArray(effectiveMeta);
 
   // `date` (optional) pins daily date-nesting to a caller-supplied time (e.g. a
   // flush's capture time) rather than the write time, so a background worker
@@ -335,14 +341,19 @@ export function saveDocument({ name, text, datasetId, metadata } = {}) {
     throw new WikiStoreUnavailable("saveDocument requires name, text, datasetId");
   }
   const slot = datasetId;
-  assertKnownSlot(slot);
+  const category = assertKnownSlot(slot);
   const { name: safeName, id } = normalizeLeafName(name);
   const categoryAbs = path.join(root(), slotToCategory(slot));
   const existing = findByName(categoryAbs, safeName);
 
   const title = deriveTitle({ metadata, text, name: safeName });
-  const memoryMeta = normaliseMeta(metadata, { atom_type: slotDefaultAtomType(slot) });
-  const tags = tagsArray(metadata);
+  // Infer/validate placement facets so a leaf is never saved under an
+  // unknown/unscoped area or an out-of-set atom_type. Heuristic + deterministic
+  // fallback only, so this stays synchronous.
+  const facets = inferFacets({ category, meta: metadata || {}, tags: tagsArray(metadata) });
+  const effectiveMeta = { ...(metadata || {}), ...facets };
+  const memoryMeta = normaliseMeta(effectiveMeta, { atom_type: slotDefaultAtomType(slot) });
+  const tags = tagsArray(effectiveMeta);
 
   const dir = placementDir(slot, { metadata: memoryMeta });
   const leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);

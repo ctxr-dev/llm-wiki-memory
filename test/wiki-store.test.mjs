@@ -140,8 +140,8 @@ test("saveDocument with a messy name yields a leaf that passes validate", () => 
     metadata: { atom_type: "plan" },
   });
   assert.equal(res.name, "my-fancy-plan.md", "stored under a sanitised name");
-  assert.equal(res.created.document.id, "plans/unscoped/my-fancy-plan.md", "nested by project_module facet (unscoped sentinel)");
-  assert.ok(fs.existsSync(path.join(wiki, "plans", "unscoped", "my-fancy-plan.md")));
+  assert.equal(res.created.document.id, "plans/workspace/my-fancy-plan.md", "absent area nests under the cross-cutting fallback");
+  assert.ok(fs.existsSync(path.join(wiki, "plans", "workspace", "my-fancy-plan.md")));
   assert.equal(cli.validate(wiki).ok, true, `validate clean: ${JSON.stringify(cli.validate(wiki))}`);
 });
 
@@ -219,14 +219,16 @@ test("non-daily leaves nest by metadata facets (search-aligned)", () => {
   assert.equal(cli.validate(wiki).ok, true, `validate clean with nested facet leaf: ${JSON.stringify(cli.validate(wiki))}`);
 });
 
-test("missing facets fall back to deterministic sentinels", () => {
+test("missing area falls back to the cross-cutting area; missing task_type to the unknown sentinel", () => {
   const k = store.writeMemory({
     name: "knowledge-no-scope-2026-05-25-130000000.md",
-    text: "# Unscoped fact\n\nA fact with no project_module.\nWhy: exercise the sentinel.",
+    text: "# Unscoped fact\n\nA fact with no project_module.\nWhy: exercise the fallback.",
     datasetId: "knowledge",
-    metadata: { atom_type: "reference" }, // no project_module
+    metadata: { atom_type: "reference" }, // no area / project_module
   });
-  assert.match(k.created.document.id, /^knowledge\/unscoped\/reference\//, "absent project_module -> unscoped");
+  // Facet inference never leaves area unknown/unscoped: absent area resolves to
+  // the cross-cutting area (default "workspace"), an honest, searchable bucket.
+  assert.match(k.created.document.id, /^knowledge\/workspace\/reference\//, "absent area -> cross-cutting 'workspace'");
 
   const l = store.saveDocument({
     name: "lesson-no-task-2026-05-25-140000000.md",
@@ -234,7 +236,7 @@ test("missing facets fall back to deterministic sentinels", () => {
     datasetId: "self_improvement",
     metadata: { project_module: "billing" }, // no task_type
   });
-  assert.match(l.created.document.id, /^self_improvement\/billing\/unknown\//, "absent task_type -> unknown");
+  assert.match(l.created.document.id, /^self_improvement\/billing\/unknown\//, "absent task_type -> unknown sentinel");
 });
 
 test("renameEmbedding moves a cache entry so a relocation keeps the cached vector", async () => {
@@ -259,12 +261,12 @@ test("renameEmbedding moves a cache entry so a relocation keeps the cached vecto
 test("updateDocMetadata relocates a leaf when a facet field changes", () => {
   const res = store.writeMemory({
     name: "knowledge-relocate-2026-05-25-160000000.md",
-    text: "# Relocate me\n\nstarts unscoped, then gains a project_module.\nWhy: relocation test.",
+    text: "# Relocate me\n\nstarts cross-cutting, then gains a project_module.\nWhy: relocation test.",
     datasetId: "knowledge",
-    metadata: { atom_type: "reference" }, // no project_module -> knowledge/unscoped/reference/
+    metadata: { atom_type: "reference" }, // no area -> knowledge/workspace/reference/
   });
   const startId = res.created.document.id;
-  assert.match(startId, /^knowledge\/unscoped\/reference\//, `starts unscoped: ${startId}`);
+  assert.match(startId, /^knowledge\/workspace\/reference\//, `starts cross-cutting: ${startId}`);
 
   const upd = store.updateDocMetadata({
     datasetId: "knowledge",
