@@ -30,7 +30,7 @@ export const DifyBridgeUnavailable = WikiStoreUnavailable;
 // --- layout (YAML-driven, falls back to baked-in defaults) ---
 //
 // CATEGORIES and PLACEMENT_FACETS were previously hardcoded module-level
-// constants. They are now sourced from <wiki>/.llmwiki.layout.yaml on first
+// constants. They are now sourced from <wiki>/.layout/layout.yaml on first
 // access. The defaults below preserve historical behavior for any wiki that
 // does NOT declare `layout[].placement_facets` (or has no layout YAML at all).
 //
@@ -97,8 +97,8 @@ function ensureLayoutLoaded() {
   const rules = Object.create(null);
   const vocabs = Object.create(null);
 
-  // Layout YAML canonical location is <wiki>/layout/layout.yaml.
-  const layoutPath = path.join(r, "layout", "layout.yaml");
+  // Layout YAML canonical location is <wiki>/.layout/layout.yaml.
+  const layoutPath = path.join(r, ".layout", "layout.yaml");
   if (fs.existsSync(layoutPath)) {
     try {
       const parsed = parseYaml(fs.readFileSync(layoutPath, "utf8")) || {};
@@ -165,7 +165,7 @@ function ensureLayoutLoaded() {
 }
 
 // Test/maintenance hook: forces the next layout-touching call to re-parse
-// .llmwiki.layout.yaml. Tests rotate MEMORY_DATA_DIR between cases; production
+// .layout/layout.yaml. Tests rotate MEMORY_DATA_DIR between cases; production
 // code never needs this.
 export function _resetLayoutCacheForTests() {
   _layoutLoaded = false;
@@ -447,7 +447,7 @@ function assertKnownSlot(slot) {
 }
 
 // (PLACEMENT_FACETS is initialised by ensureLayoutLoaded() at the top of this
-// module; the YAML in <wiki>/.llmwiki.layout.yaml is the source of truth and
+// module; the YAML in <wiki>/.layout/layout.yaml is the source of truth and
 // the baked-in defaults preserve historical behavior when the YAML is absent
 // or declares no `placement_facets` for a category.)
 

@@ -17,8 +17,8 @@ import { pruneEmptyAncestors } from "../scripts/lib/plan-sync.mjs";
 
 function tmpWiki(yaml) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "round-trip-"));
-  fs.mkdirSync(path.join(dir, "layout"));
-  fs.writeFileSync(path.join(dir, "layout", "layout.yaml"), yaml);
+  fs.mkdirSync(path.join(dir, ".layout"));
+  fs.writeFileSync(path.join(dir, ".layout", "layout.yaml"), yaml);
   return dir;
 }
 
@@ -55,9 +55,9 @@ test("pathFor: round-trip check REFUSES an ambiguous from_path regex", async () 
   // compiler's regex is GREEDY and matches a different digit than the
   // forward used. Round-trip check should catch this.
   const wiki = fs.mkdtempSync(path.join(os.tmpdir(), "rt-ambig-"));
-  fs.mkdirSync(path.join(wiki, "layout"));
+  fs.mkdirSync(path.join(wiki, ".layout"));
   fs.writeFileSync(
-    path.join(wiki, "layout", "layout.yaml"),
+    path.join(wiki, ".layout", "layout.yaml"),
     `
 layout:
   - path: issues
@@ -75,14 +75,14 @@ layout:
 `,
   );
   fs.writeFileSync(
-    path.join(wiki, "layout", "to_path.mjs"),
+    path.join(wiki, ".layout", "to_path.mjs"),
     `export function plan({ prefix, number, slug }) {
        return \`issues/\${prefix}/\${prefix}-\${number}-\${slug}.plan.md\`;
      }`,
   );
   // Bad: greedy regex that may extract the wrong digit if slug contains a digit.
   fs.writeFileSync(
-    path.join(wiki, "layout", "from_path.mjs"),
+    path.join(wiki, ".layout", "from_path.mjs"),
     `const RE = /^issues\\/([^/]+)\\/[^/]+-(\\d+)-(.+)\\.plan\\.md$/;
      export function plan(rel) {
        const m = RE.exec(rel);

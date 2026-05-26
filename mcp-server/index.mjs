@@ -286,7 +286,7 @@ server.registerTool(
   {
     title: "Upsert a document into a named category",
     description:
-      "Write `text` as a wiki leaf with the given exact `name`, replacing any existing leaf in the category that has the same name. Use for plans, investigations, and knowledge artefacts. `dataset` is a category name (knowledge, plans, investigations, self_improvement, or any extra category declared in <wiki>/.llmwiki.layout.yaml). Optional `metadata` applies filterable frontmatter. Optional `path` is a relative directory under the wiki root (e.g. \"issues/JIRA/DEV/129/95/7\") and, when supplied, overrides facet-derived placement so the leaf is written verbatim at <path>/<name>; casing is preserved. Use `path` for custom topologies (Jira/GitHub/Linear issue trees, multi-faceted hierarchies) the default facet machinery cannot express.",
+      "Write `text` as a wiki leaf with the given exact `name`, replacing any existing leaf in the category that has the same name. Use for plans, investigations, and knowledge artefacts. `dataset` is a category name (knowledge, plans, investigations, self_improvement, or any extra category declared in <wiki>/.layout/layout.yaml). Optional `metadata` applies filterable frontmatter. Optional `path` is a relative directory under the wiki root (e.g. \"issues/JIRA/DEV/129/95/7\") and, when supplied, overrides facet-derived placement so the leaf is written verbatim at <path>/<name>; casing is preserved. Use `path` for custom topologies (Jira/GitHub/Linear issue trees, multi-faceted hierarchies) the default facet machinery cannot express.",
     inputSchema: {
       dataset: z.string().trim().min(1),
       name: z.string().trim().min(1).max(180),
@@ -481,7 +481,7 @@ server.registerTool(
   {
     title: "Test a custom-topology path compiler",
     description:
-      "Dry-run a topology file_kind's path_compiler (or path_template) against caller-supplied facets and return the computed relative path. Use this to sanity-check a layout's topology block before writing real leaves; reports validation errors, runtime errors from the compiler, and any unresolved {variable} placeholders in the result. Reads <wiki>/.llmwiki.layout.yaml (or the supplied `wiki_root` override).",
+      "Dry-run a topology file_kind's path_compiler (or path_template) against caller-supplied facets and return the computed relative path. Use this to sanity-check a layout's topology block before writing real leaves; reports validation errors, runtime errors from the compiler, and any unresolved {variable} placeholders in the result. Reads <wiki>/.layout/layout.yaml (or the supplied `wiki_root` override).",
     inputSchema: {
       file_kind: z.string().trim().min(1),
       facets: z.record(z.string(), z.any()),

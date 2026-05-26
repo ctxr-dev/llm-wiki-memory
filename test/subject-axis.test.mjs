@@ -40,8 +40,8 @@ layout:
 
 function useLayout(yaml = LAYOUT) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "subj-wiki-"));
-  fs.mkdirSync(path.join(root, "layout"), { recursive: true });
-  fs.writeFileSync(path.join(root, "layout", "layout.yaml"), yaml);
+  fs.mkdirSync(path.join(root, ".layout"), { recursive: true });
+  fs.writeFileSync(path.join(root, ".layout", "layout.yaml"), yaml);
   process.env.LLM_WIKI_MEMORY_ROOT = root;
   _resetLayoutCacheForTests();
   return root;

@@ -59,7 +59,7 @@ function flatLeaves(wiki) {
 function refreshContract(wiki) {
   const tmpl = path.join(MEMORY_DIR, "templates", "llmwiki.layout.yaml");
   if (!fs.existsSync(tmpl)) return;
-  const dest = path.join(wiki, "layout", "layout.yaml");
+  const dest = path.join(wiki, ".layout", "layout.yaml");
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.copyFileSync(tmpl, dest);
 }

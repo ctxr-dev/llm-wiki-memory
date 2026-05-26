@@ -18,8 +18,8 @@ import {
 
 function tmpWiki(layoutYaml) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "topo-hard-"));
-  fs.mkdirSync(path.join(dir, "layout"));
-  fs.writeFileSync(path.join(dir, "layout", "layout.yaml"), layoutYaml);
+  fs.mkdirSync(path.join(dir, ".layout"));
+  fs.writeFileSync(path.join(dir, ".layout", "layout.yaml"), layoutYaml);
   return dir;
 }
 

@@ -15,11 +15,11 @@ import { _resetCacheForTests as resetTopologyCache } from "../scripts/lib/topolo
 // inline since the test runs in isolation from the live wiki.
 function makeWikiWithLayout() {
   const wiki = fs.mkdtempSync(path.join(os.tmpdir(), "plan-sync-wiki-"));
-  fs.mkdirSync(path.join(wiki, "layout"));
+  fs.mkdirSync(path.join(wiki, ".layout"));
   // Inline a minimal tracker-issues layout that uses path_template (no
   // sandboxed compiler needed for tests).
   fs.writeFileSync(
-    path.join(wiki, "layout", "layout.yaml"),
+    path.join(wiki, ".layout", "layout.yaml"),
     `
 layout:
   - path: issues
@@ -50,7 +50,7 @@ layout:
 `,
   );
   fs.writeFileSync(
-    path.join(wiki, "layout", "to_path.mjs"),
+    path.join(wiki, ".layout", "to_path.mjs"),
     `function digitBuckets(n) {
   const number = Number(n);
   return {
@@ -71,7 +71,7 @@ export function plan({ tracker, prefix, number, lifecycle, slug }) {
 `,
   );
   fs.writeFileSync(
-    path.join(wiki, "layout", "from_path.mjs"),
+    path.join(wiki, ".layout", "from_path.mjs"),
     `const KNOW = /^issues\\/([^/]+)\\/([^/]+)\\/(\\d+)\\/(\\d+)\\/(\\d+)\\/[^/]+-(\\d+)\\.md$/;
 const PLAN = /^issues\\/([^/]+)\\/([^/]+)\\/(\\d+)\\/(\\d+)\\/(\\d+)\\/([^/]+)\\/[^/]+-(\\d+)-(.+)\\.plan\\.md$/;
 export function knowledge(rel) {

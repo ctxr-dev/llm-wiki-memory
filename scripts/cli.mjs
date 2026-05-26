@@ -20,16 +20,16 @@ function out(obj) {
 }
 
 // Materialise the hosted wiki: write the contract from the template (if
-// absent) into the canonical <wiki>/layout/layout.yaml location, and run
+// absent) into the canonical <wiki>/.layout/layout.yaml location, and run
 // the skill build. Idempotent.
 function cmdInit() {
   const wiki = wikiRoot();
   fs.mkdirSync(wiki, { recursive: true });
-  fs.mkdirSync(path.join(wiki, "layout"), { recursive: true });
+  fs.mkdirSync(path.join(wiki, ".layout"), { recursive: true });
   fs.mkdirSync(path.dirname(embedCachePath()), { recursive: true });
   fs.mkdirSync(path.dirname(COMPILE_STATE_PATH), { recursive: true });
 
-  const layoutDir = path.join(wiki, "layout");
+  const layoutDir = path.join(wiki, ".layout");
   // Symlink guard on layout/ — if someone planted a symlink there, refuse
   // rather than write through it (matches the skill's INIT-08 behaviour).
   if (fs.existsSync(layoutDir)) {
@@ -95,7 +95,7 @@ async function main() {
       const { validateLayoutFile, formatValidationResult } = await import(
         "./lib/layout-validator.mjs"
       );
-      const target = rest[0] || path.join(wikiRoot(), "layout", "layout.yaml");
+      const target = rest[0] || path.join(wikiRoot(), ".layout", "layout.yaml");
       const result = validateLayoutFile(target);
       process.stdout.write(formatValidationResult(result));
       process.exit(result.ok ? 0 : 2);

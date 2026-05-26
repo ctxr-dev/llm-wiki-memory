@@ -16,7 +16,7 @@ const cli = await import("../scripts/lib/wiki-cli.mjs");
 // assertions test the mechanic itself, decoupled from the template's subject
 // policy.
 fs.writeFileSync(
-  path.join(wiki, "layout", "layout.yaml"),
+  path.join(wiki, ".layout", "layout.yaml"),
   `mode: hosted
 layout:
   - path: knowledge
@@ -41,8 +41,8 @@ store._resetLayoutCacheForTests();
 test("init produced a valid empty hosted wiki", () => {
   assert.ok(fs.existsSync(path.join(wiki, "index.md")), "root index.md exists");
   assert.ok(
-    fs.existsSync(path.join(wiki, "layout", "layout.yaml")),
-    "contract exists at the canonical layout/layout.yaml location",
+    fs.existsSync(path.join(wiki, ".layout", "layout.yaml")),
+    "contract exists at the canonical .layout/layout.yaml location",
   );
   const v = cli.validate(wiki);
   assert.equal(v.ok, true, `validate clean: ${JSON.stringify(v)}`);

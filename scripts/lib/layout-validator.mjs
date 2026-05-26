@@ -1,6 +1,6 @@
 // Layout-file validator.
 //
-// Parses <wiki>/.llmwiki.layout.yaml (or any layout YAML), validates it
+// Parses <wiki>/.layout/layout.yaml (or any layout YAML), validates it
 // against a Zod schema covering both the historical layout fields and the new
 // `topology:` block, and reports any failures with **line:column** pointing
 // at the offending YAML node. The `yaml` library's parseDocument() preserves

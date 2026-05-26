@@ -13,8 +13,8 @@ import { _resetCacheForTests } from "../scripts/lib/topology-runtime.mjs";
 
 function tmpWiki(yaml) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "topo-validator-"));
-  fs.mkdirSync(path.join(dir, "layout"));
-  fs.writeFileSync(path.join(dir, "layout", "layout.yaml"), yaml);
+  fs.mkdirSync(path.join(dir, ".layout"));
+  fs.writeFileSync(path.join(dir, ".layout", "layout.yaml"), yaml);
   return dir;
 }
 

@@ -14,8 +14,8 @@ import {
 // Helper: writes a fresh tmp wiki dir with a single layout YAML at the root.
 function tmpWiki(layoutYaml) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "topo-runtime-test-"));
-  fs.mkdirSync(path.join(dir, "layout"));
-  fs.writeFileSync(path.join(dir, "layout", "layout.yaml"), layoutYaml);
+  fs.mkdirSync(path.join(dir, ".layout"));
+  fs.writeFileSync(path.join(dir, ".layout", "layout.yaml"), layoutYaml);
   return dir;
 }
 
@@ -267,13 +267,13 @@ layout:
 test("to_path_file: reads a sibling .mjs file's default export", async () => {
   // The .mjs helper sits in the layout/ folder next to the YAML.
   const wiki = fs.mkdtempSync(path.join(os.tmpdir(), "topo-file-"));
-  fs.mkdirSync(path.join(wiki, "layout"));
+  fs.mkdirSync(path.join(wiki, ".layout"));
   fs.writeFileSync(
-    path.join(wiki, "layout", "knowledge-path.mjs"),
+    path.join(wiki, ".layout", "knowledge-path.mjs"),
     "export default ({ tracker, prefix, number }) => `issues/${tracker}/${prefix}/${prefix}-${number}.md`;\n",
   );
   fs.writeFileSync(
-    path.join(wiki, "layout", "layout.yaml"),
+    path.join(wiki, ".layout", "layout.yaml"),
     `
 layout:
   - path: issues
@@ -298,16 +298,16 @@ layout:
   );
 });
 
-test("loadTopology reads from <wiki>/layout/layout.yaml (canonical location)", async () => {
+test("loadTopology reads from <wiki>/.layout/layout.yaml (canonical location)", async () => {
   // The canonical (and only) location for the layout YAML.
   const wiki = fs.mkdtempSync(path.join(os.tmpdir(), "topo-layout-folder-"));
-  fs.mkdirSync(path.join(wiki, "layout"));
+  fs.mkdirSync(path.join(wiki, ".layout"));
   fs.writeFileSync(
-    path.join(wiki, "layout", "to_path.mjs"),
+    path.join(wiki, ".layout", "to_path.mjs"),
     "export function knowledge({ tracker, prefix, number }) { return `issues/${tracker}/${prefix}/${prefix}-${number}.md`; }\n",
   );
   fs.writeFileSync(
-    path.join(wiki, "layout", "layout.yaml"),
+    path.join(wiki, ".layout", "layout.yaml"),
     `
 layout:
   - path: issues
@@ -332,7 +332,7 @@ layout:
   );
 });
 
-test("loadTopology throws when layout/layout.yaml is missing", async () => {
+test("loadTopology throws when .layout/layout.yaml is missing", async () => {
   const wiki = fs.mkdtempSync(path.join(os.tmpdir(), "topo-no-layout-"));
   _resetCacheForTests();
   await assert.rejects(() => loadTopology(wiki), /layout\.yaml not found/);

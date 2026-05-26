@@ -63,11 +63,11 @@ export function _resetCacheForTests() {
 // --- loader ---
 
 // Resolve the layout YAML's canonical location. The user-facing source of
-// truth is `<wiki>/layout/layout.yaml` — everything that makes up a layout
+// truth is `<wiki>/.layout/layout.yaml` — everything that makes up a layout
 // (yaml + sibling .mjs helpers) lives in that one folder, so a template
-// can be copied with a single `cp -r examples/layouts/<name>  <wiki>/layout`.
+// can be copied with a single `cp -r examples/layouts/<name>  <wiki>/.layout`.
 function resolveLayoutYamlPath(wikiRoot) {
-  const p = path.join(wikiRoot, "layout", "layout.yaml");
+  const p = path.join(wikiRoot, ".layout", "layout.yaml");
   return fs.existsSync(p) ? p : null;
 }
 
@@ -77,7 +77,7 @@ export async function loadTopology(wikiRoot, { categoryPath = "issues" } = {}) {
 
   const layoutPath = resolveLayoutYamlPath(wikiRoot);
   if (!layoutPath) {
-    throw new Error(`layout.yaml not found at ${wikiRoot}/layout/layout.yaml`);
+    throw new Error(`layout.yaml not found at ${wikiRoot}/.layout/layout.yaml`);
   }
   const yamlDir = path.dirname(layoutPath);
 
