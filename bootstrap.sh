@@ -98,7 +98,19 @@ node "$SRC_DIR/scripts/merge-config.mjs" \
 # cwd, and the server self-discovers its data dir from its own file location
 # (see scripts/lib/env.mjs), so no MEMORY_DATA_DIR env is needed here.
 INDEX_REL="./.llm-wiki-memory/src/mcp-server/index.mjs"
-render_agent() { sed -e "s#__SERVER_INDEX__#$INDEX_REL#g" "$1" > "$2"; }
+# Idempotent render: write the template on first install, but NEVER clobber a
+# file the user has since customized (e.g. wrapping the server with their
+# org's prompt_security shim). If the on-disk file differs from a pristine
+# render, preserve it and tell the operator how to regenerate.
+render_agent() {
+  local src="$1" dst="$2" rendered
+  rendered="$(sed -e "s#__SERVER_INDEX__#$INDEX_REL#g" "$src")"
+  if [[ -f "$dst" ]] && [[ "$(cat "$dst")" != "$rendered" ]]; then
+    log "Preserving customized $dst (delete it to regenerate from template)"
+    return 0
+  fi
+  printf '%s\n' "$rendered" > "$dst"
+}
 mkdir -p "$WORKSPACE_DIR/.agents/clients"
 cp "$SRC_DIR/templates/agents/README.md" "$WORKSPACE_DIR/.agents/README.md"
 render_agent "$SRC_DIR/templates/agents/mcp.json" "$WORKSPACE_DIR/.agents/mcp.json"

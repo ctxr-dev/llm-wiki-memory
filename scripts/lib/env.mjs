@@ -9,6 +9,11 @@ export const MEMORY_DIR = path.resolve(here, "../..");
 // Resolve the host workspace root from the clone location.
 // Installed layout (<workspace>/.llm-wiki-memory/src) -> workspace is two
 // levels up. A bare repo checkout / repo-dev workflow -> one level up.
+// CAVEAT: `here` is derived from import.meta.url, which resolves symlinks. If
+// `src` is itself a symlink into a store OUTSIDE the workspace (non-standard
+// install), WORKSPACE_DIR/MEMORY_DATA_DIR will derive from the link TARGET, not
+// the workspace. Set MEMORY_DATA_DIR (or LLM_WIKI_MEMORY_ROOT) explicitly for
+// such layouts; the standard <workspace>/.llm-wiki-memory/src install is fine.
 const inMemorySrc =
   path.basename(MEMORY_DIR) === "src" &&
   path.basename(path.dirname(MEMORY_DIR)) === ".llm-wiki-memory";

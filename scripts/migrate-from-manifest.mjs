@@ -124,6 +124,14 @@ function planTarget(entry) {
   // wiki-relative. Returns { dir, filename }.
   const targetRel = entry.target.replace(/^wiki\//, "");
   const lastSlash = targetRel.lastIndexOf("/");
+  if (lastSlash < 0) {
+    // A target must include a category dir + filename (e.g. "knowledge/x.md").
+    // A slash-less target would otherwise yield dir="" and write at the wiki
+    // root — refuse rather than place a leaf where no category owns it.
+    throw new Error(
+      `manifest target '${entry.target}' has no directory segment (expected "<category>/.../<file>.md")`,
+    );
+  }
   return {
     dir: targetRel.slice(0, lastSlash),
     filename: targetRel.slice(lastSlash + 1),
@@ -156,11 +164,23 @@ export async function migrateManifest(manifestPath, { dryRun = false, onEntry } 
   const m = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   const entries = m.entries.filter((e) => e.classification !== "skip");
   const results = [];
+  const seenTargets = new Map(); // "dir/filename" -> source (collision guard)
   let ok = 0;
   let fail = 0;
   for (const e of entries) {
     let entryResult;
     try {
+      // Two non-skip entries that compute the SAME target leaf would silently
+      // overwrite each other — detect and fail the second rather than clobber.
+      const { dir, filename } = planTarget(e);
+      const key = `${dir}/${filename}`;
+      if (seenTargets.has(key)) {
+        throw new Error(
+          `target collision: '${key}' already claimed by '${seenTargets.get(key)}'`,
+        );
+      }
+      seenTargets.set(key, e.source);
+
       const r = await migrateEntry(e, { dryRun });
       const success = r && r.ok !== false;
       entryResult = { entry: e, result: r, ok: success };

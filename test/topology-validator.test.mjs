@@ -5,11 +5,15 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   validateTopologyAgainstSamples,
   formatValidationReport,
 } from "../scripts/lib/topology-validator.mjs";
 import { _resetCacheForTests } from "../scripts/lib/topology-runtime.mjs";
+
+const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function tmpWiki(yaml) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "topo-validator-"));
@@ -102,6 +106,66 @@ layout:
   });
   assert.equal(r.ok, true);
   assert.ok(r.perKind[0].samplePath.includes("DEV-129957"));
+});
+
+test("validateTopologyAgainstSamples: synthesizes a sample matching a `pattern` facet", async () => {
+  // The `slug` facet is pattern-constrained; sampleForFacet must pick a value
+  // that matches (a canned candidate), so the round-trip passes.
+  const wiki = tmpWiki(`
+layout:
+  - path: issues
+    topology:
+      strategy: caller_path
+      file_kinds:
+        plan:
+          required_facets: [prefix, number, slug]
+          path_template: "issues/{prefix}/{prefix}-{number}-{slug}.plan.md"
+      facet_inputs:
+        prefix: { type: string }
+        number: { type: integer, minimum: 1 }
+        slug: { type: string, pattern: "^[a-z0-9-]+$" }
+`);
+  _resetCacheForTests();
+  const r = await validateTopologyAgainstSamples(wiki);
+  assert.equal(r.ok, true, JSON.stringify(r.perKind));
+  assert.match(r.perKind[0].samplePath, /\.plan\.md$/);
+});
+
+test("CLI `validate-topology` exits 0 on a valid topology, 2 on a broken one", () => {
+  const cli = path.join(SRC, "scripts", "cli.mjs");
+
+  const goodWiki = tmpWiki(`
+layout:
+  - path: issues
+    topology:
+      strategy: caller_path
+      file_kinds:
+        knowledge:
+          required_facets: [prefix, number]
+          path_template: "issues/{prefix}/{prefix}-{number}.md"
+      facet_inputs:
+        prefix: { type: string }
+        number: { type: integer, minimum: 1 }
+`);
+  const good = spawnSync(process.execPath, [cli, "validate-topology", goodWiki], { encoding: "utf8" });
+  assert.equal(good.status, 0, `good: ${good.stdout}${good.stderr}`);
+  assert.match(good.stdout, /passed/);
+
+  const badWiki = tmpWiki(`
+layout:
+  - path: issues
+    topology:
+      strategy: caller_path
+      file_kinds:
+        knowledge:
+          required_facets: [prefix, number]
+          path_template: "issues/{prefix}/leaf.md"
+      facet_inputs:
+        prefix: { type: string }
+        number: { type: integer, minimum: 1 }
+`);
+  const bad = spawnSync(process.execPath, [cli, "validate-topology", badWiki], { encoding: "utf8" });
+  assert.equal(bad.status, 2, `bad should exit 2: ${bad.stdout}${bad.stderr}`);
 });
 
 test("formatValidationReport: distinguishes ok / fail entries", () => {

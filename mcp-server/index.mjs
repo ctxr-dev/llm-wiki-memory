@@ -450,6 +450,30 @@ server.registerTool(
 );
 
 server.registerTool(
+  "validate_layout",
+  {
+    title: "Validate a wiki's layout contract YAML (schema + line:col errors)",
+    description:
+      "Parse and schema-validate a layout contract. Reports each problem with a line:column pointer (facet_rules without placement_facets, a vocabulary reference that isn't declared, a fallback that isn't a vocab member, bad topology block, etc.). Inputs: optional `path` (an explicit layout.yaml path) OR optional `wiki_root` (defaults to the env-resolved wiki; reads <wiki_root>/.layout/layout.yaml). Returns {ok, errors:[{line,col,message}]}.",
+    inputSchema: {
+      path: z.string().trim().min(1).optional(),
+      wiki_root: z.string().trim().min(1).optional(),
+    },
+  },
+  async ({ path: layoutPath, wiki_root }) => {
+    try {
+      const { validateLayoutFile } = await import("../scripts/lib/layout-validator.mjs");
+      const nodePath = await import("node:path");
+      const target =
+        layoutPath || nodePath.join(wiki_root || wikiRoot(), ".layout", "layout.yaml");
+      return jsonResponse(validateLayoutFile(target));
+    } catch (error) {
+      return errorResponse(error);
+    }
+  },
+);
+
+server.registerTool(
   "validate_topology",
   {
     title: "Pre-flight check that a topology's path compilers round-trip",

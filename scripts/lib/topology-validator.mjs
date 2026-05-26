@@ -29,10 +29,21 @@ function sampleForFacet(name, spec, overrides) {
     return min;
   }
   if (spec.pattern) {
-    // Try a few canned values that match common patterns. If none match,
-    // fall back to facet name lowercased; the validator will report the
-    // pattern mismatch as a layout problem.
-    const candidates = ["sample", "sample-slug", "a-b-c", `${name}-sample`];
+    // Try a spread of canned values covering the common facet-pattern shapes
+    // (slugs, digits, single tokens, alphanumerics). If none match, fall back
+    // to a name-derived value; pathFor->validateFacets then reports a precise
+    // "value 'X' does not match pattern 'Y'" so the layout author can supply a
+    // matching `examples:` entry for that facet.
+    const candidates = [
+      "sample",
+      "sample-slug",
+      "a-b-c",
+      "sample123",
+      "1",
+      "42",
+      "abc",
+      `${name}-sample`,
+    ];
     try {
       const re = new RegExp(spec.pattern);
       for (const c of candidates) if (re.test(c)) return c;

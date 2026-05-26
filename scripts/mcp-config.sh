@@ -26,8 +26,15 @@ INDEX_REL="./.llm-wiki-memory/src/mcp-server/index.mjs"
 # Global single-file clients (Claude Desktop, ~/.codex) have no project cwd, so
 # they need the absolute path. Neither needs MEMORY_DATA_DIR: the server
 # self-discovers its data dir from its own file location (scripts/lib/env.mjs).
-render_rel() { sed -e "s#__SERVER_INDEX__#$INDEX_REL#g" "$1"; }
-render_abs() { sed -e "s#__SERVER_INDEX__#$INDEX#g" "$1"; }
+# Literal bash substitution (not sed) so an install path containing sed-special
+# chars (# & \ /) can never corrupt the emitted config.
+render_with() {
+  local repl="$1" content
+  content="$(cat "$2")"
+  printf '%s\n' "${content//__SERVER_INDEX__/$repl}"
+}
+render_rel() { render_with "$INDEX_REL" "$1"; }
+render_abs() { render_with "$INDEX" "$1"; }
 
 emit() {
   case "$1" in

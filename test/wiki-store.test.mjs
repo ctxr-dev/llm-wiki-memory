@@ -406,3 +406,48 @@ test("placementDirForMeta maps each category to its facet path (by area)", () =>
   assert.equal(store.placementDirForMeta("self_improvement", { area: "tt" }), "self_improvement/tt/unknown");
   assert.equal(store.placementDirForMeta("daily", {}), null, "daily is date-nested, not facet-nested");
 });
+
+test("searchMemoryFiltered: subject is an array-membership filter", async () => {
+  // subject persists into frontmatter regardless of the (no-subject) pinned
+  // layout; metaMatchesFilters treats it as array membership like tags.
+  store.saveDocument({
+    name: "subj-obs.md",
+    text: "# Obs\n\nkamon metrics gauge sampler note.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "concept", project_module: "subjtest", subject: ["observability", "kamon"] },
+  });
+  store.saveDocument({
+    name: "subj-lang.md",
+    text: "# Lang\n\ncats-effect resource note.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "concept", project_module: "subjtest", subject: ["languages", "scala"] },
+  });
+
+  const hit = await store.searchMemoryFiltered({
+    query: "note",
+    datasetId: "knowledge",
+    filters: { area: "subjtest", subject: ["observability"] },
+  });
+  const names = hit.records.map((r) => r.documentName);
+  assert.ok(names.includes("subj-obs.md"), "observability leaf matches");
+  assert.ok(!names.includes("subj-lang.md"), "languages leaf excluded by subject filter");
+
+  const both = await store.searchMemoryFiltered({
+    query: "note",
+    datasetId: "knowledge",
+    filters: { subject: ["observability", "kamon"] },
+  });
+  assert.ok(both.records.map((r) => r.documentName).includes("subj-obs.md"), "all wanted subject terms present matches");
+
+  const none = await store.searchMemoryFiltered({
+    query: "note",
+    datasetId: "knowledge",
+    filters: { subject: ["nonexistent"] },
+  });
+  assert.equal(none.records.length, 0, "unmatched subject term filters everything out");
+
+  for (const n of ["subj-obs.md", "subj-lang.md"]) {
+    const d = store.listDocuments({ datasetId: "knowledge", enabled: "true" }).documents.find((x) => x.name === n);
+    if (d) store.deleteDocument({ documentId: d.id, datasetId: "knowledge" });
+  }
+});
