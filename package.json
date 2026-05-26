@@ -15,6 +15,10 @@
   "bin": {
     "llm-wiki-memory": "scripts/cli.mjs"
   },
+  "exports": {
+    ".": "./scripts/lib/wiki-store.mjs",
+    "./topologies/tracker-issue": "./scripts/lib/topologies/tracker-issue.mjs"
+  },
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:e2e": "node --test test/e2e/*.test.mjs",

@@ -333,6 +333,36 @@ export function normalizeLeafName(name) {
   return { name: `${stem}.md`, id: stem };
 }
 
+// Filesystem-safe leaf name that PRESERVES CASE. Used when a caller supplies
+// placementOverride and asserts full control over the leaf identity (e.g. the
+// Jira hook needs DEV-129957.md on disk, not dev-129957.md). We still strip
+// path separators / NUL / OS-reserved chars and reject ".." stems so an
+// attacker can't escape the override dir via a crafted name; the resulting
+// filename keeps the caller's original casing for everything else. The
+// returned `id` mirrors the stem so the skill's leaf id == filename stem
+// invariant is preserved.
+export function normalizeLeafNamePreservingCase(name) {
+  const raw = String(name || "").trim().replace(/\.md$/i, "");
+  if (!raw) {
+    throw new WikiStoreUnavailable("leaf name is empty after trimming");
+  }
+  // Reject control chars (incl. NUL) and the small set of filesystem-unsafe
+  // punctuation; everything else (letters, digits, hyphen, underscore, dot,
+  // tilde, etc.) is kept verbatim.
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f\x7f]/.test(raw) || /[<>:"/\\|?*]/.test(raw)) {
+    throw new WikiStoreUnavailable(
+      `leaf name contains a filesystem-unsafe character; got: ${JSON.stringify(raw)}`,
+    );
+  }
+  // Reject pure-dots stems (".", "..") and names starting with a leading
+  // path-traversal segment.
+  if (raw === "." || raw === ".." || raw.startsWith("../") || raw.startsWith("./")) {
+    throw new WikiStoreUnavailable(`leaf name is not a valid stem: ${JSON.stringify(raw)}`);
+  }
+  return { name: `${raw}.md`, id: raw };
+}
+
 // Reject a slot that is not one of the five contract categories, so we never
 // create a top-level wiki directory the layout contract does not declare
 // (which would break `skill-llm-wiki validate`).
@@ -441,23 +471,27 @@ export function writeMemory({
   }
   const slot = datasetId;
   const category = assertKnownSlot(slot);
-  const { name: safeName, id } = normalizeLeafName(name);
-  const title = deriveTitle({ metadata, text, name: safeName });
 
   // `placementOverride` (optional): when supplied, the leaf is written verbatim
-  // at <override>/<safeName> and facet inference is skipped. Metadata is still
-  // normalised for the frontmatter `memory` block so the leaf remains
-  // searchable / filterable by `searchMemoryFiltered`. Casing in the override
-  // is preserved (no slugify on the directory segments) so callers can
-  // build human-readable custom topologies (e.g. issues/JIRA/DEV/...).
+  // at <override>/<name> and facet inference is skipped. CASING is preserved
+  // in BOTH the directory segments AND the filename stem (we call
+  // normalizeLeafNamePreservingCase instead of normalizeLeafName, so a caller
+  // passing "DEV-129957.md" gets exactly "DEV-129957.md" on disk and the same
+  // string as the leaf `id`). Metadata is still normalised for the frontmatter
+  // `memory` block so the leaf remains searchable / filterable by
+  // `searchMemoryFiltered`.
   let dir;
   let memoryMeta;
   let tags;
+  let safeName;
+  let id;
   if (placementOverride !== undefined && placementOverride !== null) {
     dir = normalisePlacementOverride(placementOverride);
+    ({ name: safeName, id } = normalizeLeafNamePreservingCase(name));
     memoryMeta = normaliseMeta(metadata || {}, { atom_type: slotDefaultAtomType(slot) });
     tags = tagsArray(metadata);
   } else {
+    ({ name: safeName, id } = normalizeLeafName(name));
     // Infer/validate placement facets so a leaf is never written under an
     // unknown/unscoped area or an out-of-set atom_type (daily is a no-op).
     // Heuristic + deterministic fallback only, so this stays synchronous.
@@ -471,6 +505,7 @@ export function writeMemory({
     // that crosses midnight UTC still nests under the captured day.
     dir = placementDir(slot, { metadata: memoryMeta, date });
   }
+  const title = deriveTitle({ metadata, text, name: safeName });
   const leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
   fs.mkdirSync(path.dirname(leafAbs), { recursive: true });
   fs.writeFileSync(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));
@@ -511,25 +546,29 @@ export function saveDocument({ name, text, datasetId, metadata, placementOverrid
   }
   const slot = datasetId;
   const category = assertKnownSlot(slot);
-  const { name: safeName, id } = normalizeLeafName(name);
-  const title = deriveTitle({ metadata, text, name: safeName });
 
   // `placementOverride` (optional): when supplied, the existence check is
   // scoped to the override path only (we do NOT broad-search the category
   // tree by name, because the caller is asserting a specific location). This
   // also disables the cross-facet "relocate" behaviour - the override IS the
-  // target. Metadata is still normalised so the leaf stays searchable.
+  // target. CASING is preserved in the filename so a caller passing
+  // "DEV-129957.md" gets exactly that on disk. Metadata is still normalised
+  // so the leaf stays searchable.
   let dir;
   let memoryMeta;
   let tags;
   let existing;
+  let safeName;
+  let id;
   if (placementOverride !== undefined && placementOverride !== null) {
     dir = normalisePlacementOverride(placementOverride);
+    ({ name: safeName, id } = normalizeLeafNamePreservingCase(name));
     memoryMeta = normaliseMeta(metadata || {}, { atom_type: slotDefaultAtomType(slot) });
     tags = tagsArray(metadata);
     const candidateAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
     existing = fs.existsSync(candidateAbs) ? candidateAbs : null;
   } else {
+    ({ name: safeName, id } = normalizeLeafName(name));
     const categoryAbs = path.join(root(), slotToCategory(slot));
     existing = findByName(categoryAbs, safeName);
     // Infer/validate placement facets so a leaf is never saved under an
@@ -541,6 +580,7 @@ export function saveDocument({ name, text, datasetId, metadata, placementOverrid
     tags = tagsArray(effectiveMeta);
     dir = placementDir(slot, { metadata: memoryMeta });
   }
+  const title = deriveTitle({ metadata, text, name: safeName });
 
   const leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
   const replacedId = existing ? toRel(existing) : undefined;

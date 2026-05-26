@@ -36,6 +36,25 @@ purpose: "Persistent local memory for the agent across sessions"
 #                           is a no-op for now.
 #   - allow_entry_types   : forwarded to skill-llm-wiki validate
 #   - max_depth           : forwarded to skill-llm-wiki validate
+#   - topology            : optional STRUCTURED declaration for a custom-topology
+#                           category (see scripts/lib/topologies/*.mjs helpers).
+#                           Schema:
+#                             strategy: caller_path | (future strategies)
+#                             helper:
+#                               module: relative path to the JS helper exporting
+#                                       loadTopology / pathFor / parsePath
+#                               package: npm package name when imported externally
+#                               schema_version: integer
+#                             file_kinds.<kind>:
+#                               required_facets: list of facet keys callers MUST
+#                                                supply in metadata
+#                               enums.<facet>: optional list of allowed values
+#                               path_template: string with "{var}" placeholders;
+#                                              substituted with facet values +
+#                                              helper-derived facets
+#                             facet_inputs.<facet>: { type, minimum, pattern }
+#                                                   contract per facet
+#                           Default behaviour is unchanged when `topology` is absent.
 layout:
   - path: knowledge
     purpose: "long-lived facts, decisions, lore, and gotchas; nested by project_module/atom_type"
