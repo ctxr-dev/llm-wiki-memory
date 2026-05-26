@@ -112,28 +112,28 @@ export function facetIssues(category, meta = {}) {
 
 // Heuristic area: provided real area -> project_module-as-sub-module -> a tag
 // that names a known sub-module -> the cross-cutting fallback. Never bad.
+// knownAreas() (a synchronous readdir) is consulted ONLY on the tag-match path,
+// so the common write (caller supplies a valid area or a usable project_module)
+// does no directory scan.
 function heuristicArea(category, meta, tags2) {
-  const cc = crossCuttingAreas();
-  const fallbackArea = cc[0] || "workspace";
-  const areas = knownAreas(category);
-  const subModules = [...areas].filter((a) => !cc.includes(a));
   const workspace = slugify(defaultProjectModule() || "");
 
-  let area = slugify(String(meta.area || "").trim());
-  if (!area || BAD_AREA.has(area) || area === workspace) {
-    area = "";
-    // Accept a legacy `project_module`-as-sub-module value (any name), EXCEPT
-    // the workspace identifier itself (post-split that is the project, not a
-    // sub-module, which is exactly how `tradingtune` leaked in as an area).
-    const pm = slugify(String(meta.project_module || "").trim());
-    if (pm && pm !== workspace && !BAD_AREA.has(pm)) area = pm;
-    else {
-      const hit = tags2.find((t) => subModules.includes(t));
-      if (hit) area = hit;
-    }
-  }
-  if (!area || BAD_AREA.has(area)) area = fallbackArea;
-  return area;
+  const provided = slugify(String(meta.area || "").trim());
+  if (provided && !BAD_AREA.has(provided) && provided !== workspace) return provided;
+
+  // Accept a legacy `project_module`-as-sub-module value (any name), EXCEPT the
+  // workspace identifier itself (post-split that is the project, not a
+  // sub-module, which is exactly how `tradingtune` leaked in as an area).
+  const pm = slugify(String(meta.project_module || "").trim());
+  if (pm && pm !== workspace && !BAD_AREA.has(pm)) return pm;
+
+  // Only now do we need the known sub-modules (a directory scan) to try a tag.
+  const cc = crossCuttingAreas();
+  const subModules = [...knownAreas(category)].filter((a) => !cc.includes(a));
+  const hit = tags2.find((t) => subModules.includes(t));
+  if (hit) return hit;
+
+  return cc[0] || "workspace";
 }
 
 // SYNC: a valid facet patch { area, atom_type?, task_type? } to merge into the
