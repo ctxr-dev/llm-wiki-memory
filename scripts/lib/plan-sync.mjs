@@ -15,6 +15,9 @@ import path from "node:path";
 import { applyFrontmatterUpdate } from "./plan-frontmatter.mjs";
 import { loadTopology, pathFor, parsePath } from "./topology-runtime.mjs";
 import { ensureIndexes } from "./wiki-cli.mjs";
+// Shared with wiki-store's relocation paths; single source of truth in fs-prune.
+import { pruneEmptyAncestors } from "./fs-prune.mjs";
+export { pruneEmptyAncestors } from "./fs-prune.mjs";
 
 // Pick a non-colliding destination by appending -v2 / -v3 / … before the
 // .plan.md extension. Hard-fails after 99 attempts (effectively never).
@@ -148,44 +151,6 @@ export async function syncPlanFile(absPath, { wikiRoot, now } = {}) {
   pruneEmptyAncestors(path.dirname(absPath), wikiRoot);
 
   return out;
-}
-
-// Remove a directory chain that's left orphaned after a move. Only acts
-// on directories whose ONLY remaining child is `index.md` (the skill's
-// auto-generated navigation file). Bounded by `wikiRoot` — we walk up
-// AT MOST until we reach the wiki root, never above it. Defensive
-// against typos: if `dir` doesn't actually live under `wikiRoot`, do
-// nothing.
-export function pruneEmptyAncestors(dir, wikiRoot) {
-  const wikiAbs = path.resolve(wikiRoot);
-  let cur = path.resolve(dir);
-  while (cur !== wikiAbs && cur.startsWith(wikiAbs + path.sep)) {
-    let entries;
-    try {
-      entries = fs.readdirSync(cur, { withFileTypes: true });
-    } catch {
-      break;
-    }
-    // We consider the dir "empty" if it has zero entries OR only an
-    // auto-generated index.md (frontmatter check would be safer but
-    // adds I/O; we trust the skill's invariant that index.md is the
-    // only file the skill itself writes in a non-leaf dir).
-    const meaningful = entries.filter((e) => e.name !== "index.md");
-    if (meaningful.length > 0) break;
-    if (entries.length === 1 && entries[0].name === "index.md") {
-      try {
-        fs.unlinkSync(path.join(cur, "index.md"));
-      } catch {
-        // best-effort
-      }
-    }
-    try {
-      fs.rmdirSync(cur);
-    } catch {
-      break;
-    }
-    cur = path.dirname(cur);
-  }
 }
 
 // Bulk variant — used by SessionEnd to sweep every .plan.md under the

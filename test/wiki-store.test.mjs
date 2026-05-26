@@ -10,6 +10,34 @@ after(() => cleanup(dataDir));
 const store = await import("../scripts/lib/wiki-store.mjs");
 const cli = await import("../scripts/lib/wiki-cli.mjs");
 
+// These tests exercise the CORE area/atom_type/task_type placement + relocation
+// mechanics. The shipped default layout adds a semantic `subject` axis (covered
+// by subject-axis.test.mjs); pin an explicit no-subject layout here so these
+// assertions test the mechanic itself, decoupled from the template's subject
+// policy.
+fs.writeFileSync(
+  path.join(wiki, "layout", "layout.yaml"),
+  `mode: hosted
+layout:
+  - path: knowledge
+    placement_facets: [area, atom_type]
+    max_depth: 5
+  - path: self_improvement
+    placement_facets: [area, task_type]
+    max_depth: 5
+  - path: plans
+    placement_facets: [area]
+    max_depth: 5
+  - path: investigations
+    placement_facets: [area]
+    max_depth: 5
+  - path: daily
+    placement_strategy: daily-date
+    max_depth: 5
+`,
+);
+store._resetLayoutCacheForTests();
+
 test("init produced a valid empty hosted wiki", () => {
   assert.ok(fs.existsSync(path.join(wiki, "index.md")), "root index.md exists");
   assert.ok(
@@ -288,6 +316,30 @@ test("updateDocMetadata relocates a leaf when a facet field changes", () => {
     metadata: { project_module: "billing", atom_type: "reference" },
   });
   assert.ok(!again.relocated, "re-applying identical facets is an in-place no-op");
+});
+
+test("relocation prunes the emptied source dir (no orphan index.md left behind)", () => {
+  // Unique area so this leaf is the SOLE occupant of its source dir; relocating
+  // it must leave no orphan dir (the user's "never keep blind nested dirs" rule).
+  const res = store.saveDocument({
+    name: "orphan-prune-probe.md",
+    text: "# Orphan prune\n\nsole occupant of a unique area dir.\nWhy: prune test.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "reference", project_module: "orphanprobesrc" },
+  });
+  const startId = res.created.document.id;
+  assert.match(startId, /^knowledge\/orphanprobesrc\/reference\//);
+  const srcDir = path.join(wiki, "knowledge", "orphanprobesrc");
+  assert.ok(fs.existsSync(srcDir), "source area dir exists before relocation");
+
+  const upd = store.updateDocMetadata({
+    datasetId: "knowledge",
+    documentId: startId,
+    metadata: { project_module: "orphanprobedst" },
+  });
+  assert.ok(upd.relocated, `relocation reported: ${JSON.stringify(upd)}`);
+  assert.ok(!fs.existsSync(srcDir), "emptied source area dir pruned (no orphan index.md)");
+  assert.equal(cli.validate(wiki).ok, true, "validate clean after prune");
 });
 
 test("saveDocument relocates a same-named leaf when its facets change (upsert, no stale copy)", () => {

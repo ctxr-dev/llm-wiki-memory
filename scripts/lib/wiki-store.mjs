@@ -15,6 +15,7 @@ import {
 } from "./embed.mjs";
 import { slugify, dailyDatePath } from "./slug.mjs";
 import { inferFacets } from "./facets.mjs";
+import { pruneEmptyAncestors } from "./fs-prune.mjs";
 
 // Drop-in replacement for the boilerplate's dify-write.mjs. Same exported
 // function names/shapes, but every document is a leaf in the local hosted
@@ -694,6 +695,9 @@ export function saveDocument({ name, text, datasetId, metadata, placementOverrid
   }
   ensureIndexes(root(), touched);
   upsertEmbedding(toRel(leafAbs), text);
+  // After a relocation, drop any source ancestor dir left holding only an
+  // orphaned index.md (prune AFTER ensureIndexes, which may have rewritten it).
+  if (moved) pruneEmptyAncestors(path.dirname(existing), root());
 
   const metadataAttempted = metadata && Object.keys(metadata).length > 0;
   return {
@@ -740,6 +744,8 @@ export function updateDocMetadata({ datasetId, documentId, metadata } = {}) {
       fs.rmSync(abs);
       renameEmbedding(documentId, newRel);
       ensureIndexes(root(), [abs, newAbs]); // drop the entry from old ancestors, add to new
+      // Remove any source ancestor dir left holding only an orphaned index.md.
+      pruneEmptyAncestors(path.dirname(abs), root());
       return { ok: true, relocated: { from: documentId, to: newRel } };
     }
   }
