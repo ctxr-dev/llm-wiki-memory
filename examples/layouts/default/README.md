@@ -53,10 +53,10 @@ If you need:
 ## Install
 
 ```bash
-cp -r examples/layouts/default  <wiki-root>/layout
+cp -r examples/layouts/default  <wiki-root>/.layout
 node scripts/cli.mjs validate-layout
 ```
 
 Then `node scripts/cli.mjs init` (or `bootstrap.sh`) to materialise the wiki.
-The contract lives at `<wiki-root>/layout/layout.yaml`; the skill picks it
+The contract lives at `<wiki-root>/.layout/layout.yaml`; the skill picks it
 up automatically.

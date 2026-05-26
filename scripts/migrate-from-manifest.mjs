@@ -20,7 +20,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
-import { saveDocument } from "./lib/wiki-store.mjs";
+import { saveDocument, normalizeLeafNamePreservingCase } from "./lib/wiki-store.mjs";
 
 const CLASS_TO_DATASET = {
   knowledge: "knowledge",
@@ -172,8 +172,11 @@ export async function migrateManifest(manifestPath, { dryRun = false, onEntry } 
     try {
       // Two non-skip entries that compute the SAME target leaf would silently
       // overwrite each other — detect and fail the second rather than clobber.
+      // Key on the NORMALISED filename (what saveDocument actually writes; it
+      // lowercases the .md extension), so "X.MD" and "X.md" collide as they will
+      // on disk.
       const { dir, filename } = planTarget(e);
-      const key = `${dir}/${filename}`;
+      const key = `${dir}/${normalizeLeafNamePreservingCase(filename).name}`;
       if (seenTargets.has(key)) {
         throw new Error(
           `target collision: '${key}' already claimed by '${seenTargets.get(key)}'`,

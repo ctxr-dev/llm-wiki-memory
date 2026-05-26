@@ -53,6 +53,4 @@ rules — use structured fields in the YAML for anything the runtime needs.
 against the layout schema, and prints any errors as
 `<file>:<line>:<col>  [<json-path>]  <message>`. Exit code is `0` on success,
 `2` on validation failure. With no `path`, it discovers and validates the
-live wiki's contract (canonical `<wikiRoot>/layout/layout.yaml`, with
-legacy fallbacks to `<wikiRoot>/layout/.llmwiki.layout.yaml` and
-`<wikiRoot>/.llmwiki.layout.yaml`).
+live wiki's contract at `<wikiRoot>/.layout/layout.yaml`.

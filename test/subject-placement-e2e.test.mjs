@@ -35,6 +35,9 @@ test("saveDocument nests a knowledge leaf by its subject path", () => {
   assert.equal(cli.validate(wiki).ok, true, "validate clean after subject save");
 });
 
+// NOTE: this test consumes the leaf created by the test above via the shared
+// module-level wiki. node --test runs tests within a file sequentially in
+// definition order, so the dependency is safe (but the test is not isolated).
 test("a sideways subject change relocates the leaf and prunes the old subject subtree", () => {
   // Anchor leaf so the shared ancestor (knowledge/scala-toolkit/pattern-gotcha)
   // keeps content and must NOT be pruned.
@@ -59,6 +62,11 @@ test("a sideways subject change relocates the leaf and prunes the old subject su
   // leaf moved
   assert.ok(!fs.existsSync(abs(startRel)), "old leaf removed");
   assert.ok(fs.existsSync(abs(upd.relocated.to)), "leaf at new subject path");
+  // the relocate path must REWRITE frontmatter subject to the new value, else a
+  // later recompute would relocate it back.
+  const movedRaw = fs.readFileSync(abs(upd.relocated.to), "utf8");
+  assert.match(movedRaw, /subject:\s*\n\s*-\s*languages\s*\n\s*-\s*scala/, "frontmatter subject rewritten");
+  assert.ok(!/observability/.test(movedRaw), "old subject removed from frontmatter");
   // old subject subtree fully pruned (no orphan dirs holding only index.md)
   assert.ok(!fs.existsSync(abs("knowledge/scala-toolkit/pattern-gotcha/observability/kamon")), "kamon dir pruned");
   assert.ok(!fs.existsSync(abs("knowledge/scala-toolkit/pattern-gotcha/observability")), "observability dir pruned");

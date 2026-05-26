@@ -158,7 +158,7 @@ These are real issues we know about but haven't fixed:
    imports from minutes to seconds.
 2. **Topology cache is process-lifetime.** `loadTopology` caches the
    compiled topology object indefinitely. Long-running processes (the
-   MCP server) won't see edits to `layout/layout.yaml` or its sibling
+   MCP server) won't see edits to `.layout/layout.yaml` or its sibling
    `.mjs` helpers until restart. A file-mtime check or a manual reset
    API would close this.
 3. **Cold-start embedding model.** ~8.5 s on first search. The

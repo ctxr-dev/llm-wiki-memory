@@ -38,7 +38,7 @@ Do NOT invoke when:
 - The user gives an explicit task that's self-contained ("rename
   function X in file Y") — just do the task.
 - The wiki is not initialised in this workspace (no
-  `<workspace>/.llm-wiki-memory/wiki/layout/layout.yaml`).
+  `<workspace>/.llm-wiki-memory/wiki/.layout/layout.yaml`).
 - You've already fetched context in this turn and the branch hasn't
   changed.
 
@@ -123,7 +123,7 @@ once their leaves are in the wiki — no skill update required.
 
 - MCP tools: `search_memory`, `recall_lessons`, `list_datasets`,
   `get_memory_config`
-- Wiki layout: `<workspace>/.llm-wiki-memory/wiki/layout/layout.yaml`
+- Wiki layout: `<workspace>/.llm-wiki-memory/wiki/.layout/layout.yaml`
 - Topology helpers (if you need to compute paths programmatically):
   `import { loadTopology, pathFor } from "llm-wiki-memory/topology-runtime"`
 - Companion skills:

@@ -125,14 +125,14 @@ issues/LINEAR/ENG/1/23/4/ENG-1234.md
 ## Install
 
 ```bash
-cp -r examples/layouts/tracker-issues  <wiki-root>/layout
+cp -r examples/layouts/tracker-issues  <wiki-root>/.layout
 node scripts/cli.mjs validate-layout
 ```
 
 Everything that defines the layout — the contract YAML, the `to_path.mjs`
 and `from_path.mjs` helpers, and this README — ends up inside
-`<wiki-root>/layout/` in a single copy. The skill recognises the canonical
-`<wiki-root>/layout/layout.yaml` location natively; no symlinks. The
+`<wiki-root>/.layout/` in a single copy. The skill recognises the canonical
+`<wiki-root>/.layout/layout.yaml` location natively; no symlinks. The
 `issues/` category appears automatically on the first write.
 
 ## Reference
