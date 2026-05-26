@@ -1,0 +1,179 @@
+// plan-sync — orchestrates plan-file lifecycle:
+//   1. Rewrite the plan's frontmatter (status, progress, last_updated)
+//      via plan-frontmatter.mjs.
+//   2. If the file lives in a lifecycle-aware topology AND the lifecycle
+//      changed, move the file to the matching `<lifecycle>/` folder.
+//   3. Handle collisions by auto-suffixing `-v2.plan.md`, `-v3`, etc.
+//   4. Re-index the source + destination dirs via skill ensureIndexes.
+//
+// Library-level (pure-ish — does fs I/O but no process spawning beyond
+// the skill index rebuild). The actual hook entry script (Claude Code,
+// other agents) wraps this with stdin parsing + logging.
+
+import fs from "node:fs";
+import path from "node:path";
+import { applyFrontmatterUpdate } from "./plan-frontmatter.mjs";
+import { loadTopology, pathFor, parsePath } from "./topology-runtime.mjs";
+import { ensureIndexes } from "./wiki-cli.mjs";
+
+// Pick a non-colliding destination by appending -v2 / -v3 / … before the
+// .plan.md extension. Hard-fails after 99 attempts (effectively never).
+export function pickNonColliding(targetAbs) {
+  if (!fs.existsSync(targetAbs)) return { path: targetAbs, suffix: null };
+  const ext = ".plan.md";
+  const base = path.basename(targetAbs, ext);
+  if (!targetAbs.endsWith(ext)) {
+    // Not a .plan.md path — be conservative and add -conflict to whatever
+    // stem we can find.
+    const altExt = path.extname(targetAbs);
+    const altBase = path.basename(targetAbs, altExt);
+    const dir = path.dirname(targetAbs);
+    let v = 2;
+    while (v < 100) {
+      const cand = path.join(dir, `${altBase}-v${v}${altExt}`);
+      if (!fs.existsSync(cand)) return { path: cand, suffix: `-v${v}` };
+      v++;
+    }
+  }
+  const dir = path.dirname(targetAbs);
+  let v = 2;
+  while (v < 100) {
+    const cand = path.join(dir, `${base}-v${v}${ext}`);
+    if (!fs.existsSync(cand)) return { path: cand, suffix: `-v${v}` };
+    v++;
+  }
+  throw new Error(`pickNonColliding: 100 suffixes exhausted at ${targetAbs}`);
+}
+
+// Per-call result object the hook entry-script logs. Always returned
+// (never throws beyond pickNonColliding's hard-fail or fs errors on
+// write); errors are captured in result.error.
+export async function syncPlanFile(absPath, { wikiRoot, now } = {}) {
+  const out = {
+    file: absPath,
+    frontmatter_changed: false,
+    status: null,
+    progress: null,
+    moved: null, // { from, to, suffix? } when a move happened
+    error: null,
+  };
+
+  if (!fs.existsSync(absPath)) {
+    out.error = "file does not exist";
+    return out;
+  }
+  if (!absPath.endsWith(".plan.md")) {
+    out.error = "not a .plan.md file";
+    return out;
+  }
+
+  // 1. Rewrite frontmatter.
+  let raw;
+  try {
+    raw = fs.readFileSync(absPath, "utf8");
+  } catch (err) {
+    out.error = `read failed: ${err.message}`;
+    return out;
+  }
+  let update;
+  try {
+    update = applyFrontmatterUpdate(raw, { now });
+  } catch (err) {
+    out.error = `frontmatter update failed: ${err.message}`;
+    return out;
+  }
+  out.status = update.summary.status;
+  out.progress = update.summary.progress;
+  if (update.changed) {
+    fs.writeFileSync(absPath, update.text);
+    out.frontmatter_changed = true;
+  }
+
+  // 2. Decide whether the file is under a lifecycle-aware topology.
+  if (!wikiRoot) return out;
+  let topo;
+  try {
+    topo = await loadTopology(wikiRoot, { categoryPath: "issues" });
+  } catch {
+    // No topology block — that's fine, just no move logic. Frontmatter
+    // already updated.
+    return out;
+  }
+  const rel = path.relative(wikiRoot, absPath);
+  const parsed = parsePath(topo, rel);
+  if (!parsed || !parsed.facets || parsed.facets.lifecycle === undefined) {
+    return out; // not a lifecycle-aware path
+  }
+
+  const newLifecycle = out.status;
+  if (!newLifecycle || newLifecycle === parsed.facets.lifecycle) return out;
+  if (newLifecycle === "archived") return out; // archived is manual-only
+
+  // 3. Compute new path; pick a non-colliding destination.
+  const newFacets = { ...parsed.facets, lifecycle: newLifecycle };
+  let newRel;
+  try {
+    newRel = pathFor(topo, parsed.kind, newFacets);
+  } catch (err) {
+    out.error = `pathFor failed (kind=${parsed.kind}, lifecycle=${newLifecycle}): ${err.message}`;
+    return out;
+  }
+  const newAbs = path.join(wikiRoot, newRel);
+  const picked = pickNonColliding(newAbs);
+
+  // 4. Move on disk. ensureIndexes is called on BOTH source dir (now
+  // empty of this leaf) and destination dir (so the skill re-renders
+  // both indexes).
+  try {
+    fs.mkdirSync(path.dirname(picked.path), { recursive: true });
+    fs.renameSync(absPath, picked.path);
+  } catch (err) {
+    out.error = `move failed: ${err.message}`;
+    return out;
+  }
+  out.moved = { from: absPath, to: picked.path, suffix: picked.suffix };
+
+  try {
+    ensureIndexes(wikiRoot, [absPath, picked.path]);
+  } catch (err) {
+    // Move succeeded; index-rebuild failure is non-fatal but logged.
+    out.error = `move ok, but ensureIndexes failed: ${err.message}`;
+  }
+
+  return out;
+}
+
+// Bulk variant — used by SessionEnd to sweep every .plan.md under the
+// wiki. Returns an array of per-file result objects.
+export async function syncAllPlans(wikiRoot, { now } = {}) {
+  const results = [];
+  if (!fs.existsSync(wikiRoot)) return results;
+  function walk(dir) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith(".")) continue;
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.isFile() && e.name.endsWith(".plan.md")) {
+        // Defer execution: collect paths first, then process so we don't
+        // race against renames while walking.
+        results.push(p);
+      }
+    }
+  }
+  walk(wikiRoot);
+
+  const out = [];
+  for (const p of results) {
+    // syncPlanFile may have moved the file; if it no longer exists at the
+    // collected path, it was processed in an earlier iteration — skip.
+    if (!fs.existsSync(p)) continue;
+    out.push(await syncPlanFile(p, { wikiRoot, now }));
+  }
+  return out;
+}
