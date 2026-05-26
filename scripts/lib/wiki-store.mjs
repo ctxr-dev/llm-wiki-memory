@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
 import { parse as parseYaml } from "yaml";
-import { wikiRoot, embedCachePath, defaultProjectModule } from "./env.mjs";
+import { wikiRoot, embedCachePath, defaultProjectModule, GC_STATE_PATH, gcIntervalDays } from "./env.mjs";
 import { ensureIndexes } from "./wiki-cli.mjs";
 import {
   contentHash,
@@ -976,7 +976,36 @@ export function renameEmbedding(oldId, newId) {
 //
 // Returns { ok, before, after, removed, removedIds } (removedIds capped at 50
 // for reporting). A `dryRun` reports what WOULD be removed without writing.
-export function pruneEmbeddingCache({ dryRun = false } = {}) {
+//
+// `ifDue` throttles the sweep: it runs only when at least MEMORY_GC_INTERVAL_DAYS
+// have elapsed since the last recorded sweep (state/.embed-gc.json). When the
+// interval is 0/off the sweep is disabled; when not yet due it is skipped. This
+// is the path the SessionEnd embed-gc hook (and hook-less agents, per the rule)
+// take so the cache self-cleans roughly weekly without running every session.
+// A real (non-dry) sweep always rewrites the last-run timestamp — including a
+// plain unconditional run — so the next due-check is measured from it.
+export function pruneEmbeddingCache({ dryRun = false, ifDue = false } = {}) {
+  if (ifDue) {
+    const intervalDays = gcIntervalDays();
+    if (intervalDays <= 0) {
+      return { ok: true, skipped: "disabled", reason: "MEMORY_GC_INTERVAL_DAYS is 0/off" };
+    }
+    const state = readGcState();
+    const lastMs = state?.last_run_utc ? Date.parse(state.last_run_utc) : NaN;
+    if (Number.isFinite(lastMs)) {
+      const dueMs = lastMs + intervalDays * 86_400_000;
+      if (Date.now() < dueMs) {
+        return {
+          ok: true,
+          skipped: "not-due",
+          intervalDays,
+          last_run_utc: state.last_run_utc,
+          next_due_utc: new Date(dueMs).toISOString(),
+        };
+      }
+    }
+  }
+
   const cachePath = embedCachePath();
   const cache = loadCache(cachePath);
   const ids = Object.keys(cache.entries);
@@ -991,9 +1020,14 @@ export function pruneEmbeddingCache({ dryRun = false } = {}) {
   }
 
   const removedIds = ids.filter((id) => !live.has(id));
-  if (!dryRun && removedIds.length > 0) {
-    for (const id of removedIds) delete cache.entries[id];
-    saveCache(cachePath, cache);
+  if (!dryRun) {
+    if (removedIds.length > 0) {
+      for (const id of removedIds) delete cache.entries[id];
+      saveCache(cachePath, cache);
+    }
+    // Stamp the last-run timestamp even when nothing was removed, so the
+    // throttle clock advances on every actual sweep.
+    writeGcState({ last_run_utc: new Date().toISOString(), removed: removedIds.length });
   }
   return {
     ok: true,
@@ -1004,6 +1038,24 @@ export function pruneEmbeddingCache({ dryRun = false } = {}) {
     removed: removedIds.length,
     removedIds: removedIds.slice(0, 50),
   };
+}
+
+// Throttle state for the embedding GC. Best-effort: a missing/corrupt file
+// reads as "never run" (so the next --if-due sweep proceeds).
+function readGcState() {
+  try {
+    return JSON.parse(fs.readFileSync(GC_STATE_PATH, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function writeGcState(state) {
+  try {
+    fs.mkdirSync(path.dirname(GC_STATE_PATH), { recursive: true });
+    fs.writeFileSync(GC_STATE_PATH, JSON.stringify(state));
+  } catch {
+    /* best effort */
+  }
 }
 
 // Default atom_type for a slot when none is supplied (used for daily capture

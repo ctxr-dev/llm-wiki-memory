@@ -166,9 +166,16 @@ async function main() {
       return out(heal(wikiRoot()));
     case "gc-embeddings": {
       // On-demand sweep of orphaned embedding-cache entries (ids whose leaf no
-      // longer exists). Pass --dry-run to preview without writing.
+      // longer exists). --dry-run previews without writing. --if-due throttles
+      // to MEMORY_GC_INTERVAL_DAYS via state/.embed-gc.json (the SessionEnd
+      // embed-gc hook + hook-less agents use this); plain run is unconditional.
       const { pruneEmbeddingCache } = await import("./lib/wiki-store.mjs");
-      return out(pruneEmbeddingCache({ dryRun: rest.includes("--dry-run") }));
+      return out(
+        pruneEmbeddingCache({
+          dryRun: rest.includes("--dry-run"),
+          ifDue: rest.includes("--if-due"),
+        }),
+      );
     }
     case "where":
       return out({

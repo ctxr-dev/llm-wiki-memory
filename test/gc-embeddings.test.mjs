@@ -1,8 +1,9 @@
 // gc-embeddings: on-demand pruning of orphaned embedding-cache entries (ids
 // whose leaf no longer exists on disk). Live-leaf entries are kept.
 
-import { test, after } from "node:test";
+import { test, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { setupWorkspace, cleanup } from "./harness.mjs";
 
 const { dataDir } = setupWorkspace();
@@ -51,4 +52,59 @@ test("pruneEmbeddingCache drops orphan ids and keeps live-leaf ids", () => {
   // Idempotent: a second sweep removes nothing.
   const again = store.pruneEmbeddingCache();
   assert.equal(again.removed, 0, "second sweep is a no-op");
+});
+
+afterEach(() => {
+  delete process.env.MEMORY_GC_INTERVAL_DAYS;
+});
+
+test("--if-due throttle: disabled / due / not-due / stamps state", () => {
+  const statePath = env.GC_STATE_PATH;
+  const clearState = () => {
+    try {
+      fs.rmSync(statePath);
+    } catch {
+      /* none */
+    }
+  };
+
+  // disabled (0/off): never sweeps, no state written.
+  clearState();
+  process.env.MEMORY_GC_INTERVAL_DAYS = "off";
+  const disabled = store.pruneEmbeddingCache({ ifDue: true });
+  assert.equal(disabled.skipped, "disabled");
+  assert.ok(!fs.existsSync(statePath), "disabled run writes no state");
+
+  // due (no prior state): sweeps + stamps last_run_utc.
+  process.env.MEMORY_GC_INTERVAL_DAYS = "7";
+  const first = store.pruneEmbeddingCache({ ifDue: true });
+  assert.ok(!first.skipped, "no prior state -> runs");
+  const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.ok(Date.parse(state.last_run_utc), "last_run_utc stamped");
+
+  // not-due (just ran, within 7d): skipped, reports next_due_utc.
+  const second = store.pruneEmbeddingCache({ ifDue: true });
+  assert.equal(second.skipped, "not-due");
+  assert.ok(Date.parse(second.next_due_utc) > Date.now(), "next_due in the future");
+
+  // due again after backdating the last run > interval.
+  fs.writeFileSync(
+    statePath,
+    JSON.stringify({ last_run_utc: new Date(Date.now() - 10 * 86_400_000).toISOString() }),
+  );
+  const third = store.pruneEmbeddingCache({ ifDue: true });
+  assert.ok(!third.skipped, "backdated past the interval -> runs again");
+  const restamped = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.ok(Date.now() - Date.parse(restamped.last_run_utc) < 60_000, "timestamp refreshed");
+
+  // unconditional run (no ifDue) always stamps state too.
+  clearState();
+  store.pruneEmbeddingCache();
+  assert.ok(fs.existsSync(statePath), "unconditional run stamps state");
+
+  // dry-run with ifDue when due: reports but writes no state.
+  clearState();
+  const dry = store.pruneEmbeddingCache({ ifDue: true, dryRun: true });
+  assert.ok(!dry.skipped, "due -> would run");
+  assert.ok(!fs.existsSync(statePath), "dry-run writes no state");
 });
