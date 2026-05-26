@@ -1,5 +1,26 @@
 # Layout file protocol (`layout.yaml`)
 
+> **Round-trip principle (enforced at runtime).** Every `pathFor(...)` call
+> immediately runs `parsePath(...)` against its own output and refuses if
+> the recovered facets don't match the input. Compilers MUST be
+> **invertible**: if you can't get back the same `{tracker, prefix, number,
+> lifecycle, slug}` from the path that `to_path` produced, the topology
+> is rejected — no leaf is ever written under an ambiguous path. This is
+> defence-in-depth against:
+>
+> - Ambiguous `from_path` regexes (`[^/]+` matched greedily on a filename
+>   containing extra digits could pull the wrong `(\d+)` into `number`,
+>   sending `DEV-122648-mirror-apisix-1-and-2.plan.md` to
+>   `issues/JIRA/DEV/0/0/1/...` instead of `issues/JIRA/DEV/122/64/8/...`).
+> - Compilers that drop or reshape facet values silently.
+> - Topologies where two different facet sets produce the same path.
+>
+> If you see `pathFor: round-trip ...` errors in the logs, fix the
+> `from_path` / `path_template` regex (or the `to_path` body) so the
+> forward and reverse functions agree. **We never create garbage paths.**
+
+
+
 This document is the **machine-checkable contract** for the layout YAML.
 Every shipped template (under `examples/layouts/`) and every user wiki must
 conform. The validator at `scripts/lib/layout-validator.mjs` enforces it; the

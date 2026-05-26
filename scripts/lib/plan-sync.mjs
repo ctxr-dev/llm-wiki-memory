@@ -140,7 +140,52 @@ export async function syncPlanFile(absPath, { wikiRoot, now } = {}) {
     out.error = `move ok, but ensureIndexes failed: ${err.message}`;
   }
 
+  // Empty-dir cleanup: walk up from the OLD location and remove any
+  // ancestor directory that now contains nothing but an orphaned
+  // index.md. Bounded above by `wikiRoot` so we never reach into the
+  // wiki's parent. Defensive — never deletes if anything unexpected is
+  // present (only the auto-generated index.md is acceptable to remove).
+  pruneEmptyAncestors(path.dirname(absPath), wikiRoot);
+
   return out;
+}
+
+// Remove a directory chain that's left orphaned after a move. Only acts
+// on directories whose ONLY remaining child is `index.md` (the skill's
+// auto-generated navigation file). Bounded by `wikiRoot` — we walk up
+// AT MOST until we reach the wiki root, never above it. Defensive
+// against typos: if `dir` doesn't actually live under `wikiRoot`, do
+// nothing.
+export function pruneEmptyAncestors(dir, wikiRoot) {
+  const wikiAbs = path.resolve(wikiRoot);
+  let cur = path.resolve(dir);
+  while (cur !== wikiAbs && cur.startsWith(wikiAbs + path.sep)) {
+    let entries;
+    try {
+      entries = fs.readdirSync(cur, { withFileTypes: true });
+    } catch {
+      break;
+    }
+    // We consider the dir "empty" if it has zero entries OR only an
+    // auto-generated index.md (frontmatter check would be safer but
+    // adds I/O; we trust the skill's invariant that index.md is the
+    // only file the skill itself writes in a non-leaf dir).
+    const meaningful = entries.filter((e) => e.name !== "index.md");
+    if (meaningful.length > 0) break;
+    if (entries.length === 1 && entries[0].name === "index.md") {
+      try {
+        fs.unlinkSync(path.join(cur, "index.md"));
+      } catch {
+        // best-effort
+      }
+    }
+    try {
+      fs.rmdirSync(cur);
+    } catch {
+      break;
+    }
+    cur = path.dirname(cur);
+  }
 }
 
 // Bulk variant — used by SessionEnd to sweep every .plan.md under the
