@@ -966,6 +966,46 @@ export function renameEmbedding(oldId, newId) {
   }
 }
 
+// On-demand garbage collection for the embedding cache. The write path keeps
+// the cache in sync for API-driven deletes/moves (removeEmbedding /
+// renameEmbedding), but a leaf removed OUT OF BAND — a manual `rm`, a `git`
+// checkout, a wiki wipe+re-migrate, or the skill's own balance/flatten moves —
+// strands its cache entry forever (rank() only ever scores LIVE candidates, so
+// orphans are never re-touched). This sweep drops every entry whose id is not a
+// live leaf on disk. NOT wired into any background job — run it explicitly.
+//
+// Returns { ok, before, after, removed, removedIds } (removedIds capped at 50
+// for reporting). A `dryRun` reports what WOULD be removed without writing.
+export function pruneEmbeddingCache({ dryRun = false } = {}) {
+  const cachePath = embedCachePath();
+  const cache = loadCache(cachePath);
+  const ids = Object.keys(cache.entries);
+  const before = ids.length;
+
+  // Live-leaf id set: toRel of every leaf under every category (all categories,
+  // so we never wrongly prune a live leaf's entry — daily/issues included).
+  ensureLayoutLoaded();
+  const live = new Set();
+  for (const cat of getCategories()) {
+    for (const leaf of walkLeaves(path.join(root(), cat))) live.add(toRel(leaf));
+  }
+
+  const removedIds = ids.filter((id) => !live.has(id));
+  if (!dryRun && removedIds.length > 0) {
+    for (const id of removedIds) delete cache.entries[id];
+    saveCache(cachePath, cache);
+  }
+  return {
+    ok: true,
+    cachePath,
+    dryRun,
+    before,
+    after: before - (dryRun ? 0 : removedIds.length),
+    removed: removedIds.length,
+    removedIds: removedIds.slice(0, 50),
+  };
+}
+
 // Default atom_type for a slot when none is supplied (used for daily capture
 // leaves and bare save_to_dataset calls).
 function slotDefaultAtomType(slot) {

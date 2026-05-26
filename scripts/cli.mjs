@@ -164,6 +164,12 @@ async function main() {
     }
     case "heal":
       return out(heal(wikiRoot()));
+    case "gc-embeddings": {
+      // On-demand sweep of orphaned embedding-cache entries (ids whose leaf no
+      // longer exists). Pass --dry-run to preview without writing.
+      const { pruneEmbeddingCache } = await import("./lib/wiki-store.mjs");
+      return out(pruneEmbeddingCache({ dryRun: rest.includes("--dry-run") }));
+    }
     case "where":
       return out({
         memoryDir: MEMORY_DIR,
@@ -201,7 +207,7 @@ async function main() {
     }
     default:
       out(
-        "Usage: llm-wiki-memory <init|validate|validate-layout [path]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|recall <q>|search <q>>",
+        "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|recall <q>|search <q>>",
       );
       process.exit(cmd ? 1 : 0);
   }
