@@ -5,11 +5,17 @@
 // computation is delegated to one of three mechanisms per file_kind, in
 // order of precedence:
 //
-//   path_compiler_file > path_compiler > path_template
+//   to_path_file > to_path > path_template
 //
 // Reverse computation mirrors this:
 //
-//   parse_compiler_file > parse_compiler > regex_from(path_template)
+//   from_path_file > from_path > regex_from(path_template)
+//
+// The convention (encouraged by both the example layouts and the file
+// loader's named-export fallback): the .mjs / inline JS defines a function
+// named `to_path` (forward) or `from_path` (reverse), with signature
+//   to_path(facets: Record<string, any>) -> string
+//   from_path(relPath: string) -> Record<string, any> | null
 //
 // The runtime is FILE-SYSTEM-PURE after `loadTopology()`; pathFor() and
 // parsePath() do not touch disk. Generic across any topology: there is no
@@ -90,15 +96,15 @@ export async function loadTopology(wikiRoot, { categoryPath = "issues" } = {}) {
 
     const pathFn = await resolveCompiler(fk, {
       yamlDir: wikiRoot,
-      slotInline: "path_compiler",
-      slotFile: "path_compiler_file",
+      slotInline: "to_path",
+      slotFile: "to_path_file",
       kindName: categoryPath,
       fileKindName: fkName,
     });
     const parseFn = await resolveCompiler(fk, {
       yamlDir: wikiRoot,
-      slotInline: "parse_compiler",
-      slotFile: "parse_compiler_file",
+      slotInline: "from_path",
+      slotFile: "from_path_file",
       kindName: categoryPath,
       fileKindName: fkName,
     });
@@ -198,7 +204,7 @@ export function pathFor(topology, kindName, facets) {
   }
 
   throw new Error(
-    `file_kind '${kindName}' has neither path_compiler, path_compiler_file, nor path_template`,
+    `file_kind '${kindName}' has neither to_path, to_path_file, nor path_template`,
   );
 }
 

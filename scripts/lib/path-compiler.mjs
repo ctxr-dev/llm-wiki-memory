@@ -92,13 +92,13 @@ export function compileInlineFunction(source, { filename = "<path_compiler>", ti
     codeGeneration: { strings: false, wasm: false },
   });
 
-  // Shape (1): the source contains a function declaration (named
-  // `path_template` or `parse_template`). Wrap in an IIFE so the
-  // declaration is local to the script.
+  // Shape (1): the source contains a function declaration (named `to_path`
+  // for forward generators or `from_path` for reverse parsers). Wrap in an
+  // IIFE so the declaration stays local to the script.
   const wrappedDecl =
     `__result = (function () { ${source}\n` +
-    `; if (typeof path_template === 'function') return path_template;` +
-    `  if (typeof parse_template === 'function') return parse_template;` +
+    `; if (typeof to_path === 'function') return to_path;` +
+    `  if (typeof from_path === 'function') return from_path;` +
     `  return undefined;` +
     `})();`;
 
@@ -138,7 +138,7 @@ export function compileInlineFunction(source, { filename = "<path_compiler>", ti
     // arrow-expression error (if any) is incidental — the real problem is
     // there's no function in scope when the script finishes.
     throw new PathCompilerError(
-      "compiler source did not evaluate to a function (define `function path_template(...) { ... }` or supply an arrow expression like `(facets) => ...`)",
+      "compiler source did not evaluate to a function (define `function to_path(...) { ... }` / `function from_path(...) { ... }`, or supply an arrow expression like `(facets) => ...`)",
       { phase: "compile", source, cause: exprErr || declErr },
     );
   }
@@ -163,21 +163,47 @@ function wrapWithTimeout(fn, timeoutMs, filename) {
 // Load a compiler from an external .mjs file. Trust level matches the
 // surrounding layout YAML (both live in the user's config tree); the
 // import is a normal Node dynamic import — NOT sandboxed.
-export async function loadCompilerFile(absFilePath) {
+//
+// Export-resolution order:
+//   1. If `fileKindName` is provided and the module has a NAMED export with
+//      that name, use it. (Convention: one .mjs file per direction, with
+//      one named export per file_kind. Lets two file_kinds share the same
+//      file — e.g. layout/to_path.mjs with `knowledge` + `plan` exports.)
+//   2. `default` export, if present.
+//   3. Named `to_path` / `from_path` export (single-purpose files).
+//   4. Otherwise, throw.
+export async function loadCompilerFile(absFilePath, { fileKindName } = {}) {
   if (!fs.existsSync(absFilePath)) {
-    throw new PathCompilerError(`path_compiler_file not found: ${absFilePath}`, {
+    throw new PathCompilerError(`compiler file not found: ${absFilePath}`, {
       phase: "load",
       source: absFilePath,
     });
   }
   const url = pathToFileURL(absFilePath);
   const mod = await import(url.href);
-  // Accept `default` (most common) OR a named export `path_template` /
-  // `parse_template`.
-  const fn = mod.default ?? mod.path_template ?? mod.parse_template;
+
+  let fn;
+  if (fileKindName && typeof mod[fileKindName] === "function") {
+    fn = mod[fileKindName];
+  } else if (typeof mod.default === "function") {
+    fn = mod.default;
+  } else if (typeof mod.to_path === "function") {
+    fn = mod.to_path;
+  } else if (typeof mod.from_path === "function") {
+    fn = mod.from_path;
+  }
+
   if (typeof fn !== "function") {
+    const tried = [
+      fileKindName ? `named export '${fileKindName}'` : null,
+      "default export",
+      "named export 'to_path'",
+      "named export 'from_path'",
+    ]
+      .filter(Boolean)
+      .join(", ");
     throw new PathCompilerError(
-      `${absFilePath} must export a default function, or a named export 'path_template' / 'parse_template'; got: ${typeof fn}`,
+      `${absFilePath} must export a function (tried: ${tried})`,
       { phase: "load", source: absFilePath },
     );
   }
@@ -252,9 +278,9 @@ export function substituteTemplate(tmpl, vars) {
   });
 }
 
-// Resolve a compiler reference (one of path_compiler / path_compiler_file /
-// parse_compiler / parse_compiler_file) defined on a file_kind block, with
-// the YAML directory used as the base for file-mode resolution.
+// Resolve a compiler reference (one of to_path / to_path_file / from_path /
+// from_path_file) declared on a file_kind block, with the YAML directory
+// used as the base for file-mode resolution.
 //
 // Returns either a function or null. Throws PathCompilerError on failure.
 export async function resolveCompiler(
@@ -272,7 +298,7 @@ export async function resolveCompiler(
   }
   if (fileVal) {
     const abs = path.isAbsolute(fileVal) ? fileVal : path.join(yamlDir, fileVal);
-    return loadCompilerFile(abs);
+    return loadCompilerFile(abs, { fileKindName });
   }
   if (inlineVal) {
     return compileInlineFunction(inlineVal, {

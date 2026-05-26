@@ -27,16 +27,16 @@ layout:
       file_kinds:
         knowledge:
           required_facets: [tracker, prefix, number]
-          path_compiler: |
-            function path_template({ tracker, prefix, number }) {
+          to_path: |
+            function to_path({ tracker, prefix, number }) {
               const n = Number(number);
               const thousands = Math.floor(n / 1000);
               const hundredsTens = Math.floor((n % 1000) / 10);
               const units = n % 10;
               return \`issues/\${tracker}/\${prefix}/\${thousands}/\${hundredsTens}/\${units}/\${prefix}-\${n}.md\`;
             }
-          parse_compiler: |
-            function parse_template(rel) {
+          from_path: |
+            function from_path(rel) {
               const m = /^issues\\/([^/]+)\\/([^/]+)\\/(\\d+)\\/(\\d+)\\/(\\d+)\\/[^/]+-(\\d+)\\.md$/.exec(rel);
               if (!m) return null;
               return { tracker: m[1], prefix: m[2], number: parseInt(m[6], 10) };
@@ -45,16 +45,16 @@ layout:
           required_facets: [tracker, prefix, number, lifecycle, slug]
           enums:
             lifecycle: [pending, in-progress, done, archived]
-          path_compiler: |
-            function path_template({ tracker, prefix, number, lifecycle, slug }) {
+          to_path: |
+            function to_path({ tracker, prefix, number, lifecycle, slug }) {
               const n = Number(number);
               const t = Math.floor(n / 1000);
               const h = Math.floor((n % 1000) / 10);
               const u = n % 10;
               return \`issues/\${tracker}/\${prefix}/\${t}/\${h}/\${u}/\${lifecycle}/\${prefix}-\${n}-\${slug}.plan.md\`;
             }
-          parse_compiler: |
-            function parse_template(rel) {
+          from_path: |
+            function from_path(rel) {
               const m = /^issues\\/([^/]+)\\/([^/]+)\\/(\\d+)\\/(\\d+)\\/(\\d+)\\/([^/]+)\\/[^/]+-(\\d+)-(.+)\\.plan\\.md$/.exec(rel);
               if (!m) return null;
               return {
@@ -70,7 +70,7 @@ layout:
         slug: { type: string, pattern: "^[A-Za-z0-9-]+$" }
 `;
 
-test("loadTopology compiles inline path_compiler / parse_compiler functions", async () => {
+test("loadTopology compiles inline to_path / from_path functions", async () => {
   const wiki = tmpWiki(TRACKER_ISSUES_YAML);
   _resetCacheForTests();
   const topo = await loadTopology(wiki);
@@ -138,8 +138,8 @@ layout:
       file_kinds:
         knowledge:
           required_facets: [x]
-          path_compiler: |
-            function path_template() { throw new Error("BOOM"); }
+          to_path: |
+            function to_path() { throw new Error("BOOM"); }
       facet_inputs:
         x: { type: string }
 `);
@@ -160,7 +160,7 @@ layout:
       file_kinds:
         knowledge:
           required_facets: [x]
-          path_compiler: |
+          to_path: |
             () => "issues/literal/{leaked_var}/file.md"
       facet_inputs:
         x: { type: string }
@@ -173,7 +173,7 @@ layout:
   );
 });
 
-test("parsePath uses parse_compiler when present", async () => {
+test("parsePath uses from_path when present", async () => {
   const wiki = tmpWiki(TRACKER_ISSUES_YAML);
   _resetCacheForTests();
   const topo = await loadTopology(wiki);
@@ -263,7 +263,7 @@ layout:
   );
 });
 
-test("path_compiler_file: reads a sibling .mjs file's default export", async () => {
+test("to_path_file: reads a sibling .mjs file's default export", async () => {
   const wiki = fs.mkdtempSync(path.join(os.tmpdir(), "topo-file-"));
   fs.writeFileSync(
     path.join(wiki, "knowledge-path.mjs"),
@@ -279,7 +279,7 @@ layout:
       file_kinds:
         knowledge:
           required_facets: [tracker, prefix, number]
-          path_compiler_file: ./knowledge-path.mjs
+          to_path_file: ./knowledge-path.mjs
       facet_inputs:
         tracker: { type: string }
         prefix: { type: string }
@@ -304,8 +304,8 @@ layout:
       file_kinds:
         knowledge:
           required_facets: [x]
-          path_compiler: "() => 'a'"
-          path_compiler_file: ./x.mjs
+          to_path: "() => 'a'"
+          to_path_file: ./x.mjs
       facet_inputs:
         x: { type: string }
 `);

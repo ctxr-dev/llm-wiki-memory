@@ -9,9 +9,9 @@ import {
   PathCompilerError,
 } from "../scripts/lib/path-compiler.mjs";
 
-test("compileInlineFunction accepts a named function declaration (path_template)", () => {
+test("compileInlineFunction accepts a named function declaration (to_path)", () => {
   const src = `
-    function path_template({ tracker, prefix, number }) {
+    function to_path({ tracker, prefix, number }) {
       return tracker + "/" + prefix + "/" + number;
     }
   `;
@@ -20,11 +20,11 @@ test("compileInlineFunction accepts a named function declaration (path_template)
   assert.equal(fn({ tracker: "JIRA", prefix: "DEV", number: 42 }), "JIRA/DEV/42");
 });
 
-test("compileInlineFunction accepts a named function declaration (parse_template)", () => {
+test("compileInlineFunction accepts a named function declaration (from_path)", () => {
   // Note: parseInt is NOT in the sandbox whitelist. We use Number(...) (the
   // Number constructor IS whitelisted) for integer coercion inside compilers.
   const src = `
-    function parse_template(rel) {
+    function from_path(rel) {
       const m = /(\\w+)-(\\d+)/.exec(rel);
       return m ? { key: m[1], n: Number(m[2]) } : null;
     }
@@ -50,11 +50,11 @@ test("compileInlineFunction is sandboxed (no require, process, Buffer, fs, conso
   // standard JS semantics, not a leak. We assert the host-specific bindings
   // are out of reach.
   const cases = [
-    `function path_template() { return typeof require; }`,
-    `function path_template() { return typeof process; }`,
-    `function path_template() { return typeof Buffer; }`,
-    `function path_template() { return typeof console; }`,
-    `function path_template() { return typeof setTimeout; }`,
+    `function to_path() { return typeof require; }`,
+    `function to_path() { return typeof process; }`,
+    `function to_path() { return typeof Buffer; }`,
+    `function to_path() { return typeof console; }`,
+    `function to_path() { return typeof setTimeout; }`,
   ];
   for (const src of cases) {
     const fn = compileInlineFunction(src);
@@ -64,7 +64,7 @@ test("compileInlineFunction is sandboxed (no require, process, Buffer, fs, conso
 
 test("compileInlineFunction exposes Math + JSON + RegExp + Date inside the sandbox", () => {
   const src = `
-    function path_template({ n }) {
+    function to_path({ n }) {
       return JSON.stringify({ floor: Math.floor(n / 3), match: /\\d+/.test(String(n)) });
     }
   `;

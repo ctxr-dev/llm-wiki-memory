@@ -86,14 +86,14 @@ rejects a FileKind that declares none, and one that declares more than one.
   # --- forward (facets -> relative path), pick ONE ---
   path_template: "issues/{var}.md" # simple string substitution. All vars
                                    #   must appear in facet_inputs.
-  path_compiler: |                 # inline sandboxed JS; see "Path
-    function path_template(facets) { ... }
-                                   #   compiler protocol" below
-  path_compiler_file: ./fn.mjs     # sibling .mjs file with default export
+  to_path: |                       # inline sandboxed JS (see "Path
+    function to_path(facets) { ... }
+                                   #   compiler protocol" below)
+  to_path_file: ./layout/...mjs    # sibling .mjs file (preferred default)
   # --- reverse (relative path -> facets), pick AT MOST ONE ---
-  parse_compiler: |                # inline sandboxed JS
-    function parse_template(rel) { ... }
-  parse_compiler_file: ./fn.mjs    # sibling .mjs file
+  from_path: |                     # inline sandboxed JS
+    function from_path(rel) { ... }
+  from_path_file: ./layout/...mjs  # sibling .mjs file
 ```
 
 Reverse is optional. If absent, `parsePath()` falls back to deriving a regex
@@ -114,7 +114,7 @@ type ParseCompiler = (relPath: string) =>
   | null;
 ```
 
-### Inline source (`path_compiler`, `parse_compiler`)
+### Inline source (`to_path`, `from_path`)
 
 The YAML value is multi-line JS source. Two accepted shapes:
 
@@ -122,20 +122,20 @@ The YAML value is multi-line JS source. Two accepted shapes:
 statements:
 
 ```yaml
-path_compiler: |
-  function path_template({ tracker, prefix, number }) {
+to_path: |
+  function to_path({ tracker, prefix, number }) {
     const n = Number(number);
     return `issues/${tracker}/${prefix}/${prefix}-${n}.md`;
   }
 ```
 
-The function MUST be named `path_template` (for forward) or `parse_template`
-(for reverse). Other names are not recognised.
+The function MUST be named `to_path` (for forward) or `from_path` (for
+reverse). Other names are not recognised.
 
 **Arrow expression** — preferred for one-liners:
 
 ```yaml
-path_compiler: |
+to_path: |
   ({ tracker, prefix, number }) =>
     `issues/${tracker}/${prefix}/${prefix}-${number}.md`
 ```
@@ -155,16 +155,38 @@ cannot reach the host filesystem, network, or environment.
 `codeGeneration.strings` is disabled in the sandbox: the compiler cannot
 build new code with `eval()` / `new Function()` from inside.
 
-### Sibling-file source (`path_compiler_file`, `parse_compiler_file`)
+### Sibling-file source (`to_path_file`, `from_path_file`) — the default
 
 The value is a path relative to the wiki root (where the layout YAML lives).
-The file is a normal Node `.mjs` module whose default export is the
-function:
+By convention the files live in a `layout/` subfolder so that copying an
+example template into a wiki is a single `cp -a` of both the YAML and the
+helper subfolder:
+
+```
+wiki/
+├── .llmwiki.layout.yaml          # references ./layout/to_path.mjs etc.
+└── layout/
+    ├── to_path.mjs               # one file per direction, multiple kinds
+    └── from_path.mjs
+```
+
+Each `.mjs` file is a normal Node module. The loader picks an export in
+this order:
+
+1. **Named export matching the file_kind name.** Convention: ONE file per
+   direction, with ONE named export per file_kind. The same
+   `./layout/to_path.mjs` can serve every file_kind by exporting
+   `knowledge`, `plan`, etc.
+2. **`default` export** (single-purpose files).
+3. **Named `to_path` / `from_path` export**.
 
 ```javascript
-// ./knowledge-path.mjs (sibling of .llmwiki.layout.yaml)
-export default function path_template({ tracker, prefix, number }) {
+// ./layout/to_path.mjs  (referenced by two file_kinds)
+export function knowledge({ tracker, prefix, number }) {
   return `issues/${tracker}/${prefix}/${prefix}-${number}.md`;
+}
+export function plan({ tracker, prefix, number, lifecycle, slug }) {
+  return `issues/${tracker}/${prefix}/${lifecycle}/${prefix}-${number}-${slug}.plan.md`;
 }
 ```
 
@@ -172,17 +194,17 @@ Sibling files are dynamically `import()`-ed by the runtime. Trust level
 matches the YAML itself — these are part of the user's configuration tree.
 They are NOT sandboxed (the user already controls the config).
 
-A FileKind must declare at most ONE of `path_compiler` / `path_compiler_file`,
-and at most ONE of `parse_compiler` / `parse_compiler_file`. The validator
-rejects the over-specified case.
+A FileKind must declare AT MOST ONE of `to_path` / `to_path_file`, and AT
+MOST ONE of `from_path` / `from_path_file`. The validator rejects the
+over-specified case.
 
 ### Precedence
 
 For the forward direction:
-`path_compiler_file > path_compiler > path_template`
+`to_path_file > to_path > path_template`
 
 For the reverse direction:
-`parse_compiler_file > parse_compiler > regex_from(path_template)`
+`from_path_file > from_path > regex_from(path_template)`
 
 ## Required-vs-derived facets
 
@@ -215,7 +237,7 @@ The validator catches:
 - Empty `required_facets`, empty path templates
 - `path_template` without any `{var}` placeholder
 - FileKind declaring zero forward mechanisms (or more than one)
-- FileKind declaring both `parse_compiler` and `parse_compiler_file`
+- FileKind declaring both `from_path` and `from_path_file`
 
 ## Runtime testing
 
@@ -263,5 +285,5 @@ On failure, `stage` (`validate_facets` | `compile`) plus `errors[]` /
 | `placement_facets` | Default categories — facet-driven nesting (knowledge / self_improvement / plans / investigations). |
 | `placement_strategy: daily-date` | The `daily` category. |
 | `path_template` (only) | Topology nests are trivial substitutions of caller-supplied facets — no math, no conditionals. |
-| `path_compiler` (inline) | Topology needs computed values (digit buckets, encoded ids, etc.). Keep all logic in the YAML for grep-ability. |
-| `path_compiler_file` (sibling .mjs) | Compiler is long enough to warrant its own file, has unit tests, or is shared across multiple layouts. |
+| `to_path` / `from_path` (inline) | Quick prototypes; one-liner arrows. Keeps all logic in the YAML for grep-ability. |
+| `to_path_file` / `from_path_file` (default, recommended) | Logic is more than a one-liner, deserves its own file with unit tests, and can be shared across file_kinds via named exports. Drop the file into `wiki/layout/`. |

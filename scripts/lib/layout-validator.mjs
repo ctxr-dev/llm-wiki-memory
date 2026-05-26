@@ -48,38 +48,41 @@ export const FileKindSchema = z
         message: "path_template must contain at least one {variable} placeholder",
       })
       .optional(),
-    path_compiler: z.string().min(1, "path_compiler cannot be empty").optional(),
-    path_compiler_file: z.string().min(1).optional(),
-    // Reverse mechanisms (all optional). When none is supplied, parsePath
-    // falls back to regex-from(path_template).
-    parse_compiler: z.string().min(1).optional(),
-    parse_compiler_file: z.string().min(1).optional(),
+    // Forward path generators (facets -> path). Pick exactly ONE alongside
+    // (or instead of) `path_template`. `to_path` is inline sandboxed JS;
+    // `to_path_file` is a sibling .mjs whose default export is the function.
+    to_path: z.string().min(1, "to_path cannot be empty").optional(),
+    to_path_file: z.string().min(1).optional(),
+    // Reverse path parsers (path -> facets). All optional. When none are
+    // supplied, parsePath() falls back to regex-from(path_template).
+    from_path: z.string().min(1).optional(),
+    from_path_file: z.string().min(1).optional(),
   })
   .strict()
   .superRefine((val, ctx) => {
     const forwardCount =
       (val.path_template ? 1 : 0) +
-      (val.path_compiler ? 1 : 0) +
-      (val.path_compiler_file ? 1 : 0);
+      (val.to_path ? 1 : 0) +
+      (val.to_path_file ? 1 : 0);
     if (forwardCount === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          "file_kind must declare exactly one of path_template, path_compiler, or path_compiler_file",
+          "file_kind must declare exactly one of path_template, to_path, or to_path_file",
       });
     }
     if (forwardCount > 1) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          "file_kind must declare ONLY ONE of path_template, path_compiler, path_compiler_file (got multiple)",
+          "file_kind must declare ONLY ONE of path_template, to_path, to_path_file (got multiple)",
       });
     }
-    if (val.parse_compiler && val.parse_compiler_file) {
+    if (val.from_path && val.from_path_file) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          "file_kind must declare AT MOST ONE of parse_compiler / parse_compiler_file (got both)",
+          "file_kind must declare AT MOST ONE of from_path / from_path_file (got both)",
       });
     }
   });
