@@ -84,6 +84,32 @@ test("resetLayoutCache forces a re-read even when mtime is unchanged", () => {
   assert.equal(placementDirForMeta("knowledge", { area: "x", atom_type: "concept" }), "knowledge/x", "fresh after explicit reset");
 });
 
+test("absent layout.yaml (mtime 0) does not crash — falls back to baked-in defaults", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cache-reval-nolayout-"));
+  process.env.LLM_WIKI_MEMORY_ROOT = root; // no .layout/ at all
+  resetLayoutCache();
+  assert.equal(
+    placementDirForMeta("knowledge", { area: "x", atom_type: "concept" }),
+    "knowledge/x/concept",
+    "default [area, atom_type] placement when no contract exists",
+  );
+});
+
+test("placement cache still reloads when the wiki ROOT changes (even if mtime coincides)", () => {
+  const a = mkWiki(LAYOUT_AREA_ATOM);
+  const b = mkWiki(LAYOUT_AREA_ONLY);
+  // Pin BOTH layouts to the same mtime, so only the root differs.
+  const T = 1_700_000_001;
+  fs.utimesSync(layoutPathOf(a), T, T);
+  fs.utimesSync(layoutPathOf(b), T, T);
+  process.env.LLM_WIKI_MEMORY_ROOT = a;
+  resetLayoutCache();
+  assert.equal(placementDirForMeta("knowledge", { area: "x", atom_type: "concept" }), "knowledge/x/concept");
+  // Switch root (no reset) — the root change alone must trigger a reload.
+  process.env.LLM_WIKI_MEMORY_ROOT = b;
+  assert.equal(placementDirForMeta("knowledge", { area: "x", atom_type: "concept" }), "knowledge/x", "root change reloads despite identical mtime");
+});
+
 const topoLayout = (subdir) => `
 layout:
   - path: issues
