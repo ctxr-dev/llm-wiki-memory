@@ -157,9 +157,12 @@ Known, unfixed:
 3. **Cold-cache first search.** Lazy embedding means the first search after a
    bulk import pays ~24 ms × (uncached leaves). A background "warm the cache"
    pass after bulk writes would hide it.
-4. **Topology cache is process-lifetime.** `loadTopology` caches indefinitely;
-   a long-running MCP server won't see edits to `.layout/layout.yaml` or its
-   sibling `.mjs` helpers until restart.
+
+*Resolved:* the layout (placement) and topology caches used to be
+process-lifetime — a long-running MCP server wouldn't see `.layout/layout.yaml`
+or sibling `.mjs` edits until restart. They now **revalidate by file mtime** on
+each read (sibling `.mjs` re-imported with an mtime cache-bust), and the
+`reload_layout` MCP tool force-clears them as an explicit escape hatch.
 
 ---
 

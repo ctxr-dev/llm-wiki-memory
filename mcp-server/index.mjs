@@ -450,6 +450,26 @@ server.registerTool(
 );
 
 server.registerTool(
+  "reload_layout",
+  {
+    title: "Force-reload the layout contract + topology caches",
+    description:
+      "Clear the in-process layout/topology caches so the next operation re-reads <wiki>/.layout/layout.yaml and its sibling to_path/from_path .mjs helpers. Edits are normally picked up automatically (the caches revalidate by file mtime), so you only need this as an explicit escape hatch — e.g. after a copy/restore that preserved mtimes, or to force a refresh immediately. No inputs.",
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      if (typeof impl.resetLayoutCache === "function") impl.resetLayoutCache();
+      const topo = await import("../scripts/lib/topology-runtime.mjs");
+      topo.resetTopologyCache();
+      return jsonResponse({ ok: true, reloaded: ["layout", "topology"] });
+    } catch (error) {
+      return errorResponse(error);
+    }
+  },
+);
+
+server.registerTool(
   "validate_layout",
   {
     title: "Validate a wiki's layout contract YAML (schema + line:col errors)",

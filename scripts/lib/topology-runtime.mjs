@@ -54,10 +54,36 @@ export {
 
 // --- topology cache (keyed by wikiRoot + categoryPath) ---
 
+// cacheKey -> { topo, deps:[absPaths], sig }. `deps` are the files the compiled
+// topology was built from (layout.yaml + every referenced to_path_file /
+// from_path_file); `sig` is their combined mtime. A cached entry is reused only
+// while `sig` is unchanged, so a long-running MCP server picks up edits to the
+// layout OR its sibling .mjs helpers without a restart.
 const _topologyCache = new Map();
 
-export function _resetCacheForTests() {
+// Combined mtime signature of a dep-path list (0 for an absent/unreadable file).
+function sigOf(paths) {
+  return paths
+    .map((p) => {
+      try {
+        return fs.statSync(p).mtimeMs;
+      } catch {
+        return 0;
+      }
+    })
+    .join(":");
+}
+
+// Force the next loadTopology to rebuild. The mtime check already auto-reloads
+// on edit; this is the explicit escape hatch (the `reload_layout` MCP tool) and
+// the test reset.
+export function resetTopologyCache() {
   _topologyCache.clear();
+}
+
+// Back-compat alias used by the test suite.
+export function _resetCacheForTests() {
+  resetTopologyCache();
 }
 
 // --- loader ---
@@ -73,12 +99,16 @@ function resolveLayoutYamlPath(wikiRoot) {
 
 export async function loadTopology(wikiRoot, { categoryPath = "issues" } = {}) {
   const cacheKey = `${wikiRoot}::${categoryPath}`;
-  if (_topologyCache.has(cacheKey)) return _topologyCache.get(cacheKey);
 
   const layoutPath = resolveLayoutYamlPath(wikiRoot);
   if (!layoutPath) {
     throw new Error(`layout.yaml not found at ${wikiRoot}/.layout/layout.yaml`);
   }
+
+  // Reuse the cached topology only while its source files are unchanged.
+  const cached = _topologyCache.get(cacheKey);
+  if (cached && cached.sig === sigOf(cached.deps)) return cached.topo;
+
   const yamlDir = path.dirname(layoutPath);
 
   const parsed = parseYaml(fs.readFileSync(layoutPath, "utf8")) || {};
@@ -88,6 +118,17 @@ export async function loadTopology(wikiRoot, { categoryPath = "issues" } = {}) {
     throw new Error(
       `layout entry '${categoryPath}' has no .topology declaration in ${layoutPath}`,
     );
+  }
+
+  // Files this topology is built from — layout.yaml plus every referenced
+  // sibling helper — tracked so an edit to any of them invalidates the cache.
+  const deps = [layoutPath];
+  for (const fk of Object.values(entry.topology.file_kinds || {})) {
+    if (!fk || typeof fk !== "object") continue;
+    for (const slot of ["to_path_file", "from_path_file"]) {
+      const v = fk[slot];
+      if (v) deps.push(path.isAbsolute(v) ? v : path.join(yamlDir, v));
+    }
   }
 
   const fileKindNames = Object.keys(entry.topology.file_kinds || {});
@@ -136,7 +177,7 @@ export async function loadTopology(wikiRoot, { categoryPath = "issues" } = {}) {
     facetInputs: entry.topology.facet_inputs || {},
   });
 
-  _topologyCache.set(cacheKey, topo);
+  _topologyCache.set(cacheKey, { topo, deps, sig: sigOf(deps) });
   return topo;
 }
 

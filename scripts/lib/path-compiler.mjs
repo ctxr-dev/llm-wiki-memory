@@ -217,7 +217,7 @@ function wrapWithTimeout(fn, timeoutMs, filename) {
 //   2. `default` export, if present.
 //   3. Named `to_path` / `from_path` export (single-purpose files).
 //   4. Otherwise, throw.
-export async function loadCompilerFile(absFilePath, { fileKindName } = {}) {
+export async function loadCompilerFile(absFilePath, { fileKindName, cacheBust } = {}) {
   if (!fs.existsSync(absFilePath)) {
     throw new PathCompilerError(`compiler file not found: ${absFilePath}`, {
       phase: "load",
@@ -225,7 +225,12 @@ export async function loadCompilerFile(absFilePath, { fileKindName } = {}) {
     });
   }
   const url = pathToFileURL(absFilePath);
-  const mod = await import(url.href);
+  // `cacheBust` (the file's mtime) busts Node's ESM module registry so an EDITED
+  // helper .mjs is re-evaluated instead of served from the permanent import
+  // cache. Each distinct token retains one module copy; the topology cache only
+  // re-imports on an actual mtime change, so the leak is bounded.
+  const href = cacheBust != null ? `${url.href}?v=${cacheBust}` : url.href;
+  const mod = await import(href);
 
   let fn;
   if (fileKindName && typeof mod[fileKindName] === "function") {
@@ -370,7 +375,15 @@ export async function resolveCompiler(
   }
   if (fileVal) {
     const abs = path.isAbsolute(fileVal) ? fileVal : path.join(yamlDir, fileVal);
-    return loadCompilerFile(abs, { fileKindName });
+    // Cache-bust the import by the helper's own mtime so an edit is re-evaluated
+    // (an UNCHANGED file keeps the same token → no duplicate module instance).
+    let cacheBust;
+    try {
+      cacheBust = fs.statSync(abs).mtimeMs;
+    } catch {
+      cacheBust = undefined;
+    }
+    return loadCompilerFile(abs, { fileKindName, cacheBust });
   }
   if (inlineVal) {
     return compileInlineFunction(inlineVal, {

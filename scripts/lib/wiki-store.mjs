@@ -81,11 +81,25 @@ const PLACEMENT_RULES = Object.create(null);
 const VOCABULARIES = Object.create(null);
 let _layoutLoaded = false;
 let _layoutRootSeen = null;
+let _layoutMtimeSeen = null;
+
+// mtime (ms) of a file, or 0 if it's absent/unreadable.
+function fileMtimeMs(p) {
+  try {
+    return fs.statSync(p).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
 
 function ensureLayoutLoaded() {
-  // Re-load if the wiki root changed (test isolation flips MEMORY_DATA_DIR).
+  // Re-load if the wiki root changed (test isolation flips MEMORY_DATA_DIR) OR
+  // the layout contract was edited since we last read it (so a long-running MCP
+  // server picks up `.layout/layout.yaml` changes without a restart).
   const r = root();
-  if (_layoutLoaded && _layoutRootSeen === r) return;
+  const layoutPath = path.join(r, ".layout", "layout.yaml");
+  const mtime = fileMtimeMs(layoutPath);
+  if (_layoutLoaded && _layoutRootSeen === r && _layoutMtimeSeen === mtime) return;
 
   const cats = [...DEFAULT_CATEGORIES];
   const facets = {};
@@ -97,8 +111,7 @@ function ensureLayoutLoaded() {
   const rules = Object.create(null);
   const vocabs = Object.create(null);
 
-  // Layout YAML canonical location is <wiki>/.layout/layout.yaml.
-  const layoutPath = path.join(r, ".layout", "layout.yaml");
+  // Layout YAML canonical location is <wiki>/.layout/layout.yaml (resolved above).
   if (fs.existsSync(layoutPath)) {
     try {
       const parsed = parseYaml(fs.readFileSync(layoutPath, "utf8")) || {};
@@ -162,14 +175,21 @@ function ensureLayoutLoaded() {
 
   _layoutLoaded = true;
   _layoutRootSeen = r;
+  _layoutMtimeSeen = mtime;
 }
 
-// Test/maintenance hook: forces the next layout-touching call to re-parse
-// .layout/layout.yaml. Tests rotate MEMORY_DATA_DIR between cases; production
-// code never needs this.
-export function _resetLayoutCacheForTests() {
+// Force the next layout-touching call to re-parse .layout/layout.yaml. The mtime
+// check already auto-reloads on edit; this is the explicit escape hatch (e.g. the
+// `reload_layout` MCP tool, or a copy that preserved mtime) and the test reset.
+export function resetLayoutCache() {
   _layoutLoaded = false;
   _layoutRootSeen = null;
+  _layoutMtimeSeen = null;
+}
+
+// Back-compat alias used by the test suite.
+export function _resetLayoutCacheForTests() {
+  resetLayoutCache();
 }
 
 // Public accessor for category names. Triggers layout load on demand so a

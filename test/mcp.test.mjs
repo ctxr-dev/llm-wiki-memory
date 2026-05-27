@@ -62,9 +62,16 @@ test("server boots and registers the expected tools", async () => {
     "audit_memory",
     "validate_layout",
     "validate_topology",
+    "reload_layout",
   ]) {
     assert.ok(names.includes(expected), `tool ${expected} registered`);
   }
+});
+
+test("reload_layout clears the caches and reports what it reloaded", async () => {
+  const r = parse(await client.callTool({ name: "reload_layout", arguments: {} }));
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.reloaded, ["layout", "topology"]);
 });
 
 test("validate_layout validates the wiki's contract and never crashes the server", async () => {
