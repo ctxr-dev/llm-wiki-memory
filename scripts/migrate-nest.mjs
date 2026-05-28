@@ -58,8 +58,10 @@ function flatLeaves(wiki) {
 
 function refreshContract(wiki) {
   const tmpl = path.join(MEMORY_DIR, "templates", "llmwiki.layout.yaml");
-  const dest = path.join(wiki, ".llmwiki.layout.yaml");
-  if (fs.existsSync(tmpl)) fs.copyFileSync(tmpl, dest);
+  if (!fs.existsSync(tmpl)) return;
+  const dest = path.join(wiki, ".layout", "layout.yaml");
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.copyFileSync(tmpl, dest);
 }
 
 export function migrateNest({ wiki = wikiRoot(), dryRun = false, check = false } = {}) {
@@ -111,6 +113,10 @@ export function migrateNest({ wiki = wikiRoot(), dryRun = false, check = false }
     applied.push({ from: m.from, to: m.to, destAbs: m.destAbs });
   }
 
+  // No ancestor-prune here: flatLeaves() only moves leaves sitting at the
+  // CATEGORY ROOT into facet subdirs, and a category root never empties — so a
+  // move can never orphan a dir. (Mis-placed already-nested leaves are out of
+  // scope for nest.)
   let validation = { ok: true, errors: 0, warnings: 0 };
   if (applied.length > 0) {
     ensureIndexes(wiki, applied.map((m) => m.destAbs));

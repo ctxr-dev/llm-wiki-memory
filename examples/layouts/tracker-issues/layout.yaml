@@ -1,0 +1,116 @@
+mode: hosted
+versioning:
+  style: in-place
+  backup_before_mutate: false
+purpose: "Persistent local memory for the agent across sessions"
+# This wiki nests deep (the subject axis), so directory-depth limits are
+# intentionally NOT enforced: llm-wiki-memory never passes --max-depth to
+# skill-llm-wiki, and per-entry `max_depth` is omitted. This flag documents that.
+ignore_max_depth: true
+# tracker-issues layout (template).
+#
+# Extends the default 5 categories with an `issues` category storing knowledge
+# and plan leaves for tracker-system issues (Jira, GitHub, Linear, ZenDesk, or
+# any "{PREFIX}-{N}" key-shape tracker) in a deterministic digit-bucketed
+# tree. Path computation lives in sibling .mjs helpers (`./to_path.mjs` and
+# `./from_path.mjs`) — one file per direction, with one named export per
+# file_kind. Everything that makes up a layout — the contract YAML, the
+# helpers, and the README — sits in ONE folder so a user can drop the whole
+# folder into a wiki with a single command.
+#
+# Install:
+#   cp -r examples/layouts/tracker-issues  <wiki-root>/.layout
+#
+# skill-llm-wiki recognises <wiki-root>/.layout/layout.yaml as the canonical
+# hosted-mode contract path. No symlink, no copy-to-root step: everything that
+# defines this layout lives inside the .layout/ folder (dotted, so content
+# indexing skips it).
+#
+# See ../PROTOCOL.md for the full schema.
+#
+# The standard categories also carry a semantic `subject` axis (a `kind: path`
+# facet): a broad->narrow array that nests leaves by what they are ABOUT, with a
+# controlled `subject_domains` first segment and a `general` fallback. See
+# examples/layouts/default/layout.yaml for the rationale.
+
+# Controlled top-level subject domains (the first `subject` segment).
+vocabularies:
+  subject_domains:
+    - languages      # programming languages & their ecosystems (scala, ruby, cats-effect, ...)
+    - frameworks     # libraries & frameworks (pekko, rails, react, ...)
+    - architecture   # system design, patterns, lifecycle, refactoring
+    - observability  # metrics, logging, tracing, monitoring (kamon, grafana, ...)
+    - infra          # infrastructure, gateways, k8s, networking (apisix, ...)
+    - data           # databases, storage, schemas, pipelines
+    - security       # auth, secrets, compliance
+    - testing        # test strategy, frameworks, flakiness
+    - process        # workflow, planning, conventions, ways-of-working
+    - tooling        # build, CI/CD, editors, dev tooling (sbt, intellij, ...)
+    - general        # fallback when no domain fits
+
+layout:
+  - path: knowledge
+    purpose: "long-lived facts, decisions, lore, and gotchas; nested by area/atom_type/subject"
+    placement_facets: [area, atom_type, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
+    allow_entry_types: [primary]
+  - path: self_improvement
+    purpose: "self-improvement lessons; nested by area/task_type/subject (dedup keyed by error_pattern)"
+    placement_facets: [area, task_type, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
+    allow_entry_types: [primary]
+  - path: plans
+    purpose: "approved and in-flight plans; nested by area/subject"
+    placement_facets: [area, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
+    allow_entry_types: [primary]
+  - path: investigations
+    purpose: "investigation and analysis artefacts; nested by area/subject"
+    placement_facets: [area, subject]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
+    allow_entry_types: [primary]
+  - path: daily
+    purpose: "raw captured memory atoms, nested by capture date (yyyy/mm/dd)"
+    placement_strategy: daily-date
+    allow_entry_types: [primary]
+  - path: issues
+    placement_facets: []
+    allow_entry_types: [primary]
+    topology:
+      strategy: caller_path
+      helper:
+        module: scripts/lib/topology-runtime.mjs
+        package: llm-wiki-memory
+        schema_version: 1
+      file_kinds:
+        knowledge:
+          required_facets: [tracker, prefix, number]
+          to_path_file: ./to_path.mjs       # picks the `knowledge` named export
+          from_path_file: ./from_path.mjs   # picks the `knowledge` named export
+        plan:
+          required_facets: [tracker, prefix, number, lifecycle, slug]
+          enums:
+            lifecycle: [pending, in-progress, done, archived]
+          to_path_file: ./to_path.mjs       # picks the `plan` named export
+          from_path_file: ./from_path.mjs   # picks the `plan` named export
+      facet_inputs:
+        tracker:
+          type: string
+          description: "Tracker system name, used verbatim as a directory segment (e.g. JIRA, GITHUB, LINEAR)"
+        prefix:
+          type: string
+          description: "Tracker-specific project key (Jira project, github org-repo slug, etc.)"
+        number:
+          type: integer
+          minimum: 1
+        lifecycle:
+          type: string
+          description: "Plan file lifecycle state; constrained by the enum above"
+        slug:
+          type: string
+          pattern: "^[A-Za-z0-9-]+$"
+          description: "Plan title slug; used to disambiguate multiple plans per issue"

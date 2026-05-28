@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
-import { wikiRoot, embedCachePath, defaultProjectModule } from "./env.mjs";
+import { parse as parseYaml } from "yaml";
+import { wikiRoot, embedCachePath, defaultProjectModule, GC_STATE_PATH, gcIntervalDays } from "./env.mjs";
 import { ensureIndexes } from "./wiki-cli.mjs";
 import {
   contentHash,
@@ -14,6 +15,7 @@ import {
 } from "./embed.mjs";
 import { slugify, dailyDatePath } from "./slug.mjs";
 import { inferFacets } from "./facets.mjs";
+import { pruneEmptyAncestors } from "./fs-prune.mjs";
 
 // Drop-in replacement for the boilerplate's dify-write.mjs. Same exported
 // function names/shapes, but every document is a leaf in the local hosted
@@ -25,9 +27,181 @@ import { inferFacets } from "./facets.mjs";
 export class WikiStoreUnavailable extends Error {}
 export const DifyBridgeUnavailable = WikiStoreUnavailable;
 
-export const CATEGORIES = ["knowledge", "self_improvement", "plans", "investigations", "daily"];
+// --- layout (YAML-driven, falls back to baked-in defaults) ---
+//
+// CATEGORIES and PLACEMENT_FACETS were previously hardcoded module-level
+// constants. They are now sourced from <wiki>/.layout/layout.yaml on first
+// access. The defaults below preserve historical behavior for any wiki that
+// does NOT declare `layout[].placement_facets` (or has no layout YAML at all).
+//
+// The YAML schema is:
+//   layout:
+//     - path: <category-dir-name>            # required
+//       placement_facets: [<meta key>, ...]  # optional; if absent we use the
+//                                            #   baked-in default for this name
+//                                            #   (knowledge/self_improvement/
+//                                            #   plans/investigations); for any
+//                                            #   NEW category, omitting facets
+//                                            #   means flat under the category
+//       placement_strategy: daily-date       # optional; only `daily-date` is
+//                                            #   recognized (used today for the
+//                                            #   `daily` category which nests
+//                                            #   by capture date, not facets)
+//
+// Callers can opt into an exact-placement OVERRIDE per write by passing
+// `placementOverride` to writeMemory / saveDocument (or `path` on the MCP
+// tools). When supplied, the override bypasses category facet derivation; the
+// only remaining role of CATEGORIES is to gate which slots are accepted as a
+// `datasetId`.
+const DEFAULT_CATEGORIES = Object.freeze([
+  "knowledge",
+  "self_improvement",
+  "plans",
+  "investigations",
+  "daily",
+]);
+const DEFAULT_PLACEMENT_FACETS = Object.freeze({
+  knowledge: Object.freeze(["area", "atom_type"]),
+  self_improvement: Object.freeze(["area", "task_type"]),
+  plans: Object.freeze(["area"]),
+  investigations: Object.freeze(["area"]),
+});
+
+export const CATEGORIES = [];
+const PLACEMENT_FACETS = {};
+// Per-category facet rules from layout `facet_rules`. A rule marks a facet as
+// `kind: path` (array-valued -> one directory segment per element) and can pin
+// its first segment to a declared vocabulary, with a `fallback` sentinel used
+// when the facet is absent/empty. Facets without a rule stay single-segment.
+// null-prototype: keys are author-controlled layout category/vocab names, so a
+// `__proto__`/`constructor` key can never reach a prototype slot.
+const PLACEMENT_RULES = Object.create(null);
+// Declared `vocabularies` (name -> Set<slug>): controlled value sets a
+// `kind: path` facet's first segment must belong to.
+const VOCABULARIES = Object.create(null);
+let _layoutLoaded = false;
+let _layoutRootSeen = null;
+let _layoutMtimeSeen = null;
+
+// mtime (ms) of a file, or 0 if it's absent/unreadable.
+function fileMtimeMs(p) {
+  try {
+    return fs.statSync(p).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+function ensureLayoutLoaded() {
+  // Re-load if the wiki root changed (test isolation flips MEMORY_DATA_DIR) OR
+  // the layout contract was edited since we last read it (so a long-running MCP
+  // server picks up `.layout/layout.yaml` changes without a restart).
+  const r = root();
+  const layoutPath = path.join(r, ".layout", "layout.yaml");
+  const mtime = fileMtimeMs(layoutPath);
+  if (_layoutLoaded && _layoutRootSeen === r && _layoutMtimeSeen === mtime) return;
+
+  const cats = [...DEFAULT_CATEGORIES];
+  const facets = {};
+  for (const k of Object.keys(DEFAULT_PLACEMENT_FACETS)) {
+    facets[k] = [...DEFAULT_PLACEMENT_FACETS[k]];
+  }
+  // null-prototype maps: layout keys are author-controlled, so never let a
+  // key like `__proto__`/`constructor` reach a prototype slot.
+  const rules = Object.create(null);
+  const vocabs = Object.create(null);
+
+  // Layout YAML canonical location is <wiki>/.layout/layout.yaml (resolved above).
+  if (fs.existsSync(layoutPath)) {
+    try {
+      const parsed = parseYaml(fs.readFileSync(layoutPath, "utf8")) || {};
+      // Controlled value sets referenced by `kind: path` facet rules.
+      if (parsed.vocabularies && typeof parsed.vocabularies === "object") {
+        for (const [vname, vals] of Object.entries(parsed.vocabularies)) {
+          if (!Array.isArray(vals)) continue;
+          vocabs[vname] = new Set(vals.map((v) => slugify(String(v))).filter(Boolean));
+        }
+      }
+      const entries = Array.isArray(parsed.layout) ? parsed.layout : [];
+      if (entries.length > 0) {
+        // Replace categories wholesale from the YAML (the YAML is the
+        // declared contract).
+        cats.length = 0;
+        for (const e of entries) {
+          const name = String((e && e.path) || "").trim();
+          if (!name) continue;
+          cats.push(name);
+          if (Array.isArray(e.placement_facets)) {
+            facets[name] = e.placement_facets.map((s) => String(s));
+          } else if (DEFAULT_PLACEMENT_FACETS[name]) {
+            facets[name] = [...DEFAULT_PLACEMENT_FACETS[name]];
+          } else if (name === "daily" || e.placement_strategy === "daily-date") {
+            // daily is special-cased downstream; no facets entry needed.
+          } else {
+            // Declared but unspecified -> flat under category root.
+            facets[name] = [];
+          }
+          if (e.facet_rules && typeof e.facet_rules === "object") {
+            const r2 = Object.create(null);
+            for (const [fname, spec] of Object.entries(e.facet_rules)) {
+              if (!spec || typeof spec !== "object") continue;
+              r2[fname] = {
+                kind: spec.kind === "path" ? "path" : "segment",
+                vocabulary: spec.vocabulary ? String(spec.vocabulary) : null,
+                fallback: spec.fallback != null ? String(spec.fallback) : null,
+              };
+            }
+            rules[name] = r2;
+          }
+        }
+        // Drop default facet keys for categories the YAML did NOT declare.
+        for (const k of Object.keys(facets)) {
+          if (!cats.includes(k)) delete facets[k];
+        }
+      }
+    } catch (_err) {
+      // Malformed YAML -> keep defaults; do not crash callers.
+    }
+  }
+
+  CATEGORIES.length = 0;
+  CATEGORIES.push(...cats);
+  for (const k of Object.keys(PLACEMENT_FACETS)) delete PLACEMENT_FACETS[k];
+  Object.assign(PLACEMENT_FACETS, facets);
+  for (const k of Object.keys(PLACEMENT_RULES)) delete PLACEMENT_RULES[k];
+  Object.assign(PLACEMENT_RULES, rules);
+  for (const k of Object.keys(VOCABULARIES)) delete VOCABULARIES[k];
+  Object.assign(VOCABULARIES, vocabs);
+
+  _layoutLoaded = true;
+  _layoutRootSeen = r;
+  _layoutMtimeSeen = mtime;
+}
+
+// Force the next layout-touching call to re-parse .layout/layout.yaml. The mtime
+// check already auto-reloads on edit; this is the explicit escape hatch (e.g. the
+// `reload_layout` MCP tool, or a copy that preserved mtime) and the test reset.
+export function resetLayoutCache() {
+  _layoutLoaded = false;
+  _layoutRootSeen = null;
+  _layoutMtimeSeen = null;
+}
+
+// Back-compat alias used by the test suite.
+export function _resetLayoutCacheForTests() {
+  resetLayoutCache();
+}
+
+// Public accessor for category names. Triggers layout load on demand so a
+// caller (e.g. the MCP `get_memory_config` tool) that does not first touch a
+// write/search path still gets the populated list. Returns a fresh copy.
+export function getCategories() {
+  ensureLayoutLoaded();
+  return [...CATEGORIES];
+}
 
 export function slotToCategory(slot) {
+  ensureLayoutLoaded();
   const s = String(slot || "").trim();
   if (CATEGORIES.includes(s)) return s;
   // Tolerate a few aliases / raw category dirs.
@@ -131,7 +305,31 @@ function renderLeaf({ id, title, tags, body, memoryMeta }) {
   return stringifyLeaf(body, frontmatter);
 }
 
-function normaliseMeta(metadata = {}, extra = {}) {
+// Normalize a `kind: path` facet value (an array, or a "/"-joined string) into
+// clean slug segments. Segments carrying NO sluggable content (empty, pure
+// whitespace, or punctuation-only) are DROPPED — not collapsed to slugify's
+// "untitled" placeholder — so an empty/odd subject never leaks junk path
+// segments. A segment whose content literally slugs to "untitled" is kept
+// (it had real content).
+export function slugSegments(value) {
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split("/")
+      : [];
+  const out = [];
+  for (const s of raw) {
+    const str = String(s);
+    // slugify yields "untitled" only when the base normalizes to empty; detect
+    // that here so we can drop the segment instead of emitting the placeholder.
+    const hasContent = /[a-z0-9]/.test(str.toLowerCase().normalize("NFKD").replace(/\p{M}/gu, ""));
+    if (!hasContent) continue;
+    out.push(slugify(str));
+  }
+  return out;
+}
+
+export function normaliseMeta(metadata = {}, extra = {}) {
   const m = metadata && typeof metadata === "object" ? metadata : {};
   // `area` is the fine-grained sub-module (facet + fine scope). Legacy atoms put
   // it in `project_module`, so fall back to that. `project_module` itself is the
@@ -160,6 +358,13 @@ function normaliseMeta(metadata = {}, extra = {}) {
   const tags = m.tags;
   if (Array.isArray(tags)) out.tags = tags.join(",");
   else if (tags) out.tags = String(tags);
+  // `subject`: the hierarchical semantic path (broad->narrow). Persisted as a
+  // slug array so it survives into frontmatter (placement reads it back when a
+  // leaf is relocated, and it stays browsable/searchable). Accepts an array or
+  // a "/"-joined string; content-free segments are dropped. Absent/empty ->
+  // omitted (placement applies its fallback).
+  const subjectArr = slugSegments(m.subject);
+  if (subjectArr.length) out.subject = subjectArr;
   // Strip empties so absent fields aren't matched as "". project_module is kept
   // (always the workspace) so the default recall scope always has something to match.
   for (const k of ["area", "language", "task_type", "error_pattern", "tags"]) {
@@ -218,6 +423,36 @@ export function normalizeLeafName(name) {
   return { name: `${stem}.md`, id: stem };
 }
 
+// Filesystem-safe leaf name that PRESERVES CASE. Used when a caller supplies
+// placementOverride and asserts full control over the leaf identity (e.g. the
+// Jira hook needs DEV-129957.md on disk, not dev-129957.md). We still strip
+// path separators / NUL / OS-reserved chars and reject ".." stems so an
+// attacker can't escape the override dir via a crafted name; the resulting
+// filename keeps the caller's original casing for everything else. The
+// returned `id` mirrors the stem so the skill's leaf id == filename stem
+// invariant is preserved.
+export function normalizeLeafNamePreservingCase(name) {
+  const raw = String(name || "").trim().replace(/\.md$/i, "");
+  if (!raw) {
+    throw new WikiStoreUnavailable("leaf name is empty after trimming");
+  }
+  // Reject control chars (incl. NUL) and the small set of filesystem-unsafe
+  // punctuation; everything else (letters, digits, hyphen, underscore, dot,
+  // tilde, etc.) is kept verbatim.
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f\x7f]/.test(raw) || /[<>:"/\\|?*]/.test(raw)) {
+    throw new WikiStoreUnavailable(
+      `leaf name contains a filesystem-unsafe character; got: ${JSON.stringify(raw)}`,
+    );
+  }
+  // Reject pure-dots stems (".", "..") and names starting with a leading
+  // path-traversal segment.
+  if (raw === "." || raw === ".." || raw.startsWith("../") || raw.startsWith("./")) {
+    throw new WikiStoreUnavailable(`leaf name is not a valid stem: ${JSON.stringify(raw)}`);
+  }
+  return { name: `${raw}.md`, id: raw };
+}
+
 // Reject a slot that is not one of the five contract categories, so we never
 // create a top-level wiki directory the layout contract does not declare
 // (which would break `skill-llm-wiki validate`).
@@ -231,17 +466,10 @@ function assertKnownSlot(slot) {
   return category;
 }
 
-// Per-category placement facets: the leaf nests under these metadata fields, in
-// order, so the on-disk tree mirrors the SAME fields searchMemoryFiltered filters
-// on. `daily` is the exception (date-nested, chronological raw intake). A category
-// absent here gets no facet nesting (flat under its root) - assertKnownSlot keeps
-// that from happening for the five contract categories.
-const PLACEMENT_FACETS = {
-  knowledge: ["area", "atom_type"],
-  self_improvement: ["area", "task_type"],
-  plans: ["area"],
-  investigations: ["area"],
-};
+// (PLACEMENT_FACETS is initialised by ensureLayoutLoaded() at the top of this
+// module; the YAML in <wiki>/.layout/layout.yaml is the source of truth and
+// the baked-in defaults preserve historical behavior when the YAML is absent
+// or declares no `placement_facets` for a category.)
 
 // Kebab folder segment for one facet, with deterministic sentinels when the field
 // is absent so a missing facet never collapses leaves back into the category root.
@@ -257,14 +485,49 @@ function facetValue(key, meta) {
   return sentinels[key] || "misc";
 }
 
+// Expand a `kind: path` facet into one-or-more directory segments (broad->narrow).
+// The facet value may be an array (`subject: [a, b, c]`) or a "/"-joined string.
+// An absent/empty value collapses to the rule's `fallback` sentinel so a leaf is
+// never dropped at the category root. When a `vocabulary` is declared, the FIRST
+// segment must belong to it; otherwise we throw (FAIL LOUD) rather than write a
+// leaf under an un-curated top-level domain.
+function pathFacetSegments(key, meta, rule) {
+  const parts = slugSegments(meta ? meta[key] : undefined);
+  const fallback = slugify(String(rule.fallback || "general")) || "general";
+  if (parts.length === 0) return [fallback];
+  const vocab =
+    rule.vocabulary && Object.hasOwn(VOCABULARIES, rule.vocabulary)
+      ? VOCABULARIES[rule.vocabulary]
+      : null;
+  if (vocab && vocab.size > 0 && !vocab.has(parts[0])) {
+    throw new WikiStoreUnavailable(
+      `placement: '${key}' domain '${parts[0]}' is not in vocabulary '${rule.vocabulary}'. ` +
+        `Allowed: ${[...vocab].join(", ")}. ` +
+        `Provide a valid first '${key}' segment, or omit '${key}' to use the '${fallback}' fallback.`,
+    );
+  }
+  return parts;
+}
+
 // Relative dir (under the wiki root) for a leaf, derived from its NORMALISED
 // `memory` metadata. Exported so migrate-nest computes the same target from an
 // existing leaf's frontmatter. Returns null for `daily` (caller date-nests it).
 export function placementDirForMeta(category, meta = {}) {
+  ensureLayoutLoaded();
   if (category === "daily") return null;
   const facets = PLACEMENT_FACETS[category] || [];
   if (facets.length === 0) return category;
-  return [category, ...facets.map((k) => facetValue(k, meta))].join("/");
+  const catRules = PLACEMENT_RULES[category] || {};
+  const segs = [category];
+  for (const k of facets) {
+    const rule = catRules[k];
+    if (rule && rule.kind === "path") {
+      segs.push(...pathFacetSegments(k, meta, rule));
+    } else {
+      segs.push(facetValue(k, meta));
+    }
+  }
+  return segs.join("/");
 }
 
 // Resolve where a NEW leaf for a slot should live (relative dir under wiki).
@@ -272,6 +535,41 @@ function placementDir(slot, { metadata = {}, date = new Date() } = {}) {
   const category = slotToCategory(slot);
   if (category === "daily") return `daily/${dailyDatePath(date)}`;
   return placementDirForMeta(category, metadata) ?? category;
+}
+
+// Validate a caller-supplied `placementOverride` path: must be a relative
+// directory under the wiki root, no traversal, no nulls, no leading slash.
+// Returns the normalised relative dir (forward-slash separated) on success;
+// throws WikiStoreUnavailable on a rejected path.
+function normalisePlacementOverride(raw) {
+  if (typeof raw !== "string" || raw.length === 0) {
+    throw new WikiStoreUnavailable(
+      `placementOverride must be a non-empty string; got: ${JSON.stringify(raw)}`,
+    );
+  }
+  if (raw.includes("\0")) {
+    throw new WikiStoreUnavailable("placementOverride contains a NUL byte");
+  }
+  // Reject absolute paths and Windows drive letters defensively.
+  if (raw.startsWith("/") || /^[A-Za-z]:[\\/]/.test(raw)) {
+    throw new WikiStoreUnavailable(
+      `placementOverride must be relative to the wiki root; got: ${raw}`,
+    );
+  }
+  // Forbid `..` segments so a caller can't escape the wiki root, even though
+  // path.join would normalise some of them away. We also strip empty segments.
+  const segs = raw.split(/[\\/]+/).filter((s) => s !== "" && s !== ".");
+  if (segs.length === 0) {
+    throw new WikiStoreUnavailable(
+      `placementOverride must include at least one path segment; got: ${raw}`,
+    );
+  }
+  if (segs.some((s) => s === "..")) {
+    throw new WikiStoreUnavailable(
+      `placementOverride must not contain '..' segments; got: ${raw}`,
+    );
+  }
+  return segs.join("/");
 }
 
 // ---- public API (dify-write.mjs parity) ----
@@ -282,26 +580,56 @@ function placementDir(slot, { metadata = {}, date = new Date() } = {}) {
 // lands at the SAME computed path; dedup across facet folders is the caller's job
 // (compile supersedes the prior leaf via `supersedes`). saveDocument is the
 // upsert-by-name path that searches the whole category recursively.
-export function writeMemory({ name, text, datasetId, supersedes, supersedesAction, metadata, date } = {}) {
+export function writeMemory({
+  name,
+  text,
+  datasetId,
+  supersedes,
+  supersedesAction,
+  metadata,
+  date,
+  placementOverride,
+} = {}) {
   if (!name || !text || !datasetId) {
     throw new WikiStoreUnavailable("writeMemory requires name, text, datasetId");
   }
   const slot = datasetId;
   const category = assertKnownSlot(slot);
-  const { name: safeName, id } = normalizeLeafName(name);
-  const title = deriveTitle({ metadata, text, name: safeName });
-  // Infer/validate placement facets so a leaf is never written under an
-  // unknown/unscoped area or an out-of-set atom_type (daily is a no-op).
-  // Heuristic + deterministic fallback only, so this stays synchronous.
-  const facets = inferFacets({ category, meta: metadata || {}, tags: tagsArray(metadata) });
-  const effectiveMeta = { ...(metadata || {}), ...facets };
-  const memoryMeta = normaliseMeta(effectiveMeta, { atom_type: slotDefaultAtomType(slot) });
-  const tags = tagsArray(effectiveMeta);
 
-  // `date` (optional) pins daily date-nesting to a caller-supplied time (e.g. a
-  // flush's capture time) rather than the write time, so a background worker
-  // that crosses midnight UTC still nests under the captured day.
-  const dir = placementDir(slot, { metadata: memoryMeta, date });
+  // `placementOverride` (optional): when supplied, the leaf is written verbatim
+  // at <override>/<name> and facet inference is skipped. CASING is preserved
+  // in BOTH the directory segments AND the filename stem (we call
+  // normalizeLeafNamePreservingCase instead of normalizeLeafName, so a caller
+  // passing "DEV-129957.md" gets exactly "DEV-129957.md" on disk and the same
+  // string as the leaf `id`). Metadata is still normalised for the frontmatter
+  // `memory` block so the leaf remains searchable / filterable by
+  // `searchMemoryFiltered`.
+  let dir;
+  let memoryMeta;
+  let tags;
+  let safeName;
+  let id;
+  if (placementOverride !== undefined && placementOverride !== null) {
+    dir = normalisePlacementOverride(placementOverride);
+    ({ name: safeName, id } = normalizeLeafNamePreservingCase(name));
+    memoryMeta = normaliseMeta(metadata || {}, { atom_type: slotDefaultAtomType(slot) });
+    tags = tagsArray(metadata);
+  } else {
+    ({ name: safeName, id } = normalizeLeafName(name));
+    // Infer/validate placement facets so a leaf is never written under an
+    // unknown/unscoped area or an out-of-set atom_type (daily is a no-op).
+    // Heuristic + deterministic fallback only, so this stays synchronous.
+    const facets = inferFacets({ category, meta: metadata || {}, tags: tagsArray(metadata) });
+    const effectiveMeta = { ...(metadata || {}), ...facets };
+    memoryMeta = normaliseMeta(effectiveMeta, { atom_type: slotDefaultAtomType(slot) });
+    tags = tagsArray(effectiveMeta);
+
+    // `date` (optional) pins daily date-nesting to a caller-supplied time (e.g. a
+    // flush's capture time) rather than the write time, so a background worker
+    // that crosses midnight UTC still nests under the captured day.
+    dir = placementDir(slot, { metadata: memoryMeta, date });
+  }
+  const title = deriveTitle({ metadata, text, name: safeName });
   const leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
   fs.mkdirSync(path.dirname(leafAbs), { recursive: true });
   fs.writeFileSync(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));
@@ -336,26 +664,48 @@ export function writeMemory({ name, text, datasetId, supersedes, supersedesActio
 // same-named leaf already at that path is overwritten in place; one found at a
 // STALE facet path (its metadata changed) is relocated there so the on-disk path
 // always matches the leaf's facets. Applies metadata immediately.
-export function saveDocument({ name, text, datasetId, metadata } = {}) {
+export function saveDocument({ name, text, datasetId, metadata, placementOverride } = {}) {
   if (!name || !text || !datasetId) {
     throw new WikiStoreUnavailable("saveDocument requires name, text, datasetId");
   }
   const slot = datasetId;
   const category = assertKnownSlot(slot);
-  const { name: safeName, id } = normalizeLeafName(name);
-  const categoryAbs = path.join(root(), slotToCategory(slot));
-  const existing = findByName(categoryAbs, safeName);
 
+  // `placementOverride` (optional): when supplied, the existence check is
+  // scoped to the override path only (we do NOT broad-search the category
+  // tree by name, because the caller is asserting a specific location). This
+  // also disables the cross-facet "relocate" behaviour - the override IS the
+  // target. CASING is preserved in the filename so a caller passing
+  // "DEV-129957.md" gets exactly that on disk. Metadata is still normalised
+  // so the leaf stays searchable.
+  let dir;
+  let memoryMeta;
+  let tags;
+  let existing;
+  let safeName;
+  let id;
+  if (placementOverride !== undefined && placementOverride !== null) {
+    dir = normalisePlacementOverride(placementOverride);
+    ({ name: safeName, id } = normalizeLeafNamePreservingCase(name));
+    memoryMeta = normaliseMeta(metadata || {}, { atom_type: slotDefaultAtomType(slot) });
+    tags = tagsArray(metadata);
+    const candidateAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
+    existing = fs.existsSync(candidateAbs) ? candidateAbs : null;
+  } else {
+    ({ name: safeName, id } = normalizeLeafName(name));
+    const categoryAbs = path.join(root(), slotToCategory(slot));
+    existing = findByName(categoryAbs, safeName);
+    // Infer/validate placement facets so a leaf is never saved under an
+    // unknown/unscoped area or an out-of-set atom_type. Heuristic + deterministic
+    // fallback only, so this stays synchronous.
+    const facets = inferFacets({ category, meta: metadata || {}, tags: tagsArray(metadata) });
+    const effectiveMeta = { ...(metadata || {}), ...facets };
+    memoryMeta = normaliseMeta(effectiveMeta, { atom_type: slotDefaultAtomType(slot) });
+    tags = tagsArray(effectiveMeta);
+    dir = placementDir(slot, { metadata: memoryMeta });
+  }
   const title = deriveTitle({ metadata, text, name: safeName });
-  // Infer/validate placement facets so a leaf is never saved under an
-  // unknown/unscoped area or an out-of-set atom_type. Heuristic + deterministic
-  // fallback only, so this stays synchronous.
-  const facets = inferFacets({ category, meta: metadata || {}, tags: tagsArray(metadata) });
-  const effectiveMeta = { ...(metadata || {}), ...facets };
-  const memoryMeta = normaliseMeta(effectiveMeta, { atom_type: slotDefaultAtomType(slot) });
-  const tags = tagsArray(effectiveMeta);
 
-  const dir = placementDir(slot, { metadata: memoryMeta });
   const leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
   const replacedId = existing ? toRel(existing) : undefined;
   const moved = Boolean(existing) && path.resolve(existing) !== path.resolve(leafAbs);
@@ -385,6 +735,9 @@ export function saveDocument({ name, text, datasetId, metadata } = {}) {
   }
   ensureIndexes(root(), touched);
   upsertEmbedding(toRel(leafAbs), text);
+  // After a relocation, drop any source ancestor dir left holding only an
+  // orphaned index.md (prune AFTER ensureIndexes, which may have rewritten it).
+  if (moved) pruneEmptyAncestors(path.dirname(existing), root());
 
   const metadataAttempted = metadata && Object.keys(metadata).length > 0;
   return {
@@ -431,6 +784,8 @@ export function updateDocMetadata({ datasetId, documentId, metadata } = {}) {
       fs.rmSync(abs);
       renameEmbedding(documentId, newRel);
       ensureIndexes(root(), [abs, newAbs]); // drop the entry from old ancestors, add to new
+      // Remove any source ancestor dir left holding only an orphaned index.md.
+      pruneEmptyAncestors(path.dirname(abs), root());
       return { ok: true, relocated: { from: documentId, to: newRel } };
     }
   }
@@ -472,6 +827,10 @@ export function deleteDocument({ documentId, datasetId } = {}) {
   } catch {
     /* best effort; a later heal will reconcile */
   }
+  // Drop any ancestor dir the deletion just emptied (left holding only an
+  // orphaned index.md) — same invariant the relocation paths enforce, so a
+  // delete never leaves a blind nested dir with no real leaves behind.
+  pruneEmptyAncestors(path.dirname(abs), root());
   return { ok: true, documentId, deleted: true };
 }
 
@@ -507,21 +866,29 @@ function metaMatchesFilters(memoryMeta, filters) {
   if (!filters) return true;
   for (const [key, val] of Object.entries(filters)) {
     if (val == null || val === "") continue;
+    // `subject` is stored as a slug ARRAY; `tags` as a comma string. Both are
+    // membership filters (every wanted value must be present), not exact match.
+    if (key === "tags" || key === "subject") {
+      const raw = memoryMeta[key];
+      const haveList = (Array.isArray(raw) ? raw : String(raw || "").split(","))
+        .map((t) => String(t).trim().toLowerCase())
+        .filter(Boolean);
+      const wantList = (Array.isArray(val) ? val : String(val).split(","))
+        .map((t) => String(t).trim().toLowerCase())
+        .filter(Boolean);
+      if (!wantList.every((wt) => haveList.includes(wt))) return false;
+      continue;
+    }
     const have = String(memoryMeta[key] || "").toLowerCase();
     const want = String(val).toLowerCase();
-    if (key === "tags") {
-      const haveTags = have.split(",").map((t) => t.trim());
-      const wantTags = want.split(",").map((t) => t.trim()).filter(Boolean);
-      if (!wantTags.every((wt) => haveTags.includes(wt))) return false;
-    } else if (have !== want) {
-      return false;
-    }
+    if (have !== want) return false;
   }
   return true;
 }
 
 // Filter leaves by frontmatter metadata, then rank by embedding similarity.
 export async function searchMemoryFiltered({ query, datasetId, limit = 5, filters, scoreThreshold } = {}) {
+  ensureLayoutLoaded();
   const cats = datasetId ? [slotToCategory(datasetId)] : CATEGORIES.filter((c) => c !== "daily");
   const candidates = [];
   for (const cat of cats) {
@@ -565,6 +932,7 @@ export async function searchMemoryFiltered({ query, datasetId, limit = 5, filter
 }
 
 export function listDatasets() {
+  ensureLayoutLoaded();
   return {
     datasets: CATEGORIES.map((name) => ({ name, id: name })),
     declaredLocally: CATEGORIES.map((name) => ({ name, configuredId: name })),
@@ -617,6 +985,98 @@ export function renameEmbedding(oldId, newId) {
       delete cache.entries[oldId];
       saveCache(cachePath, cache);
     }
+  } catch {
+    /* best effort */
+  }
+}
+
+// On-demand garbage collection for the embedding cache. The write path keeps
+// the cache in sync for API-driven deletes/moves (removeEmbedding /
+// renameEmbedding), but a leaf removed OUT OF BAND — a manual `rm`, a `git`
+// checkout, a wiki wipe+re-migrate, or the skill's own balance/flatten moves —
+// strands its cache entry forever (rank() only ever scores LIVE candidates, so
+// orphans are never re-touched). This sweep drops every entry whose id is not a
+// live leaf on disk. NOT wired into any background job — run it explicitly.
+//
+// Returns { ok, before, after, removed, removedIds } (removedIds capped at 50
+// for reporting). A `dryRun` reports what WOULD be removed without writing.
+//
+// `ifDue` throttles the sweep: it runs only when at least MEMORY_GC_INTERVAL_DAYS
+// have elapsed since the last recorded sweep (state/.embed-gc.json). When the
+// interval is 0/off the sweep is disabled; when not yet due it is skipped. This
+// is the path the SessionEnd embed-gc hook (and hook-less agents, per the rule)
+// take so the cache self-cleans roughly weekly without running every session.
+// A real (non-dry) sweep always rewrites the last-run timestamp — including a
+// plain unconditional run — so the next due-check is measured from it.
+export function pruneEmbeddingCache({ dryRun = false, ifDue = false } = {}) {
+  if (ifDue) {
+    const intervalDays = gcIntervalDays();
+    if (intervalDays <= 0) {
+      return { ok: true, skipped: "disabled", reason: "MEMORY_GC_INTERVAL_DAYS is 0/off" };
+    }
+    const state = readGcState();
+    const lastMs = state?.last_run_utc ? Date.parse(state.last_run_utc) : NaN;
+    if (Number.isFinite(lastMs)) {
+      const dueMs = lastMs + intervalDays * 86_400_000;
+      if (Date.now() < dueMs) {
+        return {
+          ok: true,
+          skipped: "not-due",
+          intervalDays,
+          last_run_utc: state.last_run_utc,
+          next_due_utc: new Date(dueMs).toISOString(),
+        };
+      }
+    }
+  }
+
+  const cachePath = embedCachePath();
+  const cache = loadCache(cachePath);
+  const ids = Object.keys(cache.entries);
+  const before = ids.length;
+
+  // Live-leaf id set: toRel of every leaf under every category (all categories,
+  // so we never wrongly prune a live leaf's entry — daily/issues included).
+  ensureLayoutLoaded();
+  const live = new Set();
+  for (const cat of getCategories()) {
+    for (const leaf of walkLeaves(path.join(root(), cat))) live.add(toRel(leaf));
+  }
+
+  const removedIds = ids.filter((id) => !live.has(id));
+  if (!dryRun) {
+    if (removedIds.length > 0) {
+      for (const id of removedIds) delete cache.entries[id];
+      saveCache(cachePath, cache);
+    }
+    // Stamp the last-run timestamp even when nothing was removed, so the
+    // throttle clock advances on every actual sweep.
+    writeGcState({ last_run_utc: new Date().toISOString(), removed: removedIds.length });
+  }
+  return {
+    ok: true,
+    cachePath,
+    dryRun,
+    before,
+    after: before - (dryRun ? 0 : removedIds.length),
+    removed: removedIds.length,
+    removedIds: removedIds.slice(0, 50),
+  };
+}
+
+// Throttle state for the embedding GC. Best-effort: a missing/corrupt file
+// reads as "never run" (so the next --if-due sweep proceeds).
+function readGcState() {
+  try {
+    return JSON.parse(fs.readFileSync(GC_STATE_PATH, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function writeGcState(state) {
+  try {
+    fs.mkdirSync(path.dirname(GC_STATE_PATH), { recursive: true });
+    fs.writeFileSync(GC_STATE_PATH, JSON.stringify(state));
   } catch {
     /* best effort */
   }

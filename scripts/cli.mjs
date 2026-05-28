@@ -20,17 +20,38 @@ function out(obj) {
 }
 
 // Materialise the hosted wiki: write the contract from the template (if
-// absent) and run the skill build. Idempotent - re-running on an existing
-// wiki is a no-op build that leaves content intact.
+// absent) into the canonical <wiki>/.layout/layout.yaml location, and run
+// the skill build. Idempotent.
 function cmdInit() {
   const wiki = wikiRoot();
   fs.mkdirSync(wiki, { recursive: true });
+  fs.mkdirSync(path.join(wiki, ".layout"), { recursive: true });
   fs.mkdirSync(path.dirname(embedCachePath()), { recursive: true });
   fs.mkdirSync(path.dirname(COMPILE_STATE_PATH), { recursive: true });
 
-  const contractPath = path.join(wiki, ".llmwiki.layout.yaml");
-  if (!fs.existsSync(contractPath)) {
+  const layoutDir = path.join(wiki, ".layout");
+  // Symlink guard on layout/ — if someone planted a symlink there, refuse
+  // rather than write through it (matches the skill's INIT-08 behaviour).
+  if (fs.existsSync(layoutDir)) {
+    const layoutStat = fs.lstatSync(layoutDir);
+    if (layoutStat.isSymbolicLink()) {
+      out({ ok: false, error: `refusing to write through symlink at ${layoutDir}` });
+      process.exit(2);
+    }
+  }
+  const contractPath = path.join(layoutDir, "layout.yaml");
+  if (fs.existsSync(contractPath)) {
+    const contractStat = fs.lstatSync(contractPath);
+    if (contractStat.isSymbolicLink()) {
+      out({ ok: false, error: `refusing to write through symlink at ${contractPath}` });
+      process.exit(2);
+    }
+  } else {
     const tmpl = path.join(MEMORY_DIR, "templates", "llmwiki.layout.yaml");
+    if (!fs.existsSync(tmpl)) {
+      out({ ok: false, error: `template not found at ${tmpl}` });
+      process.exit(2);
+    }
     fs.copyFileSync(tmpl, contractPath);
   }
 
@@ -38,9 +59,6 @@ function cmdInit() {
   const src = path.join(MEMORY_DATA_DIR, ".build-src");
   fs.mkdirSync(src, { recursive: true });
 
-  // Only run a fresh build when the wiki has not been initialised yet
-  // (no root index.md). Re-building a populated hosted wiki is handled by
-  // the skill's own collision rules, so we skip it here.
   if (!fs.existsSync(path.join(wiki, "index.md"))) {
     buildHosted({ wiki, source: src });
   }
@@ -62,8 +80,103 @@ async function main() {
       return cmdInit();
     case "validate":
       return out(validate(wikiRoot()));
+    case "validate-topology": {
+      const { validateTopologyAgainstSamples, formatValidationReport } = await import(
+        "./lib/topology-validator.mjs"
+      );
+      const target = rest[0] || wikiRoot();
+      const category = rest[1] || "issues";
+      const result = await validateTopologyAgainstSamples(target, { categoryPath: category });
+      process.stdout.write(`validate-topology on ${target} (category=${category}):\n`);
+      process.stdout.write(formatValidationReport(result));
+      process.exit(result.ok ? 0 : 2);
+    }
+    case "validate-layout": {
+      const { validateLayoutFile, formatValidationResult } = await import(
+        "./lib/layout-validator.mjs"
+      );
+      const target = rest[0] || path.join(wikiRoot(), ".layout", "layout.yaml");
+      const result = validateLayoutFile(target);
+      process.stdout.write(formatValidationResult(result));
+      process.exit(result.ok ? 0 : 2);
+    }
+    case "test-path-compiler": {
+      // Usage:
+      //   llm-wiki-memory test-path-compiler <file_kind> [--category issues] [--layout <wiki-root>] key=val ...
+      // Compiles the file_kind's path_compiler (or path_template), runs it
+      // against the supplied facets, and prints the resolved path plus any
+      // unresolved placeholders.
+      const {
+        loadTopology,
+        pathFor,
+        validateFacets,
+        findUnresolvedPlaceholders,
+      } = await import("./lib/topology-runtime.mjs");
+      let categoryPath = "issues";
+      let wikiOverride = null;
+      const fkArgs = [];
+      const facets = {};
+      for (let i = 0; i < rest.length; i++) {
+        const a = rest[i];
+        if (a === "--category") {
+          categoryPath = rest[++i];
+        } else if (a === "--layout") {
+          wikiOverride = rest[++i];
+        } else if (a.includes("=")) {
+          const eq = a.indexOf("=");
+          const k = a.slice(0, eq);
+          let v = a.slice(eq + 1);
+          if (/^-?\d+$/.test(v)) v = Number(v);
+          facets[k] = v;
+        } else {
+          fkArgs.push(a);
+        }
+      }
+      const fileKind = fkArgs[0];
+      if (!fileKind) {
+        process.stderr.write(
+          "usage: llm-wiki-memory test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...\n",
+        );
+        process.exit(64);
+      }
+      const root = wikiOverride || wikiRoot();
+      const topology = await loadTopology(root, { categoryPath });
+      const v = validateFacets(topology, fileKind, facets);
+      if (!v.ok) {
+        out({ ok: false, errors: v.errors, facets });
+        process.exit(2);
+      }
+      try {
+        const resolved = pathFor(topology, fileKind, facets);
+        const unresolved = findUnresolvedPlaceholders(resolved);
+        out({
+          ok: unresolved.length === 0,
+          file_kind: fileKind,
+          facets,
+          path: resolved,
+          unresolved_placeholders: unresolved,
+        });
+        process.exit(unresolved.length === 0 ? 0 : 2);
+      } catch (err) {
+        out({ ok: false, file_kind: fileKind, facets, error: err.message });
+        process.exit(2);
+      }
+    }
     case "heal":
       return out(heal(wikiRoot()));
+    case "gc-embeddings": {
+      // On-demand sweep of orphaned embedding-cache entries (ids whose leaf no
+      // longer exists). --dry-run previews without writing. --if-due throttles
+      // to MEMORY_GC_INTERVAL_DAYS via state/.embed-gc.json (the SessionEnd
+      // embed-gc hook + hook-less agents use this); plain run is unconditional.
+      const { pruneEmbeddingCache } = await import("./lib/wiki-store.mjs");
+      return out(
+        pruneEmbeddingCache({
+          dryRun: rest.includes("--dry-run"),
+          ifDue: rest.includes("--if-due"),
+        }),
+      );
+    }
     case "where":
       return out({
         memoryDir: MEMORY_DIR,
@@ -101,7 +214,7 @@ async function main() {
     }
     default:
       out(
-        "Usage: llm-wiki-memory <init|validate|heal|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|recall <q>|search <q>>",
+        "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|recall <q>|search <q>>",
       );
       process.exit(cmd ? 1 : 0);
   }

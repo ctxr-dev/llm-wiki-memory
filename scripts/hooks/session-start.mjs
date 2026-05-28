@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { MEMORY_DIR, COMPILE_STATE_PATH, envValue } from "../lib/env.mjs";
+import { MEMORY_DIR, COMPILE_STATE_PATH, envValue, wikiRoot } from "../lib/env.mjs";
 import { buildSessionStartContext } from "../lib/discipline.mjs";
 import { isReentrant, reentryEnv } from "../lib/reentry.mjs";
+import { buildWorkContextSection } from "../lib/work-context.mjs";
 
 const RECURSION_GUARD = "memory_compile";
 
@@ -53,13 +54,33 @@ const compileTriggered = (() => {
   }
 })();
 
-const context = buildSessionStartContext({ serverName: memoryServerName, compileTriggered });
+const disciplineContext = buildSessionStartContext({
+  serverName: memoryServerName,
+  compileTriggered,
+});
+
+// Append the work-context section (active branch → semantic wiki search →
+// top hits + plan progress). Best-effort — any failure produces an empty
+// string and we ship the discipline context alone.
+let workContext = "";
+try {
+  const { searchMemory } = await import("../lib/recall.mjs");
+  workContext = await buildWorkContextSection({
+    cwd: process.cwd(),
+    searchMemory,
+    wikiRoot: wikiRoot(),
+  });
+} catch (err) {
+  console.error(
+    `session-start.mjs: work-context skipped: ${err instanceof Error ? err.message : err}`,
+  );
+}
 
 console.log(
   JSON.stringify({
     hookSpecificOutput: {
       hookEventName: "SessionStart",
-      additionalContext: context,
+      additionalContext: disciplineContext + workContext,
     },
   }),
 );

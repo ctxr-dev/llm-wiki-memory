@@ -121,7 +121,7 @@ export function contract() {
 }
 
 // Build (materialize) a hosted wiki from `source` into `wiki`. The contract
-// file must already exist at <wiki>/.llmwiki.layout.yaml.
+// file must already exist at <wiki>/.layout/layout.yaml.
 export function buildHosted({ wiki, source }) {
   return run([
     "build",

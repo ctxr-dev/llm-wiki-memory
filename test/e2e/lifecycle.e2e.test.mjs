@@ -117,7 +117,7 @@ const DECISION_ATOM = {
 
 test("1. genesis: hosted wiki shell, contract, git op-log, validate clean", () => {
   assert.ok(fs.existsSync(path.join(wiki, "index.md")), "root index.md");
-  assert.ok(fs.existsSync(path.join(wiki, ".llmwiki.layout.yaml")), "layout contract");
+  assert.ok(fs.existsSync(path.join(wiki, ".layout", "layout.yaml")), "layout contract");
   assert.ok(fs.existsSync(path.join(wiki, ".llmwiki", "op-log.yaml")), "git op-log");
   assert.equal(cli.validate(wiki).ok, true);
 });

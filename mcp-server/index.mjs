@@ -168,7 +168,7 @@ server.registerTool(
         embedCache: embedCachePath(),
         embedBackend: activeBackend(),
         defaultProjectModule: defaultProjectModule(),
-        categories: impl.CATEGORIES,
+        categories: impl.getCategories(),
       });
     } catch (error) {
       return errorResponse(error);
@@ -286,17 +286,24 @@ server.registerTool(
   {
     title: "Upsert a document into a named category",
     description:
-      "Write `text` as a wiki leaf with the given exact `name`, replacing any existing leaf in the category that has the same name. Use for plans, investigations, and knowledge artefacts. `dataset` is a category name (knowledge, plans, investigations, self_improvement). Optional `metadata` applies filterable frontmatter.",
+      "Write `text` as a wiki leaf with the given exact `name`, replacing any existing leaf in the category that has the same name. Use for plans, investigations, and knowledge artefacts. `dataset` is a category name (knowledge, plans, investigations, self_improvement, or any extra category declared in <wiki>/.layout/layout.yaml). Optional `metadata` applies filterable frontmatter. Optional `path` is a relative directory under the wiki root (e.g. \"issues/JIRA/DEV/129/95/7\") and, when supplied, overrides facet-derived placement so the leaf is written verbatim at <path>/<name>; casing is preserved. Use `path` for custom topologies (Jira/GitHub/Linear issue trees, multi-faceted hierarchies) the default facet machinery cannot express.",
     inputSchema: {
       dataset: z.string().trim().min(1),
       name: z.string().trim().min(1).max(180),
       text: z.string().trim().min(1).max(500_000),
       metadata: MetadataSchema.optional(),
+      path: z.string().trim().min(1).max(500).optional(),
     },
   },
-  async ({ dataset, name, text, metadata }) => {
+  async ({ dataset, name, text, metadata, path }) => {
     try {
-      const result = impl.saveDocument({ name, text, datasetId: dataset, metadata });
+      const result = impl.saveDocument({
+        name,
+        text,
+        datasetId: dataset,
+        metadata,
+        placementOverride: path,
+      });
       return jsonResponse({ ok: !!result.created, ...result });
     } catch (error) {
       return errorResponse(error);
@@ -309,7 +316,7 @@ server.registerTool(
   {
     title: "Write project memory",
     description:
-      "Create a new wiki leaf from concise memory text. Optionally supersede an existing leaf by passing its documentId (the old leaf is archived, or deleted with supersedesAction='delete').",
+      "Create a new wiki leaf from concise memory text. Optionally supersede an existing leaf by passing its documentId (the old leaf is archived, or deleted with supersedesAction='delete'). Optional `path` is a relative directory under the wiki root and, when supplied, overrides facet-derived placement so the leaf is written verbatim at <path>/<name>; casing is preserved. Use `path` for custom topologies the default facet machinery cannot express.",
     inputSchema: {
       name: z.string().trim().min(1).max(180),
       text: z.string().trim().min(20).max(200_000),
@@ -317,11 +324,22 @@ server.registerTool(
       supersedes: z.string().trim().min(1).optional(),
       supersedesAction: z.enum(["disable", "delete"]).optional(),
       metadata: MetadataSchema.optional(),
+      path: z.string().trim().min(1).max(500).optional(),
     },
   },
-  async ({ name, text, datasetId, supersedes, supersedesAction, metadata }) => {
+  async ({ name, text, datasetId, supersedes, supersedesAction, metadata, path }) => {
     try {
-      return jsonResponse(impl.writeMemory({ name, text, datasetId, supersedes, supersedesAction, metadata }));
+      return jsonResponse(
+        impl.writeMemory({
+          name,
+          text,
+          datasetId,
+          supersedes,
+          supersedesAction,
+          metadata,
+          placementOverride: path,
+        }),
+      );
     } catch (error) {
       return errorResponse(error);
     }
@@ -425,6 +443,135 @@ server.registerTool(
         }
       }
       return jsonResponse({ ok: true, findings, total: findings.length });
+    } catch (error) {
+      return errorResponse(error);
+    }
+  },
+);
+
+server.registerTool(
+  "reload_layout",
+  {
+    title: "Force-reload the layout contract + topology caches",
+    description:
+      "Clear the in-process layout/topology caches so the next operation re-reads <wiki>/.layout/layout.yaml and its sibling to_path/from_path .mjs helpers. Edits are normally picked up automatically (the caches revalidate by file mtime), so you only need this as an explicit escape hatch — e.g. after a copy/restore that preserved mtimes, or to force a refresh immediately. No inputs.",
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      if (typeof impl.resetLayoutCache === "function") impl.resetLayoutCache();
+      const topo = await import("../scripts/lib/topology-runtime.mjs");
+      topo.resetTopologyCache();
+      return jsonResponse({ ok: true, reloaded: ["layout", "topology"] });
+    } catch (error) {
+      return errorResponse(error);
+    }
+  },
+);
+
+server.registerTool(
+  "validate_layout",
+  {
+    title: "Validate a wiki's layout contract YAML (schema + line:col errors)",
+    description:
+      "Parse and schema-validate a layout contract. Reports each problem with a line:column pointer (facet_rules without placement_facets, a vocabulary reference that isn't declared, a fallback that isn't a vocab member, bad topology block, etc.). Inputs: optional `path` (an explicit layout.yaml path) OR optional `wiki_root` (defaults to the env-resolved wiki; reads <wiki_root>/.layout/layout.yaml). Returns {ok, errors:[{line,col,message}]}.",
+    inputSchema: {
+      path: z.string().trim().min(1).optional(),
+      wiki_root: z.string().trim().min(1).optional(),
+    },
+  },
+  async ({ path: layoutPath, wiki_root }) => {
+    try {
+      const { validateLayoutFile } = await import("../scripts/lib/layout-validator.mjs");
+      const nodePath = await import("node:path");
+      const target =
+        layoutPath || nodePath.join(wiki_root || wikiRoot(), ".layout", "layout.yaml");
+      return jsonResponse(validateLayoutFile(target));
+    } catch (error) {
+      return errorResponse(error);
+    }
+  },
+);
+
+server.registerTool(
+  "validate_topology",
+  {
+    title: "Pre-flight check that a topology's path compilers round-trip",
+    description:
+      "Iterates every declared file_kind in the topology, picks sample facets from facet_inputs (examples / enum-first / type defaults), runs pathFor with the round-trip safety net ON, and reports pass/fail per kind. Use BEFORE the first write against a layout to catch ambiguous from_path regexes, dropped facets, or no-placeholder templates. Inputs: optional `wiki_root` (defaults to env-resolved wiki) + optional `category` (defaults to 'issues').",
+    inputSchema: {
+      wiki_root: z.string().trim().min(1).optional(),
+      category: z.string().trim().min(1).optional(),
+    },
+  },
+  async ({ wiki_root, category }) => {
+    try {
+      const { validateTopologyAgainstSamples } = await import(
+        "../scripts/lib/topology-validator.mjs"
+      );
+      const root = wiki_root || wikiRoot();
+      const result = await validateTopologyAgainstSamples(root, {
+        categoryPath: category || "issues",
+      });
+      return jsonResponse(result);
+    } catch (error) {
+      return errorResponse(error);
+    }
+  },
+);
+
+server.registerTool(
+  "test_path_compiler",
+  {
+    title: "Test a custom-topology path compiler",
+    description:
+      "Dry-run a topology file_kind's path_compiler (or path_template) against caller-supplied facets and return the computed relative path. Use this to sanity-check a layout's topology block before writing real leaves; reports validation errors, runtime errors from the compiler, and any unresolved {variable} placeholders in the result. Reads <wiki>/.layout/layout.yaml (or the supplied `wiki_root` override).",
+    inputSchema: {
+      file_kind: z.string().trim().min(1),
+      facets: z.record(z.string(), z.any()),
+      category: z.string().trim().min(1).optional(),
+      wiki_root: z.string().trim().min(1).optional(),
+    },
+  },
+  async ({ file_kind, facets, category, wiki_root }) => {
+    try {
+      const { loadTopology, pathFor, validateFacets, findUnresolvedPlaceholders } =
+        await import("../scripts/lib/topology-runtime.mjs");
+      const root = wiki_root || wikiRoot();
+      const topology = await loadTopology(root, { categoryPath: category || "issues" });
+      const v = validateFacets(topology, file_kind, facets || {});
+      if (!v.ok) {
+        return jsonResponse({
+          ok: false,
+          file_kind,
+          facets: facets || {},
+          stage: "validate_facets",
+          errors: v.errors,
+        });
+      }
+      try {
+        const resolved = pathFor(topology, file_kind, facets || {});
+        const unresolved = findUnresolvedPlaceholders(resolved);
+        return jsonResponse({
+          ok: unresolved.length === 0,
+          file_kind,
+          facets,
+          path: resolved,
+          unresolved_placeholders: unresolved,
+          warnings:
+            unresolved.length > 0
+              ? [`compiler left unresolved placeholders in the result: ${unresolved.join(", ")}`]
+              : [],
+        });
+      } catch (err) {
+        return jsonResponse({
+          ok: false,
+          file_kind,
+          facets,
+          stage: "compile",
+          error: err.message,
+        });
+      }
     } catch (error) {
       return errorResponse(error);
     }

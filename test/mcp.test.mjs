@@ -60,9 +60,33 @@ test("server boots and registers the expected tools", async () => {
     "enable_document",
     "delete_document",
     "audit_memory",
+    "validate_layout",
+    "validate_topology",
+    "reload_layout",
   ]) {
     assert.ok(names.includes(expected), `tool ${expected} registered`);
   }
+});
+
+test("reload_layout clears the caches and reports what it reloaded", async () => {
+  const r = parse(await client.callTool({ name: "reload_layout", arguments: {} }));
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.reloaded, ["layout", "topology"]);
+});
+
+test("validate_layout validates the wiki's contract and never crashes the server", async () => {
+  // Default (env-resolved wiki): the test wiki has a valid .layout/layout.yaml.
+  const ok = parse(await client.callTool({ name: "validate_layout", arguments: {} }));
+  assert.equal(ok.ok, true, `default wiki layout valid: ${JSON.stringify(ok)}`);
+
+  // A missing layout path returns a structured failure, not a thrown crash.
+  const missing = parse(
+    await client.callTool({
+      name: "validate_layout",
+      arguments: { path: "/nonexistent/does-not-exist.yaml" },
+    }),
+  );
+  assert.equal(missing.ok, false, "missing layout reports ok:false");
 });
 
 test("get_memory_config reports the wiki + categories", async () => {

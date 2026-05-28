@@ -9,6 +9,11 @@ export const MEMORY_DIR = path.resolve(here, "../..");
 // Resolve the host workspace root from the clone location.
 // Installed layout (<workspace>/.llm-wiki-memory/src) -> workspace is two
 // levels up. A bare repo checkout / repo-dev workflow -> one level up.
+// CAVEAT: `here` is derived from import.meta.url, which resolves symlinks. If
+// `src` is itself a symlink into a store OUTSIDE the workspace (non-standard
+// install), WORKSPACE_DIR/MEMORY_DATA_DIR will derive from the link TARGET, not
+// the workspace. Set MEMORY_DATA_DIR (or LLM_WIKI_MEMORY_ROOT) explicitly for
+// such layouts; the standard <workspace>/.llm-wiki-memory/src install is fine.
 const inMemorySrc =
   path.basename(MEMORY_DIR) === "src" &&
   path.basename(path.dirname(MEMORY_DIR)) === ".llm-wiki-memory";
@@ -26,6 +31,9 @@ export const ENV_PATH = path.join(MEMORY_DATA_DIR, "settings", ".env");
 // clone), so the source tree stays clean and parallel installs don't collide.
 export const COMPILE_STATE_PATH = path.join(MEMORY_DATA_DIR, "state", ".compile-state.json");
 export const COMPILE_LOCK_PATH = path.join(MEMORY_DATA_DIR, "state", ".compile.lock");
+// Last-run state for the throttled, on-demand embedding-cache GC (gc-embeddings
+// --if-due / the SessionEnd embed-gc hook). { last_run_utc, removed }.
+export const GC_STATE_PATH = path.join(MEMORY_DATA_DIR, "state", ".embed-gc.json");
 export const PROMPTS_DIR = path.join(MEMORY_DIR, "prompts");
 
 // Parse one .env value. Deliberately small (NOT a full dotenv parser): it
@@ -81,6 +89,20 @@ export function envInt(name, fallback) {
   const raw = envValue(name, "");
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+// Cadence (in DAYS) for the throttled embedding-cache GC. Unset -> 7 (weekly).
+// `0`/`off`/`false` -> 0 (disabled). Garbage -> the default. Generic name so a
+// future periodic GC can share the cadence knob.
+export const GC_INTERVAL_DAYS_DEFAULT = 7;
+export function gcIntervalDays() {
+  const raw = envValue("MEMORY_GC_INTERVAL_DAYS", "");
+  if (raw === "") return GC_INTERVAL_DAYS_DEFAULT;
+  const s = String(raw).trim().toLowerCase();
+  if (s === "off" || s === "false") return 0;
+  const n = Number(s);
+  if (!Number.isFinite(n) || n < 0) return GC_INTERVAL_DAYS_DEFAULT;
+  return n;
 }
 
 export const ATOM_BODY_MAX_CHARS_DEFAULT = 700;

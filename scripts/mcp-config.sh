@@ -18,8 +18,23 @@ else
   WORKSPACE_DIR="$(cd "$SRC_DIR/.." && pwd -P)"
 fi
 DATA_DIR="$WORKSPACE_DIR/.llm-wiki-memory"
+# Path relative to the workspace root, for configs that live IN the project and
+# are launched with the project as cwd (Claude Code, Cursor/project, generic).
+INDEX_REL="./.llm-wiki-memory/src/mcp-server/index.mjs"
 
-render() { sed -e "s#__SERVER_INDEX__#$INDEX#g" -e "s#__DATA_DIR__#$DATA_DIR#g" "$1"; }
+# Project-scoped clients get a relative path (survives the workspace moving).
+# Global single-file clients (Claude Desktop, ~/.codex) have no project cwd, so
+# they need the absolute path. Neither needs MEMORY_DATA_DIR: the server
+# self-discovers its data dir from its own file location (scripts/lib/env.mjs).
+# Literal bash substitution (not sed) so an install path containing sed-special
+# chars (# & \ /) can never corrupt the emitted config.
+render_with() {
+  local repl="$1" content
+  content="$(cat "$2")"
+  printf '%s\n' "${content//__SERVER_INDEX__/$repl}"
+}
+render_rel() { render_with "$INDEX_REL" "$1"; }
+render_abs() { render_with "$INDEX" "$1"; }
 
 emit() {
   case "$1" in
@@ -27,17 +42,20 @@ emit() {
       echo "# Claude Code - merge into ./.mcp.json (project scope; relative path):"
       cat "$TEMPLATES/mcp.json" ;;
     cursor)
-      echo "# Cursor - merge into ./.cursor/mcp.json (or global ~/.cursor/mcp.json):"
-      render "$TEMPLATES/agents/clients/cursor.json" ;;
+      echo "# Cursor - merge into ./.cursor/mcp.json (project scope; relative path):"
+      render_rel "$TEMPLATES/agents/clients/cursor.json" ;;
     claude-desktop)
-      echo "# Claude Desktop - merge into claude_desktop_config.json:"
-      render "$TEMPLATES/agents/clients/claude-desktop.json" ;;
+      echo "# Claude Desktop - merge into claude_desktop_config.json (global; absolute path):"
+      render_abs "$TEMPLATES/agents/clients/claude-desktop.json" ;;
     codex)
-      echo "# Codex/OpenAI - add to ~/.codex/config.toml (or: codex mcp add):"
-      render "$TEMPLATES/agents/clients/openai-codex.toml" ;;
+      echo "# Codex/OpenAI - add to ~/.codex/config.toml (global; absolute path) (or: codex mcp add):"
+      render_abs "$TEMPLATES/agents/clients/openai-codex.toml" ;;
     generic)
-      echo "# Generic MCP client - stdio server config:"
-      render "$TEMPLATES/agents/clients/generic-mcp.json" ;;
+      # A generic client has no guaranteed cwd, so emit an absolute path here
+      # (the committed .agents/clients/generic-mcp.json stays relative for the
+      # project-root-cwd case; this on-demand snippet is paste-anywhere).
+      echo "# Generic MCP client - stdio server config (absolute; works from any cwd):"
+      render_abs "$TEMPLATES/agents/clients/generic-mcp.json" ;;
     *)
       echo "unknown client: $1" >&2
       echo "valid: claude-code | cursor | claude-desktop | codex | generic | all" >&2

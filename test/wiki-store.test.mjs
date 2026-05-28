@@ -10,9 +10,40 @@ after(() => cleanup(dataDir));
 const store = await import("../scripts/lib/wiki-store.mjs");
 const cli = await import("../scripts/lib/wiki-cli.mjs");
 
+// These tests exercise the CORE area/atom_type/task_type placement + relocation
+// mechanics. The shipped default layout adds a semantic `subject` axis (covered
+// by subject-axis.test.mjs); pin an explicit no-subject layout here so these
+// assertions test the mechanic itself, decoupled from the template's subject
+// policy.
+fs.writeFileSync(
+  path.join(wiki, ".layout", "layout.yaml"),
+  `mode: hosted
+layout:
+  - path: knowledge
+    placement_facets: [area, atom_type]
+    max_depth: 5
+  - path: self_improvement
+    placement_facets: [area, task_type]
+    max_depth: 5
+  - path: plans
+    placement_facets: [area]
+    max_depth: 5
+  - path: investigations
+    placement_facets: [area]
+    max_depth: 5
+  - path: daily
+    placement_strategy: daily-date
+    max_depth: 5
+`,
+);
+store._resetLayoutCacheForTests();
+
 test("init produced a valid empty hosted wiki", () => {
   assert.ok(fs.existsSync(path.join(wiki, "index.md")), "root index.md exists");
-  assert.ok(fs.existsSync(path.join(wiki, ".llmwiki.layout.yaml")), "contract exists");
+  assert.ok(
+    fs.existsSync(path.join(wiki, ".layout", "layout.yaml")),
+    "contract exists at the canonical .layout/layout.yaml location",
+  );
   const v = cli.validate(wiki);
   assert.equal(v.ok, true, `validate clean: ${JSON.stringify(v)}`);
 });
@@ -170,6 +201,23 @@ test("deleteDocument removes the leaf and keeps wiki valid", () => {
   assert.equal(v.ok, true, `validate clean after delete: ${JSON.stringify(v)}`);
 });
 
+test("deleteDocument prunes the dir it emptied (no orphan index.md left)", () => {
+  // Sole occupant of a unique area dir; deleting it must remove that emptied
+  // dir, not leave a blind nested dir holding only an auto-generated index.md.
+  const res = store.saveDocument({
+    name: "delete-prune-probe.md",
+    text: "# Prune probe\n\nsole occupant of a unique area.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "reference", project_module: "deleteproneprobe" },
+  });
+  const id = res.created.document.id;
+  const areaDir = path.join(wiki, "knowledge", "deleteproneprobe");
+  assert.ok(fs.existsSync(areaDir), "area dir exists before delete");
+  store.deleteDocument({ documentId: id, datasetId: "knowledge" });
+  assert.ok(!fs.existsSync(areaDir), "emptied area dir pruned after delete");
+  assert.equal(cli.validate(wiki).ok, true, "validate clean after delete+prune");
+});
+
 test("long scalars are not folded into block scalars (validate stays clean)", () => {
   // A title long enough that the focus scalar would exceed js-yaml's default
   // 80-col line width and fold to `>-`, which the skill's frontmatter parser
@@ -287,6 +335,30 @@ test("updateDocMetadata relocates a leaf when a facet field changes", () => {
   assert.ok(!again.relocated, "re-applying identical facets is an in-place no-op");
 });
 
+test("relocation prunes the emptied source dir (no orphan index.md left behind)", () => {
+  // Unique area so this leaf is the SOLE occupant of its source dir; relocating
+  // it must leave no orphan dir (the user's "never keep blind nested dirs" rule).
+  const res = store.saveDocument({
+    name: "orphan-prune-probe.md",
+    text: "# Orphan prune\n\nsole occupant of a unique area dir.\nWhy: prune test.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "reference", project_module: "orphanprobesrc" },
+  });
+  const startId = res.created.document.id;
+  assert.match(startId, /^knowledge\/orphanprobesrc\/reference\//);
+  const srcDir = path.join(wiki, "knowledge", "orphanprobesrc");
+  assert.ok(fs.existsSync(srcDir), "source area dir exists before relocation");
+
+  const upd = store.updateDocMetadata({
+    datasetId: "knowledge",
+    documentId: startId,
+    metadata: { project_module: "orphanprobedst" },
+  });
+  assert.ok(upd.relocated, `relocation reported: ${JSON.stringify(upd)}`);
+  assert.ok(!fs.existsSync(srcDir), "emptied source area dir pruned (no orphan index.md)");
+  assert.equal(cli.validate(wiki).ok, true, "validate clean after prune");
+});
+
 test("saveDocument relocates a same-named leaf when its facets change (upsert, no stale copy)", () => {
   const first = store.saveDocument({
     name: "knowledge-upsert-move.md",
@@ -350,4 +422,49 @@ test("placementDirForMeta maps each category to its facet path (by area)", () =>
   assert.equal(store.placementDirForMeta("investigations", {}), "investigations/unscoped");
   assert.equal(store.placementDirForMeta("self_improvement", { area: "tt" }), "self_improvement/tt/unknown");
   assert.equal(store.placementDirForMeta("daily", {}), null, "daily is date-nested, not facet-nested");
+});
+
+test("searchMemoryFiltered: subject is an array-membership filter", async () => {
+  // subject persists into frontmatter regardless of the (no-subject) pinned
+  // layout; metaMatchesFilters treats it as array membership like tags.
+  store.saveDocument({
+    name: "subj-obs.md",
+    text: "# Obs\n\nkamon metrics gauge sampler note.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "concept", project_module: "subjtest", subject: ["observability", "kamon"] },
+  });
+  store.saveDocument({
+    name: "subj-lang.md",
+    text: "# Lang\n\ncats-effect resource note.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "concept", project_module: "subjtest", subject: ["languages", "scala"] },
+  });
+
+  const hit = await store.searchMemoryFiltered({
+    query: "note",
+    datasetId: "knowledge",
+    filters: { area: "subjtest", subject: ["observability"] },
+  });
+  const names = hit.records.map((r) => r.documentName);
+  assert.ok(names.includes("subj-obs.md"), "observability leaf matches");
+  assert.ok(!names.includes("subj-lang.md"), "languages leaf excluded by subject filter");
+
+  const both = await store.searchMemoryFiltered({
+    query: "note",
+    datasetId: "knowledge",
+    filters: { subject: ["observability", "kamon"] },
+  });
+  assert.ok(both.records.map((r) => r.documentName).includes("subj-obs.md"), "all wanted subject terms present matches");
+
+  const none = await store.searchMemoryFiltered({
+    query: "note",
+    datasetId: "knowledge",
+    filters: { subject: ["nonexistent"] },
+  });
+  assert.equal(none.records.length, 0, "unmatched subject term filters everything out");
+
+  for (const n of ["subj-obs.md", "subj-lang.md"]) {
+    const d = store.listDocuments({ datasetId: "knowledge", enabled: "true" }).documents.find((x) => x.name === n);
+    if (d) store.deleteDocument({ documentId: d.id, datasetId: "knowledge" });
+  }
 });

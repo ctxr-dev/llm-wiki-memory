@@ -44,6 +44,16 @@
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/session-end.sh",
             "timeout": 130
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/plan-frontmatter-sync.sh session-end",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/embed-gc-session-end.sh",
+            "timeout": 30
           }
         ]
       }
@@ -56,6 +66,16 @@
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/exit-plan-mode.sh",
             "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/plan-frontmatter-sync.sh post-tool-use",
+            "timeout": 15
           }
         ]
       }
