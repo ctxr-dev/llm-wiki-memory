@@ -1,8 +1,10 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { slugify } from "../lib/slug.mjs";
 import { saveDocument, WikiStoreUnavailable } from "../lib/wiki-store.mjs";
+import { syncPlanFile } from "../lib/plan-sync.mjs";
 import { envValue, envInt, wikiRoot } from "../lib/env.mjs";
 import { redact } from "../lib/redact.mjs";
 
@@ -66,11 +68,90 @@ export function fencePlanBody(text) {
   return `${FENCE_HEAD}\n\n${defangFenceMarkers(text)}\n\n${FENCE_FOOT}`;
 }
 
+// --- resolve the approved plan body across Claude Code versions ---
+// Older Claude Code passed the plan inline as `tool_input.plan`; current builds
+// (v2.0.51+) pass only `allowedPrompts` and write the plan to a scratch file,
+// leaving `tool_input.plan` empty. Read layered so capture works regardless:
+//   1. tool_input.plan             (back-compat / if a future CC restores it)
+//   2. newest ~/.claude/plans/*.md (the scratch file the harness just wrote)
+//   3. transcript_path scan        (best-effort last resort)
+function planFromToolInput(hookInput) {
+  const raw = hookInput?.tool_input?.plan;
+  return typeof raw === "string" && raw.trim() ? raw : null;
+}
+
+function planFromScratchDir() {
+  const dir = path.join(os.homedir(), ".claude", "plans");
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return null; // no scratch dir on this client
+  }
+  const files = entries
+    .filter((e) => e.isFile() && e.name.endsWith(".md"))
+    .map((e) => {
+      const abs = path.join(dir, e.name);
+      try {
+        return { abs, mtimeMs: fs.statSync(abs).mtimeMs };
+      } catch {
+        return { abs, mtimeMs: 0 };
+      }
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs); // newest first
+  for (const f of files) {
+    try {
+      const text = fs.readFileSync(f.abs, "utf8");
+      if (text.trim()) return text;
+    } catch {
+      /* unreadable; try the next-newest */
+    }
+  }
+  return null;
+}
+
+function planFromTranscript(hookInput) {
+  const tp = hookInput?.transcript_path;
+  if (typeof tp !== "string" || !tp) return null;
+  let raw;
+  try {
+    raw = fs.readFileSync(tp, "utf8");
+  } catch {
+    return null;
+  }
+  // Scan newest-first for the last ExitPlanMode tool_use carrying a plan.
+  const lines = raw.split(/\r?\n/).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let entry;
+    try {
+      entry = JSON.parse(lines[i]);
+    } catch {
+      continue;
+    }
+    const blocks = entry?.message?.content;
+    if (!Array.isArray(blocks)) continue;
+    for (const b of blocks) {
+      if (b?.type === "tool_use" && b?.name === "ExitPlanMode") {
+        const p = b?.input?.plan;
+        if (typeof p === "string" && p.trim()) return p;
+      }
+    }
+  }
+  return null;
+}
+
+export function resolvePlanBody(hookInput) {
+  return (
+    planFromToolInput(hookInput) ??
+    planFromScratchDir() ??
+    planFromTranscript(hookInput)
+  );
+}
+
 export function planDocSpec(hookInput, { maxBytes = DEFAULT_MAX_PLAN_BYTES } = {}) {
-  const tool_input = hookInput?.tool_input ?? {};
   const tool_response = hookInput?.tool_response ?? {};
   if (tool_response.approved !== true) return { skip: "not-approved" };
-  const raw = tool_input.plan;
+  const raw = resolvePlanBody(hookInput);
   if (raw == null) return { skip: "empty-plan" };
   // Coercing { foo: 1 } would yield "[object Object]" garbage; skip cleanly.
   if (typeof raw !== "string") return { skip: "non-string-plan" };
@@ -87,7 +168,9 @@ export function planDocSpec(hookInput, { maxBytes = DEFAULT_MAX_PLAN_BYTES } = {
   // sentinel pollutes recall_lessons filters. Empty fields are simply
   // not matched. Manual save_to_dataset can add per-module scoping.
   return {
-    name: `plan-${slug}.md`,
+    // `*.plan.md` so the plan-lifecycle machinery (plan-frontmatter-sync /
+    // syncAllPlans) recognises it and keeps its status/progress in sync.
+    name: `${slug}.plan.md`,
     text: fencePlanBody(plan),
     datasetSlot: PLANS_SLOT,
     metadata: { atom_type: "plan", task_type: "planning" },
@@ -150,8 +233,32 @@ async function main() {
       notes.push(`metadata warning: ${result.metadataResult.warning}`);
     }
     if (result?.deleteError) notes.push(`delete error: ${result.deleteError}`);
+
+    // Seed the plans lifecycle: derive status/progress from the captured plan's
+    // checkboxes so a fallback-captured custom plan follows the lifecycle from
+    // the moment of capture. Safe: buildUpdatedFrontmatter spreads existing
+    // keys (the wiki-store leaf frontmatter is preserved), and plan-frontmatter
+    // now stringifies with lineWidth:-1 to match the leaf convention. A plans/
+    // leaf is never moved (only issues-tree plans relocate by lifecycle).
+    // Best-effort; capture already succeeded so this never fails the hook.
+    let lifecycleStatus;
+    try {
+      const relId = result?.created?.document?.id;
+      if (relId) {
+        const leafAbs = path.join(wiki, String(relId).split("/").join(path.sep));
+        const sync = await syncPlanFile(leafAbs, { wikiRoot: wiki });
+        lifecycleStatus = sync?.status;
+        if (sync?.error) notes.push(`lifecycle sync: ${sync.error}`);
+      }
+    } catch (e) {
+      notes.push(`lifecycle sync failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
     const note = notes.length ? ` (${notes.join("; ")})` : "";
-    console.error(`exit-plan-mode.mjs: wrote ${spec.name} to ${spec.datasetSlot}${note}`);
+    console.error(
+      `exit-plan-mode.mjs: wrote ${spec.name} to ${spec.datasetSlot}` +
+        `${lifecycleStatus ? ` [status=${lifecycleStatus}]` : ""}${note}`,
+    );
   } catch (err) {
     if (err instanceof WikiStoreUnavailable) {
       throw new SkipPlanCapture(`wiki store unavailable: ${err.message || err}`);

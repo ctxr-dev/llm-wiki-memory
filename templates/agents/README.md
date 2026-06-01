@@ -56,6 +56,13 @@ returned to every client on `initialize`, and (2) the rule files rendered into `
 and mirrored to `.claude/skills/` and `.cursor/rules/` (with a pointer block appended to
 `AGENTS.md` and `CLAUDE.md`).
 
+Separately from the memory-discipline *skills*, the package also renders **process
+rules** from `templates/rules/*.md` (e.g. `planning-methodology.md`) into
+`.agents/rules/`, **`.claude/rules/`** (auto-loaded by Claude Code as project
+instructions), and `.cursor/rules/`. Process rules go to `.claude/rules/` (not
+`.claude/skills/`) so they govern *every* session. Edit the package template and
+re-run `bootstrap.sh`; never hand-edit a rendered copy.
+
 The **LLM provider** used by capture/compile to extract atoms is independent of the
 client and is set in `.llm-wiki-memory/settings/.env` via `MEMORY_LLM_PROVIDER`
 (`claude` | `codex` | `anthropic` | `openai`).

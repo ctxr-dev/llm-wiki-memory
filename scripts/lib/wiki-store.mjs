@@ -411,7 +411,15 @@ function findByName(categoryAbs, name) {
 // Without this, an arbitrary name produces a non-kebab `id`/filename that
 // fails `skill-llm-wiki validate`.
 export function normalizeLeafName(name) {
-  const raw = String(name || "").trim().replace(/\.md$/i, "");
+  // Preserve the `.plan.md` compound extension so facet-placed plan leaves keep
+  // the suffix the plan-lifecycle machinery (syncAllPlans / plan-frontmatter-sync)
+  // keys on. Without this, the stem slugify below folds `.plan` into `-plan` and
+  // the leaf is no longer recognised as a plan (so its lifecycle never syncs).
+  const isPlan = /\.plan\.md$/i.test(String(name || ""));
+  const raw = String(name || "")
+    .trim()
+    .replace(/\.plan\.md$/i, "")
+    .replace(/\.md$/i, "");
   const stem =
     raw
       .toLowerCase()
@@ -420,7 +428,9 @@ export function normalizeLeafName(name) {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/-+/g, "-")
       .replace(/^-+|-+$/g, "") || "untitled";
-  return { name: `${stem}.md`, id: stem };
+  return isPlan
+    ? { name: `${stem}.plan.md`, id: `${stem}.plan` }
+    : { name: `${stem}.md`, id: stem };
 }
 
 // Filesystem-safe leaf name that PRESERVES CASE. Used when a caller supplies

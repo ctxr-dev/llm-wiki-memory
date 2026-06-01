@@ -145,6 +145,20 @@ if [ -d "$SRC_DIR/templates/skills" ]; then
   log "Rendered memory rules to .agents/rules, .claude/skills, and .cursor/rules."
 fi
 
+# --- render process-rule files (e.g. planning methodology) to rule surfaces ---
+# Distinct from the skills render above: process rules belong on .claude/RULES
+# (auto-loaded by Claude Code as project instructions), not .claude/skills.
+if [ -d "$SRC_DIR/templates/rules" ]; then
+  for dest in "$WORKSPACE_DIR/.agents/rules" "$WORKSPACE_DIR/.claude/rules" "$WORKSPACE_DIR/.cursor/rules"; do
+    mkdir -p "$dest"
+    # Plain copy (no placeholder substitution). Quoted glob expands per file.
+    for f in "$SRC_DIR"/templates/rules/*.md; do
+      [ -e "$f" ] && cp "$f" "$dest/"
+    done
+  done
+  log "Rendered process rules to .agents/rules, .claude/rules, and .cursor/rules."
+fi
+
 # --- pointer block in AGENTS.md and CLAUDE.md (idempotent, marker-fenced) ---
 POINTER_CONTENT="$(cat <<'EOF'
 ## Project memory (llm-wiki-memory)
@@ -152,6 +166,10 @@ POINTER_CONTENT="$(cat <<'EOF'
 Project memory is available through the local `llm-wiki-memory` MCP server.
 The memory discipline rules live in `.agents/rules/` (also mirrored to
 `.claude/skills/`). Read them before doing non-trivial work.
+
+Cross-tool **process rules** (e.g. the planning methodology) live in
+`.claude/rules/` (Claude Code auto-loads them), mirrored to `.agents/rules/`
+and `.cursor/rules/`.
 
 Key tools:
 - `recall_lessons`: call BEFORE starting any non-trivial work.

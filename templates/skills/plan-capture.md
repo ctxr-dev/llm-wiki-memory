@@ -17,14 +17,14 @@ For the broader "save to memory / wiki vs local file" decision, see the routing 
 
 The project ships a `PostToolUse` hook (`scripts/hooks/exit-plan-mode.mjs`, invoked via the `exit-plan-mode.sh` wrapper) keyed on the `ExitPlanMode` matcher. When you exit plan mode and the user approves the plan (`tool_response.approved === true`: the explicit "Approve" click in Claude Code, distinct from "Reject" or letting the prompt time out), the hook:
 
-1. Reads `tool_input.plan` (the plan markdown).
+1. Resolves the plan markdown across Claude Code versions: `tool_input.plan` (back-compat) → the newest `~/.claude/plans/*.md` scratch file (current CC, v2.0.51+, writes the plan to that file and leaves `tool_input.plan` empty) → a `transcript_path` scan (last resort).
 2. Extracts the title from the first H1 (or the first non-empty line, capped at 80 chars).
-3. Slugifies the title and upserts `plan-<slug>.md` into the `plans` category via the same upsert-by-name path `save_to_dataset` uses (create-or-replace by exact name as a single wiki leaf, plus the metadata write into that leaf's frontmatter; one MCP-equivalent operation).
-4. Tags the leaf with `atom_type=plan`, `task_type=planning`. (`project_module` is intentionally omitted, not set to `unknown`, so it doesn't pollute downstream metadata filters.)
+3. Slugifies the title and upserts `<slug>.plan.md` into the `plans` category (upsert-by-name, single wiki leaf). The `.plan.md` suffix is preserved through `normalizeLeafName` and is what the plan-lifecycle machinery keys on.
+4. Tags the leaf `atom_type=plan`, `task_type=planning`, and seeds lifecycle frontmatter (`status`/`progress` from the plan's checkboxes) via `syncPlanFile` so the capture follows the plans lifecycle immediately. (`project_module` is intentionally omitted so it doesn't pollute downstream metadata filters.)
 
 Iterating on the SAME plan title overwrites the SAME wiki leaf: no duplicates accumulate. The hook skips cleanly (exit 0) with a stderr message on rejection (`approved !== true`), empty plans, or any wiki write failure.
 
-You do NOT need to manually save approved plans. The hook handles it.
+You do NOT need to manually save approved plans. The hook handles it. For a **tracker-bound** plan (a Jira/Linear/GitHub issue exists), promote the capture to the `issues` tree (`save_to_dataset(dataset="issues", …)`) and disable/delete this `plans/` copy — see the planning-methodology rule's *routing precedence*.
 
 ## When to save manually
 
@@ -62,7 +62,7 @@ After approving a plan, you have two breadcrumbs:
 
 1. **Stderr from the hook** (visible in your client's hook-output channel; in Claude Code it appears in the agent transcript):
    ```
-   exit-plan-mode.mjs: wrote plan-<slug>.md to plans
+   exit-plan-mode.mjs: wrote <slug>.plan.md to plans [status=pending]
    ```
    If you see `skipped (...)` instead, the reason is in the parens. Common reasons: `not-approved`, `empty-plan`, `plan-too-large`, `disabled via MEMORY_HOOK_EXITPLANMODE_DISABLE=true`, or a wiki write failure (run `node .llm-wiki-memory/src/scripts/cli.mjs validate` to check the wiki is healthy; if the MCP server is not registered, see `./.llm-wiki-memory/src/scripts/mcp-config.sh <client>` or re-run `./.llm-wiki-memory/src/bootstrap.sh`).
 2. **A retrieval check** (no UI to open): call `search_memory({ query: "<plan title>", datasets: ["plans"], filters: { atom_type: "plan" } })` and assert at least one hit named `plan-<slug>.md`. `recall_lessons` works too. Iterating on the same titled plan overwrites the same leaf in place (no duplicates accumulate). If a save reports `metadataOk: false`, metadata lives directly in the leaf frontmatter (no separate schema-install step), so simply re-run the save.

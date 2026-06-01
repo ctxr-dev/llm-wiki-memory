@@ -94,7 +94,11 @@ export function applyFrontmatterUpdate(planText, { flips, now } = {}) {
     flips,
     now,
   });
-  const newText = matter.stringify(parsed.content, newData);
+  // lineWidth:-1 disables js-yaml's 80-col scalar folding. wiki-store leaves
+  // carry long `covers`/`focus` scalars; folding them into block scalars (`>-`)
+  // breaks skill-llm-wiki's line-by-line frontmatter index parser. Match the
+  // wiki-store stringifyLeaf convention so the two compose on a shared leaf.
+  const newText = matter.stringify(parsed.content, newData, { lineWidth: -1 });
   const changed = newText !== planText;
   return {
     text: newText,
