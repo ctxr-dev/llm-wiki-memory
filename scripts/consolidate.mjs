@@ -78,10 +78,14 @@ import { health as llmHealth, LLMProviderUnavailable, LLMOutputInvalid } from ".
 // disableDocument miss, and (on a destination collision) leaving a DUP-ID.
 // Pinning to the leaf's own directory keeps the stamp a pure in-place rewrite.
 function stampLeafMetadata(documentId, metadata) {
+  // Pin to the leaf's own directory. `dirname` returns "." for a bare filename;
+  // no real leaf lives at the wiki root, but guard anyway so the override (which
+  // rejects "."/empty) never throws — fall back to an unpinned in-place update.
+  const dir = path.posix.dirname(documentId);
   return updateDocMetadata({
     documentId,
     metadata,
-    placementOverride: path.posix.dirname(documentId),
+    placementOverride: dir && dir !== "." ? dir : undefined,
   });
 }
 

@@ -86,10 +86,10 @@ function findDuplicateIds(root) {
 
 // ─── wiki-store.updateDocMetadata (the layer-1 fix) ──────────────────────────
 
-test("updateDocMetadata consolidates a same-id path collision into ONE leaf (no DUP-ID)", () => {
+test("updateDocMetadata refuses a relocation collision instead of clobbering a different leaf", () => {
   const seed = store.saveDocument({
     name: "dupcheck-collide-2026-06-01-000000000.md",
-    text: "# Collide\n\nA leaf whose canonical path is general/ but a stale copy also sits one level up.",
+    text: "CANONICAL BODY — the leaf already living at the canonical general/ path.",
     datasetId: "knowledge",
     metadata: { atom_type: "pattern-gotcha", area: "backend", project_module: "testproj" },
   });
@@ -97,22 +97,33 @@ test("updateDocMetadata consolidates a same-id path collision into ONE leaf (no 
   assert.ok(canonicalId.includes("/general/"), `seeded at canonical general/ path (got ${canonicalId})`);
   const legacyId = canonicalId.replace("/general/", "/");
 
-  // Stage the collision: the SAME leaf (same basename => same id) also sits at
-  // the legacy parent path, as a within-run double-merge would have left it.
+  // A DIFFERENT leaf that happens to share the basename (ids derive from the
+  // basename, so the two share an id) sits at the legacy parent path. Give it a
+  // distinct body so a clobber would be observable as data loss.
   fs.copyFileSync(absFor(canonicalId), absFor(legacyId));
-  assert.ok(exists(canonicalId) && exists(legacyId), "collision staged (same id at two paths)");
+  const legacyAbs = absFor(legacyId);
+  const legacyData = matter(fs.readFileSync(legacyAbs, "utf8")).data;
+  fs.writeFileSync(
+    legacyAbs,
+    matter.stringify("\nLEGACY BODY — a different leaf that must not be destroyed.\n", legacyData, { lineWidth: -1 }),
+  );
 
-  // Stamp the legacy copy. Its canonical dir (general/) is occupied. Pre-fix
-  // this fell back to an in-place rewrite and LEFT BOTH files (DUP-ID).
+  const canonicalBefore = fs.readFileSync(absFor(canonicalId), "utf8");
+  const legacyBefore = fs.readFileSync(legacyAbs, "utf8");
+
+  // Stamping the legacy leaf recomputes its canonical placement (general/),
+  // which is occupied. It must REFUSE, not clobber, and not half-apply.
   const r = store.updateDocMetadata({
     documentId: legacyId,
     metadata: { consolidated_at: "2026-06-03T00:00:00Z" },
   });
-  assert.equal(r.ok, true);
+  assert.equal(r.ok, false, "refused the colliding relocation");
+  assert.match(r.reason || "", /occupied by a different leaf/);
+  assert.equal(fs.readFileSync(absFor(canonicalId), "utf8"), canonicalBefore, "canonical destination leaf untouched");
+  assert.equal(fs.readFileSync(legacyAbs, "utf8"), legacyBefore, "legacy source leaf untouched (no half-applied write)");
 
-  assert.equal(exists(legacyId), false, "stale legacy-path copy removed");
-  assert.equal(exists(canonicalId), true, "canonical copy retained");
-  assert.deepEqual(findDuplicateIds(wiki), [], "no duplicate ids remain");
+  // Clean up the staged duplicate so the shared wiki stays single-id for later tests.
+  fs.rmSync(legacyAbs);
 });
 
 test("updateDocMetadata with placementOverride pins the leaf in place (no relocation)", () => {

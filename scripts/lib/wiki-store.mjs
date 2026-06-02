@@ -883,13 +883,22 @@ export function updateDocMetadata({ datasetId, documentId, metadata, placementOv
   if (newDir && newDir !== curDir) {
     const newRel = `${newDir}/${rel[rel.length - 1]}`;
     const newAbs = toAbs(newRel);
+    // Relocating to a new facet path. If a DIFFERENT leaf already occupies the
+    // destination (a cross-facet basename duplicate; leaf ids derive from the
+    // basename, so the two would share an id), refuse rather than touch it: a
+    // blind overwrite would destroy the destination leaf, and the old in-place
+    // fallback left BOTH files behind as a DUP-ID. This mirrors saveDocument's
+    // relocation guard so both write paths share ONE collision policy.
+    // (consolidate never reaches this branch — it pins every metadata stamp to
+    // the leaf's own dir via stampLeafMetadata, so newDir === curDir there.)
+    if (fs.existsSync(newAbs)) {
+      return {
+        ok: false,
+        reason: `destination ${newRel} is occupied by a different leaf; refusing to overwrite`,
+        conflict: { existing: documentId, destination: newRel },
+      };
+    }
     fs.mkdirSync(path.dirname(newAbs), { recursive: true });
-    // A pre-existing destination has the SAME basename, hence the SAME leaf id
-    // (ids derive from the filename), so it can only be a stale duplicate of
-    // THIS leaf. Consolidate onto the single canonical path — write the updated
-    // leaf at the destination and remove the source — rather than falling back
-    // to an in-place rewrite that LEFT BOTH files, which surfaced as a DUP-ID
-    // after consolidate relocations.
     fs.writeFileSync(newAbs, rendered);
     fs.rmSync(abs, { force: true });
     renameEmbedding(documentId, newRel);
