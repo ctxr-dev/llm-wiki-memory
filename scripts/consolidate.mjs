@@ -68,6 +68,23 @@ import { ensureIndexes } from "./lib/wiki-cli.mjs";
 import { callJSON } from "./lib/llm-callJSON.mjs";
 import { health as llmHealth, LLMProviderUnavailable, LLMOutputInvalid } from "./lib/llm.mjs";
 
+// Stamp non-facet bookkeeping (consolidated_at / stale / last_refreshed_at /
+// supersedes_id) onto a leaf WITHOUT relocating it. consolidate never changes a
+// leaf's placement facets, so the leaf must stay at its current path: an
+// unpinned updateDocMetadata recomputes the canonical placement and, for a leaf
+// already sitting off-canonical (e.g. a legacy pre-subject-axis path), would
+// relocate it as a side effect — silently changing a merge keeper's documentId
+// (breaking the supersedes_id we stamp on its loser), making a follow-up
+// disableDocument miss, and (on a destination collision) leaving a DUP-ID.
+// Pinning to the leaf's own directory keeps the stamp a pure in-place rewrite.
+function stampLeafMetadata(documentId, metadata) {
+  return updateDocMetadata({
+    documentId,
+    metadata,
+    placementOverride: path.posix.dirname(documentId),
+  });
+}
+
 // The set of categories the consolidate orchestrator walks is now declared
 // EXPLICITLY in the layout YAML (per-category `consolidate: refine|none`).
 // No defaults — every category must say which side it's on. The orchestrator
@@ -516,10 +533,7 @@ async function llmMergeNearDuplicates({ candidates, ctx, now, dryRun }) {
               metadata: keeperMem,
               placementOverride: keeperDir,
             });
-            updateDocMetadata({
-              documentId: keeper.documentId,
-              metadata: { consolidated_at: toIso(now) },
-            });
+            stampLeafMetadata(keeper.documentId, { consolidated_at: toIso(now) });
             report.merged++;
           } catch (err) {
             report.errors++;
@@ -679,10 +693,7 @@ async function llmSemanticRefresh({ ctx, now, dryRun }) {
 
     try {
       if (decision.action === "keep") {
-        updateDocMetadata({
-          documentId: leaf.documentId,
-          metadata: { stale: decision.stale_after === true },
-        });
+        stampLeafMetadata(leaf.documentId, { stale: decision.stale_after === true });
         report.touched++;
       } else if (decision.action === "rewrite") {
         let body = String(decision.rewritten_body || "");
@@ -702,20 +713,14 @@ async function llmSemanticRefresh({ ctx, now, dryRun }) {
           metadata: leaf.memory || {},
           placementOverride: leafDir,
         });
-        updateDocMetadata({
-          documentId: leaf.documentId,
-          metadata: {
-            stale: false,
-            last_refreshed_at: toIso(now),
-            consolidated_at: toIso(now),
-          },
+        stampLeafMetadata(leaf.documentId, {
+          stale: false,
+          last_refreshed_at: toIso(now),
+          consolidated_at: toIso(now),
         });
         report.refreshed++;
       } else if (decision.action === "archive") {
-        updateDocMetadata({
-          documentId: leaf.documentId,
-          metadata: { consolidated_at: toIso(now) },
-        });
+        stampLeafMetadata(leaf.documentId, { consolidated_at: toIso(now) });
         disableDocument({ documentId: leaf.documentId });
         ctx.flaggedRefreshArchives = ctx.flaggedRefreshArchives || [];
         ctx.flaggedRefreshArchives.push({
@@ -769,12 +774,9 @@ function finalizeMergeCandidates({ candidates, ctx, now, dryRun }) {
         );
         continue;
       }
-      updateDocMetadata({
-        documentId: loser.documentId,
-        metadata: {
-          supersedes_id: keeper.documentId,
-          consolidated_at: toIso(now),
-        },
+      stampLeafMetadata(loser.documentId, {
+        supersedes_id: keeper.documentId,
+        consolidated_at: toIso(now),
       });
       disableDocument({ documentId: loser.documentId });
       report.archived++;
@@ -820,10 +822,10 @@ function stalenessFlag({ ctx, now, dryRun }) {
     const last = m.last_recalled_at || leaf.frontmatter?.updated || null;
     const stale = ageInMonths(last, now) > months;
     if (stale && m.stale !== true) {
-      if (!dryRun) updateDocMetadata({ documentId: leaf.documentId, metadata: { stale: true } });
+      if (!dryRun) stampLeafMetadata(leaf.documentId, { stale: true });
       report.touched++;
     } else if (!stale && m.stale === true) {
-      if (!dryRun) updateDocMetadata({ documentId: leaf.documentId, metadata: { stale: false } });
+      if (!dryRun) stampLeafMetadata(leaf.documentId, { stale: false });
       report.touched++;
     }
   }
@@ -900,10 +902,7 @@ function pruneOrphanLeaves({ ctx, now, dryRun }) {
       continue;
     }
     try {
-      updateDocMetadata({
-        documentId: leaf.documentId,
-        metadata: { consolidated_at: toIso(now) },
-      });
+      stampLeafMetadata(leaf.documentId, { consolidated_at: toIso(now) });
       disableDocument({ documentId: leaf.documentId });
       ctx.touchedThisRun.add(leaf.documentId);
       report.archived++;
