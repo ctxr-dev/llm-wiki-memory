@@ -16,7 +16,8 @@ The same capture / compile / recall loop and self-improvement behaviour you'd ge
 [![recall](https://img.shields.io/badge/recall-bge_embeddings-FF6F00)](https://huggingface.co/Xenova/bge-large-en-v1.5)
 [![infra](https://img.shields.io/badge/infra-no_Docker_·_no_RAG-success)](#)
 [![built on](https://img.shields.io/badge/built_on-%40ctxr%2Fskill--llm--wiki-1f6feb)](https://github.com/ctxr-dev/skill-llm-wiki)
-[![tests](https://img.shields.io/badge/tests-676_passing-brightgreen)](#testing)
+[![tests](https://img.shields.io/badge/tests-679_passing-brightgreen)](#testing)
+[![github stars](https://img.shields.io/github/stars/ctxr-dev/llm-wiki-memory?style=flat&logo=github&logoColor=white&color=yellow&label=stars)](https://github.com/ctxr-dev/llm-wiki-memory/stargazers)
 
 </div>
 
@@ -185,6 +186,51 @@ Why each pass:
 | `prune-orphan-leaves` | Leaves with no inbound link and no recall hits in a year contribute noise to recall. Archive (reversibly). |
 | `compress-archived` | An archived body sitting in git forever is dead weight; truncate to the gist + footer pointing at the original sha256 in frontmatter. |
 | `prune-empty-ancestors` / `gc-embeddings` / `index-rebuild` | Structural hygiene. Empty dirs, orphan embedding-cache entries, ancestor `index.md` regens. |
+
+### Keeping knowledge accurate as your code drifts
+
+A memory store that only ever GROWS becomes a graveyard. Bug root-causes get fixed permanently. Feedback rules get reversed. Pattern-gotchas survive an API rename and start pointing at functions that no longer exist. Without a way to revisit aged knowledge, recall starts surfacing leaves that contradict the current codebase — and your agent confidently gives advice that was correct two quarters ago.
+
+`consolidate`'s answer is a deliberate two-step pipeline. The cheap deterministic step nominates candidates; the expensive LLM step judges them.
+
+```mermaid
+flowchart TD
+    A["all active leaves in<br/>refine-eligible categories"]
+    A --> B{"atom_type eligible<br/>(self-improvement-lesson / bug-root-cause /<br/>feedback-rule / pattern-gotcha)<br/>AND last_recalled_at &gt; N months?"}
+    B -- "no" --> SKIP["leave as-is"]
+    B -- "yes (deterministic, ~1ms/leaf)" --> F["memory.stale = true<br/>(reversible — clears on next recall)"]
+    F --> CAP{"first N of stale-flagged<br/>(sorted by last_recalled_at desc;<br/>cap = MEMORY_CONSOLIDATE_REFRESH_MAX_PER_RUN)"}
+    CAP -- "overflow" --> CARRY["carries to next hourly tick"]
+    CAP -- "within cap" --> LLM["LLM reads leaf body<br/>+ current similarity cluster<br/>(local embeddings provide the cluster)"]
+    LLM --> K["keep: still relevant<br/>→ clear stale flag"]
+    LLM --> R["rewrite: rule still applies,<br/>specifics drifted<br/>→ replace body, stamp last_refreshed_at"]
+    LLM --> AR["archive: obsolete<br/>→ status:archived, reversible via enable_document"]
+    LLM --> FB["fallback (provider unreachable<br/>or schema invalid after retries)<br/>→ leave flag, retry next tick"]
+```
+
+**Step 1 — staleness-flag (deterministic).** Pure file-metadata rule: atom_type in the eligible set + `max(last_recalled_at, frontmatter.updated)` older than `MEMORY_CONSOLIDATE_STALE_AFTER_MONTHS` (default 6). No LLM, no body inspection — just a flag. It also flips OFF: a single recall hit on a previously-stale leaf clears the flag on the next run, so freshly-relevant content un-flags itself automatically.
+
+**Step 2 — llm-semantic-refresh (LLM, capped, runs on the stale-flagged subset only).** For each candidate, the LLM sees the leaf's body, its frontmatter, and a small bundle of *currently-active* leaves on the same topic (the similarity cluster — pulled via local embeddings, no network). It returns one of four verdicts:
+
+| Verdict | What happens | When the LLM picks this |
+| --- | --- | --- |
+| **keep** | `memory.stale` cleared; body untouched. | The content is still factually correct; the staleness flag was a false positive (low recall ≠ low relevance). The reset means the next 6-month window restarts cleanly. |
+| **rewrite** | Body replaced with the LLM's synthesis; `memory.last_refreshed_at` stamped; `memory.stale` cleared. | The rule still applies but specifics drifted — file paths renamed, library upgraded, API moved, dependency replaced. The lesson survives; the references update. |
+| **archive** | `disableDocument` — `memory.status: archived`, `memory.consolidated_at` stamped. File stays on disk + in git for recovery. | The bug got fixed permanently. The convention was reversed. The gotcha became obsolete after a refactor. Reversible at any time via `enable_document`. |
+| **fallback** | The flag persists; the next hourly cron tick retries. | The LLM provider is unreachable, the response didn't satisfy the schema after `MEMORY_CONSOLIDATE_LLM_MAX_RETRIES` attempts, or the model hallucinated the leaf id. Bias is always toward NOT destroying content. |
+
+**Why an LLM, and not a deterministic rule?** The flag is structural ("when was this leaf last touched?"); the verdict is semantic ("is what this leaf SAYS still true?"). No deterministic rule can read a `bug-root-cause` body and decide whether the bug was fixed in v1.4.2; no rule can tell that a `pattern-gotcha` about an `apply` factory still applies after a team-wide migration to `def resource(...)` smart constructors. Reading the leaf body **in current context** and producing a *trinary* decision (keep / rewrite / archive) is exactly the kind of judgment an LLM does well — and exactly what a deterministic policy can't reach without becoming either too aggressive ("archive everything aged" — loses live knowledge) or too timid ("never touch anything" — the wiki ages into noise).
+
+**Why capped per run?** `MEMORY_CONSOLIDATE_REFRESH_MAX_PER_RUN` (default 25) bounds the LLM call budget per hourly tick. A corpus with 100 stale-flagged leaves makes 25 calls this hour, 25 the next, and so on — steady progress without billing surprises. Recently-recalled leaves are processed first (they're more likely to be load-bearing in active work), so the budget always lands on the highest-leverage candidates.
+
+**Why opt-out exists.** Set `MEMORY_CONSOLIDATE_LLM_PASSES=off` to keep the deterministic flag but skip the LLM verdict. The flag still gets set; nothing acts on it. Useful for cost-sensitive setups, sealed environments, or running consolidate purely for dedup + housekeeping. You can flip it back on later — the flags accumulated in the meantime become this-run's working set.
+
+**Net effect on the wiki's shape.**
+- Recall keeps finding **correct, current** advice instead of two-year-old reruns.
+- Leaf count plateaus instead of growing forever (archives count toward "compressed", not "live").
+- Knowledge that's still right is left alone (`keep`); knowledge that drifted is updated in place (`rewrite`); knowledge that's obsolete moves out of the active set (`archive`) but stays recoverable.
+- Every change is reversible — the wiki is its own git repo, and `consolidate` uses `disableDocument` exclusively. There is no `deleteDocument` path inside the orchestrator; the user is the only one who can hard-delete, and only via the explicit MCP tool.
+- The next hourly tick reads the now-cleaner corpus, so the cluster quality for dedup + refresh **compounds**: less noise to dedup against, sharper similarity scores, fewer false positives, more confident verdicts.
 
 ### Layout decides which trees are eligible
 
