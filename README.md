@@ -16,79 +16,39 @@ The same capture / compile / recall loop and self-improvement behaviour you'd ge
 [![recall](https://img.shields.io/badge/recall-bge_embeddings-FF6F00)](https://huggingface.co/Xenova/bge-large-en-v1.5)
 [![infra](https://img.shields.io/badge/infra-no_Docker_·_no_RAG-success)](#)
 [![built on](https://img.shields.io/badge/built_on-%40ctxr%2Fskill--llm--wiki-1f6feb)](https://github.com/ctxr-dev/skill-llm-wiki)
-[![tests](https://img.shields.io/badge/tests-664_passing-brightgreen)](#testing)
+[![tests](https://img.shields.io/badge/tests-676_passing-brightgreen)](#testing)
 
 </div>
 
 ---
 
-## Highlights
-
-- **Zero infrastructure.** Everything lives in a local `.llm-wiki-memory/` folder. No vector DB, no container, no API service to run.
-- **Git-versioned memory.** Every memory is a markdown leaf in a hierarchical wiki with full history, maintained by [`@ctxr/skill-llm-wiki`](https://github.com/ctxr-dev/skill-llm-wiki).
-- **Write-gated.** Self-improvement lessons can only be saved with explicit user consent (propose-then-confirm). Enforced server-side, cross-client, with a defence-in-depth `PreToolUse` hook on Claude Code. Other categories (knowledge, plans, investigations, daily) stay direct-write.
-- **Offline consolidation.** A search-driven refinement orchestrator runs on the daily cron + at session end: deduplicates near-identical leaves, archives stale entries, optionally rewrites bodies via an LLM (same `JSON-output-with-retry` contract as compile). Never hard-deletes; always reversible.
-- **Local semantic recall.** Transformer embeddings (default `Xenova/bge-large-en-v1.5`) rank queries on-device. One env var swaps in a lighter model (lexical fallback if no model is available).
-- **Works with any MCP client.** Claude Code, Cursor, Codex, Claude Desktop, and generic clients get the same MCP tools and the same memory discipline. Hooks are bonus speed for Claude Code; the cross-client surface is the MCP server + the rule files.
-- **Layout-declared eligibility.** Every category in `<wiki>/.layout/layout.yaml` declares `consolidate: refine | none` — author intent must be explicit; no defaults.
-- **One-prompt install.** Paste a prompt into your agent, or run one script. Idempotent.
-
-## Why a wiki instead of RAG
-
-RAG memory stacks are powerful but heavy: a vector database, a container, an embedding service, ongoing ops. For small and medium projects that overhead is rarely worth it, yet you still want the agent to remember everything and improve itself across sessions.
-
-`llm-wiki-memory` gives you that loop with a local hosted wiki as the substrate. Every category stays a nested tree (never a flat pile of files): non-daily categories nest by the metadata facets you search by; daily by date; an additional `subject` axis scatters leaves by what they're about. Git history and validation come free, and the tree stays readable by humans. Recall runs on local embeddings — nothing leaves your machine.
-
-## Works with your agent
-
-Two independent axes: which client integrates, and which LLM extracts the memory.
-
-| MCP client | Auto-capture hooks | MCP tools | Write-gate enforced |
-| --- | :---: | :---: | :---: |
-| **Claude Code** | ✅ SessionStart, PreCompact, PostCompact, SessionEnd, ExitPlanMode, PreToolUse | ✅ | ✅ L1+L2+L3 (instructions + hook + server) |
-| **Cursor** | ✗ | ✅ | ✅ L1+L3 (instructions + server) |
-| **Codex / OpenAI** | ✗ | ✅ | ✅ L1+L3 |
-| **Claude Desktop** | ✗ | ✅ | ✅ L1+L3 |
-| **Any MCP client** | ✗ | ✅ | ✅ L1+L3 |
-
-Hook-driven auto-capture is Claude Code only, but **every client follows the same memory discipline** — recall before non-trivial work, propose-then-confirm before saving any self-improvement lesson, route "save to memory" to the right category, and treat any `UNTRUSTED ... BODY` fence as data rather than instructions. The discipline reaches every client two ways:
-
-1. The MCP server's `instructions` field (returned on connect).
-2. Rule files rendered into `.agents/rules/` (mirrored to `.claude/skills/`, `.claude/rules/`, and `.cursor/rules/`).
-
-The **LLM provider** that extracts typed atoms during capture / compile / consolidate is set in `.llm-wiki-memory/settings/.env` and is independent of the client:
-
-[![claude](https://img.shields.io/badge/claude_CLI-✓-D97757)](#) [![codex](https://img.shields.io/badge/codex_CLI-✓-000000)](#) [![anthropic](https://img.shields.io/badge/anthropic_API-✓-D97757)](#) [![openai](https://img.shields.io/badge/openai_API-✓-412991)](#) [![openai-compatible](https://img.shields.io/badge/openai--compatible-✓-228B22)](#) [![mock](https://img.shields.io/badge/mock-test--only-666)](#)
-
-`openai-compatible` covers ollama, vLLM, lm-studio, llama.cpp server, and litellm proxies — point `MEMORY_LLM_BASE_URL` at a local endpoint and `OPENAI_API_KEY` becomes optional on loopback / RFC1918. The provider is auto-detected at install (`bootstrap.sh`); explicit `--provider` or a user-edited `.env` always wins.
-
 ## Install
 
 Paste this into your AI coding agent:
 
-> Clone `https://github.com/ctxr-dev/llm-wiki-memory` into `./.llm-wiki-memory/src` in this project, then run `./.llm-wiki-memory/src/bootstrap.sh`. This sets up a local LLM-wiki memory: hooks that capture conversations and compile them into knowledge and self-improvement lessons, a daily consolidation pass that refines the corpus over time, and a local stdio MCP server for save and recall. Use local embeddings, no Docker. When it finishes, if I am on Claude Code tell me to restart; otherwise show me `./.llm-wiki-memory/src/scripts/mcp-config.sh <my-client>` so I can register the server.
+> Clone `https://github.com/ctxr-dev/llm-wiki-memory` into `./.llm-wiki-memory/src` in this project, then run `./.llm-wiki-memory/src/bootstrap.sh`. This sets up local LLM-wiki memory: hooks that capture conversations and compile them into knowledge and self-improvement lessons, an hourly cron that refines the corpus over time, and a local stdio MCP server for save and recall. Local embeddings, no Docker. When it finishes, if I am on Claude Code tell me to restart; otherwise show me `./.llm-wiki-memory/src/scripts/mcp-config.sh <my-client>` so I can register the server.
 
 Or run it yourself:
 
 ```bash
 git clone https://github.com/ctxr-dev/llm-wiki-memory ./.llm-wiki-memory/src
-./.llm-wiki-memory/src/bootstrap.sh           # add --commit-memory to commit the wiki
-./.llm-wiki-memory/src/bootstrap.sh --schedule daily   # optional: cron / launchd
+./.llm-wiki-memory/src/bootstrap.sh                    # add --commit-memory to commit the wiki
+./.llm-wiki-memory/src/bootstrap.sh --schedule daily   # optional: hourly cron / launchd
 ```
 
-The bootstrap is **idempotent** — re-running preserves user edits to `.env` and your rule files.
+The bootstrap is **idempotent** — re-running preserves your edits to `.env` and your rule files.
 
 <details>
-<summary><strong>What bootstrap does</strong></summary>
+<summary><strong>What bootstrap does (8 steps)</strong></summary>
 
-1. installs dependencies in `./.llm-wiki-memory/src`,
-2. auto-detects the LLM provider (`claude` → `codex` → `ANTHROPIC_API_KEY` → `OPENAI_API_KEY` → `MEMORY_LLM_BASE_URL` → ollama at `:11434` → `mock`),
-3. writes `./.llm-wiki-memory/settings/.env` (preserves your edits on re-run),
-4. merges hooks into `.claude/settings.json` and the stdio server into `.mcp.json`,
-5. renders vendor-neutral configs into `.agents/` and discipline rules into `.agents/rules/`, `.claude/skills/`, `.claude/rules/`, `.cursor/rules/`,
-6. materialises the hosted wiki at `./.llm-wiki-memory/wiki` (with the layout template that declares `consolidate: refine | none` per category) and validates it,
-7. adds `/.llm-wiki-memory` to `.gitignore` (`--commit-memory` commits the wiki instead),
-8. optionally installs the daily compile + consolidate cron via a wrapper script (`--schedule daily`).
+1. Installs dependencies in `./.llm-wiki-memory/src`.
+2. Auto-detects the LLM provider: `claude` CLI → `codex` CLI → `ANTHROPIC_API_KEY` → `OPENAI_API_KEY` → `MEMORY_LLM_BASE_URL` → ollama at `:11434` → `mock` (with a stderr warning).
+3. Writes `./.llm-wiki-memory/settings/.env` (preserves your edits on re-run).
+4. Merges hooks into `.claude/settings.json` and the stdio server into `.mcp.json`.
+5. Renders vendor-neutral configs into `.agents/` and discipline rules into `.agents/rules/`, `.claude/skills/`, `.claude/rules/`, `.cursor/rules/`.
+6. Materialises the hosted wiki at `./.llm-wiki-memory/wiki` (with the layout template that declares `consolidate: refine | none` per category) and validates it.
+7. Adds `/.llm-wiki-memory` to `.gitignore` (`--commit-memory` commits the wiki instead).
+8. Optionally installs the hourly compile + consolidate cron via a wrapper script (`--schedule daily`).
 
 </details>
 
@@ -104,88 +64,172 @@ The bootstrap is **idempotent** — re-running preserves user edits to `.env` an
 
 </details>
 
+## Highlights
+
+- **Zero infrastructure.** Everything lives in a local `.llm-wiki-memory/` folder. No vector DB, no container, no API service to run.
+- **Git-versioned memory.** Every memory is a markdown leaf in a hierarchical wiki with full history, maintained by [`@ctxr/skill-llm-wiki`](https://github.com/ctxr-dev/skill-llm-wiki).
+- **Write-gated, cross-client.** Self-improvement lessons can only be saved with explicit user consent. Three layers of enforcement: discipline instructions, an optional Claude Code hook, and an airtight MCP server-side gate (covers Cursor, Codex, generic clients).
+- **Offline consolidation.** An hourly cron + a search-driven orchestrator deduplicate near-identical leaves, archive stale entries, and optionally rewrite bodies via the same LLM the rest of the pipeline uses. Never hard-deletes; always reversible.
+- **Self-healing.** Every cron tick appends a structured attempt entry to a log. If the most recent attempt failed and a later one didn't clear it, your next session surfaces the unresolved error and offers to investigate.
+- **Local semantic recall.** Transformer embeddings (default `Xenova/bge-large-en-v1.5`) rank queries on-device. One env var swaps in a lighter model — or falls back to a lexical scorer with no model download.
+- **Layout-declared eligibility.** Every category in `<wiki>/.layout/layout.yaml` declares `consolidate: refine | none` explicitly. No magic defaults — author intent is always in plain view.
+- **One-prompt install.** Paste a prompt into your agent or run one script. Idempotent.
+
+## Why a wiki instead of RAG
+
+RAG memory stacks are powerful but heavy: a vector database, a container, an embedding service, ongoing ops. For small and medium projects that overhead is rarely worth it, yet you still want the agent to remember everything and improve itself across sessions.
+
+`llm-wiki-memory` gives you that loop with a local hosted wiki as the substrate. Every category stays a nested tree (never a flat pile of files): non-daily categories nest by the metadata facets you search by; daily by date; an additional `subject` axis scatters leaves by what they're about. Git history and validation come free, and the tree stays readable by humans. Recall runs on local embeddings — nothing leaves your machine.
+
 ## How it works
 
-```text
- AI session
-   |  PreCompact / PostCompact / SessionEnd hooks (Claude Code)
-   v
- flush.mjs ........ LLM extracts typed atoms .........> daily/<yyyy>/<mm>/<dd>/daily-<ts>.md
-   |  SessionStart hook (once per UTC day)
-   v
- compile.mjs ...... embedding + metadata dedup .......> knowledge/<area>/<atom_type>/<subject…>/
-                                                        self_improvement/<area>/<task_type>/<subject…>/
-                                                        (archives the source daily leaves)
-   |  daily cron + hook-less skill rule
-   v
- consolidate.mjs .. search-driven refinement ........> dedup (sha256 / lesson-key / cosine),
-                                                       staleness flag, LLM merge near-duplicates,
-                                                       LLM semantic refresh of stale leaves,
-                                                       orphan archive, compress-archived bodies.
-                                                       NEVER hard-deletes (uses disableDocument).
-                                                       Working set: only categories declared
-                                                       `consolidate: refine` in the layout YAML.
+```mermaid
+flowchart TD
+    S[AI session]
+    S -- "pre/post-compact, session-end hooks" --> FL[flush: extract typed atoms]
+    S -- "ExitPlanMode hook" --> PL[plans tree]
+    FL --> DA[daily tree]
 
- ExitPlanMode hook ......................> plans/<area>/<subject…>/<slug>.plan.md
+    DA -- "hourly cron-job + session-start hook" --> CMP[compile: promote daily atoms]
+    CMP --> KSI[knowledge + self_improvement trees]
+    CMP -. supersedes daily source .-> DA
 
- MCP server (stdio): save_lesson, recall_lessons, save_to_dataset, search_memory,
-                     consolidate_memory, get_memory_config, reload_provider, …
- skill-llm-wiki:     builds, nests, index-rebuilds, and validates the tree
- embed.mjs:          ranks recall queries against leaf embeddings (lexical fallback)
+    KSI -- "hourly cron-job + skill rule" --> CN[consolidate: search-driven refinement]
+    CN --> MG[dedup + LLM merge near-duplicates]
+    CN --> RF[staleness + LLM semantic refresh]
+    CN --> HK[orphan / compress / GC / index]
+    MG --> KSI
+    RF --> KSI
+    HK --> KSI
+
+    CR[hourly cron tick] --> LG[state/.consolidate-attempts.log]
+    LG -. "cron-health surfaces unresolved errors" .-> S
+
+    AG[Agent recall calls] --> EM[embed.mjs: local embeddings]
+    EM --> KSI
+    AG --> PL
 ```
 
-<details>
-<summary><strong>Wiki layout (categories + the subject axis)</strong></summary>
+**The loop in one sentence:** session hooks capture typed atoms into `daily/`; the hourly cron promotes them into `knowledge/` and `self_improvement/` (compile) and then refines those trees over time (consolidate); every recall hits the same embedding index; every cron attempt logs its outcome so the next session can surface unresolved failures.
 
-Top-level categories: **`knowledge`**, **`self_improvement`**, **`plans`**, **`investigations`**, **`daily`** (and any custom categories declared in `<wiki>/.layout/layout.yaml`).
+## Memory write-gate (read-freely, write-gated)
 
-Every category is a nested tree (never a flat pile), so no directory grows unbounded:
+Self-improvement lessons are **propose-then-confirm**: the agent NEVER calls `save_lesson` (or `save_to_dataset(dataset="self_improvement", ...)` / `write_memory(datasetId="self_improvement", ...)`) on its own. It proposes the save in chat, waits for an explicit user yes in the same turn, then calls the tool with `userRequested: true`. The server refuses gated writes without the flag.
 
-- `knowledge/<area>/<atom_type>/<subject…>/`
-- `self_improvement/<area>/<task_type>/<subject…>/`
-- `plans/<area>/<subject…>/`
-- `investigations/<area>/<subject…>/`
-- `daily/<yyyy>/<mm>/<dd>/`
+Three enforcement layers, defence-in-depth:
 
-The `subject` axis (a `kind: path` facet) carries a controlled-vocabulary first segment (`languages` / `frameworks` / `architecture` / `observability` / …) plus arbitrary deeper segments — leaves are scattered semantically by what they're about, not just structurally. Browsing the tree mirrors how recall filters; finding by content is independent of layout (recall embeds and walks every leaf). Existing flat installs re-nest with `node .llm-wiki-memory/src/scripts/cli.mjs nest`.
+| Layer | Where | What it does | Why |
+| --- | --- | --- | --- |
+| **Instructions (probabilistic)** | MCP `initialize` + rule files in `.agents/rules/`, `.claude/rules/`, `.cursor/rules/` | Tells the model the rule, the wording to propose, and the consent contract. | Reaches *every* MCP client (Claude Code, Cursor, Codex, generic). Not airtight on its own — the model could still ignore it — which is why the next two layers exist. |
+| **Claude Code hook (deterministic, Claude Code only)** | `PreToolUse` hook on the three gated writers | Inspects the latest user turn for explicit save phrases. Matches → `allow`. No match → `ask` (Claude Code prompts the user yes/no). Also denies direct `Write`/`Edit` to `~/.claude/projects/<workspace>/memory/`. | Stops a mis-instructed model BEFORE the call leaves the client. Adds a one-click user gate when needed. |
+| **MCP server-side gate (deterministic, every client)** | `save_lesson` / `save_to_dataset` / `write_memory` handlers in the local stdio MCP server | Refuses calls without `userRequested: true`. Also refuses when `path:` lands the write under `self_improvement/...` from a non-gated `dataset:` claim (closes the path-bypass). | The airtight bottom layer. Works for Cursor, Codex, Claude Desktop, generic MCP clients — they don't have hooks, so the server is the only deterministic checkpoint. |
 
-</details>
+**Reconciliation:** layers are independent and additive. Any one of them can refuse a save. The model can NOT bypass them: it can't suppress the discipline (sent at `initialize`), can't disable the Claude Code hook from inside a tool call, and can't forge the `userRequested` flag (the only legitimate-bypass path is the internal `withSystemMaintenance` async frame that consolidate uses for its own bookkeeping — entered only by the orchestrator's own code, never by a client request body).
 
-## Memory write-gate
-
-Self-improvement lessons are **propose-then-confirm**: the agent NEVER calls `save_lesson` (or `save_to_dataset(dataset="self_improvement", ...)` / `write_memory(datasetId="self_improvement", ...)`) on its own initiative. It proposes the save in chat, waits for an explicit user yes in the same turn, then calls the tool with `userRequested: true`. The server refuses gated writes without the flag.
-
-Three enforcement layers, belt-and-suspenders:
-
-1. **L1 — discipline (instructions).** Every connecting client receives the discipline at `initialize`; rule files mirror it in `.agents/rules/`, `.claude/rules/`, `.cursor/rules/`.
-2. **L2 — Claude Code `PreToolUse` hook.** Inspects the latest user turn for explicit save phrases; matches → `allow`, otherwise → `ask` (user clicks yes/no). Also denies direct `Write`/`Edit` to Claude Code's per-client memory directory (`~/.claude/projects/<workspace>/memory/`).
-3. **L3 — MCP server-side guard.** Required `userRequested: boolean` argument on the three gated writers. The server also detects `path:` overrides that try to land a write in `self_improvement/...` from a non-gated `dataset:` claim (closes the path-bypass).
-
-Knowledge, plans, investigations, daily, and tracker-issue writes are **not** gated — their routing rules apply directly.
-
-Set `MEMORY_WRITE_GATE_SELF_IMPROVEMENT=off` in `.env` to disable the L3 check as an operator escape hatch (L1+L2 still apply).
+Knowledge, plans, investigations, daily, and tracker-issue writes are **not** gated — their routing rules apply directly. Set `MEMORY_WRITE_GATE_SELF_IMPROVEMENT=off` in `.env` to disable the server-side check as an operator escape hatch (the other two layers still apply).
 
 ## Consolidate (offline refinement)
 
-The `consolidate` orchestrator runs nightly via the daily cron (chained after `compile`) and once per session via the hook-less skill rule. It walks the layout-declared `consolidate: refine` categories and applies these passes on each leaf's similarity cluster:
+The `consolidate` orchestrator runs hourly via the cron (chained after `compile`) and at session end via a hook-less skill rule. It walks the **layout-declared** `consolidate: refine` categories and refines each leaf against its similarity cluster.
 
-| Pass | What it does |
+### Where local-embedding runs · where LLM runs · why each pass exists
+
+```mermaid
+flowchart TD
+    A["active leaves in layout-declared<br/>'consolidate: refine' categories"]
+    A --> B{"per-leaf loop"}
+
+    B -- "(1) LOCAL EMBEDDING<br/>searchMemoryFiltered + cosine" --> C["similarity cluster<br/>top-K above scoreThreshold"]
+
+    C --> D["dedup-by-sha256<br/>(deterministic, exact body hash)"]
+    C --> E["dedup-by-lesson-key<br/>(deterministic, error_pattern key)"]
+    C --> F["dedup-by-cosine<br/>(deterministic, cosine ≥ 0.97)"]
+    D --> G[" (keeper, loser) candidates "]
+    E --> G
+    F --> G
+
+    G -- "(2) LLM CALL (if provider available)" --> H["llm-merge-near-duplicates<br/>LLM rewrites keeper body from both inputs"]
+    G -- "LLM disabled / unreachable" --> I["archive loser as-is (deterministic fallback)"]
+    H --> I
+
+    I --> J{more leaves?}
+    J -- yes --> B
+    J -- no --> K["corpus passes"]
+
+    K --> L["staleness-flag<br/>(deterministic, atom-type + age)"]
+    L -- "(3) LLM CALL (if provider available)" --> M["llm-semantic-refresh<br/>LLM: keep / rewrite / archive"]
+    L -- "LLM disabled" --> N["leave flag for next run"]
+
+    M --> O["prune-orphan-leaves<br/>(deterministic, no inbound link + old)"]
+    N --> O
+    O --> P["compress-archived<br/>(deterministic, preserves sha256)"]
+    P --> Q["housekeeping<br/>prune-empty-ancestors / gc-embeddings / index-rebuild"]
+```
+
+**(1) Local embedding** lights up only inside the per-leaf cluster lookup. The bge model runs on-device; nothing leaves your machine to find which leaves are similar. Cosine similarity (a pure math op) then ranks the cluster — also local.
+
+**(2) LLM call · merge near-duplicates** runs once per `(keeper, loser)` pair found by any of the three dedup passes — but only when an LLM provider is reachable. The LLM sees both bodies + frontmatter, decides whether to merge them into one fresher body or leave the keeper as-is. If the provider is missing or the call fails, consolidate falls back to "archive the loser unchanged" so the run never blocks.
+
+**(3) LLM call · semantic refresh** runs once per stale-flagged leaf, capped at `MEMORY_CONSOLIDATE_REFRESH_MAX_PER_RUN`. The LLM sees the leaf + its current cluster context and chooses keep / rewrite / archive. The deterministic staleness-flag pass nominates candidates; the LLM only acts when it can.
+
+Why each pass:
+
+| Pass | Why it exists |
 | --- | --- |
-| `dedupe-by-sha256` | Group by exact body hash; archive losers with `supersedes_id`. |
-| `dedupe-by-lesson-key` | Group `self_improvement` leaves by `(project_module, area, task_type, error_pattern)`; archive duplicates. |
-| `dedupe-by-cosine` | Pairs above the cosine threshold (default `0.97`; `0.995` on the lexical fallback) → archive older. |
-| `llm-merge-near-duplicates` | LLM merges the keeper body from the (keeper, loser) pair; falls back to deterministic archive on failure. |
-| `staleness-flag` | Marks long-unrecalled `self_improvement` leaves + eligible knowledge atoms (`bug-root-cause`, `feedback-rule`, `pattern-gotcha`) as `memory.stale: true`. |
-| `llm-semantic-refresh` | For each stale leaf, the LLM keeps / rewrites / archives against the current cluster context. Cap per run: `MEMORY_CONSOLIDATE_REFRESH_MAX_PER_RUN`. |
-| `prune-orphan-leaves` | Leaves with no inbound `[[link]]`, no `parents:`, no recall hits, older than `MEMORY_CONSOLIDATE_ORPHAN_TTL_DAYS` (default `365`) → archive. |
-| `compress-archived` | Truncate long-archived bodies (preserves original sha256 in frontmatter for git recovery). |
-| `prune-empty-ancestors`, `prune-embeddings`, `index-rebuild` | Corpus-wide structural cleanup. |
+| `dedupe-by-sha256` | Same file content was written twice (race between compile runs, manual re-save). Cheapest dedup. |
+| `dedupe-by-lesson-key` | Same failure pattern logged with different wording. Catches semantic duplicates the byte hash misses. |
+| `dedupe-by-cosine` | Near-paraphrases that drifted across edits. The cosine-against-cluster check is the safety net for "we already said this". |
+| `llm-merge-near-duplicates` | When two leaves overlap, the keeper shouldn't just survive — it should be the synthesis of both. The LLM produces that synthesis from the structured pair. |
+| `staleness-flag` | Long-untouched leaves are candidates for review. The flag is the deterministic gate to a more expensive LLM revisit. |
+| `llm-semantic-refresh` | A bug-root-cause may be fixed; a feedback-rule may be reversed. The LLM judges current relevance against fresh context and updates the leaf accordingly. |
+| `prune-orphan-leaves` | Leaves with no inbound link and no recall hits in a year contribute noise to recall. Archive (reversibly). |
+| `compress-archived` | An archived body sitting in git forever is dead weight; truncate to the gist + footer pointing at the original sha256 in frontmatter. |
+| `prune-empty-ancestors` / `gc-embeddings` / `index-rebuild` | Structural hygiene. Empty dirs, orphan embedding-cache entries, ancestor `index.md` regens. |
 
-**Layout declares which trees are eligible.** Every category in `<wiki>/.layout/layout.yaml` must say `consolidate: refine` or `consolidate: none` — no defaults. `consolidate: none` categories (plans, investigations, daily by default — owned by other lifecycles) are never walked by per-leaf passes.
+### Layout decides which trees are eligible
 
-**LLM passes** reuse the same `JSON-output-with-retry` contract as `compile.mjs:decideAction` (fixed prompt + zod schema validation + retry on schema fail). The orchestrator probes the provider once at start and skips LLM passes cleanly if unavailable; deterministic passes still run.
+Every category in `<wiki>/.layout/layout.yaml` must say `consolidate: refine` or `consolidate: none` — **no defaults applied**. `consolidate: none` categories (plans, investigations, daily by default — owned by other lifecycles) are never walked by per-leaf passes. The orchestrator refuses to run with a clear error envelope if any category lacks the field.
 
-**Determinism.** Deterministic passes produce byte-identical state across two runs with the same wiki + frozen clock. LLM passes are reproducible via `MEMORY_LLM_MOCK_FILE` / `MEMORY_LLM_MOCK_RESPONSE` for tests. Locking is shared with `compile.mjs`, so they never race; the daily cron chains them sequentially via a wrapper script.
+### Pass parameters at a glance
+
+| Pass | Knob (default) |
+| --- | --- |
+| `dedupe-by-cosine` | `MEMORY_CONSOLIDATE_COSINE_THRESHOLD` (`0.97`; `0.995` on lexical fallback) |
+| `dedupe-*` cluster scope | `MEMORY_CONSOLIDATE_CLUSTER_TOP_K` (`12`) + `MEMORY_CONSOLIDATE_CLUSTER_SCORE_THRESHOLD` (`0.75`) |
+| `staleness-flag` window | `MEMORY_CONSOLIDATE_STALE_AFTER_MONTHS` (`6`) |
+| `llm-semantic-refresh` cap | `MEMORY_CONSOLIDATE_REFRESH_MAX_PER_RUN` (`25`) |
+| `prune-orphan-leaves` TTL | `MEMORY_CONSOLIDATE_ORPHAN_TTL_DAYS` (`365`) |
+| `compress-archived` body cap / age | `MEMORY_CONSOLIDATE_ARCHIVE_BODY_MAX` (`1200`) / `MEMORY_CONSOLIDATE_ARCHIVE_AGE_DAYS` (`30`) |
+| LLM passes on/off + retry | `MEMORY_CONSOLIDATE_LLM_PASSES` (`on`) / `MEMORY_CONSOLIDATE_LLM_MAX_RETRIES` (`2`) |
+| Throttle | `MEMORY_CONSOLIDATE_INTERVAL_DAYS` (`1`) |
+
+### Self-healing operation
+
+Each hourly cron tick runs `cli.mjs cron-job`, which appends a structured attempt entry to `state/.consolidate-attempts.log`. The internal `--if-due` throttle bounds the heavy lifting to once per `MEMORY_CONSOLIDATE_INTERVAL_DAYS`. Transient failures get retried at the next tick; persistent ones are surfaced to the next session by the SessionStart hook (`cli.mjs cron-health` for hook-less agents) with a one-line summary and an offer to investigate.
+
+### Determinism
+
+Deterministic passes produce byte-identical state across two runs on the same wiki + frozen clock. LLM passes are reproducible via `MEMORY_LLM_MOCK_FILE` / `MEMORY_LLM_MOCK_RESPONSE` for tests. Locking is shared with `compile.mjs`, so they never race; the cron-job wrapper sequences them.
+
+Never hard-deletes — every archival uses `disableDocument` (status flip), recoverable via `enable_document`.
+
+## Works with your agent
+
+| MCP client | Hooks (Claude Code only) | MCP tools | Write-gate enforcement |
+| --- | :---: | :---: | --- |
+| **Claude Code** | ✅ session-start / pre-compact / post-compact / session-end / exit-plan-mode / pre-tool-use | ✅ | instructions + hook + server (full three-layer) |
+| **Cursor** | ✗ | ✅ | instructions + server |
+| **Codex / OpenAI** | ✗ | ✅ | instructions + server |
+| **Claude Desktop** | ✗ | ✅ | instructions + server |
+| **Any MCP client** | ✗ | ✅ | instructions + server |
+
+Hook-driven auto-capture is Claude Code only; every other client gets the same MCP tools + the same discipline. Hook-less clients invoke `cli.mjs cron-health` at session start (per the rule rendered into `.agents/rules/`) to surface unresolved cron failures.
+
+The **LLM provider** that extracts typed atoms during capture / compile / consolidate is set in `.llm-wiki-memory/settings/.env` and is independent of the client:
+
+[![claude](https://img.shields.io/badge/claude_CLI-✓-D97757)](#) [![codex](https://img.shields.io/badge/codex_CLI-✓-000000)](#) [![anthropic](https://img.shields.io/badge/anthropic_API-✓-D97757)](#) [![openai](https://img.shields.io/badge/openai_API-✓-412991)](#) [![openai-compatible](https://img.shields.io/badge/openai--compatible-✓-228B22)](#) [![mock](https://img.shields.io/badge/mock-test--only-666)](#)
+
+`openai-compatible` covers ollama, vLLM, lm-studio, llama.cpp server, and litellm proxies — point `MEMORY_LLM_BASE_URL` at a local endpoint and `OPENAI_API_KEY` becomes optional on loopback / RFC1918. The provider is auto-detected at install; explicit `--provider` or a user-edited `.env` always wins.
 
 ## MCP tools
 
@@ -212,8 +256,8 @@ All settings live in `./.llm-wiki-memory/settings/.env` (see [`templates/env.exa
 | `MEMORY_LLM_BASE_URL` | (unset) | OpenAI-compatible local endpoint (ollama, vLLM, lm-studio, llama.cpp, litellm). |
 | `MEMORY_LLM_MODEL` | (unset) | Provider-agnostic model override (wins over `ANTHROPIC_MODEL` / `OPENAI_MODEL`). |
 | `MEMORY_EMBED_MODEL` | `Xenova/bge-large-en-v1.5` | Embedding model — see the model comparison below. |
-| `MEMORY_WRITE_GATE_SELF_IMPROVEMENT` | `on` | Operator escape hatch for the L3 server-side gate. |
-| `MEMORY_CONSOLIDATE_INTERVAL_DAYS` | `1` | Throttle for `consolidate --if-due`. |
+| `MEMORY_WRITE_GATE_SELF_IMPROVEMENT` | `on` | Operator escape hatch for the server-side gate. |
+| `MEMORY_CONSOLIDATE_INTERVAL_DAYS` | `1` | Throttle for `consolidate --if-due` (hourly cron, but actual work at most once per N days). |
 | `MEMORY_CONSOLIDATE_LLM_PASSES` | `on` | Disable to run deterministic-only consolidation. |
 | `MEMORY_CONSOLIDATE_COSINE_THRESHOLD` | `0.97` | Dedup threshold (auto-bumped to `0.995` on the lexical fallback). |
 | `MEMORY_RECALL_TOUCH` | `on` | Whether `searchMemoryFiltered` stamps `last_recalled_at` on hits (24h throttled). |
@@ -221,7 +265,7 @@ All settings live in `./.llm-wiki-memory/settings/.env` (see [`templates/env.exa
 <details>
 <summary><strong>Full env-knob list</strong></summary>
 
-See [`templates/env.example`](templates/env.example) for the complete annotated set, including:
+See [`templates/env.example`](templates/env.example) for the complete annotated set:
 
 - LLM provider + model overrides
 - Embedding backend / model / cache
@@ -237,7 +281,7 @@ See [`templates/env.example`](templates/env.example) for the complete annotated 
 <details>
 <summary><strong>Choosing an embedding model</strong></summary>
 
-Recall ranks queries with an on-device [transformers.js](https://github.com/xenova/transformers.js) model, set by `MEMORY_EMBED_MODEL`. The default `Xenova/bge-large-en-v1.5` gives the best routing quality; lighter models trade some accuracy for a much smaller download. Sizes below are the **quantized** ONNX weights transformers.js downloads by default (full-precision is roughly 4× larger), lightest first:
+Recall ranks queries with an on-device [transformers.js](https://github.com/xenova/transformers.js) model, set by `MEMORY_EMBED_MODEL`. The default `Xenova/bge-large-en-v1.5` gives the best routing quality; lighter models trade some accuracy for a much smaller download. Sizes below are the **quantized** ONNX weights transformers.js downloads by default (full-precision is ≈ 4× larger), lightest first:
 
 | Model | Dim | Download | Notes |
 | --- | :---: | :---: | --- |
@@ -246,13 +290,13 @@ Recall ranks queries with an on-device [transformers.js](https://github.com/xeno
 | `Xenova/bge-base-en-v1.5` | 768 | ~110 MB | Noticeably better routing than `small`. |
 | `Xenova/bge-large-en-v1.5` | 1024 | ~340 MB | **Default.** Best routing quality. |
 
-Prefer a smaller download? Set a lighter model in `.env`:
+Set a lighter model in `.env`:
 
 ```bash
 MEMORY_EMBED_MODEL=Xenova/bge-small-en-v1.5
 ```
 
-Changing the model invalidates the embedding cache automatically. Stay within the MiniLM / BGE / GTE / mxbai families: they are mean-pooled with no query prefix, which is how this engine embeds. Prefix-based models (e5, nomic) underperform here because the engine doesn't add the `query:` / `search_document:` prefixes they expect.
+Changing the model invalidates the embedding cache automatically. Stay within the MiniLM / BGE / GTE / mxbai families: they're mean-pooled with no query prefix, which is how this engine embeds. Prefix-based models (e5, nomic) underperform here because the engine doesn't add the `query:` / `search_document:` prefixes they expect.
 
 </details>
 
@@ -260,43 +304,63 @@ Changing the model invalidates the embedding cache automatically. Stay within th
 
 ```bash
 cd .llm-wiki-memory/src
-node scripts/cli.mjs init             # materialise or repair the wiki shell
-node scripts/cli.mjs validate         # skill-llm-wiki validate
-node scripts/cli.mjs heal             # classify state and name the next command
-node scripts/cli.mjs compile          # promote daily atoms now
-node scripts/cli.mjs consolidate --if-due   # search-driven refinement (cron-friendly)
-node scripts/cli.mjs gc-embeddings --if-due # throttled embedding-cache GC
+
+# Inspect what consolidate WOULD do (no mutations).
+node scripts/cli.mjs consolidate --dry-run --force --json | jq
+
+# Run consolidate for real (bypass the daily throttle).
+node scripts/cli.mjs consolidate --force --json | jq '.totals'
+
+# Full cron-job (compile + consolidate + attempt log entry).
+node scripts/cli.mjs cron-job
+
+# Inspect cron health (what SessionStart shows you on a failure).
+node scripts/cli.mjs cron-health | jq
+
+# Inspect the per-run report + the attempt log history.
+cat ../state/.consolidate.json | jq
+cat ../state/.consolidate-attempts.log | jq -s 'reverse | .[:5]'
+
+# The classic ops trio.
+node scripts/cli.mjs init       # materialise or repair the wiki shell
+node scripts/cli.mjs validate   # skill-llm-wiki validate
+node scripts/cli.mjs heal       # classify state and name the next command
+
+# Recall / search from the terminal.
 node scripts/cli.mjs recall "<query>"
 node scripts/cli.mjs search "<query>"
-node scripts/cli.mjs where            # resolved paths, LLM provider, skill location
+
+# Resolved paths + LLM provider + skill location.
+node scripts/cli.mjs where
 ```
 
-On non-hook clients you can schedule the daily promotion + consolidation:
+Schedule the hourly cron (or remove it):
 
 ```bash
-./.llm-wiki-memory/src/bootstrap.sh --schedule daily   # cron on Linux, launchd on macOS
+./.llm-wiki-memory/src/bootstrap.sh --schedule daily   # cron on Linux, launchd on macOS, hourly
 ./.llm-wiki-memory/src/bootstrap.sh --schedule off     # remove
 ```
 
-The cron entry calls a generated wrapper script (`state/cron-daily.sh`) — safe across workspaces whose paths contain single-quotes, percents, or spaces.
+The cron entry calls a generated wrapper (`state/cron-daily.sh`) — safe across workspaces whose paths contain single-quotes, percents, or spaces.
 
 <details>
 <summary><strong>Architecture (responsibility matrix)</strong></summary>
 
 | Path | Role |
 | --- | --- |
-| `scripts/lib/wiki-store.mjs` | Storage seam: every document is a wiki leaf. Drives the skill for index-rebuild / validate / heal / rebuild. Houses the recall-touch instrumentation and the `getConsolidateLayout()` layout reader. |
+| `scripts/lib/wiki-store.mjs` | Storage seam: every document is a wiki leaf. Drives the skill for index-rebuild / validate / heal / rebuild. Hosts the recall-touch instrumentation and `getConsolidateLayout()` reader. |
 | `scripts/lib/embed.mjs` | Transformer embeddings, cosine, content-hash cache (lexical fallback). The only retrieval engine. |
-| `scripts/lib/recall.mjs` | The `recall_lessons` ladder, `search_memory`, and `save_lesson`. |
+| `scripts/lib/recall.mjs` | `recall_lessons` ladder, `search_memory`, `save_lesson`. |
 | `scripts/lib/llm.mjs` | LLM provider dispatch (claude / codex / anthropic / openai / openai-compatible / mock) + `health()` probe + `isLocalEndpoint` heuristic. |
 | `scripts/lib/llm-callJSON.mjs` | Prompt-file + variable-interpolation + zod-schema-validated LLM JSON-call wrapper. Used by compile + consolidate. |
-| `scripts/lib/maintenance-tag.mjs` | AsyncLocalStorage-backed `withSystemMaintenance` frame for the L3 write-gate exemption. |
+| `scripts/lib/maintenance-tag.mjs` | AsyncLocalStorage-backed `withSystemMaintenance` frame for the server-side gate exemption. |
 | `scripts/lib/discipline.mjs` | Single source of the memory discipline (MCP `instructions` + the SessionStart context). |
 | `scripts/lib/layout-validator.mjs` | Zod schema for `<wiki>/.layout/layout.yaml`. |
 | `scripts/lib/wiki-cli.mjs` | Wrapper around the `skill-llm-wiki` bin (bottom-up `index-rebuild-one`). |
 | `scripts/consolidate.mjs` | Search-driven AutoDream consolidation orchestrator. |
+| `scripts/cron-job.mjs` | Hourly cron entry point + structured attempt log + `cronHealth`. |
 | `scripts/compile.mjs` | LLM-driven daily → knowledge / self_improvement promotion. |
-| `scripts/hooks/*` | Claude Code lifecycle hooks (capture, gate, plan-sync, embed-gc). |
+| `scripts/hooks/*` | Claude Code lifecycle hooks (capture, gate, plan-sync, embed-gc, session-start). |
 | `mcp-server/index.mjs` | Local stdio MCP server. |
 | `templates/`, `bootstrap.sh`, `scripts/mcp-config.sh` | Install and multi-client registration. |
 
@@ -311,7 +375,7 @@ npm test           # unit suite
 npm run test:e2e   # full lifecycle against the real skill-llm-wiki CLI (LLM stubbed)
 ```
 
-**664 tests** in total. The e2e suite builds a wiki from scratch in a temp directory and asserts genesis, daily capture, lesson + knowledge + plan + investigation absorption, compile promotion + dedup, recall, tree-growth integrity, and idempotency — against the real `skill-llm-wiki` CLI with mocked LLM responses.
+**676 tests** in total. The e2e suite builds a wiki from scratch in a temp directory and asserts genesis, daily capture, lesson + knowledge + plan + investigation absorption, compile promotion + dedup, recall, tree-growth integrity, and idempotency — against the real `skill-llm-wiki` CLI with mocked LLM responses.
 
 ## Requirements
 

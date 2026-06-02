@@ -179,38 +179,50 @@ export async function runCronJob() {
 // ─── health ───────────────────────────────────────────────────────────────
 
 // Inspect the attempt log to decide whether the cron pipeline is healthy.
-// "Unhealthy" = the most-recent attempt errored AND no later attempt
-// succeeded. This is exactly the case the SessionStart hook surfaces to
-// the user (and hook-less agents check by calling `cron-health` themselves).
+// Two-tier output:
+//   - `summary` (≤200 chars) is a single-line deterministic signal safe to
+//     embed in SessionStart's additionalContext. NO JSON, NO stderr dump,
+//     NO multi-KB payload that would pollute the agent's window.
+//   - `lastAttempt` (the full entry) + `recent` (list, healthy only) are
+//     included for callers that explicitly want detail (the CLI prints
+//     them; the SessionStart hook does NOT).
 //
-// Returns:
-//   { ok: true, healthy: true,  lastAttempt, lastSuccessAt, recent? }
-//   { ok: true, healthy: false, lastAttempt, message }
-//   { ok: true, healthy: true,  lastAttempt: null, message }   // never run
+// "Unhealthy" = the most-recent attempt errored AND no later attempt
+// cleared it. The agent surfaces the short summary and ASKS the user
+// whether to investigate further; it does NOT read the full log on its
+// own (that would re-pollute context — the user is the gate).
+//
+// Returns one of:
+//   { ok: true, healthy: true,  summary, lastAttempt: null }                          // never run
+//   { ok: true, healthy: true,  summary, lastAttempt, lastSuccessAt, recent? }        // ok
+//   { ok: true, healthy: false, summary, lastAttempt }                                // unresolved error
 export function cronHealth({ limit = 20 } = {}) {
   const all = readAttempts({ limit: MAX_LOG_LINES });
   if (all.length === 0) {
     return {
       ok: true,
       healthy: true,
+      summary: "no cron-job attempts logged yet (system fresh or cron not yet scheduled)",
       lastAttempt: null,
-      message: "no cron-job attempts logged yet (system fresh or cron not yet scheduled)",
     };
   }
   const lastAttempt = all[all.length - 1];
+
+  // Compact error summary for the hook surface: collapse whitespace, cap at
+  // ~120 chars of the error string so the whole summary stays under ~200.
+  const shortError = (lastAttempt.error || "<no detail>")
+    .replace(/\s+/g, " ")
+    .slice(0, 120);
+
   if (lastAttempt.ok === false) {
     return {
       ok: true,
       healthy: false,
+      summary: `UNRESOLVED FAILURE at ${lastAttempt.ts}: ${shortError}`,
       lastAttempt,
-      message:
-        `The last cron-job attempt at ${lastAttempt.ts} FAILED: ${lastAttempt.error || "<no detail>"}. ` +
-        "The system has not self-healed yet — the next hourly cron tick will retry. " +
-        "Would you like to investigate (read the attempt log, run cron-job manually, check the wiki state)?",
     };
   }
-  // Find the most recent failure WITHIN the visible window (if any), to
-  // give context about recent flakiness even when currently healthy.
+
   let lastFailureAt = null;
   for (let i = all.length - 1; i >= 0; i--) {
     if (all[i].ok === false) {
@@ -221,6 +233,7 @@ export function cronHealth({ limit = 20 } = {}) {
   return {
     ok: true,
     healthy: true,
+    summary: `healthy; last cron-job ok at ${lastAttempt.ts}`,
     lastAttempt,
     lastSuccessAt: lastAttempt.ts,
     ...(lastFailureAt ? { lastFailureAt } : {}),

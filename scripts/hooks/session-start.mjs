@@ -76,25 +76,30 @@ try {
   );
 }
 
-// Self-healing surface: if the most recent cron-job attempt failed AND no
-// later attempt cleared it, surface the error to the user. They can then
-// ask the agent to investigate (read the attempt log, run cron-job
-// manually, fix env/config, etc.). When healthy, the section is empty.
+// Self-healing surface — DETERMINISTIC, MINIMAL.
+//
+// When the most recent cron attempt failed AND the next tick hasn't
+// cleared it, emit ONE short line into additionalContext: the cron-health
+// summary (under ~200 chars). NO JSON dump, NO stderr capture, NO full
+// log — those would pollute the agent's context with multi-KB payloads
+// every session. The agent reads the summary, asks the user whether to
+// investigate, and only THEN pulls the full log via the CLI on demand.
+//
+// When healthy, this section is the empty string (omitted entirely).
 let cronHealthSection = "";
 try {
   const { cronHealth } = await import("../cron-job.mjs");
-  const h = cronHealth({ limit: 5 });
+  // Pass limit:0 so the `recent` array is NOT populated either — the only
+  // field consulted from the result is `summary`.
+  const h = cronHealth({ limit: 0 });
   if (!h.healthy) {
     cronHealthSection =
-      "\n\n## Memory cron health (UNRESOLVED FAILURE)\n\n" +
-      h.message +
-      "\n\nLast attempt details:\n" +
-      "```json\n" +
-      JSON.stringify(h.lastAttempt, null, 2) +
-      "\n```\n\n" +
-      "If you want to investigate, ask the agent to: (a) print the full attempt log via `node .llm-wiki-memory/src/scripts/cli.mjs cron-health`, " +
-      "(b) re-run the cron-job manually via `node .llm-wiki-memory/src/scripts/cli.mjs cron-job`, " +
-      "or (c) inspect the underlying steps (compile + consolidate) directly.\n";
+      "\n\n## Memory cron health: UNRESOLVED FAILURE\n\n" +
+      h.summary +
+      "\n\nThe hourly cron's last attempt errored and the next tick hasn't cleared it yet. " +
+      "Tell the user and ASK before investigating — don't pull the full log on your own. " +
+      "If they want details, run `node .llm-wiki-memory/src/scripts/cli.mjs cron-health` for the full attempt; " +
+      "or `node .llm-wiki-memory/src/scripts/cli.mjs cron-job` to retry now.\n";
   }
 } catch (err) {
   console.error(

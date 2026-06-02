@@ -30,12 +30,14 @@ function appendRawEntry(obj) {
   fs.appendFileSync(ATTEMPTS_LOG_PATH, JSON.stringify(obj) + "\n");
 }
 
-test("cron-health: returns healthy:true with no log present", () => {
+test("cron-health: returns healthy:true with no log present (summary only)", () => {
   wipeLog();
   const h = cronHealth();
   assert.equal(h.healthy, true);
   assert.equal(h.lastAttempt, null);
-  assert.match(h.message, /no cron-job attempts/i);
+  assert.match(h.summary, /no cron-job attempts/i);
+  // No `recent` key when there's nothing to surface.
+  assert.equal(h.recent, undefined);
 });
 
 test("cron-health: returns healthy:true after a successful attempt", () => {
@@ -45,6 +47,7 @@ test("cron-health: returns healthy:true after a successful attempt", () => {
   assert.equal(h.healthy, true);
   assert.equal(h.lastAttempt.ok, true);
   assert.equal(h.lastSuccessAt, "2026-06-02T18:00:00Z");
+  assert.match(h.summary, /healthy/);
 });
 
 test("cron-health: returns healthy:false when the LAST attempt failed", () => {
@@ -59,8 +62,37 @@ test("cron-health: returns healthy:false when the LAST attempt failed", () => {
   const h = cronHealth();
   assert.equal(h.healthy, false);
   assert.equal(h.lastAttempt.ok, false);
-  assert.match(h.message, /FAILED/);
-  assert.match(h.message, /bridge unavailable/);
+  assert.match(h.summary, /UNRESOLVED FAILURE/);
+  assert.match(h.summary, /bridge unavailable/);
+});
+
+test("cron-health: summary is bounded (<= 200 chars) even when error is verbose", () => {
+  // Stuff a huge error string and confirm summary stays compact so the
+  // SessionStart hook can safely embed it without polluting context.
+  wipeLog();
+  appendRawEntry({
+    ts: "2026-06-02T20:00:00Z",
+    kind: "cron-job",
+    ok: false,
+    error: "x".repeat(5000),
+  });
+  const h = cronHealth();
+  assert.equal(h.healthy, false);
+  assert.ok(h.summary.length <= 200, `summary was ${h.summary.length} chars`);
+});
+
+test("cron-health: a fail-then-success run does NOT include 'recent' in the unhealthy result", () => {
+  // The unhealthy branch only surfaces summary + lastAttempt; no list.
+  wipeLog();
+  appendRawEntry({
+    ts: "2026-06-02T20:00:00Z",
+    kind: "cron-job",
+    ok: false,
+    error: "still broken",
+  });
+  const h = cronHealth();
+  assert.equal(h.healthy, false);
+  assert.equal(h.recent, undefined);
 });
 
 test("cron-health: a SUCCESS after a failure restores healthy:true", () => {
@@ -149,7 +181,7 @@ test("attempts log is bounded (truncates from front when over the cap)", () => {
 
 // ─── SessionStart hook surfaces an unresolved cron error ──────────────────
 
-test("session-start hook adds a cron-health section when the last attempt failed", () => {
+test("session-start hook adds a minimal cron-health line when the last attempt failed", () => {
   wipeLog();
   appendRawEntry({
     ts: "2026-06-02T20:00:00Z",
@@ -164,9 +196,45 @@ test("session-start hook adds a cron-health section when the last attempt failed
   assert.equal(r.status, 0, `hook exit 0: ${r.stderr}`);
   const out = JSON.parse(r.stdout);
   const ctx = out.hookSpecificOutput.additionalContext;
-  assert.match(ctx, /Memory cron health \(UNRESOLVED FAILURE\)/);
+  // Section header + the bounded summary string.
+  assert.match(ctx, /Memory cron health: UNRESOLVED FAILURE/);
   assert.match(ctx, /consolidate exit 2/);
   assert.match(ctx, /layout-missing-consolidate-field/);
+  // Pointer to the CLI for deeper investigation.
+  assert.match(ctx, /cron-health/);
+  // CRITICAL: NO JSON dump in the hook output — the agent's context must
+  // stay clean. The hook embeds only the short summary line.
+  assert.ok(!ctx.includes('"stderr":'), "no stderr capture in hook output");
+  assert.ok(!ctx.includes("```json"), "no JSON code fence with full lastAttempt");
+});
+
+test("session-start hook embeds at most ~600 chars of cron-health (no big payload)", () => {
+  // Even with a verbose error in the log, the hook output stays small.
+  wipeLog();
+  appendRawEntry({
+    ts: "2026-06-02T20:00:00Z",
+    kind: "cron-job",
+    ok: false,
+    error: "y".repeat(8000),
+    compile: { ok: false, exit: 1, stderr: "stderr line\n".repeat(200) },
+    consolidate: { ok: false, exit: 1, stderr: "more verbose stderr\n".repeat(200) },
+  });
+  const r = runScript("scripts/hooks/session-start.mjs", [], {
+    stdin: "{}",
+    env: { CLAUDE_INVOKED_BY: "memory_compile" },
+  });
+  assert.equal(r.status, 0, `hook exit 0: ${r.stderr}`);
+  const out = JSON.parse(r.stdout);
+  const ctx = out.hookSpecificOutput.additionalContext;
+  // Find the cron-health section size — should be well under 1 KB regardless
+  // of how big the underlying log entry is.
+  const start = ctx.indexOf("Memory cron health");
+  assert.ok(start >= 0, "cron-health section is present");
+  const section = ctx.slice(start);
+  assert.ok(
+    section.length < 1024,
+    `cron-health section was ${section.length} chars — should stay tiny`,
+  );
 });
 
 test("session-start hook omits the cron-health section when healthy", () => {
