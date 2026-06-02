@@ -76,11 +76,37 @@ try {
   );
 }
 
+// Self-healing surface: if the most recent cron-job attempt failed AND no
+// later attempt cleared it, surface the error to the user. They can then
+// ask the agent to investigate (read the attempt log, run cron-job
+// manually, fix env/config, etc.). When healthy, the section is empty.
+let cronHealthSection = "";
+try {
+  const { cronHealth } = await import("../cron-job.mjs");
+  const h = cronHealth({ limit: 5 });
+  if (!h.healthy) {
+    cronHealthSection =
+      "\n\n## Memory cron health (UNRESOLVED FAILURE)\n\n" +
+      h.message +
+      "\n\nLast attempt details:\n" +
+      "```json\n" +
+      JSON.stringify(h.lastAttempt, null, 2) +
+      "\n```\n\n" +
+      "If you want to investigate, ask the agent to: (a) print the full attempt log via `node .llm-wiki-memory/src/scripts/cli.mjs cron-health`, " +
+      "(b) re-run the cron-job manually via `node .llm-wiki-memory/src/scripts/cli.mjs cron-job`, " +
+      "or (c) inspect the underlying steps (compile + consolidate) directly.\n";
+  }
+} catch (err) {
+  console.error(
+    `session-start.mjs: cron-health skipped: ${err instanceof Error ? err.message : err}`,
+  );
+}
+
 console.log(
   JSON.stringify({
     hookSpecificOutput: {
       hookEventName: "SessionStart",
-      additionalContext: disciplineContext + workContext,
+      additionalContext: disciplineContext + workContext + cronHealthSection,
     },
   }),
 );

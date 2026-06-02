@@ -20,7 +20,7 @@ Save when at least two of these are true:
 
 If only ONE of these applies, prefer:
 - A `bug-root-cause` atom captured by the next session-end / compact hook (compile will promote it into `knowledge`), for the root cause plus trap to avoid, without the trail.
-- A `self-improvement-lesson` via `save_lesson`, for a recurring mistake the agent should avoid next time.
+- A `self-improvement-lesson` via `save_lesson` — but ONLY after the propose-then-confirm flow (write-gated; the user must say yes in this turn and the call carries `userRequested:true`). See [`self-improvement`](./self-improvement.md).
 
 ## When NOT to save
 

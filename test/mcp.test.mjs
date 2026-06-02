@@ -102,6 +102,10 @@ test("save_lesson then recall_lessons round-trips through the server", async () 
       arguments: {
         title: "Prefer index-rebuild-one over full rebuild on hot paths",
         body: "On hot paths, call index-rebuild-one per touched dir rather than a full rebuild.",
+        // Required by the L3 write-gate (memory-write hardening): caller
+        // must attest the user explicitly asked. In the round-trip test we
+        // simulate that explicit ask.
+        userRequested: true,
         metadata: { project_module: "testproj", task_type: "implementation", error_pattern: "full-rebuild-hot-path" },
         tags: ["performance"],
       },

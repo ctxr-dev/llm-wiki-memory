@@ -168,7 +168,10 @@ test("4b. ExitPlanMode hook captures an approved plan into plans/", () => {
   const r = runScript("scripts/hooks/exit-plan-mode.mjs", [], { stdin: hookInput });
   assert.equal(r.status, 0, `exit-plan-mode exit 0: ${r.stderr}`);
   const plans = store.listDocuments({ datasetId: "plans", enabled: "true" }).documents.map((d) => d.name);
-  assert.ok(plans.includes("plan-ship-the-widget.md"), `captured plan present: ${plans.join(", ")}`);
+  // Per .claude/rules/plans-lifecycle.md the captured plan leaf name is
+  // `<slug>.plan.md` (compound extension preserved by normalizeLeafName);
+  // the legacy `plan-<slug>.md` prefix is no longer produced.
+  assert.ok(plans.includes("ship-the-widget.plan.md"), `captured plan present: ${plans.join(", ")}`);
   assert.equal(cli.validate(wiki).ok, true);
 });
 

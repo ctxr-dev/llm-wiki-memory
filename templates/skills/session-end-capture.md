@@ -78,10 +78,16 @@ Do NOT invoke when:
    an existing leaf. Idempotent: re-running with the same content yields
    no changes.
 
-4. **Capture lessons learned (separate from issues).** If the session
-   produced a generalisable lesson (not specific to this one issue),
-   call `save_lesson` instead. See [`self-improvement`](./self-improvement.md)
-   for the lesson schema.
+4. **Lessons learned are WRITE-GATED — propose, don't save.** If the
+   session produced a generalisable lesson (not specific to this one
+   issue), PROPOSE it to the user in one short line (e.g. *"Want me to
+   save this as a lesson? Title: ..., error_pattern: ..."*) and only
+   call `save_lesson` with `userRequested:true` after explicit yes in
+   this turn. See [`self-improvement`](./self-improvement.md) for the
+   propose-then-confirm contract and the lesson schema. The server
+   REFUSES self_improvement writes without `userRequested:true`; the
+   Claude Code PreToolUse hook returns `permissionDecision:"ask"` to
+   the user as a defence-in-depth layer.
 
 5. **DO NOT re-write plan files.** The mechanical hook
    (`plan-frontmatter-sync`) keeps plan frontmatter / lifecycle folders

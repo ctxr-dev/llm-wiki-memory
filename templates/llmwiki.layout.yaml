@@ -49,6 +49,27 @@ vocabularies:
     - tooling        # build, CI/CD, editors, dev tooling (sbt, intellij, ...)
     - general        # fallback when no domain fits
 
+# Per-category consolidate eligibility (REQUIRED — no defaults).
+#
+# Each category in `layout:` MUST declare `consolidate: refine | none`. The
+# search-driven AutoDream orchestrator (scripts/consolidate.mjs) reads this
+# field at run start and refuses to proceed if any category lacks it. Author
+# intent must be explicit for every tree.
+#
+#   refine -> include in the orchestrator's working set. Eligible for dedup
+#             (sha256 / lesson-key / cosine), staleness flagging, LLM
+#             merge-near-duplicates, LLM semantic-refresh, orphan archive,
+#             and compress-archived. Writes go through `disableDocument` /
+#             `updateDocMetadata` / body-rewrite via `saveDocument` with a
+#             pinned placement (never hard-deletes).
+#   none   -> explicitly excluded. consolidate never walks this tree.
+#             Structural housekeeping (prune-empty-ancestors, gc-embeddings,
+#             index-rebuild) still applies corpus-wide.
+#
+# Defaults in this template (cleared baseline):
+#   knowledge, self_improvement      -> refine  (durable refinement targets)
+#   plans, investigations, daily     -> none    (owned by other lifecycles)
+
 layout:
   - path: knowledge
     purpose: "long-lived facts, decisions, lore, and gotchas; nested by area/atom_type/subject"
@@ -56,25 +77,34 @@ layout:
     facet_rules:
       subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
+    consolidate: refine
   - path: self_improvement
     purpose: "self-improvement lessons; nested by area/task_type/subject (dedup keyed by error_pattern)"
     placement_facets: [area, task_type, subject]
     facet_rules:
       subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
+    consolidate: refine
   - path: plans
     purpose: "approved and in-flight plans; nested by area/subject"
     placement_facets: [area, subject]
     facet_rules:
       subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
+    # Plans have their own lifecycle (plan-sync.mjs / plans-lifecycle rule).
+    consolidate: none
   - path: investigations
     purpose: "investigation and analysis artefacts; nested by area/subject"
     placement_facets: [area, subject]
     facet_rules:
       subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
+    # Investigations are immutable forensic records; don't auto-rewrite.
+    consolidate: none
   - path: daily
     purpose: "raw captured memory atoms, nested by capture date (yyyy/mm/dd)"
     placement_strategy: daily-date
     allow_entry_types: [primary]
+    # Dailies are inputs to compile.mjs (promoted into knowledge /
+    # self_improvement). compile owns archival; consolidate must not touch.
+    consolidate: none

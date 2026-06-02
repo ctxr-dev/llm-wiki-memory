@@ -138,6 +138,12 @@ export const LayoutEntrySchema = z
     allow_entry_types: z.array(z.string()).optional(),
     max_depth: z.number().int().positive().optional(),
     topology: TopologySchema.optional(),
+    // Per-category consolidate eligibility (read by the consolidate
+    // orchestrator at run start). Optional in the layout schema because
+    // existing wikis predate this field; the orchestrator itself enforces
+    // presence at runtime with a clear error envelope, so the validator
+    // doesn't gate `validate_layout` on it.
+    consolidate: z.enum(["refine", "none"]).optional(),
   })
   .strict()
   .superRefine((entry, ctx) => {

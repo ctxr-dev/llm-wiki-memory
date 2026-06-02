@@ -34,6 +34,12 @@ export async function callLLM({ systemPrompt, userPrompt, maxTokens = 1500 }) {
       raw = await callAnthropicApi({ systemPrompt, userPrompt, maxTokens, timeoutMs });
       break;
     case "openai":
+    case "openai-compatible":
+      // Both routes go to callOpenAiApi. The distinction is purely
+      // documentary: `openai-compatible` signals "we're hitting a local /
+      // self-hosted OpenAI-compatible endpoint (ollama / vLLM / lm-studio /
+      // llama.cpp / litellm proxy)" via MEMORY_LLM_BASE_URL. The function
+      // itself honours MEMORY_LLM_BASE_URL identically for both.
       raw = await callOpenAiApi({ systemPrompt, userPrompt, maxTokens, timeoutMs });
       break;
     default:
@@ -252,7 +258,10 @@ async function callAnthropicApi({ systemPrompt, userPrompt, maxTokens, timeoutMs
   // Defensive sanitisation: a key copied from a wrapped UI line may carry
   // trailing CR/LF that would CRLF-inject the x-api-key header. Strip it.
   const apiKey = envValue("ANTHROPIC_API_KEY").replace(/[\r\n]+/g, "").trim();
-  const model = envValue("ANTHROPIC_MODEL", "claude-sonnet-4-6");
+  // MEMORY_LLM_MODEL is the provider-agnostic override; falls back to the
+  // provider-specific name if unset. Lets a user set one model knob for the
+  // whole memory pipeline without touching per-provider variables.
+  const model = envValue("MEMORY_LLM_MODEL", "") || envValue("ANTHROPIC_MODEL", "claude-sonnet-4-6");
   if (!apiKey) throw new LLMProviderUnavailable("ANTHROPIC_API_KEY not set");
 
   const body = {
@@ -283,12 +292,47 @@ async function callAnthropicApi({ systemPrompt, userPrompt, maxTokens, timeoutMs
   return text;
 }
 
+// Returns true iff `baseUrl`'s hostname is loopback or RFC1918 (i.e. on a
+// trust boundary the user has already accepted). Used to gate
+// "API-key-optional" mode: a local model server (ollama, vLLM, lm-studio,
+// llama.cpp, litellm) usually has no auth; an external endpoint without a
+// key would either fail or, worse, leak prompts to a random host.
+export function isLocalEndpoint(baseUrl) {
+  try {
+    const u = new URL(baseUrl);
+    // WHATWG URL keeps the surrounding brackets on an IPv6 hostname (e.g.
+    // `[::1]`); strip them so loopback comparison matches the bare address.
+    const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    if (h === "localhost" || h === "::1") return true;
+    if (/^127\.\d+\.\d+\.\d+$/.test(h)) return true;
+    if (/^10\.\d+\.\d+\.\d+$/.test(h)) return true;
+    if (/^192\.168\.\d+\.\d+$/.test(h)) return true;
+    const m = h.match(/^172\.(\d+)\.\d+\.\d+$/);
+    if (m && Number(m[1]) >= 16 && Number(m[1]) <= 31) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 async function callOpenAiApi({ systemPrompt, userPrompt, maxTokens, timeoutMs }) {
   // Defensive sanitisation: strip stray CR/LF before interpolating into
   // the Bearer header (mirror of the Anthropic helper).
   const apiKey = envValue("OPENAI_API_KEY").replace(/[\r\n]+/g, "").trim();
-  const model = envValue("OPENAI_MODEL", "gpt-4o-mini");
-  if (!apiKey) throw new LLMProviderUnavailable("OPENAI_API_KEY not set");
+  const baseUrl =
+    (envValue("MEMORY_LLM_BASE_URL", "") || "https://api.openai.com/v1").replace(/\/+$/, "");
+  const local = isLocalEndpoint(baseUrl);
+  if (!apiKey && !local) {
+    throw new LLMProviderUnavailable(
+      `OPENAI_API_KEY not set; refusing to call ${baseUrl} unauthenticated. ` +
+        "Only loopback / RFC1918 endpoints are allowed without an API key " +
+        "(set MEMORY_LLM_BASE_URL=http://localhost:11434/v1 for ollama, etc.).",
+    );
+  }
+  // MEMORY_LLM_MODEL is the provider-agnostic override; falls back to the
+  // OpenAI-specific name. For a local server, the user typically sets the
+  // model name to whatever the local server expects (e.g. "llama3.1:8b").
+  const model = envValue("MEMORY_LLM_MODEL", "") || envValue("OPENAI_MODEL", "gpt-4o-mini");
 
   // OpenAI deprecated `max_tokens` in favour of `max_completion_tokens`
   // for newer models (gpt-4o family and later). Send the new key as
@@ -303,23 +347,27 @@ async function callOpenAiApi({ systemPrompt, userPrompt, maxTokens, timeoutMs })
     ],
   };
 
-  const res = await fetchWithTimeout("https://api.openai.com/v1/chat/completions", {
+  const headers = { "content-type": "application/json" };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+
+  const res = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "content-type": "application/json",
-    },
+    headers,
     body: JSON.stringify(body),
     timeoutMs,
   });
 
   if (!res.ok) {
     const text = await res.text();
-    throw new LLMProviderUnavailable(`OpenAI API ${res.status}: ${text.slice(0, 300)}`);
+    throw new LLMProviderUnavailable(
+      `OpenAI-compatible API ${res.status} at ${baseUrl}: ${text.slice(0, 300)}`,
+    );
   }
   const json = await res.json();
   const text = json?.choices?.[0]?.message?.content;
-  if (!text) throw new LLMOutputInvalid("OpenAI response missing content", JSON.stringify(json));
+  if (!text) {
+    throw new LLMOutputInvalid("OpenAI-compatible response missing content", JSON.stringify(json));
+  }
   return text;
 }
 
@@ -331,4 +379,103 @@ async function fetchWithTimeout(url, { timeoutMs, ...init } = {}) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Cheap availability probe for the resolved provider. Caller-visible via the
+// `get_memory_config` MCP tool and the `where` CLI subcommand. Does NOT hit
+// the network — only checks local signals (CLI on PATH / API key in env /
+// base URL set) so it can run in every tool-call return without surprising
+// latency. Network reachability is left to the actual call.
+//
+// Returns `{ provider, model, baseUrl, available, reason }`. `baseUrl` is
+// present only for openai / openai-compatible.
+export async function health() {
+  const provider = (envValue("MEMORY_LLM_PROVIDER", "claude") || "claude").toLowerCase();
+  const memModel = envValue("MEMORY_LLM_MODEL", "");
+  switch (provider) {
+    case "mock":
+      return {
+        provider,
+        available: Boolean(envValue("MEMORY_LLM_MOCK_RESPONSE", "") || envValue("MEMORY_LLM_MOCK_FILE", "")),
+        reason: "mock provider; needs MEMORY_LLM_MOCK_RESPONSE or MEMORY_LLM_MOCK_FILE",
+      };
+    case "claude": {
+      const ok = await isCmdAvailable("claude");
+      return { provider, available: ok, reason: ok ? "claude CLI on PATH" : "claude CLI not on PATH" };
+    }
+    case "codex": {
+      const ok = await isCmdAvailable("codex");
+      return { provider, available: ok, reason: ok ? "codex CLI on PATH" : "codex CLI not on PATH" };
+    }
+    case "anthropic": {
+      const has = Boolean(envValue("ANTHROPIC_API_KEY", "").trim());
+      return {
+        provider,
+        model: memModel || envValue("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+        available: has,
+        reason: has ? "ANTHROPIC_API_KEY set" : "ANTHROPIC_API_KEY missing",
+      };
+    }
+    case "openai":
+    case "openai-compatible": {
+      const baseUrl =
+        (envValue("MEMORY_LLM_BASE_URL", "") || "https://api.openai.com/v1").replace(/\/+$/, "");
+      const apiKey = envValue("OPENAI_API_KEY", "").trim();
+      const local = isLocalEndpoint(baseUrl);
+      const available = Boolean(apiKey) || local;
+      return {
+        provider,
+        baseUrl,
+        model: memModel || envValue("OPENAI_MODEL", "gpt-4o-mini"),
+        available,
+        reason: available
+          ? (apiKey ? "OPENAI_API_KEY set" : `local endpoint ${baseUrl} (no key required)`)
+          : `OPENAI_API_KEY missing for non-local endpoint ${baseUrl}`,
+      };
+    }
+    default:
+      return { provider, available: false, reason: `unknown provider: ${provider}` };
+  }
+}
+
+// Resolve a command on PATH without invoking a shell. `which` lives at
+// different paths on different platforms — /usr/bin/which on macOS + glibc
+// Linux, /bin/which on Alpine, sometimes only available as a shell builtin
+// — so we try each absolute path in turn, then fall back to a tiny
+// `sh -c 'command -v ...'` (only when the cmd matches a safe regex, no
+// shell-quoting risk). Returns false on every failure path.
+const WHICH_PATHS = ["/usr/bin/which", "/bin/which"];
+
+async function isCmdAvailable(cmd) {
+  if (typeof cmd !== "string" || !/^[A-Za-z0-9._/-]+$/.test(cmd)) return false;
+  for (const whichBin of WHICH_PATHS) {
+    const ok = await new Promise((resolve) => {
+      let settled = false;
+      try {
+        const child = spawn(whichBin, [cmd], { stdio: "ignore" });
+        child.on("close", (code) => {
+          if (!settled) { settled = true; resolve(code === 0); }
+        });
+        child.on("error", () => {
+          if (!settled) { settled = true; resolve(null); } // ENOENT on the which binary itself
+        });
+      } catch {
+        resolve(null);
+      }
+    });
+    if (ok === true) return true;
+    if (ok === false) return false; // which ran but cmd missing
+    // ok === null -> this `which` binary not present; try the next
+  }
+  // Fallback: `sh -c 'command -v <cmd>'`. The regex guard above already
+  // restricted cmd to a safe charset, so shell interpolation is safe.
+  return await new Promise((resolve) => {
+    try {
+      const child = spawn("/bin/sh", ["-c", `command -v ${cmd}`], { stdio: "ignore" });
+      child.on("close", (code) => resolve(code === 0));
+      child.on("error", () => resolve(false));
+    } catch {
+      resolve(false);
+    }
+  });
 }

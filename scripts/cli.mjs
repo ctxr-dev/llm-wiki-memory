@@ -177,7 +177,43 @@ async function main() {
         }),
       );
     }
-    case "where":
+    case "consolidate": {
+      // Search-driven AutoDream consolidation. See scripts/consolidate.mjs
+      // for the orchestrator + per-pass rules. Flags:
+      //   --dry-run, --if-due, --force, --no-llm, --json
+      //   --passes=<csv>            (allow-list of pass names)
+      //   --cosine-threshold=<n>    (override 0..1)
+      const { consolidateMemory } = await import("./consolidate.mjs");
+      const flag = (name) => rest.includes(`--${name}`);
+      const opt = (name) => {
+        const prefix = `--${name}=`;
+        const hit = rest.find((a) => a.startsWith(prefix));
+        return hit ? hit.slice(prefix.length) : undefined;
+      };
+      // --cosine-threshold is honoured by setting the env knob for this
+      // process — env wins over .env-file values, and the consolidate
+      // helpers read env via envFloat.
+      const cosineOverride = opt("cosine-threshold");
+      if (cosineOverride) process.env.MEMORY_CONSOLIDATE_COSINE_THRESHOLD = cosineOverride;
+      const result = await consolidateMemory({
+        dryRun: flag("dry-run"),
+        ifDue: flag("if-due"),
+        force: flag("force"),
+        llm: !flag("no-llm"),
+        passes: opt("passes"),
+      });
+      if (flag("json")) return out(result);
+      // Pretty print: short summary + a one-line-per-pass breakdown.
+      out(result);
+      return;
+    }
+    case "where": {
+      const { health } = await import("./lib/llm.mjs");
+      const llm = await health().catch((err) => ({
+        provider: "unknown",
+        available: false,
+        reason: err?.message || String(err),
+      }));
       return out({
         memoryDir: MEMORY_DIR,
         dataDir: MEMORY_DATA_DIR,
@@ -185,7 +221,29 @@ async function main() {
         embedCache: embedCachePath(),
         projectModule: defaultProjectModule(),
         skill: where(),
+        llm,
       });
+    }
+    case "cron-job": {
+      // Hourly cron entry point. Runs compile + consolidate --if-due
+      // sequentially, appends a structured attempt entry to
+      // state/.consolidate-attempts.log (success OR error), and exits
+      // 0 (so cron doesn't email failures — the log is the source of
+      // truth and SessionStart surfaces unresolved failures to the user).
+      const { runCronJob } = await import("./cron-job.mjs");
+      const entry = await runCronJob();
+      out(entry);
+      // Exit 0 unconditionally so cron treats this as success. The log
+      // entry's `ok: false` is the persistent signal; SessionStart's
+      // cron-health check raises it with the user.
+      process.exit(0);
+      return;
+    }
+    case "cron-health": {
+      const { cronHealth } = await import("./cron-job.mjs");
+      out(cronHealth());
+      return;
+    }
     case "recall": {
       const { recallLessons } = await import("./lib/recall.mjs");
       return out(await recallLessons({ query: rest.join(" ") || "*" }));

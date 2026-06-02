@@ -1,6 +1,6 @@
 ---
 name: self-improvement
-description: Use the project memory to look up self-improvement lessons before related work, persist new lessons the moment the user corrects you, and route every "save to memory" / "memorize" request to the local LLM wiki instead of any client-local memory system.
+description: Use the project memory to look up self-improvement lessons before related work. Self_improvement writes are WRITE-GATED, propose to the user and wait for explicit yes before calling save_lesson with userRequested:true. Route every "save to memory" / "memorize" request to the local LLM wiki instead of any client-local memory system.
 ---
 
 # Memory routing, the wiki is the default when healthy
@@ -54,19 +54,27 @@ Apply any returned lesson silently. Do not paraphrase it back to the user; just 
 
 If `recall_lessons` returns nothing, do not stall, proceed normally. Absence of a recorded lesson is fine.
 
-## When the user corrects you
+## When the user corrects you, propose first (write-gated)
 
-Trigger conditions:
+Trigger conditions for proposing a lesson:
 - Direct correction: "no", "stop doing X", "you should have done Y", reverting your work, "wrong".
 - Repeat correction: "I told you before", "again", "same mistake", "we've covered this".
 - Wrong-tool / wrong-step: the user pointed out you used the wrong file, command, format, or skipped a step.
 
-The instant you observe one, call `save_lesson` BEFORE replying:
+**Self_improvement writes are WRITE-GATED.** When you observe a trigger, do NOT call `save_lesson` on your own. Instead, in one short line, PROPOSE the lesson and wait for explicit user confirmation in this turn:
+
+> "Want me to save a lesson? Title: \"<imperative summary>\", error_pattern: \"<kebab-slug>\"."
+
+Then:
+- **User says yes** -> call `save_lesson` with `userRequested:true` (see template below).
+- **User says no, ignores, redirects, or asks something else** -> do NOT save. Continue helping. Saving without an in-turn yes is a discipline violation. The server REFUSES the call without `userRequested:true` anyway (a deterministic L3 gate); the Claude Code PreToolUse hook returns `permissionDecision:"ask"` for the same purpose.
 
 ```
 save_lesson({
   title: "<imperative summary, <=80 chars: what to do (or not do) next time>",
   body: "<lead with the rule, then 'Why:' and 'How to apply:' lines; flush truncates to MEMORY_ATOM_BODY_MAX_CHARS (default 700)>",
+  userRequested: true,   // REQUIRED. Only set when the user explicitly said yes
+                         // in this turn. Server refuses without it.
   metadata: {
     project_module: "<inferred>",
     task_type: "<inferred>",
@@ -77,6 +85,8 @@ save_lesson({
   evidence: "<one-line excerpt of the user's correction, redact secrets>"
 })
 ```
+
+**Refinement, not constant capture.** Even when the user says yes today, the consolidate orchestrator (search-driven, runs on the daily cron) will revisit lessons over time, merge near-duplicates, and refresh stale entries. So a sparse, user-approved corpus stays accurate; a verbose, auto-captured corpus would drown the recall path in noise. The lesson loop's value comes from PROPOSE quality + user judgment, not from save volume.
 
 `error_pattern` is the dedup key. Pick a short kebab-case slug that captures the FAILURE MODE, not the surface symptom. Examples:
 - `missing-await-on-async-call`

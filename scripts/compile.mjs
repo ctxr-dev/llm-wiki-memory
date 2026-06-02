@@ -3,7 +3,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { COMPILE_LOCK_PATH, COMPILE_STATE_PATH, PROMPTS_DIR, envInt, envValue, atomBodyMaxChars } from "./lib/env.mjs";
 import { acquireLock, installLockReleaseHandlers } from "./lib/lock.mjs";
-import { callLLMWithRetry, LLMProviderUnavailable, LLMOutputInvalid } from "./lib/llm.mjs";
+import { LLMProviderUnavailable, LLMOutputInvalid } from "./lib/llm.mjs";
+import { callJSON } from "./lib/llm-callJSON.mjs";
 import {
   listDocuments,
   readDocument,
@@ -330,7 +331,7 @@ async function decideAction(atom, candidates, systemPrompt) {
           2,
         ),
   ].join("\n");
-  return callLLMWithRetry({ systemPrompt, userPrompt, maxTokens: 800 });
+  return callJSON({ systemPrompt, userPrompt, maxTokens: 800 });
 }
 
 async function executeAction(atom, decision, candidates, targetDataset) {

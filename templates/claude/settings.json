@@ -79,6 +79,28 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp__llm-wiki-memory__save_lesson|mcp__llm-wiki-memory__save_to_dataset|mcp__llm-wiki-memory__write_memory",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/pretooluse-gate-memory-writes.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/pretooluse-deny-client-memory-path.sh",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

@@ -2,8 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
 import { parse as parseYaml } from "yaml";
-import { wikiRoot, embedCachePath, defaultProjectModule, GC_STATE_PATH, gcIntervalDays } from "./env.mjs";
+import {
+  wikiRoot,
+  embedCachePath,
+  defaultProjectModule,
+  GC_STATE_PATH,
+  gcIntervalDays,
+  recallTouchEnabled,
+  recallTouchMinHours,
+} from "./env.mjs";
 import { ensureIndexes } from "./wiki-cli.mjs";
+import { isSystemMaintenance } from "./maintenance-tag.mjs";
 import {
   contentHash,
   loadCache,
@@ -79,6 +88,11 @@ const PLACEMENT_RULES = Object.create(null);
 // Declared `vocabularies` (name -> Set<slug>): controlled value sets a
 // `kind: path` facet's first segment must belong to.
 const VOCABULARIES = Object.create(null);
+// Per-category consolidate eligibility from `layout[].consolidate`. Authors
+// must declare "refine" or "none" explicitly; the consolidate orchestrator
+// refuses to run when any category lacks the field. null-prototype mirrors
+// PLACEMENT_RULES.
+const CONSOLIDATE_ELIGIBILITY = Object.create(null);
 let _layoutLoaded = false;
 let _layoutRootSeen = null;
 let _layoutMtimeSeen = null;
@@ -110,6 +124,14 @@ function ensureLayoutLoaded() {
   // key like `__proto__`/`constructor` reach a prototype slot.
   const rules = Object.create(null);
   const vocabs = Object.create(null);
+  // Per-category consolidate eligibility from the layout. Three states:
+  //   "refine"  -> include this category in the consolidate orchestrator's
+  //                working set (eligible for dedup / staleness / refresh /
+  //                compress passes per the orchestrator's rules).
+  //   "none"    -> explicitly excluded. consolidate never walks this category.
+  //   <missing> -> error. The orchestrator refuses to run until the field is
+  //                declared (no defaults — author intent must be explicit).
+  const consolidateEligibility = Object.create(null);
 
   // Layout YAML canonical location is <wiki>/.layout/layout.yaml (resolved above).
   if (fs.existsSync(layoutPath)) {
@@ -153,6 +175,13 @@ function ensureLayoutLoaded() {
             }
             rules[name] = r2;
           }
+          // consolidate: refine | none  (no default — see comment above).
+          if (e.consolidate !== undefined) {
+            const v = String(e.consolidate).trim().toLowerCase();
+            if (v === "refine" || v === "none") consolidateEligibility[name] = v;
+            // any other value falls through and the orchestrator surfaces the
+            // missing/invalid field at runtime.
+          }
         }
         // Drop default facet keys for categories the YAML did NOT declare.
         for (const k of Object.keys(facets)) {
@@ -172,6 +201,8 @@ function ensureLayoutLoaded() {
   Object.assign(PLACEMENT_RULES, rules);
   for (const k of Object.keys(VOCABULARIES)) delete VOCABULARIES[k];
   Object.assign(VOCABULARIES, vocabs);
+  for (const k of Object.keys(CONSOLIDATE_ELIGIBILITY)) delete CONSOLIDATE_ELIGIBILITY[k];
+  Object.assign(CONSOLIDATE_ELIGIBILITY, consolidateEligibility);
 
   _layoutLoaded = true;
   _layoutRootSeen = r;
@@ -188,6 +219,28 @@ export function resetLayoutCache() {
 }
 
 // Back-compat alias used by the test suite.
+// Report the consolidate-eligibility declared in the layout YAML. Returns
+// {refine, excluded, missing} where:
+//   - refine[]   = category names declared `consolidate: refine`
+//   - excluded[] = category names declared `consolidate: none`
+//   - missing[]  = category names with NO consolidate declaration (a
+//                  validation error — the orchestrator refuses to run)
+// No defaults applied: author intent must be explicit. Order mirrors
+// CATEGORIES (i.e. the layout YAML's `layout:` order).
+export function getConsolidateLayout() {
+  ensureLayoutLoaded();
+  const refine = [];
+  const excluded = [];
+  const missing = [];
+  for (const c of CATEGORIES) {
+    const v = CONSOLIDATE_ELIGIBILITY[c];
+    if (v === "refine") refine.push(c);
+    else if (v === "none") excluded.push(c);
+    else missing.push(c);
+  }
+  return { refine, excluded, missing };
+}
+
 export function _resetLayoutCacheForTests() {
   resetLayoutCache();
 }
@@ -365,6 +418,33 @@ export function normaliseMeta(metadata = {}, extra = {}) {
   // omitted (placement applies its fallback).
   const subjectArr = slugSegments(m.subject);
   if (subjectArr.length) out.subject = subjectArr;
+  // Consolidate / recall-touch / refresh fields. Optional pass-throughs:
+  // absent in metadata stays absent in the output. Types are coerced
+  // defensively (ISO strings trimmed; recall_count parsed as a non-negative
+  // integer; stale is a real boolean). These are mutated only by
+  // consolidate.mjs and the recall-touch instrumentation in
+  // searchMemoryFiltered / recallLessons, both of which carry the
+  // system-maintenance tag.
+  if (typeof m.last_recalled_at === "string" && m.last_recalled_at.trim() !== "") {
+    out.last_recalled_at = m.last_recalled_at.trim();
+  }
+  if (m.recall_count !== undefined && m.recall_count !== null) {
+    const n = Number.parseInt(m.recall_count, 10);
+    if (Number.isFinite(n) && n >= 0) out.recall_count = n;
+  }
+  if (typeof m.stale === "boolean") out.stale = m.stale;
+  if (typeof m.supersedes_id === "string" && m.supersedes_id.trim() !== "") {
+    out.supersedes_id = m.supersedes_id.trim();
+  }
+  if (typeof m.consolidated_at === "string" && m.consolidated_at.trim() !== "") {
+    out.consolidated_at = m.consolidated_at.trim();
+  }
+  if (typeof m.last_refreshed_at === "string" && m.last_refreshed_at.trim() !== "") {
+    out.last_refreshed_at = m.last_refreshed_at.trim();
+  }
+  if (typeof m.consolidate_truncated_at === "string" && m.consolidate_truncated_at.trim() !== "") {
+    out.consolidate_truncated_at = m.consolidate_truncated_at.trim();
+  }
   // Strip empties so absent fields aren't matched as "". project_module is kept
   // (always the workspace) so the default recall scope always has something to match.
   for (const k of ["area", "language", "task_type", "error_pattern", "tags"]) {
@@ -381,11 +461,17 @@ function tagsArray(metadata) {
   return [];
 }
 
-// Recursively collect leaf files (not index.md) under a directory.
+// Recursively collect leaf files (not index.md) under a directory. Entries
+// are sorted lex-ascending so two runs over the same tree iterate in
+// identical order regardless of filesystem (APFS preserves insertion order,
+// ext4/btrfs don't). The consolidate orchestrator's determinism contract
+// relies on this for byte-identical state across re-runs.
 function walkLeaves(dirAbs) {
   const out = [];
   if (!fs.existsSync(dirAbs)) return out;
-  for (const entry of fs.readdirSync(dirAbs, { withFileTypes: true })) {
+  const entries = fs.readdirSync(dirAbs, { withFileTypes: true });
+  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  for (const entry of entries) {
     if (entry.name.startsWith(".")) continue;
     const abs = path.join(dirAbs, entry.name);
     if (entry.isDirectory()) {
@@ -824,6 +910,40 @@ export function enableDocument({ documentId, datasetId } = {}) {
   return { ok: true, documentId, status: "active" };
 }
 
+// Truncate the body of an already-archived leaf to `max` chars. Idempotent:
+// if the leaf is already marked `memory.consolidate_truncated_at`, this is a
+// no-op. The original sha256 in `frontmatter.source.hash` is PRESERVED (NOT
+// recomputed) so the original body can be reconstructed from git history; the
+// footer marker tells a future reader where to look. Used by the consolidate
+// `compress-archived` pass.
+export function truncateArchivedBody({ documentId, max, nowIso } = {}) {
+  const abs = toAbs(documentId);
+  if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
+  const { data, body } = readLeaf(abs);
+  const mem = leafMemory(data);
+  if (mem.status !== "archived") {
+    return { ok: false, reason: `leaf is not archived: ${documentId}` };
+  }
+  if (mem.consolidate_truncated_at) {
+    return { ok: true, skipped: "already-truncated", documentId };
+  }
+  const limit = Number.isFinite(max) && max > 0 ? Math.floor(max) : 1200;
+  if (String(body).length <= limit) {
+    return { ok: true, skipped: "below-threshold", documentId };
+  }
+  const stamp = typeof nowIso === "string" && nowIso ? nowIso : new Date().toISOString();
+  const truncated =
+    String(body).slice(0, limit).replace(/\s+$/, "") +
+    `\n\n[truncated by consolidate at ${stamp}; original sha256 preserved in frontmatter.source.hash]\n`;
+  const freedBytes = Buffer.byteLength(body, "utf8") - Buffer.byteLength(truncated, "utf8");
+  const next = {
+    ...data,
+    memory: { ...mem, consolidate_truncated_at: stamp },
+  };
+  fs.writeFileSync(abs, stringifyLeaf(truncated, next));
+  return { ok: true, documentId, freedBytes };
+}
+
 export function deleteDocument({ documentId, datasetId } = {}) {
   const abs = toAbs(documentId);
   if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
@@ -872,6 +992,39 @@ export function readDocument({ documentId, datasetId } = {}) {
   return { text: body, metadata: leafMemory(data), name: path.basename(abs), documentId };
 }
 
+// Richer read used by the consolidate orchestrator. Surfaces the full
+// frontmatter (top-level `updated`, `parents`, `source.hash`, plus the
+// nested `memory` block), which `readDocument` deliberately keeps minimal.
+// Returns null if the leaf is missing — callers iterate over a stable list,
+// so a vanished leaf is a benign race we want to skip, not throw on.
+export function readLeafForConsolidate({ documentId } = {}) {
+  const abs = toAbs(documentId);
+  if (!fs.existsSync(abs)) return null;
+  const { data, body } = readLeaf(abs);
+  return {
+    documentId,
+    name: path.basename(abs),
+    text: body,
+    frontmatter: data,
+    memory: leafMemory(data),
+    active: isActive(data),
+  };
+}
+
+// List active leaves in a category. Thin convenience around `listDocuments` +
+// `readLeafForConsolidate`, used by the consolidate orchestrator's working
+// set + corpus-scoped passes. Skips leaves that vanish mid-walk.
+export function listActiveLeavesForConsolidate({ category } = {}) {
+  if (!category) return [];
+  const { documents } = listDocuments({ datasetId: category, enabled: true });
+  const out = [];
+  for (const d of documents) {
+    const leaf = readLeafForConsolidate({ documentId: d.id });
+    if (leaf && leaf.active) out.push(leaf);
+  }
+  return out;
+}
+
 function metaMatchesFilters(memoryMeta, filters) {
   if (!filters) return true;
   for (const [key, val] of Object.entries(filters)) {
@@ -894,6 +1047,54 @@ function metaMatchesFilters(memoryMeta, filters) {
     if (have !== want) return false;
   }
   return true;
+}
+
+// Stamp `last_recalled_at` + bump `recall_count` on every returned record
+// above `scoreThreshold`. Throttled per-leaf to one write per N hours so
+// frequent searches don't churn frontmatter. These writes are NOT user-
+// authored saves — they're a usage signal the consolidate's staleness
+// pass will consume — so they go through `updateDocMetadata` directly
+// (not the MCP gate). Best-effort: a failure here MUST NOT fail the
+// search itself. The caller in `searchMemoryFiltered` ALSO checks
+// `isSystemMaintenance()` and skips this helper entirely when consolidate
+// invoked the search internally, to keep the usage signal a true
+// user-recall signal (not a system-driven refresh).
+async function applyRecallTouch(records, scoreThreshold) {
+  if (!recallTouchEnabled() || !records || records.length === 0) return;
+  const minHours = recallTouchMinHours();
+  const nowMs = Date.now();
+  const nowIso = new Date().toISOString();
+  for (const r of records) {
+    if (typeof r.score === "number" && scoreThreshold != null && r.score < scoreThreshold) {
+      continue;
+    }
+    try {
+      const abs = toAbs(r.documentId);
+      if (!fs.existsSync(abs)) continue;
+      const { data } = readLeaf(abs);
+      if (!isActive(data)) continue;
+      const mem = leafMemory(data);
+      const last = mem?.last_recalled_at;
+      if (typeof last === "string" && last) {
+        const lastMs = Date.parse(last);
+        if (Number.isFinite(lastMs) && nowMs - lastMs < minHours * 3600 * 1000) {
+          continue;
+        }
+      }
+      const prev = Number.parseInt(mem?.recall_count, 10);
+      updateDocMetadata({
+        documentId: r.documentId,
+        metadata: {
+          last_recalled_at: nowIso,
+          recall_count: Number.isFinite(prev) && prev >= 0 ? prev + 1 : 1,
+        },
+      });
+    } catch (err) {
+      process.stderr.write(
+        `[recall-touch] non-fatal: ${r.documentId}: ${err?.message || err}\n`,
+      );
+    }
+  }
 }
 
 // Filter leaves by frontmatter metadata, then rank by embedding similarity.
@@ -938,6 +1139,30 @@ export async function searchMemoryFiltered({ query, datasetId, limit = 5, filter
       score: r.score,
       content: r.text,
     }));
+
+  // Recall-touch: stamp `last_recalled_at` + bump `recall_count` on every
+  // record above the caller's scoreThreshold (24h-throttled; opt-out via
+  // MEMORY_RECALL_TOUCH=off). Failures are swallowed — search must never
+  // fail because of a bookkeeping write.
+  //
+  // CRITICAL: skip the touch entirely when invoked from inside a system-
+  // maintenance frame. Otherwise consolidate's own per-leaf cluster search
+  // (orchestrator + 3B refresh) would refresh `last_recalled_at` on every
+  // returned record, defeating its own staleness-flag and orphan-prune
+  // passes (a leaf that hasn't been TRULY recalled by a user / tool gets
+  // its timestamp bumped, so it never ages out). The maintenance frame
+  // means "search initiated by system code, not a user recall" — exactly
+  // when we DON'T want the usage signal.
+  if (records.length > 0 && !isSystemMaintenance()) {
+    try {
+      await applyRecallTouch(records, scoreThreshold);
+    } catch (err) {
+      process.stderr.write(
+        `[recall-touch] outer wrapper non-fatal: ${err?.message || err}\n`,
+      );
+    }
+  }
+
   return { records };
 }
 

@@ -4,9 +4,16 @@ import { z } from "zod";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { wikiRoot, embedCachePath, defaultProjectModule, envValue } from "../scripts/lib/env.mjs";
+import {
+  wikiRoot,
+  embedCachePath,
+  defaultProjectModule,
+  envValue,
+  writeGateSelfImprovementEnabled,
+} from "../scripts/lib/env.mjs";
 import { activeBackend } from "../scripts/lib/embed.mjs";
 import { INSTRUCTIONS } from "../scripts/lib/discipline.mjs";
+import { isSystemMaintenance } from "../scripts/lib/maintenance-tag.mjs";
 
 // ---- in-process hot reload ----
 // wiki-store.mjs + recall.mjs hold the tool logic. We re-import them
@@ -158,18 +165,49 @@ server.registerTool(
   "get_memory_config",
   {
     title: "Get memory configuration",
-    description: "Inspect the local LLM-wiki memory configuration (wiki root, embed backend, categories).",
+    description:
+      "Inspect the local LLM-wiki memory configuration (wiki root, embed backend, categories, active LLM provider). The `llm` block reports the resolved provider, model, baseUrl (for openai / openai-compatible), and a cheap local-only `available` probe (CLI on PATH / API key in env). It does NOT touch the network.",
     inputSchema: {},
   },
   async () => {
     try {
+      const { health } = await import("../scripts/lib/llm.mjs");
+      const llmHealth = await health().catch((err) => ({
+        provider: "unknown",
+        available: false,
+        reason: err?.message || String(err),
+      }));
       return jsonResponse({
         wikiRoot: wikiRoot(),
         embedCache: embedCachePath(),
         embedBackend: activeBackend(),
         defaultProjectModule: defaultProjectModule(),
         categories: impl.getCategories(),
+        llm: llmHealth,
       });
+    } catch (error) {
+      return errorResponse(error);
+    }
+  },
+);
+
+server.registerTool(
+  "reload_provider",
+  {
+    title: "Re-probe the active LLM provider",
+    description:
+      "Re-run the cheap availability probe for the resolved LLM provider (CLI on PATH / API key in env / base URL set) and return the same `llm` block `get_memory_config` reports. Use after editing settings/.env or installing a CLI without restarting the MCP server.",
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const { health } = await import("../scripts/lib/llm.mjs");
+      const llmHealth = await health().catch((err) => ({
+        provider: "unknown",
+        available: false,
+        reason: err?.message || String(err),
+      }));
+      return jsonResponse({ ok: true, llm: llmHealth });
     } catch (error) {
       return errorResponse(error);
     }
@@ -243,15 +281,50 @@ server.registerTool(
   },
 );
 
+// L3 of the memory-write hardening stack. Refuses gated self_improvement
+// writes that lack `userRequested:true` UNLESS the call is inside a
+// system-maintenance scope (the consolidate orchestrator runs every internal
+// write under `withSystemMaintenance(...)`, the recall-touch instrumentation
+// in searchMemoryFiltered / recallLessons does the same — see
+// scripts/lib/maintenance-tag.mjs). The exemption is impossible to set from
+// outside the orchestrator process (AsyncLocalStorage frame, not an
+// arg / env var). Returning a structured error instead of throwing lets the
+// model see and act on the refusal in the next turn.
+function refuseWriteGate(toolName) {
+  return jsonResponse({
+    ok: false,
+    error: "write-gate-refused",
+    message:
+      `${toolName} refused: self_improvement writes require userRequested:true (propose to the user in chat and wait for explicit yes; only then call the tool with the flag). The discipline rule in your initialize-time instructions documents the contract. Knowledge / plans / investigations / daily / issues writes are NOT gated and do not require the flag.`,
+  });
+}
+
+// True iff the resolved write would land under the self_improvement category,
+// regardless of the declared `dataset` field. Closes the gate-bypass where a
+// caller passes `dataset:"knowledge"` (or any non-gated value) together with
+// `path:"self_improvement/..."`. The L3 gate routes through this so the
+// effective target — not the caller's claim — governs the refusal.
+function targetsGatedCategory(dataset, placementOverride) {
+  if (dataset === "self_improvement") return true;
+  if (typeof placementOverride !== "string" || !placementOverride.trim()) return false;
+  const segs = placementOverride.replace(/^\/+/, "").split(/[\\/]+/).filter(Boolean);
+  return segs[0] === "self_improvement";
+}
+
 server.registerTool(
   "save_lesson",
   {
-    title: "Save a self-improvement lesson",
+    title: "Save a self-improvement lesson (write-gated)",
     description:
-      "Persist a self-improvement lesson into the self_improvement category. Use MID-SESSION the moment the user corrects you so the next turn can recall it. metadata.area (the sub-module the lesson belongs to), task_type, and error_pattern are required (project_module is stamped to the workspace automatically). Same title overwrites in place.",
+      "Persist a self-improvement lesson into the self_improvement category. WRITE-GATED: propose to the user in chat first, and only call AFTER explicit yes in this turn — passing `userRequested:true`. The server refuses without that flag. metadata.area, task_type, and error_pattern are required; project_module is stamped to the workspace automatically. Same title overwrites in place.",
     inputSchema: {
       title: z.string().trim().min(1).max(180),
       body: z.string().trim().min(1).max(10_000),
+      // REQUIRED: set to true ONLY when the user explicitly asked to save in
+      // this turn. The L2 PreToolUse hook in Claude Code also returns "ask"
+      // when the latest user turn has no save phrase — but this server-side
+      // check is the airtight layer because it covers Cursor / Codex too.
+      userRequested: z.boolean(),
       metadata: z
         .object({
           area: z.string().trim().min(1).optional(),
@@ -271,8 +344,15 @@ server.registerTool(
       evidence: z.string().trim().max(500).optional(),
     },
   },
-  async ({ title, body, metadata, tags, evidence }) => {
+  async ({ title, body, userRequested, metadata, tags, evidence }) => {
     try {
+      if (
+        writeGateSelfImprovementEnabled() &&
+        userRequested !== true &&
+        !isSystemMaintenance()
+      ) {
+        return refuseWriteGate("save_lesson");
+      }
       const result = impl.saveLesson({ title, body, metadata, tags, evidence });
       return jsonResponse({ ok: !!result.created, ...result });
     } catch (error) {
@@ -286,17 +366,32 @@ server.registerTool(
   {
     title: "Upsert a document into a named category",
     description:
-      "Write `text` as a wiki leaf with the given exact `name`, replacing any existing leaf in the category that has the same name. Use for plans, investigations, and knowledge artefacts. `dataset` is a category name (knowledge, plans, investigations, self_improvement, or any extra category declared in <wiki>/.layout/layout.yaml). Optional `metadata` applies filterable frontmatter. Optional `path` is a relative directory under the wiki root (e.g. \"issues/JIRA/DEV/129/95/7\") and, when supplied, overrides facet-derived placement so the leaf is written verbatim at <path>/<name>; casing is preserved. Use `path` for custom topologies (Jira/GitHub/Linear issue trees, multi-faceted hierarchies) the default facet machinery cannot express.",
+      "Write `text` as a wiki leaf with the given exact `name`, replacing any existing leaf in the category that has the same name. Use for plans, investigations, and knowledge artefacts. `dataset` is a category name (knowledge, plans, investigations, self_improvement, or any extra category declared in <wiki>/.layout/layout.yaml). Optional `metadata` applies filterable frontmatter. Optional `path` is a relative directory under the wiki root (e.g. \"issues/JIRA/DEV/129/95/7\") and, when supplied, overrides facet-derived placement so the leaf is written verbatim at <path>/<name>; casing is preserved. Use `path` for custom topologies (Jira/GitHub/Linear issue trees, multi-faceted hierarchies) the default facet machinery cannot express. WRITE-GATED for dataset=\"self_improvement\" only: pass `userRequested:true` after the user explicitly asks (propose-then-confirm); other datasets are not gated.",
     inputSchema: {
       dataset: z.string().trim().min(1),
       name: z.string().trim().min(1).max(180),
       text: z.string().trim().min(1).max(500_000),
+      // Optional: required only when dataset === "self_improvement". The
+      // server refuses gated writes without it (see save_lesson description).
+      userRequested: z.boolean().optional(),
       metadata: MetadataSchema.optional(),
       path: z.string().trim().min(1).max(500).optional(),
     },
   },
-  async ({ dataset, name, text, metadata, path }) => {
+  async ({ dataset, name, text, userRequested, metadata, path }) => {
     try {
+      if (
+        targetsGatedCategory(dataset, path) &&
+        writeGateSelfImprovementEnabled() &&
+        userRequested !== true &&
+        !isSystemMaintenance()
+      ) {
+        return refuseWriteGate(
+          dataset === "self_improvement"
+            ? "save_to_dataset(dataset=\"self_improvement\")"
+            : `save_to_dataset(path=\"${path}\" lands in self_improvement)`,
+        );
+      }
       const result = impl.saveDocument({
         name,
         text,
@@ -316,19 +411,37 @@ server.registerTool(
   {
     title: "Write project memory",
     description:
-      "Create a new wiki leaf from concise memory text. Optionally supersede an existing leaf by passing its documentId (the old leaf is archived, or deleted with supersedesAction='delete'). Optional `path` is a relative directory under the wiki root and, when supplied, overrides facet-derived placement so the leaf is written verbatim at <path>/<name>; casing is preserved. Use `path` for custom topologies the default facet machinery cannot express.",
+      "Create a new wiki leaf from concise memory text. Optionally supersede an existing leaf by passing its documentId (the old leaf is archived, or deleted with supersedesAction='delete'). Optional `path` is a relative directory under the wiki root and, when supplied, overrides facet-derived placement so the leaf is written verbatim at <path>/<name>; casing is preserved. Use `path` for custom topologies the default facet machinery cannot express. WRITE-GATED for datasetId=\"self_improvement\" only — pass `userRequested:true` (server refuses without it). Other categories are not gated.",
     inputSchema: {
       name: z.string().trim().min(1).max(180),
       text: z.string().trim().min(20).max(200_000),
       datasetId: z.string().trim().min(1),
+      userRequested: z.boolean().optional(),
       supersedes: z.string().trim().min(1).optional(),
       supersedesAction: z.enum(["disable", "delete"]).optional(),
       metadata: MetadataSchema.optional(),
       path: z.string().trim().min(1).max(500).optional(),
     },
   },
-  async ({ name, text, datasetId, supersedes, supersedesAction, metadata, path }) => {
+  async ({ name, text, datasetId, userRequested, supersedes, supersedesAction, metadata, path }) => {
     try {
+      // Same L3 gate as save_to_dataset: self_improvement writes require an
+      // explicit user-attestation flag. Closes the bypass available to
+      // clients that don't fire the Claude-Code-only L2 hook AND the
+      // gate-via-path bypass (path="self_improvement/..." with non-gated
+      // datasetId).
+      if (
+        targetsGatedCategory(datasetId, path) &&
+        writeGateSelfImprovementEnabled() &&
+        userRequested !== true &&
+        !isSystemMaintenance()
+      ) {
+        return refuseWriteGate(
+          datasetId === "self_improvement"
+            ? "write_memory(datasetId=\"self_improvement\")"
+            : `write_memory(path=\"${path}\" lands in self_improvement)`,
+        );
+      }
       return jsonResponse(
         impl.writeMemory({
           name,
@@ -390,6 +503,45 @@ server.registerTool(
   async ({ dataset, documentId }) => {
     try {
       return jsonResponse(impl.deleteDocument({ documentId, datasetId: dataset }));
+    } catch (error) {
+      return errorResponse(error);
+    }
+  },
+);
+
+server.registerTool(
+  "consolidate_memory",
+  {
+    title: "Run search-driven memory consolidation",
+    description:
+      "Run the AutoDream-style consolidation orchestrator. For each active leaf in self_improvement + knowledge, finds its similarity cluster via internal vector search, then applies deterministic passes (sha256 dedup, lesson-key dedup, cosine archive, staleness flag, orphan archive, compress-archived bodies, embedding-cache GC, index rebuild) and the LLM passes (merge near-duplicate bodies, refresh stale leaves) when enabled. Never hard-deletes; always uses disable_document. Throttled via MEMORY_CONSOLIDATE_INTERVAL_DAYS when ifDue=true. Internal writes are system-maintenance-tagged so the write-gate exempts them. Daily cron + the hook-less `consolidate` skill rule run this on a schedule; invoke manually only when the user asks. NOT subject to the L3 write-gate (it's a system tool, not a save).",
+    inputSchema: {
+      dryRun: z.boolean().optional(),
+      ifDue: z.boolean().optional(),
+      force: z.boolean().optional(),
+      llm: z.boolean().optional(),
+      passes: z.array(z.string().trim().min(1)).optional(),
+      cosineThreshold: z.number().min(0).max(1).optional(),
+    },
+  },
+  async ({ dryRun, ifDue, force, llm, passes, cosineThreshold }) => {
+    try {
+      // Honour per-call cosine override via env (process.env wins over .env).
+      const restore = process.env.MEMORY_CONSOLIDATE_COSINE_THRESHOLD;
+      if (cosineThreshold != null) {
+        process.env.MEMORY_CONSOLIDATE_COSINE_THRESHOLD = String(cosineThreshold);
+      }
+      try {
+        const { consolidateMemory } = await import("../scripts/consolidate.mjs");
+        return jsonResponse(
+          await consolidateMemory({ dryRun, ifDue, force, llm, passes }),
+        );
+      } finally {
+        if (cosineThreshold != null) {
+          if (restore == null) delete process.env.MEMORY_CONSOLIDATE_COSINE_THRESHOLD;
+          else process.env.MEMORY_CONSOLIDATE_COSINE_THRESHOLD = restore;
+        }
+      }
     } catch (error) {
       return errorResponse(error);
     }
