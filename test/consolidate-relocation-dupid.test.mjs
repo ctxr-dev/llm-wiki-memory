@@ -12,12 +12,15 @@
 // consolidate reported errors:0).
 //
 // The fix has two layers:
-//   1. wiki-store.updateDocMetadata never leaves a same-id duplicate on a
-//      relocation collision (it consolidates onto the single canonical path),
-//      and accepts a `placementOverride` to pin a leaf in place.
+//   1. wiki-store.updateDocMetadata accepts a `placementOverride` to pin a leaf
+//      in place, and on a relocation collision (the canonical destination is
+//      already occupied by a same-basename leaf) it REFUSES rather than touching
+//      it, mirroring saveDocument's guard. (The old code silently fell back to
+//      an in-place rewrite and LEFT BOTH files = DUP-ID.)
 //   2. consolidate routes every metadata stamp through stampLeafMetadata, which
 //      pins to the leaf's own dir so a merge keeper / soon-to-be-archived loser
-//      is never relocated mid-pass.
+//      is never relocated mid-pass. This is the layer that actually fixes the
+//      bug: consolidate never relocates, so it never reaches the collision branch.
 
 import { test, after } from "node:test";
 import assert from "node:assert/strict";

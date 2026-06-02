@@ -80,7 +80,8 @@ import { health as llmHealth, LLMProviderUnavailable, LLMOutputInvalid } from ".
 function stampLeafMetadata(documentId, metadata) {
   // Pin to the leaf's own directory. `dirname` returns "." for a bare filename;
   // no real leaf lives at the wiki root, but guard anyway so the override (which
-  // rejects "."/empty) never throws — fall back to an unpinned in-place update.
+  // rejects "."/empty) never throws — in that (unreachable) case omit the
+  // override and let updateDocMetadata place by facets as usual.
   const dir = path.posix.dirname(documentId);
   return updateDocMetadata({
     documentId,
