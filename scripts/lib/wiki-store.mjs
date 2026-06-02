@@ -854,7 +854,7 @@ export function saveDocument({ name, text, datasetId, metadata, placementOverrid
 // keeps mirroring the metadata: the cached vector is preserved (content is
 // unchanged) and the old + new ancestor indexes are refreshed. compile re-applies
 // the same metadata it placed by, so the common path is a plain in-place rewrite.
-export function updateDocMetadata({ datasetId, documentId, metadata } = {}) {
+export function updateDocMetadata({ datasetId, documentId, metadata, placementOverride } = {}) {
   const abs = toAbs(documentId);
   if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
   if (!metadata || Object.keys(metadata).length === 0) return { ok: true, warning: "no metadata" };
@@ -868,22 +868,44 @@ export function updateDocMetadata({ datasetId, documentId, metadata } = {}) {
   const rendered = stringifyLeaf(body, { ...data, memory: merged });
 
   const rel = String(documentId).split("/");
-  const newDir = placementDirForMeta(slotToCategory(rel[0]), merged); // null for daily
   const curDir = rel.slice(0, -1).join("/");
+  // `placementOverride` (optional): pin the leaf to a caller-chosen directory
+  // and bypass facet-driven relocation. A caller passing the leaf's CURRENT dir
+  // keeps it in place: this is how consolidate stamps non-facet bookkeeping
+  // (consolidated_at / stale / supersedes_id) WITHOUT moving a merge keeper
+  // (which would invalidate its documentId and break a freshly stamped
+  // supersedes_id) or a leaf it is about to disable. Mirrors saveDocument's
+  // placementOverride contract.
+  const newDir =
+    placementOverride !== undefined && placementOverride !== null
+      ? normalisePlacementOverride(placementOverride)
+      : placementDirForMeta(slotToCategory(rel[0]), merged); // null for daily
   if (newDir && newDir !== curDir) {
     const newRel = `${newDir}/${rel[rel.length - 1]}`;
     const newAbs = toAbs(newRel);
-    // Never clobber an occupied destination; fall back to an in-place rewrite.
-    if (!fs.existsSync(newAbs)) {
-      fs.mkdirSync(path.dirname(newAbs), { recursive: true });
-      fs.writeFileSync(newAbs, rendered);
-      fs.rmSync(abs);
-      renameEmbedding(documentId, newRel);
-      ensureIndexes(root(), [abs, newAbs]); // drop the entry from old ancestors, add to new
-      // Remove any source ancestor dir left holding only an orphaned index.md.
-      pruneEmptyAncestors(path.dirname(abs), root());
-      return { ok: true, relocated: { from: documentId, to: newRel } };
+    // Relocating to a new facet path. If a DIFFERENT leaf already occupies the
+    // destination (a cross-facet basename duplicate; leaf ids derive from the
+    // basename, so the two would share an id), refuse rather than touch it: a
+    // blind overwrite would destroy the destination leaf, and the old in-place
+    // fallback left BOTH files behind as a DUP-ID. This mirrors saveDocument's
+    // relocation guard so both write paths share ONE collision policy.
+    // (consolidate never reaches this branch — it pins every metadata stamp to
+    // the leaf's own dir via stampLeafMetadata, so newDir === curDir there.)
+    if (fs.existsSync(newAbs)) {
+      return {
+        ok: false,
+        reason: `destination ${newRel} is occupied by a different leaf; refusing to overwrite`,
+        conflict: { existing: documentId, destination: newRel },
+      };
     }
+    fs.mkdirSync(path.dirname(newAbs), { recursive: true });
+    fs.writeFileSync(newAbs, rendered);
+    fs.rmSync(abs, { force: true });
+    renameEmbedding(documentId, newRel);
+    ensureIndexes(root(), [abs, newAbs]); // drop the entry from old ancestors, add to new
+    // Remove any source ancestor dir left holding only an orphaned index.md.
+    pruneEmptyAncestors(path.dirname(abs), root());
+    return { ok: true, relocated: { from: documentId, to: newRel } };
   }
   fs.writeFileSync(abs, rendered);
   return { ok: true };
