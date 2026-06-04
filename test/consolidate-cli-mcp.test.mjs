@@ -153,12 +153,18 @@ test("bootstrap.sh schedule_job invokes the cron-job CLI subcommand", () => {
   const raw = fs.readFileSync(BOOTSTRAP, "utf8");
   const startIdx = raw.indexOf("schedule_job()");
   assert.ok(startIdx >= 0, "schedule_job function present in bootstrap.sh");
-  const body = raw.slice(startIdx, startIdx + 6000);
+  // Slice exactly to the function's closing brace so a later top-level
+  // addition (e.g. a /bin/sh call after schedule_job) cannot false-fail
+  // the doesNotMatch below.
+  const endIdx = raw.indexOf("\n}", startIdx);
+  assert.ok(endIdx > startIdx, "schedule_job closing brace found");
+  const body = raw.slice(startIdx, endIdx + 2);
   // The cron-job subcommand chains compile + consolidate --if-due internally
   // (see scripts/cron-job.mjs) and writes the attempt log. It is invoked from
-  // the crontab wrapper (`exec node ".../cli.mjs" cron-job`) AND, on macOS, as
-  // a launchd ProgramArguments element (<string>cron-job</string>).
-  assert.match(body, /exec node "\$SRC_DIR\/scripts\/cli\.mjs" cron-job/, "wrapper invokes cron-job");
+  // the crontab wrapper (`exec "$node_bin" ".../cli.mjs" cron-job` — absolute
+  // node: cron's minimal PATH may not resolve a bare `node` under nvm) AND,
+  // on macOS, as a launchd ProgramArguments element (<string>cron-job</string>).
+  assert.match(body, /exec "\$node_bin" "\$SRC_DIR\/scripts\/cli\.mjs" cron-job/, "wrapper invokes cron-job via the absolute node");
   assert.match(body, /<string>cron-job<\/string>/, "launchd ProgramArguments invokes cron-job");
   // The launchd job must NOT route through `/bin/sh -c "<string>"` — that
   // mis-parses an install path containing a literal double-quote. It passes

@@ -37,6 +37,10 @@ import { ATOM_TYPE_TO_DATASET, ATOM_TYPES, metadataForDify } from "./lib/dataset
 
 const FORCE = process.argv.includes("--force");
 const DRY_RUN = process.argv.includes("--dry-run");
+// BSD EX_UNAVAILABLE. Distinguishes "work pending but no LLM/bridge provider
+// reachable" (retryable, cron-job keeps running consolidate and counts the
+// attempt as failed) from 0 (clean) and other non-zero (hard failure).
+const EX_UNAVAILABLE = 69;
 // Compile knobs — sourced from settings.yaml via settings.mjs accessors.
 // Wrapped as zero-arg getters so test-seam overrides take effect mid-process.
 const SEARCH_LIMIT = () => compileSearchLimit();
@@ -607,7 +611,7 @@ async function main() {
           // run sees the latest state.
           try { writeState(state); } catch { /* swallow - state write best-effort */ }
           console.error(`compile.mjs: aborting (${err.constructor.name}): ${err.message}`);
-          process.exit(0);
+          process.exit(EX_UNAVAILABLE);
         }
       }
     }

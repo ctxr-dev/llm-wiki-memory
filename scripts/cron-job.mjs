@@ -63,6 +63,20 @@ const BUG_FANOUT = 3;
 const MAX_TRACKED_ENTITIES = 5000;
 // Full compile stdout is preserved in the full log, but bounded.
 const STDOUT_CAP_BYTES = 64 * 1024;
+// compile.mjs exits 69 (BSD EX_UNAVAILABLE) when daily docs are pending but
+// no LLM/bridge provider is reachable. The tick still runs consolidate (its
+// deterministic passes don't need a provider), but counts as a FAILED
+// attempt and feeds the synthetic escalation entity below.
+const EX_UNAVAILABLE = 69;
+// Synthetic self-healing entities for provider availability. They ride the
+// SAME updateEntityState/evaluateEscalations/writeIssueReports machinery as
+// dedup-pair/leaf entities: consecutive provider-unavailable ticks escalate
+// into an issue report after consolidate.escalateAfterAttempts, and the
+// first healthy tick records a success that resolves the episode.
+const SYNTH_COMPILE_ENTITY = "system:compile-llm-providers";
+const SYNTH_CONSOLIDATE_ENTITY = "system:consolidate-llm-providers";
+const SYNTH_COMPILE_PASS = "compile-promote";
+const SYNTH_CONSOLIDATE_PASS = "consolidate-llm";
 const CRON_LOG_RE = /^cron-(\d+)\.json$/;
 
 // Settings readers that can never fail the cron path.
@@ -332,6 +346,73 @@ export function evaluateEscalations(state, { escalateAfter = escalateAfterSafe()
   return escalations.sort((a, b) => (a.signature < b.signature ? -1 : a.signature > b.signature ? 1 : 0));
 }
 
+// Fold provider availability into synthetic entity passes. Pure: returns a
+// passes map shaped exactly like a consolidate report's `passes`, so
+// updateEntityState consumes it unchanged.
+//   - compile exit 69  -> compile-promote failure (excerpt = the redacted
+//     abort line, so ENOENT vs timeout vs auth produce DIFFERENT signatures
+//     and therefore different episodes — they are different root causes
+//     with different operator fixes);
+//   - compile ok       -> compile-promote success (resolves the episode);
+//   - real consolidate report with llmRequested && !llm -> consolidate-llm
+//     failure (LLM passes silently skipped); llmRequested && llm -> success.
+// A skipped/dry-run consolidate — or one with llmRequested=false (--no-llm)
+// — contributes nothing: its LLM half was never supposed to run, so there
+// is no signal either way (recording success there would wrongly resolve
+// an open episode without any provider attempt).
+export function synthesizeProviderEntities({ compileExit = null, compileOk = null, compileError = "", report = null } = {}) {
+  const passes = {};
+  if (compileExit === EX_UNAVAILABLE) {
+    // Tail-first excerpt: the chain error reads "...exhausted (<providers>);
+    // last: <the actual cause>". normalizeErrorSignature slugs only the
+    // first 80 chars, and the shared prefix is longer than that — without
+    // the reorder, ENOENT and timeout aborts would collapse into ONE
+    // episode despite needing different operator fixes.
+    const raw = collapse(compileError) || `compile providers unavailable (exit ${EX_UNAVAILABLE})`;
+    const lastIdx = raw.indexOf("; last: ");
+    const excerpt = lastIdx >= 0 ? `${raw.slice(lastIdx + "; last: ".length)} <= ${raw.slice(0, lastIdx)}` : raw;
+    passes[SYNTH_COMPILE_PASS] = {
+      name: SYNTH_COMPILE_PASS,
+      entities: [],
+      failures: [{
+        id: SYNTH_COMPILE_ENTITY,
+        kind: "system-provider",
+        action: "promote",
+        ok: false,
+        excerpt,
+      }],
+    };
+  } else if (compileOk === true) {
+    passes[SYNTH_COMPILE_PASS] = {
+      name: SYNTH_COMPILE_PASS,
+      entities: [{ id: SYNTH_COMPILE_ENTITY, kind: "system-provider", action: "promote", ok: true }],
+      failures: [],
+    };
+  }
+  const realConsolidate = Boolean(report && !report.skipped && !report.dryRun);
+  if (realConsolidate && report.llmRequested === true) {
+    const llmSkipped = report.llm === false;
+    passes[SYNTH_CONSOLIDATE_PASS] = llmSkipped
+      ? {
+          name: SYNTH_CONSOLIDATE_PASS,
+          entities: [],
+          failures: [{
+            id: SYNTH_CONSOLIDATE_ENTITY,
+            kind: "system-provider",
+            action: "llm-pass",
+            ok: false,
+            excerpt: "consolidate: LLM passes skipped (provider unavailable) llmRequested=true llm=false",
+          }],
+        }
+      : {
+          name: SYNTH_CONSOLIDATE_PASS,
+          entities: [{ id: SYNTH_CONSOLIDATE_ENTITY, kind: "system-provider", action: "llm-pass", ok: true }],
+          failures: [],
+        };
+  }
+  return passes;
+}
+
 // ─── issue reports (deterministic skeletons) ───────────────────────────────
 
 export function readIssuesIndex() {
@@ -570,7 +651,62 @@ export async function runCronJob() {
     error: null,
   };
 
+  let compileProvidersUnavailable = false;
+  let compileErrorFull = "";
+  let report = null;
+
+  // Entity-level self-healing, recorded on EVERY finished tick (also the
+  // early-return paths: a consolidate hard-failure on a provider-unavailable
+  // tick must not lose the compile failure streak). Consolidate's per-entity
+  // results only count on a REAL run (a not-due or dry run must not mutate
+  // their streaks), but the synthetic provider entities are judged whenever
+  // compile produced a result — compile runs hourly, so its availability
+  // signal (failure streaks AND the success that resolves an episode) must
+  // not wait for consolidate's daily cadence.
+  const recordSelfHealing = () => {
+    try {
+      const realConsolidate = Boolean(report && !report.skipped && !report.dryRun);
+      const synthetic = synthesizeProviderEntities({
+        compileExit: entry.compile?.exit,
+        compileOk: entry.compile?.ok,
+        compileError: compileErrorFull,
+        report,
+      });
+      const passes = { ...(realConsolidate ? report.passes || {} : {}), ...synthetic };
+      if (Object.keys(passes).length === 0) return;
+      const escalateAfter = escalateAfterSafe();
+      const state = readEntityState();
+      updateEntityState(state, { passes }, { ts, logPath: logPathRel, escalateAfter });
+      let escalations = evaluateEscalations(state, { escalateAfter });
+      if (!realConsolidate) {
+        // Off-cycle tick: only the synthetic entities were attempted. Limit
+        // occurrence appends to THEIR signatures so a pending consolidate
+        // episode doesn't accrue an hourly "still pending" occurrence for
+        // runs that never attempted it (24x noise would churn the capped
+        // occurrence window). Resolution below still sees the full state.
+        const syntheticPasses = new Set(Object.keys(synthetic));
+        const touchedSigs = new Set(
+          Object.values(state.entities || {})
+            .filter((e) => syntheticPasses.has(e.pass))
+            .map((e) => e.lastSignature)
+            .filter(Boolean),
+        );
+        escalations = escalations.filter((e) => touchedSigs.has(e.signature));
+      }
+      const issues = writeIssueReports(escalations, state, start);
+      writeEntityState(state);
+      entry.escalations = issues.openCount;
+      full.escalations = escalations;
+    } catch (err) {
+      // Healing bookkeeping must never fail the cron run itself.
+      process.stderr.write(
+        `[cron-job] self-healing bookkeeping failed: ${err?.message || err}\n`,
+      );
+    }
+  };
+
   const finish = () => {
+    recordSelfHealing();
     entry.durationMs = Date.now() - start.getTime();
     full.ok = entry.ok;
     full.error = entry.error;
@@ -585,6 +721,10 @@ export async function runCronJob() {
   };
 
   // 1. compile. Per-UTC-day state makes repeat attempts cheap no-ops.
+  // Exit 69 (EX_UNAVAILABLE) = daily docs pending but no provider reachable:
+  // the tick is a FAILED attempt (entry.ok stays false, cron-health flips
+  // unhealthy until the next good tick), but consolidate still runs — its
+  // deterministic passes don't need a provider.
   try {
     const r = runStep(cli, ["compile"]);
     entry.compile = { ok: r.ok, exit: r.exit };
@@ -595,8 +735,13 @@ export async function runCronJob() {
       stdout: redact(r.stdout).slice(0, STDOUT_CAP_BYTES),
     };
     if (!r.ok) {
-      entry.error = collapse(redact(r.stderr)).slice(0, 200) || `compile exit ${r.exit}`;
-      return finish();
+      compileProvidersUnavailable = r.exit === EX_UNAVAILABLE;
+      // Uncapped (collapsed + redacted) for the synthetic-entity excerpt:
+      // the 200-char slim-log cap can cut off the "last: ..." tail that
+      // differentiates abort signatures.
+      compileErrorFull = collapse(redact(r.stderr));
+      entry.error = compileErrorFull.slice(0, 200) || `compile exit ${r.exit}`;
+      if (!compileProvidersUnavailable) return finish();
     }
   } catch (err) {
     entry.error = `compile dispatch threw: ${collapse(redact(err?.message || err)).slice(0, 200)}`;
@@ -604,7 +749,6 @@ export async function runCronJob() {
   }
 
   // 2. consolidate --if-due --json (self-throttled by consolidate.intervalDays).
-  let report = null;
   try {
     const r = runStep(cli, ["consolidate", "--if-due", "--json"]);
     entry.consolidate = { ok: r.ok, exit: r.exit };
@@ -624,32 +768,17 @@ export async function runCronJob() {
       entry.consolidate.workingSetSize = report.workingSetSize ?? null;
       entry.consolidate.skipped = report.skipped || null;
       entry.consolidate.dryRun = Boolean(report.dryRun);
+      entry.consolidate.llm = report.llm ?? null;
+      entry.consolidate.llmRequested = report.llmRequested ?? null;
     }
   } catch (err) {
     entry.error = `consolidate dispatch threw: ${collapse(redact(err?.message || err)).slice(0, 200)}`;
     return finish();
   }
 
-  // 3. Entity-level self-healing — ONLY on a real run (a not-due or dry run
-  //    must not mutate healing state, escalate, or write reports).
-  try {
-    if (report && !report.skipped && !report.dryRun) {
-      const state = readEntityState();
-      updateEntityState(state, report, { ts, logPath: logPathRel, escalateAfter: escalateAfterSafe() });
-      const escalations = evaluateEscalations(state, { escalateAfter: escalateAfterSafe() });
-      const issues = writeIssueReports(escalations, state, start);
-      writeEntityState(state);
-      entry.escalations = issues.openCount;
-      full.escalations = escalations;
-    }
-  } catch (err) {
-    // Healing bookkeeping must never fail the cron run itself.
-    process.stderr.write(
-      `[cron-job] self-healing bookkeeping failed: ${err?.message || err}\n`,
-    );
-  }
-
-  entry.ok = true;
+  // 3. Self-healing bookkeeping runs inside finish() so it covers the
+  //    early-return paths too.
+  entry.ok = !compileProvidersUnavailable;
   return finish();
 }
 

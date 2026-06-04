@@ -46,7 +46,10 @@ no Docker) in this project. Follow these steps EXACTLY; do not improvise.
       migration commands the runbooks name.
    7. Verify with EVERY runbook's VERIFICATION block, oldest first; finish with
       `node .llm-wiki-memory/src/scripts/cli.mjs cron-health` reporting
-      `healthy:true`.
+      `healthy:true`. (On a box where daily docs are pending but NO LLM
+      provider CLI is reachable, `healthy:false` with a
+      `system:compile-llm-providers` escalation is the EXPECTED honest signal,
+      not an install failure — fix provider availability, then re-check.)
    8. If step 3.3 lists nothing but HEAD differs from `origin/main`, it is a
       non-breaking update: ff-merge, npm install, re-run bootstrap, check
       cron-health. If HEAD already equals `origin/main`, say "already up to

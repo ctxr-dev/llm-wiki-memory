@@ -402,6 +402,15 @@ schedule_job() {
   local node_bin
   node_bin="$(command -v node || echo node)"
   local cli_path="$SRC_DIR/scripts/cli.mjs"
+  # Hybrid PATH for the scheduled job: the installing user's live PATH first,
+  # then well-known CLI install dirs (claude / codex / cursor-agent homes).
+  # launchd and cron strip PATH to /usr/bin:/bin:/usr/sbin:/sbin, which hides
+  # the provider CLIs and silently disabled LLM promotion (2026-06-04
+  # incident). Built by the same node helper llm.mjs uses at runtime — one
+  # source of truth; fall back to the live PATH if the helper fails.
+  local cron_path
+  cron_path="$("$node_bin" "$SRC_DIR/scripts/lib/cron-path.mjs" 2>/dev/null || true)"
+  [[ -n "$cron_path" ]] || cron_path="$PATH"
   # Stable id derived from the workspace path (sanitised + short hash).
   local ws_hash
   ws_hash="$(printf '%s' "$WORKSPACE_DIR" | cksum | awk '{print $1}')"
@@ -421,11 +430,12 @@ schedule_job() {
       return 0
     fi
     mkdir -p "$HOME/Library/LaunchAgents"
-    local label_x data_dir_x node_bin_x cli_path_x
+    local label_x data_dir_x node_bin_x cli_path_x cron_path_x
     label_x="$(xml_escape "$label")"
     data_dir_x="$(xml_escape "$DATA_DIR")"
     node_bin_x="$(xml_escape "$node_bin")"
     cli_path_x="$(xml_escape "$cli_path")"
+    cron_path_x="$(xml_escape "$cron_path")"
     cat > "$plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -437,6 +447,8 @@ schedule_job() {
   <dict>
     <key>MEMORY_DATA_DIR</key>
     <string>$data_dir_x</string>
+    <key>PATH</key>
+    <string>$cron_path_x</string>
   </dict>
   <key>ProgramArguments</key>
   <array>
@@ -490,7 +502,8 @@ PLIST
 # attempt logging. Do NOT hand-edit; re-run bootstrap.sh to regenerate.
 set -u
 export MEMORY_DATA_DIR="$DATA_DIR"
-exec node "$SRC_DIR/scripts/cli.mjs" cron-job
+export PATH="$cron_path"
+exec "$node_bin" "$SRC_DIR/scripts/cli.mjs" cron-job
 WRAPPER
     chmod +x "$wrapper"
     # 0 * * * * = every hour at :00. Internal --if-due throttle keeps the

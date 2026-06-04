@@ -261,3 +261,154 @@ test("session-start hook omits the cron-health section when log is absent", () =
   const ctx = out.hookSpecificOutput.additionalContext;
   assert.ok(!ctx.includes("UNRESOLVED FAILURE"), "no cron-health section when log absent");
 });
+
+// ─── provider-unavailable observability (exit 69 + synthetic escalation) ───
+
+const { renderDailyDocument } = await import("../scripts/hooks/flush.mjs");
+const store = await import("../scripts/lib/wiki-store.mjs");
+const { synthesizeProviderEntities } = cronJob;
+
+const ENTITIES_PATH = path.join(process.env.MEMORY_DATA_DIR, "state", ".consolidate-entities.json");
+const ISSUES_INDEX_PATH = path.join(process.env.MEMORY_DATA_DIR, "state", ".issues-index.json");
+const ISSUES_DIR_PATH = path.join(process.env.MEMORY_DATA_DIR, "issues");
+
+function readEntities() {
+  try {
+    return JSON.parse(fs.readFileSync(ENTITIES_PATH, "utf8")).entities || {};
+  } catch {
+    return {};
+  }
+}
+
+let dailySeed = 0;
+function seedDaily() {
+  dailySeed += 1;
+  return store.saveDocument({
+    name: `daily-2026-06-04-20000000${dailySeed}.md`,
+    text: renderDailyDocument({
+      atoms: [{
+        type: "decision",
+        title: `Escalate provider failures ${dailySeed}`,
+        body: "Escalate provider failures. Why: observability. How to apply: synthetic entities.",
+        tags: ["infra", "cron"],
+        metadata: { project_module: "testproj", task_type: "implementation" },
+      }],
+      source: {
+        sessionId: `cron-seed-${dailySeed}`,
+        cwd: "/tmp/proj",
+        hookEvent: "session-end",
+        capturedAtMs: Date.parse("2026-06-04T12:00:00Z"),
+        body: "seed",
+      },
+    }),
+    datasetId: "daily",
+  });
+}
+
+function withMockEnv(t, { response } = {}) {
+  const prev = {
+    provider: process.env.MEMORY_LLM_PROVIDER,
+    response: process.env.MEMORY_LLM_MOCK_RESPONSE,
+  };
+  process.env.MEMORY_LLM_PROVIDER = "mock";
+  if (response) process.env.MEMORY_LLM_MOCK_RESPONSE = response;
+  else delete process.env.MEMORY_LLM_MOCK_RESPONSE;
+  t.after(() => {
+    if (prev.provider) process.env.MEMORY_LLM_PROVIDER = prev.provider;
+    else delete process.env.MEMORY_LLM_PROVIDER;
+    if (prev.response) process.env.MEMORY_LLM_MOCK_RESPONSE = prev.response;
+    else delete process.env.MEMORY_LLM_MOCK_RESPONSE;
+  });
+}
+
+test("cron-health: an exit-69 shaped attempt reads as UNRESOLVED FAILURE", () => {
+  wipeLog();
+  appendRawEntry({
+    ts: "2026-06-04T13:00:00Z",
+    kind: "cron-job",
+    ok: false,
+    error: "compile.mjs: aborting (LLMProviderUnavailable): all providers exhausted",
+    compile: { ok: false, exit: 69 },
+  });
+  const h = cronHealth();
+  assert.equal(h.healthy, false);
+  assert.match(h.summary, /UNRESOLVED FAILURE/);
+  assert.match(h.summary, /LLMProviderUnavailable/);
+});
+
+test("cron-health: a later good tick self-clears an exit-69 failure", () => {
+  wipeLog();
+  appendRawEntry({ ts: "2026-06-04T13:00:00Z", kind: "cron-job", ok: false, error: "x", compile: { ok: false, exit: 69 } });
+  appendRawEntry({ ts: "2026-06-04T14:00:00Z", kind: "cron-job", ok: true, compile: { ok: true, exit: 0 } });
+  const h = cronHealth();
+  assert.equal(h.healthy, true);
+  assert.equal(h.lastFailureAt, "2026-06-04T13:00:00Z");
+});
+
+test("runCronJob lifecycle: 3 unavailable ticks escalate, recovery tick resolves and self-clears", async (t) => {
+  wipeLog();
+  fs.rmSync(ENTITIES_PATH, { force: true });
+  fs.rmSync(ISSUES_INDEX_PATH, { force: true });
+  fs.rmSync(ISSUES_DIR_PATH, { recursive: true, force: true });
+  withMockEnv(t, { response: null });
+  seedDaily();
+
+  // Tick 1: providers unavailable. Failed attempt, consolidate still runs.
+  const e1 = await runCronJob();
+  assert.equal(e1.compile.exit, 69, `tick1 compile exit: ${JSON.stringify(e1)}`);
+  assert.equal(e1.compile.ok, false);
+  assert.equal(e1.ok, false, "provider-unavailable tick is a FAILED attempt");
+  assert.match(e1.error, /LLMProviderUnavailable/);
+  assert.ok(e1.consolidate, "consolidate still ran on exit 69");
+  let entities = readEntities();
+  assert.equal(entities["system:compile-llm-providers"]?.consecutiveFailures, 1);
+  assert.equal(cronHealth().healthy, false, "healthy flips immediately");
+  assert.equal(e1.escalations, 0, "below threshold: no episode yet");
+
+  // Ticks 2-3: streak reaches the default escalateAfterAttempts (3).
+  const e2 = await runCronJob();
+  assert.equal(e2.compile.exit, 69);
+  const e3 = await runCronJob();
+  assert.equal(e3.compile.exit, 69);
+  entities = readEntities();
+  assert.equal(entities["system:compile-llm-providers"]?.consecutiveFailures, 3);
+  assert.equal(e3.escalations, 1, "episode opened at the threshold");
+  const h = cronHealth();
+  assert.equal(h.healthy, false);
+  assert.equal(h.escalations.length, 1);
+  const issueAbs = path.join(process.env.MEMORY_DATA_DIR, h.escalations[0].issuePath);
+  assert.ok(fs.existsSync(issueAbs), `issue report exists at ${issueAbs}`);
+  const issueText = fs.readFileSync(issueAbs, "utf8");
+  assert.match(issueText, /^status: open$/m);
+  assert.match(issueText, /system:compile-llm-providers/);
+
+  // Recovery tick: provider answers, the queued daily promotes, episode resolves.
+  process.env.MEMORY_LLM_MOCK_RESPONSE = JSON.stringify({ action: "create", reason: "recovered" });
+  const e4 = await runCronJob();
+  assert.equal(e4.compile.exit, 0, `recovery compile: ${JSON.stringify(e4.compile)}`);
+  assert.equal(e4.ok, true);
+  assert.equal(e4.escalations, 0, "no open episodes after recovery");
+  entities = readEntities();
+  assert.equal(entities["system:compile-llm-providers"], undefined, "success deleted the entity");
+  assert.match(fs.readFileSync(issueAbs, "utf8"), /^status: resolved$/m);
+  const h2 = cronHealth();
+  assert.equal(h2.healthy, true, "self-cleared on the next good tick");
+  assert.equal(h2.escalations.length, 0);
+});
+
+test("runCronJob: a tick with no dailies and no provider stays ok (no work => no provider needed)", async (t) => {
+  wipeLog();
+  withMockEnv(t, { response: null });
+  const e = await runCronJob();
+  assert.equal(e.compile.exit, 0, JSON.stringify(e.compile));
+  assert.equal(e.ok, true);
+  assert.equal(cronHealth().healthy, true);
+});
+
+test("synthesizeProviderEntities is exported and pure (no state, no fs)", () => {
+  const before = fs.existsSync(ENTITIES_PATH) ? fs.readFileSync(ENTITIES_PATH, "utf8") : null;
+  const passes = synthesizeProviderEntities({ compileExit: 69, compileOk: false, compileError: "last: x ENOENT" });
+  assert.ok(passes["compile-promote"]);
+  const after = fs.existsSync(ENTITIES_PATH) ? fs.readFileSync(ENTITIES_PATH, "utf8") : null;
+  assert.equal(before, after);
+});

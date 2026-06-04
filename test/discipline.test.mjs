@@ -82,3 +82,27 @@ test("MCP server surfaces INSTRUCTIONS to the client on initialize", async () =>
     await client.close();
   }
 });
+
+// ─── cron PATH wiring guards (2026-06-04 provider-unavailable incident) ────
+
+test("bootstrap bakes a PATH into BOTH schedulers (plist EnvironmentVariables + cron wrapper)", () => {
+  const bootstrap = fs.readFileSync(path.join(SRC, "bootstrap.sh"), "utf8");
+  assert.match(bootstrap, /<key>PATH<\/key>\s*\n\s*<string>\$cron_path_x<\/string>/, "launchd plist heredoc carries the hybrid PATH");
+  assert.match(bootstrap, /^export PATH="\$cron_path"$/m, "Linux cron wrapper heredoc exports the hybrid PATH");
+  assert.match(bootstrap, /cron-path\.mjs/, "PATH comes from the shared node helper (single source of truth)");
+});
+
+test("no || true swallows the compile exit code on the cron path", () => {
+  const cronJob = fs.readFileSync(path.join(SRC, "scripts", "cron-job.mjs"), "utf8");
+  assert.ok(!/compile.*\|\|\s*true/.test(cronJob), "cron-job must observe compile's exit code");
+  const bootstrap = fs.readFileSync(path.join(SRC, "bootstrap.sh"), "utf8");
+  assert.ok(!/cli\.mjs["']?\s+compile.*\|\|\s*true/.test(bootstrap), "bootstrap must not swallow a compile exit");
+});
+
+test("curated cron-path dirs are filesystem paths only (no provider/model name literals)", async () => {
+  const { CURATED_CLI_DIRS } = await import("../scripts/lib/cron-path.mjs");
+  for (const dir of CURATED_CLI_DIRS) {
+    assert.ok(/^(~\/|\/)/.test(dir), `${dir} is a path`);
+    assert.ok(!/claude|codex|cursor|gpt|anthropic|openai/i.test(dir), `${dir} carries no provider name`);
+  }
+});

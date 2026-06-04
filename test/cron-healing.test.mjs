@@ -318,3 +318,141 @@ test("consolidate surfaces per-entity arrays for a real sha256 dedup (counts unc
   const stateFile = JSON.parse(fs.readFileSync(path.join(dataDir, "state", ".consolidate.json"), "utf8"));
   assert.equal(stateFile.passes["dedupe-by-sha256"].entities, undefined, ".consolidate.json strips entity arrays");
 });
+
+// ---- synthetic provider entities (compile exit 69 / consolidate llm-skip) ----
+
+const ENOENT_ABORT =
+  "compile.mjs: aborting (LLMProviderUnavailable): all providers exhausted (claude:(default), codex:(default), cursor:(default)); last: cursor: cursor-agent failed to start: spawn cursor-agent ENOENT";
+const TIMEOUT_ABORT =
+  "compile.mjs: aborting (LLMProviderUnavailable): all providers exhausted (claude:(default)); last: claude: claude timed out after 120000ms";
+
+const SYNTH_COMPILE_ID = "system:compile-llm-providers";
+const SYNTH_CONSOLIDATE_ID = "system:consolidate-llm-providers";
+
+function wipeHealingState() {
+  fs.rmSync(ENTITIES_PATH, { force: true });
+  fs.rmSync(ISSUES_INDEX, { force: true });
+  fs.rmSync(ISSUES_DIR, { recursive: true, force: true });
+}
+
+test("synthesizeProviderEntities: exit 69 -> compile failure pass with the abort excerpt", () => {
+  const passes = cron.synthesizeProviderEntities({ compileExit: 69, compileOk: false, compileError: ENOENT_ABORT });
+  const p = passes["compile-promote"];
+  assert.ok(p, "compile-promote pass present");
+  assert.equal(p.entities.length, 0);
+  assert.equal(p.failures.length, 1);
+  assert.equal(p.failures[0].id, SYNTH_COMPILE_ID);
+  assert.equal(p.failures[0].kind, "system-provider");
+  assert.match(p.failures[0].excerpt, /LLMProviderUnavailable/);
+  assert.equal(passes["consolidate-llm"], undefined, "no consolidate pass without a report");
+});
+
+test("synthesizeProviderEntities: exit 69 with empty error falls back to a stable excerpt", () => {
+  const passes = cron.synthesizeProviderEntities({ compileExit: 69, compileOk: false, compileError: "" });
+  assert.match(passes["compile-promote"].failures[0].excerpt, /exit 69/);
+});
+
+test("synthesizeProviderEntities: compile ok -> success entity (the resolution signal)", () => {
+  const passes = cron.synthesizeProviderEntities({ compileExit: 0, compileOk: true });
+  const p = passes["compile-promote"];
+  assert.equal(p.failures.length, 0);
+  assert.deepEqual(p.entities.map((e) => e.id), [SYNTH_COMPILE_ID]);
+});
+
+test("synthesizeProviderEntities: a HARD compile failure contributes no compile pass at all", () => {
+  const passes = cron.synthesizeProviderEntities({ compileExit: 1, compileOk: false, compileError: "boom" });
+  assert.equal(passes["compile-promote"], undefined, "hard failure is not a provider signal: streak untouched");
+});
+
+test("synthesizeProviderEntities: consolidate llm-skip -> failure; llm ran -> success; skipped/dryRun/no-llm -> nothing", () => {
+  const skip = cron.synthesizeProviderEntities({ compileOk: true, report: { llmRequested: true, llm: false } });
+  assert.equal(skip["consolidate-llm"].failures.length, 1);
+  assert.equal(skip["consolidate-llm"].failures[0].id, SYNTH_CONSOLIDATE_ID);
+
+  const ran = cron.synthesizeProviderEntities({ compileOk: true, report: { llmRequested: true, llm: true } });
+  assert.equal(ran["consolidate-llm"].failures.length, 0);
+  assert.deepEqual(ran["consolidate-llm"].entities.map((e) => e.id), [SYNTH_CONSOLIDATE_ID]);
+
+  for (const report of [
+    { skipped: "not-due" },
+    { llmRequested: true, llm: false, dryRun: true },
+    { llmRequested: false, llm: false },
+    null,
+  ]) {
+    const none = cron.synthesizeProviderEntities({ compileOk: true, report });
+    assert.equal(none["consolidate-llm"], undefined, `no consolidate signal for ${JSON.stringify(report)}`);
+  }
+});
+
+test("signatures: ENOENT vs timeout aborts open DIFFERENT episodes; volatile tokens still collapse", () => {
+  // Through the production path: the synthesized excerpt is tail-first
+  // ("last: <cause>" before the long shared prefix) precisely so the 80-char
+  // signature window sees the differentiating words.
+  const sigOf = (msg) => {
+    const passes = cron.synthesizeProviderEntities({ compileExit: 69, compileOk: false, compileError: msg });
+    const f = passes["compile-promote"].failures[0];
+    return normalizeErrorSignature(f.excerpt, { pass: "compile-promote", kind: f.kind });
+  };
+  assert.notEqual(sigOf(ENOENT_ABORT), sigOf(TIMEOUT_ABORT), "different root causes, different operator fixes");
+  assert.equal(
+    sigOf(TIMEOUT_ABORT),
+    sigOf(TIMEOUT_ABORT.replace("120000ms", "90000ms")),
+    "timeout duration is volatile and must not split the episode",
+  );
+  assert.equal(
+    sigOf(ENOENT_ABORT),
+    sigOf(ENOENT_ABORT.replace("(claude:(default), codex:(default), cursor:(default))", "(claude:(default))")),
+    "the exhausted-chain listing is suffix context and must not split the episode",
+  );
+});
+
+test("compile synthetic lifecycle: threshold escalation -> issue report -> recovery resolves", () => {
+  wipeHealingState();
+  const state = { version: 1, entities: {} };
+  const failPasses = cron.synthesizeProviderEntities({ compileExit: 69, compileOk: false, compileError: ENOENT_ABORT });
+
+  for (let i = 0; i < 2; i++) {
+    cron.updateEntityState(state, { passes: failPasses }, { ts: `2026-06-04T1${i}:00:00.000Z`, logPath: `state/logs/2026/06/cron-${i}.json`, escalateAfter: 3 });
+  }
+  assert.equal(cron.evaluateEscalations(state, { escalateAfter: 3 }).length, 0, "below threshold: silent");
+
+  cron.updateEntityState(state, { passes: failPasses }, { ts: "2026-06-04T12:00:00.000Z", logPath: "state/logs/2026/06/cron-2.json", escalateAfter: 3 });
+  const escalations = cron.evaluateEscalations(state, { escalateAfter: 3 });
+  assert.equal(escalations.length, 1);
+  assert.equal(escalations[0].reason, "pending-consecutive");
+  assert.deepEqual(escalations[0].entityIds, [SYNTH_COMPILE_ID]);
+
+  const now = new Date("2026-06-04T12:00:01.000Z");
+  const res = cron.writeIssueReports(escalations, state, now);
+  assert.equal(res.openCount, 1);
+  const reportAbs = path.join(ISSUES_DIR, dailyDatePath(now), `${escalations[0].signature}.1.md`);
+  assert.ok(fs.existsSync(reportAbs), `issue report written at ${reportAbs}`);
+  assert.match(fs.readFileSync(reportAbs, "utf8"), /^status: open$/m);
+
+  const okPasses = cron.synthesizeProviderEntities({ compileExit: 0, compileOk: true });
+  cron.updateEntityState(state, { passes: okPasses }, { ts: "2026-06-04T13:00:00.000Z", logPath: "state/logs/2026/06/cron-3.json", escalateAfter: 3 });
+  assert.equal(state.entities[SYNTH_COMPILE_ID], undefined, "success deletes the entity");
+  const res2 = cron.writeIssueReports([], state, new Date("2026-06-04T13:00:01.000Z"));
+  assert.equal(res2.openCount, 0, "episode resolved once the signature has no live entity");
+  assert.match(fs.readFileSync(reportAbs, "utf8"), /^status: resolved$/m);
+});
+
+test("both synthetic failures in one tick escalate independently with distinct signatures", () => {
+  wipeHealingState();
+  const state = { version: 1, entities: {} };
+  const passes = cron.synthesizeProviderEntities({
+    compileExit: 69,
+    compileOk: false,
+    compileError: ENOENT_ABORT,
+    report: { llmRequested: true, llm: false },
+  });
+  for (let i = 0; i < 3; i++) {
+    cron.updateEntityState(state, { passes }, { ts: `2026-06-04T1${i}:00:00.000Z`, logPath: `state/logs/2026/06/cron-${i}.json`, escalateAfter: 3 });
+  }
+  const escalations = cron.evaluateEscalations(state, { escalateAfter: 3 });
+  assert.equal(escalations.length, 2, "one episode per synthetic entity");
+  const sigs = new Set(escalations.map((e) => e.signature));
+  assert.equal(sigs.size, 2, "distinct signatures");
+  const ids = escalations.flatMap((e) => e.entityIds).sort();
+  assert.deepEqual(ids, [SYNTH_COMPILE_ID, SYNTH_CONSOLIDATE_ID].sort());
+});

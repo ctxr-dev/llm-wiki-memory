@@ -37,7 +37,11 @@ These govern DEVELOPING llm-wiki-memory; the rules shipped into consumer install
   (slim `state/.consolidate-attempts.log` + full sharded `state/logs/yyyy/mm/`),
   per-entity healing state (`state/.consolidate-entities.json`), and escalation
   issue reports (`issues/yyyy/mm/dd/<sig>.<version>.md`; episode index in
-  `state/.issues-index.json`).
+  `state/.issues-index.json`). Compile exit `69` (EX_UNAVAILABLE: daily docs
+  pending, no LLM provider reachable) counts as a FAILED attempt but still runs
+  consolidate; the synthetic entities `system:compile-llm-providers` /
+  `system:consolidate-llm-providers` escalate persistent provider absence and
+  resolve on the first healthy tick.
 - `scripts/lib/wiki-store.mjs`: the storage seam, a drop-in for a RAG bridge whose every
   document is a wiki leaf. Drives `skill-llm-wiki` for index-rebuild, validate, heal,
   rebuild (it owns tree-building; we own category routing). Hardens arbitrary names via
