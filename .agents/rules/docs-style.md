@@ -47,11 +47,18 @@ CSS, so the theme lives in exactly these tokens — reuse them, don't invent new
 
 - Palette: signature yellow `FCEE0A`, cyan `00F0FF`, alert red `FF003C`, neon mint
   `00FF9F` (passing/health only), near-black `0D0D14`.
-- **Badge readability scheme (applies to EVERY badge):** neon goes on the LABEL side
-  (`labelColor=<neon>`, shields auto-renders black text on light neon), the MESSAGE side
-  is dark (`color=0D0D14`, white text). Never put white/light text on a neon background.
-  Header badges: `style=for-the-badge`, UPPERCASE, two rows (authority row first: tests,
-  node, license, MCP). Capability rows keep brand colors as the label side.
+- **Badge readability scheme (applies to EVERY badge):** neon goes on the LABEL side,
+  the MESSAGE side is dark (`color=0D0D14`, white text). Never put white/light text on a
+  neon background. CRITICAL (2026-06-04 unreadable-badges incident): shields picks label
+  text color via brightness `(299R+587G+114B)/255000` and renders black only at ≥ 0.69 —
+  theme cyan `00F0FF` (0.666) and mint `00FF9F` (0.658) FAIL the threshold and get
+  near-invisible white-on-neon text. Badge `labelColor` therefore always uses the LIGHT
+  variants: cyan `5EF6FF` (0.790) and mint `5EFFC0` (0.783); yellow `FCEE0A` (0.848)
+  passes as-is. The original tokens stay correct everywhere else (gradients, banner art).
+  Alert red `FF003C` cannot clear the threshold without turning pink, so it keeps white
+  text — tolerable because red is dark; use it on at most one badge. Header badges:
+  `style=for-the-badge`, UPPERCASE, two rows (authority row first: tests, node, license,
+  MCP). Capability rows keep brand colors as the label side.
 - Highlights: numbered `flat-square` chips (`01`..`NN`), ALL yellow labels (`FCEE0A`) +
   dark message; each chip on its OWN line, blank line, then a bold hook sentence + prose.
 - **No `<style>` blocks, ever:** GitHub's sanitizer strips `<style>` elements AND

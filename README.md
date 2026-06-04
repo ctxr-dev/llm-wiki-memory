@@ -11,14 +11,14 @@ Claude Code, Cursor, Codex, and every other MCP client forget everything when a 
 <br/>
 <br/>
 
-[![tests](https://img.shields.io/badge/TESTS-844_PASSING-0D0D14?style=for-the-badge&labelColor=00FF9F)](#testing)
-[![node](https://img.shields.io/badge/NODE-%E2%89%A5_20-0D0D14?style=for-the-badge&logo=nodedotjs&logoColor=0D0D14&labelColor=00F0FF)](https://nodejs.org)
+[![tests](https://img.shields.io/badge/TESTS-844_PASSING-0D0D14?style=for-the-badge&labelColor=5EFFC0)](#testing)
+[![node](https://img.shields.io/badge/NODE-%E2%89%A5_20-0D0D14?style=for-the-badge&logo=nodedotjs&logoColor=0D0D14&labelColor=5EF6FF)](https://nodejs.org)
 [![license](https://img.shields.io/badge/LICENSE-MIT-0D0D14?style=for-the-badge&labelColor=FCEE0A)](LICENSE)
-[![MCP](https://img.shields.io/badge/MCP-STDIO_SERVER-0D0D14?style=for-the-badge&logo=anthropic&logoColor=0D0D14&labelColor=00F0FF)](https://modelcontextprotocol.io)
+[![MCP](https://img.shields.io/badge/MCP-STDIO_SERVER-0D0D14?style=for-the-badge&logo=anthropic&logoColor=0D0D14&labelColor=5EF6FF)](https://modelcontextprotocol.io)
 
 [![recall](https://img.shields.io/badge/RECALL-BGE_ON--DEVICE-0D0D14?style=for-the-badge&labelColor=FCEE0A)](https://huggingface.co/Xenova/bge-large-en-v1.5)
 [![infra](https://img.shields.io/badge/ZERO_INFRA-NO_DOCKER_%C2%B7_NO_RAG-0D0D14?style=for-the-badge&labelColor=FF003C)](#why-a-wiki-instead-of-rag)
-[![built on](https://img.shields.io/badge/BUILT_ON-%40ctxr%2Fskill--llm--wiki-0D0D14?style=for-the-badge&labelColor=00F0FF)](https://github.com/ctxr-dev/skill-llm-wiki)
+[![built on](https://img.shields.io/badge/BUILT_ON-%40ctxr%2Fskill--llm--wiki-0D0D14?style=for-the-badge&labelColor=5EF6FF)](https://github.com/ctxr-dev/skill-llm-wiki)
 [![github stars](https://img.shields.io/github/stars/ctxr-dev/llm-wiki-memory?style=for-the-badge&logo=github&logoColor=0D0D14&color=0D0D14&labelColor=FCEE0A&label=STARS)](https://github.com/ctxr-dev/llm-wiki-memory/stargazers)
 
 </div>
