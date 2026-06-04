@@ -1,6 +1,34 @@
 const PATTERNS = [
   [/Bearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer [REDACTED]"],
   [/(api[_-]?key|secret|token|password)(["'\s:=]+)[^"'\s]+/gi, "$1$2[REDACTED]"],
+  // Compound secret-bearing KEY NAMES where the trigger word is embedded in a
+  // larger identifier (aws_secret_access_key, secretAccessKey, SECRET_KEY,
+  // token_foo, my_api_key, private_key, passphrase, client_secret). The rule
+  // above only fires when the trigger word is IMMEDIATELY followed by a
+  // separator, so it misses these — the single most common one,
+  // aws_secret_access_key, slipped through entirely. We REQUIRE an explicit
+  // `=`/`:` assignment (optionally quoted, JSON/YAML/.env style) rather than a
+  // bare space, so English prose ("the secretary signed", "tokens help") is NOT
+  // matched while real assignments are. Value stops at a quote / space / comma /
+  // semicolon so connection-string pairs redact field-by-field.
+  //
+  // Fail-safe over-redaction: a key-looking label followed by `=`/`:` and an
+  // ordinary word will eat that word as the "value" (e.g. `secret: see docs` →
+  // `secret: [REDACTED] docs`). That is the same false-positive class the rule
+  // above already has and is the safe direction for a secret scrubber.
+  //
+  // The match is ANCHORED on the trigger word (no leading `[A-Za-z0-9_.-]*`):
+  // an earlier draft floated a `*` before the trigger, which made the regex
+  // O(n^2) — a 300 KB run of identifier chars with no trigger took 34 s, a
+  // content-triggerable DoS since redact() runs on untrusted transcript text.
+  // Anchoring lets the engine fast-fail the alternation at each position. Any
+  // key PREFIX before the trigger (e.g. the `aws_` in `aws_secret_access_key`)
+  // stays in the output untouched — cosmetic only; the VALUE is still redacted.
+  [/((?:secret|token|passwd|password|passphrase|credential|pwd|api[_-]?key|access[_-]?key|private[_-]?key|encryption[_-]?key|signing[_-]?key)[A-Za-z0-9_.-]*)(["']?\s*[:=]\s*["']?)([^"'\s,;]+)/gi, "$1$2[REDACTED]"],
+  // Authorization headers: keep the scheme word visible, redact the credential.
+  // Bearer is also caught by the Bearer rule above; Basic / Digest / Negotiate
+  // credentials are not caught anywhere else.
+  [/\b((?:proxy-)?authorization["']?\s*[:=]\s*["']?)(basic|digest|negotiate|bearer)(\s+)([^\s,;"']+)/gi, "$1$2$3[REDACTED]"],
   [/\bsk-(?!ant-)[A-Za-z0-9_-]{16,}\b/g, "sk-[REDACTED]"],
   [/\bctx7sk-[A-Za-z0-9_-]{16,}\b/g, "ctx7sk-[REDACTED]"],
   [/\bghp_[A-Za-z0-9]{20,}\b/g, "ghp_[REDACTED]"],
@@ -33,8 +61,13 @@ const PATTERNS = [
   //   postgres://user:pw@host/db, postgresql://, mysql://, mongodb://,
   //   mongodb+srv://, redis://, amqp://. Replaces the userinfo only,
   //   leaves the routing visible (host/db) so the message still tells
-  //   the reader WHICH DB.
-  [/\b((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp|rediss):\/\/)[^\s:@\/]+:[^\s@\/]+@/gi, "$1[REDACTED]:[REDACTED]@"],
+  //   the reader WHICH DB. The password class allows '@': the greedy match
+  //   backtracks so the literal '@' anchors on the LAST '@' before the host,
+  //   redacting a password like p@ss in full instead of leaking its tail
+  //   after the first '@'. Exotic multi-userinfo cluster lists
+  //   (redis://u:p@h1,u2:p2@h2) over-redact into one userinfo — the
+  //   fail-safe direction for a secret scrubber.
+  [/\b((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp|rediss):\/\/)[^\s:@\/]+:[^\s\/]+@/gi, "$1[REDACTED]:[REDACTED]@"],
   // Azure Storage account keys (AccountKey=...; in connection strings).
   // The key is base64 + padding, ~80 chars; the connection string itself
   // is semicolon-separated key=value pairs.

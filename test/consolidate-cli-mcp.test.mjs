@@ -14,7 +14,11 @@ const CLI = path.join(SRC, "scripts", "cli.mjs");
 const BOOTSTRAP = path.join(SRC, "bootstrap.sh");
 
 function freshDataDir(label) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), `${label}-`));
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), `lwm-${label}-`));
+  // Pin lexical embed via settings.yaml — env vars no longer drive it.
+  fs.mkdirSync(path.join(d, "settings"), { recursive: true });
+  fs.writeFileSync(path.join(d, "settings", "settings.yaml"), "embed:\n  backend: lexical\n");
+  return d;
 }
 
 function runConsolidateCli(args, dataDir) {
@@ -24,7 +28,6 @@ function runConsolidateCli(args, dataDir) {
     env: {
       ...process.env,
       MEMORY_DATA_DIR: dataDir,
-      MEMORY_EMBED_BACKEND: "lexical",
       MEMORY_LLM_PROVIDER: "mock",
       MEMORY_LLM_MOCK_RESPONSE: '{"ok":true}',
       LLM_WIKI_NO_PROMPT: "1",
@@ -39,7 +42,6 @@ function ensureWikiInit(dataDir) {
     env: {
       ...process.env,
       MEMORY_DATA_DIR: dataDir,
-      MEMORY_EMBED_BACKEND: "lexical",
       LLM_WIKI_NO_PROMPT: "1",
     },
   });
@@ -151,14 +153,45 @@ test("bootstrap.sh schedule_job invokes the cron-job CLI subcommand", () => {
   const raw = fs.readFileSync(BOOTSTRAP, "utf8");
   const startIdx = raw.indexOf("schedule_job()");
   assert.ok(startIdx >= 0, "schedule_job function present in bootstrap.sh");
-  const body = raw.slice(startIdx, startIdx + 4000);
-  const lineMatch = body.match(/^\s*local\s+job_cmd=.*$/m);
-  assert.ok(lineMatch, `schedule_job body must define a job_cmd assignment; body head=${body.slice(0, 400)}`);
-  const jobCmdLine = lineMatch[0];
+  const body = raw.slice(startIdx, startIdx + 6000);
   // The cron-job subcommand chains compile + consolidate --if-due internally
-  // (see scripts/cron-job.mjs) and writes the attempt log. The cron entry
-  // therefore stays a single token: cron-job.
-  assert.ok(jobCmdLine.includes("cron-job"), `job_cmd line invokes the cron-job subcommand; got ${jobCmdLine}`);
+  // (see scripts/cron-job.mjs) and writes the attempt log. It is invoked from
+  // the crontab wrapper (`exec node ".../cli.mjs" cron-job`) AND, on macOS, as
+  // a launchd ProgramArguments element (<string>cron-job</string>).
+  assert.match(body, /exec node "\$SRC_DIR\/scripts\/cli\.mjs" cron-job/, "wrapper invokes cron-job");
+  assert.match(body, /<string>cron-job<\/string>/, "launchd ProgramArguments invokes cron-job");
+  // The launchd job must NOT route through `/bin/sh -c "<string>"` — that
+  // mis-parses an install path containing a literal double-quote. It passes
+  // node + the cli path as discrete ProgramArguments elements instead.
+  assert.doesNotMatch(body, /<string>\/bin\/sh<\/string>/, "no /bin/sh -c indirection in the plist");
+});
+
+test("bootstrap.sh crontab idempotency filter is prefix-collision-safe (awk suffix match, not grep -vF)", () => {
+  const raw = fs.readFileSync(BOOTSTRAP, "utf8");
+  const startIdx = raw.indexOf("schedule_job()");
+  const body = raw.slice(startIdx, startIdx + 6000);
+  // Guard against a regression to `grep -vF "$tag"`, whose unanchored substring
+  // match wipes a sibling workspace whose path is a prefix of this one.
+  assert.doesNotMatch(body, /crontab -l[^\n]*grep -vF "\$tag"/, "must NOT use unanchored grep -vF on the tag");
+  assert.match(body, /awk -v t="\$tag"[^\n]*substr\(\$0[^\n]*length\(t\)/, "uses an awk suffix-match filter keyed on the tag");
+
+  // Execute the EXACT awk expression bootstrap uses and prove it drops only the
+  // exact-suffix line, keeping a prefix-sibling and unrelated lines.
+  const exprMatch = body.match(/awk -v t="\$tag" '([^']*)'/);
+  assert.ok(exprMatch, "extracted the awk program text");
+  const awkProg = exprMatch[1];
+  const tag = "# llm-wiki-memory:/a/proj";
+  const input = [
+    `0 * * * * "/a/proj/.llm/state/cron-daily.sh" ${tag}`,
+    `0 * * * * "/a/proj2/.llm/state/cron-daily.sh" # llm-wiki-memory:/a/proj2`,
+    "0 2 * * * /usr/bin/backup  # unrelated",
+  ].join("\n") + "\n";
+  const r = spawnSync("awk", ["-v", `t=${tag}`, awkProg], { input, encoding: "utf8" });
+  assert.equal(r.status, 0, `awk ran; stderr=${r.stderr}`);
+  const kept = r.stdout.trimEnd().split("\n");
+  assert.ok(kept.some((l) => l.includes("/a/proj2")), "sibling prefix workspace line is KEPT");
+  assert.ok(kept.some((l) => l.includes("/usr/bin/backup")), "unrelated cron line is KEPT");
+  assert.ok(!kept.some((l) => l.endsWith(tag)), "this workspace's exact line is dropped");
 });
 
 test("bootstrap.sh installs cron at hourly cadence (0 * * * *)", () => {

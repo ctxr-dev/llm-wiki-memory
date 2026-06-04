@@ -13,7 +13,7 @@ forever — dead weight that bloats the cache file.
 
 `gc-embeddings` sweeps those orphans (entries whose leaf no longer exists on
 disk). To avoid running it every session, the **`--if-due`** form throttles to
-`MEMORY_GC_INTERVAL_DAYS` (default **7** — weekly; `0`/`off` disables), tracking
+`gc.intervalDays` in `<data>/settings/settings.yaml` (default **7** — weekly; `0` disables), tracking
 the last run in `state/.embed-gc.json`.
 
 ## When to run

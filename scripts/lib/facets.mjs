@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { wikiRoot, defaultProjectModule, envValue } from "./env.mjs";
+import { wikiRoot, defaultProjectModule } from "./env.mjs";
+import { crossCuttingAreas as settingsCrossCutting } from "./settings.mjs";
 import { slugify } from "./slug.mjs";
 import { ATOM_TYPE_TO_DATASET, TASK_TYPES } from "./datasets.mjs";
 import { callLLMWithRetry } from "./llm.mjs";
@@ -30,13 +31,14 @@ const BAD_AREA = new Set(["", "unknown", "unscoped", "untyped", "misc", "untitle
 // code sub-module (e.g. a universal authoring convention). Configurable; the
 // FIRST entry is the deterministic fallback.
 export function crossCuttingAreas() {
-  const raw = envValue("MEMORY_CROSS_CUTTING_AREAS", "workspace,conventions");
+  // Settings YAML carries an array directly; legacy env (CSV) is migrated by
+  // bootstrap. Fall back to the documented ["workspace", "conventions"]
+  // default when the YAML supplies an empty list.
+  const fromSettings = settingsCrossCutting();
+  const raw = fromSettings.length ? fromSettings : ["workspace", "conventions"];
   const workspace = slugify(defaultProjectModule() || "");
-  // Defend the "never unknown/unscoped/workspace-name area" guarantee even if
-  // the env var is misconfigured: drop bad-sentinel and workspace-name entries.
-  const list = String(raw)
-    .split(",")
-    .map((s) => slugify(s.trim()))
+  const list = raw
+    .map((s) => slugify(String(s || "").trim()))
     .filter((s) => s && !BAD_AREA.has(s) && s !== workspace);
   if (list.length) return list;
   // Fallback must itself be valid and != the workspace name (covers the corner

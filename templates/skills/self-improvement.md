@@ -72,7 +72,7 @@ Then:
 ```
 save_lesson({
   title: "<imperative summary, <=80 chars: what to do (or not do) next time>",
-  body: "<lead with the rule, then 'Why:' and 'How to apply:' lines; flush truncates to MEMORY_ATOM_BODY_MAX_CHARS (default 700)>",
+  body: "<lead with the rule, then 'Why:' and 'How to apply:' lines; flush truncates to settings.compile.atomBodyMaxChars (default 700)>",
   userRequested: true,   // REQUIRED. Only set when the user explicitly said yes
                          // in this turn. Server refuses without it.
   metadata: {

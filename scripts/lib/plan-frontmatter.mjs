@@ -13,6 +13,7 @@
 
 import fs from "node:fs";
 import matter from "gray-matter";
+import { writeFileAtomic } from "./atomic-write.mjs";
 import {
   parseChecklist,
   inferLifecycle,
@@ -125,7 +126,7 @@ export function updatePlanFrontmatter(filePath, opts = {}) {
   const raw = fs.readFileSync(filePath, "utf8");
   const result = applyFrontmatterUpdate(raw, opts);
   if (result.changed) {
-    fs.writeFileSync(filePath, result.text);
+    writeFileAtomic(filePath, result.text);
   }
   return { filePath, ...result.summary, changed: result.changed };
 }

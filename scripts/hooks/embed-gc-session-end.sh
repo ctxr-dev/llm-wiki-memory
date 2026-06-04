@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Throttled embedding-cache GC, run on SessionEnd. Best-effort and fully
 # non-blocking: it never fails or delays session termination. The throttle
-# (MEMORY_GC_INTERVAL_DAYS, default 7) and last-run state (state/.embed-gc.json)
+# (settings.gc.intervalDays, default 7) and last-run state (state/.embed-gc.json)
 # are owned by `gc-embeddings --if-due`, so this wrapper just invokes it.
 #
 # Installed as its OWN SessionEnd entry, separate from the other memory hooks.

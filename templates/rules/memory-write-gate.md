@@ -48,7 +48,9 @@ L4 (folded into L2) blocks `Write`/`Edit`/`NotebookEdit` to Claude Code's per-cl
 
 ## Operator override
 
-Set `MEMORY_WRITE_GATE_SELF_IMPROVEMENT=off` in `.llm-wiki-memory/settings/.env` to disable the L3 server-side check. L1 instructions and L2 hooks still apply. This is an escape hatch for rare bulk-import / migration runs; keep it on in normal operation.
+Set `gate.selfImprovementEnabled: false` in `.llm-wiki-memory/settings/settings.yaml` to disable the L3 server-side check. L1 instructions and L2 hooks still apply. This is an escape hatch for rare bulk-import / migration runs; keep it on in normal operation.
+
+Set `gate.claudeHookEnabled: false` (same file) to disable the L2 Claude Code hook: it then exits 0 with no decision, so Claude Code's normal permission flow applies. The hook is enabled by default; L1 instructions and the L3 server-side gate still apply.
 
 ## Quick reference
 

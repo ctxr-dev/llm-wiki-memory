@@ -1,0 +1,8 @@
+---
+description: llm-wiki-memory development principles — atomic writes, safe parsing, LLM-loop depth caps, prompt-injection hardening, single-source config. Canonical file is .agents/rules/dev-principles.md.
+alwaysApply: true
+---
+
+Follow the canonical rule (edit that file, never this shadow):
+
+@.agents/rules/dev-principles.md

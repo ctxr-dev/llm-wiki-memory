@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { envValue, envInt } from "./env.mjs";
 import { reentryEnv } from "./reentry.mjs";
+import { settings, isCliProvider, isApiProvider } from "./settings.mjs";
 
 export class LLMProviderUnavailable extends Error {}
 export class LLMOutputInvalid extends Error {
@@ -13,15 +14,35 @@ export class LLMOutputInvalid extends Error {
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
-export async function callLLM({ systemPrompt, userPrompt, maxTokens = 1500 }) {
-  const provider = (envValue("MEMORY_LLM_PROVIDER", "claude") || "claude").toLowerCase();
-  const timeoutMs = envInt("MEMORY_LLM_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
+// Detect "model is gone / wrong" errors from API providers. Promotes the
+// chain iteration: we keep trying within the SAME provider's model list
+// before giving up on that provider. Heuristic — providers emit slightly
+// different messages, so the matcher errs on the side of including more
+// signals than fewer.
+export function looksLikeModelNotFound(err) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  return (
+    msg.includes("model_not_found") ||
+    msg.includes("not_found_error") ||
+    msg.includes("model does not exist") ||
+    msg.includes("invalid_model") ||
+    msg.includes("model not found") ||
+    msg.includes("unknown model") ||
+    msg.includes("decommissioned") ||
+    msg.includes("deprecated_model")
+  );
+}
 
+// Single attempt at a (provider, model) pair. Returns parsed JSON; throws
+// LLMProviderUnavailable / LLMOutputInvalid. The strict-JSON retry that
+// previously lived inside callLLMWithRetry is kept at the WRAPPER level (not
+// here), so each chain step is exactly one LLM call per pass; the wrapper
+// can re-run the whole chain with a stricter prompt if the final answer
+// was invalid.
+async function attemptProvider({ provider, model, systemPrompt, userPrompt, maxTokens, timeoutMs }) {
   let raw;
   switch (provider) {
     case "mock":
-      // Test/dev provider: return a canned response from MEMORY_LLM_MOCK_RESPONSE
-      // (or the file at MEMORY_LLM_MOCK_FILE). Lets flush/compile run hermetically.
       raw = mockResponse();
       break;
     case "claude":
@@ -30,23 +51,140 @@ export async function callLLM({ systemPrompt, userPrompt, maxTokens = 1500 }) {
     case "codex":
       raw = await callCodexCli({ systemPrompt, userPrompt, timeoutMs });
       break;
+    case "cursor":
+      raw = await callCursorCli({ systemPrompt, userPrompt, timeoutMs });
+      break;
     case "anthropic":
-      raw = await callAnthropicApi({ systemPrompt, userPrompt, maxTokens, timeoutMs });
+      raw = await callAnthropicApi({ systemPrompt, userPrompt, maxTokens, timeoutMs, model });
       break;
     case "openai":
     case "openai-compatible":
-      // Both routes go to callOpenAiApi. The distinction is purely
-      // documentary: `openai-compatible` signals "we're hitting a local /
-      // self-hosted OpenAI-compatible endpoint (ollama / vLLM / lm-studio /
-      // llama.cpp / litellm proxy)" via MEMORY_LLM_BASE_URL. The function
-      // itself honours MEMORY_LLM_BASE_URL identically for both.
-      raw = await callOpenAiApi({ systemPrompt, userPrompt, maxTokens, timeoutMs });
+      raw = await callOpenAiApi({ systemPrompt, userPrompt, maxTokens, timeoutMs, model });
       break;
     default:
-      throw new LLMProviderUnavailable(`Unknown MEMORY_LLM_PROVIDER: ${provider}`);
+      throw new LLMProviderUnavailable(`Unknown provider in chain: ${provider}`);
+  }
+  return parseStrictJson(raw);
+}
+
+// Iterate the configured provider chain and (per API provider) the model
+// list, returning `{ result, provenance }` where `result` is the parsed JSON
+// and provenance carries which combinations were tried and which one
+// answered. Callers that just want the parsed JSON should use `callLLM`.
+//
+// Within a provider: a model-not-found / deprecated error advances to the
+// next model in the same provider's list. ANY other error (timeout, auth,
+// network, output invalid) advances to the NEXT provider — never iterate
+// past a transient error within the same provider, since the per-model
+// retry budget would multiply by the model-list length.
+export async function callLLMChain({ systemPrompt, userPrompt, maxTokens = 1500, configOverride } = {}) {
+  // No sync cmdProbe here: detecting "claude on PATH" requires spawning
+  // /usr/bin/which, which settings() is synchronous to support. We
+  // accept that detectAvailableProviders' default keeps all CLIs in the
+  // chain; the dispatcher then fast-fails an absent CLI via the spawn
+  // 'error' event and moves on to the next provider — one ENOENT per
+  // missing CLI is negligible.
+  const config = configOverride || settings();
+  const timeoutMs = envInt("MEMORY_LLM_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
+
+  const chain = config.providers.chain;
+  if (!Array.isArray(chain) || chain.length === 0) {
+    throw new LLMProviderUnavailable(
+      "no LLM providers configured (chain empty; set MEMORY_LLM_PROVIDER, populate settings/settings.yaml, or supply an API key)",
+    );
   }
 
-  return parseStrictJson(raw);
+  const tried = [];
+  const failures = [];
+
+  for (const provider of chain) {
+    if (provider === "mock" || isCliProvider(provider)) {
+      // No per-model loop: mock has no model, CLIs defer to their own
+      // logged-in model. One attempt per CLI provider.
+      const label = `${provider}:(default)`;
+      tried.push(label);
+      try {
+        const result = await attemptProvider({
+          provider,
+          model: null,
+          systemPrompt,
+          userPrompt,
+          maxTokens,
+          timeoutMs,
+        });
+        return {
+          result,
+          provenance: {
+            provider_chain_tried: tried.slice(),
+            final_provider: label,
+            failure_reasons: failures.slice(),
+          },
+        };
+      } catch (err) {
+        failures.push({ provider, model: null, error: err?.message || String(err) });
+        continue;
+      }
+    }
+
+    if (isApiProvider(provider)) {
+      const models = config.providers[provider]?.models || [];
+      if (models.length === 0) {
+        failures.push({ provider, model: null, error: "no models configured for provider" });
+        continue;
+      }
+      let movedToNextProvider = false;
+      for (const model of models) {
+        if (movedToNextProvider) break;
+        const label = `${provider}:${model}`;
+        tried.push(label);
+        try {
+          const result = await attemptProvider({
+            provider,
+            model,
+            systemPrompt,
+            userPrompt,
+            maxTokens,
+            timeoutMs,
+          });
+          return {
+            result,
+            provenance: {
+              provider_chain_tried: tried.slice(),
+              final_provider: label,
+              failure_reasons: failures.slice(),
+            },
+          };
+        } catch (err) {
+          failures.push({ provider, model, error: err?.message || String(err) });
+          if (looksLikeModelNotFound(err)) {
+            // Try the next model under the same provider.
+            continue;
+          }
+          // Anything else (timeout, auth, output invalid, network) — move
+          // on to the next provider.
+          movedToNextProvider = true;
+        }
+      }
+      continue;
+    }
+
+    failures.push({ provider, model: null, error: `unknown provider in chain: ${provider}` });
+  }
+
+  const lastErr = failures[failures.length - 1];
+  const detail = lastErr ? `${lastErr.provider}${lastErr.model ? `:${lastErr.model}` : ""}: ${lastErr.error}` : "no providers attempted";
+  const err = new LLMProviderUnavailable(`all providers exhausted (${tried.join(", ") || "none"}); last: ${detail}`);
+  err.provenance = {
+    provider_chain_tried: tried.slice(),
+    final_provider: null,
+    failure_reasons: failures.slice(),
+  };
+  throw err;
+}
+
+export async function callLLM({ systemPrompt, userPrompt, maxTokens = 1500 } = {}) {
+  const { result } = await callLLMChain({ systemPrompt, userPrompt, maxTokens });
+  return result;
 }
 
 export async function callLLMWithRetry(args) {
@@ -64,7 +202,30 @@ export async function callLLMWithRetry(args) {
   }
 }
 
+// Per-process call counter for the mock provider. Lets tests inject "first N
+// calls fail" patterns via MEMORY_LLM_MOCK_FAIL_INDICES (comma-separated
+// indices) without rewriting the dispatcher. The counter is shared across
+// the whole process so a chain that retries through the same mock provider
+// sees the index advance on every call.
+let __mockCallIndex = 0;
+export function __resetMockCallIndex() {
+  __mockCallIndex = 0;
+}
+
 function mockResponse() {
+  const current = __mockCallIndex++;
+  // Test seam: throw a specific error on the listed call indices so tests
+  // can drive the chain through its failure paths without HTTP mocking.
+  const failIndices = envValue("MEMORY_LLM_MOCK_FAIL_INDICES", "");
+  if (failIndices) {
+    const indices = failIndices.split(",").map((s) => Number.parseInt(s.trim(), 10)).filter(Number.isFinite);
+    if (indices.includes(current)) {
+      const errType = envValue("MEMORY_LLM_MOCK_FAIL_ERROR", "model_not_found: mock-fail");
+      // Use LLMProviderUnavailable so the chain treats it as a real provider
+      // failure (transient → next provider, or model_not_found → next model).
+      throw new LLMProviderUnavailable(errType);
+    }
+  }
   const inline = envValue("MEMORY_LLM_MOCK_RESPONSE", "");
   if (inline) return inline;
   const file = envValue("MEMORY_LLM_MOCK_FILE", "");
@@ -224,6 +385,18 @@ async function callCodexCli({ systemPrompt, userPrompt, timeoutMs }) {
   throw lastErr ?? new LLMProviderUnavailable("codex exec failed");
 }
 
+// Cursor's headless distillation CLI (`cursor-agent --print <prompt>`). Model
+// selection is deferred to the binary itself (same as claude / codex CLI),
+// so the chain-iteration model loop does not apply here — one attempt per
+// occurrence in the chain.
+async function callCursorCli({ systemPrompt, userPrompt, timeoutMs }) {
+  const combined = systemPrompt ? `${systemPrompt}\n\n---\n\n${userPrompt}` : userPrompt;
+  return spawnCapture("cursor-agent", ["--print", combined], {
+    timeoutMs,
+    env: reentryEnv("memory-distill"),
+  });
+}
+
 function parseCodexJsonl(raw) {
   const lines = String(raw).split(/\r?\n/).filter((l) => l.trim());
   let lastAssistantText = "";
@@ -254,15 +427,23 @@ function parseCodexJsonl(raw) {
   return lastResultText || lastAssistantText || "";
 }
 
-async function callAnthropicApi({ systemPrompt, userPrompt, maxTokens, timeoutMs }) {
+async function callAnthropicApi({ systemPrompt, userPrompt, maxTokens, timeoutMs, model: explicitModel }) {
   // Defensive sanitisation: a key copied from a wrapped UI line may carry
   // trailing CR/LF that would CRLF-inject the x-api-key header. Strip it.
   const apiKey = envValue("ANTHROPIC_API_KEY").replace(/[\r\n]+/g, "").trim();
-  // MEMORY_LLM_MODEL is the provider-agnostic override; falls back to the
-  // provider-specific name if unset. Lets a user set one model knob for the
-  // whole memory pipeline without touching per-provider variables.
-  const model = envValue("MEMORY_LLM_MODEL", "") || envValue("ANTHROPIC_MODEL", "claude-sonnet-4-6");
+  // Explicit model from the chain wins; falls back to env overrides. No
+  // baked-in fallback string here — model names live only in
+  // templates/settings.yaml / settings/settings.yaml / settings/.env.
+  const model =
+    (explicitModel && String(explicitModel).trim()) ||
+    envValue("MEMORY_LLM_MODEL", "") ||
+    envValue("ANTHROPIC_MODEL", "");
   if (!apiKey) throw new LLMProviderUnavailable("ANTHROPIC_API_KEY not set");
+  if (!model) {
+    throw new LLMProviderUnavailable(
+      "no Anthropic model configured (set settings/settings.yaml providers.anthropic.models, MEMORY_LLM_MODEL, or ANTHROPIC_MODEL)",
+    );
+  }
 
   const body = {
     model,
@@ -315,7 +496,7 @@ export function isLocalEndpoint(baseUrl) {
   }
 }
 
-async function callOpenAiApi({ systemPrompt, userPrompt, maxTokens, timeoutMs }) {
+async function callOpenAiApi({ systemPrompt, userPrompt, maxTokens, timeoutMs, model: explicitModel }) {
   // Defensive sanitisation: strip stray CR/LF before interpolating into
   // the Bearer header (mirror of the Anthropic helper).
   const apiKey = envValue("OPENAI_API_KEY").replace(/[\r\n]+/g, "").trim();
@@ -329,10 +510,18 @@ async function callOpenAiApi({ systemPrompt, userPrompt, maxTokens, timeoutMs })
         "(set MEMORY_LLM_BASE_URL=http://localhost:11434/v1 for ollama, etc.).",
     );
   }
-  // MEMORY_LLM_MODEL is the provider-agnostic override; falls back to the
-  // OpenAI-specific name. For a local server, the user typically sets the
-  // model name to whatever the local server expects (e.g. "llama3.1:8b").
-  const model = envValue("MEMORY_LLM_MODEL", "") || envValue("OPENAI_MODEL", "gpt-4o-mini");
+  // Explicit model wins; falls back to env overrides. No baked-in fallback
+  // string — model names live only in templates/settings.yaml /
+  // settings/settings.yaml / settings/.env.
+  const model =
+    (explicitModel && String(explicitModel).trim()) ||
+    envValue("MEMORY_LLM_MODEL", "") ||
+    envValue("OPENAI_MODEL", "");
+  if (!model) {
+    throw new LLMProviderUnavailable(
+      "no OpenAI-compatible model configured (set settings/settings.yaml providers.openai.models, MEMORY_LLM_MODEL, or OPENAI_MODEL)",
+    );
+  }
 
   // OpenAI deprecated `max_tokens` in favour of `max_completion_tokens`
   // for newer models (gpt-4o family and later). Send the new key as
@@ -390,7 +579,20 @@ async function fetchWithTimeout(url, { timeoutMs, ...init } = {}) {
 // Returns `{ provider, model, baseUrl, available, reason }`. `baseUrl` is
 // present only for openai / openai-compatible.
 export async function health() {
-  const provider = (envValue("MEMORY_LLM_PROVIDER", "claude") || "claude").toLowerCase();
+  // The probed provider is: an explicit MEMORY_LLM_PROVIDER env override, else
+  // the HEAD of the resolved settings.providers.chain (which honors the YAML
+  // chain + auto-detection), else "claude". Reading the chain keeps `cli where`
+  // aligned with what the real dispatcher (callLLMChain) actually uses — before
+  // this, an install configured entirely via settings.yaml reported "claude"
+  // and "CLI not on PATH" even though the pipeline correctly used anthropic.
+  let provider = envValue("MEMORY_LLM_PROVIDER", "").trim().toLowerCase();
+  if (!provider) {
+    try {
+      provider = settings().providers.chain[0] || "claude";
+    } catch {
+      provider = "claude";
+    }
+  }
   const memModel = envValue("MEMORY_LLM_MODEL", "");
   switch (provider) {
     case "mock":
@@ -407,11 +609,16 @@ export async function health() {
       const ok = await isCmdAvailable("codex");
       return { provider, available: ok, reason: ok ? "codex CLI on PATH" : "codex CLI not on PATH" };
     }
+    case "cursor": {
+      const ok = await isCmdAvailable("cursor-agent");
+      return { provider, available: ok, reason: ok ? "cursor-agent CLI on PATH" : "cursor-agent CLI not on PATH" };
+    }
     case "anthropic": {
       const has = Boolean(envValue("ANTHROPIC_API_KEY", "").trim());
+      const m = memModel || envValue("ANTHROPIC_MODEL", "");
       return {
         provider,
-        model: memModel || envValue("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+        model: m || null,
         available: has,
         reason: has ? "ANTHROPIC_API_KEY set" : "ANTHROPIC_API_KEY missing",
       };
@@ -423,10 +630,11 @@ export async function health() {
       const apiKey = envValue("OPENAI_API_KEY", "").trim();
       const local = isLocalEndpoint(baseUrl);
       const available = Boolean(apiKey) || local;
+      const m = memModel || envValue("OPENAI_MODEL", "");
       return {
         provider,
         baseUrl,
-        model: memModel || envValue("OPENAI_MODEL", "gpt-4o-mini"),
+        model: m || null,
         available,
         reason: available
           ? (apiKey ? "OPENAI_API_KEY set" : `local endpoint ${baseUrl} (no key required)`)

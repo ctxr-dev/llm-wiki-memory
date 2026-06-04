@@ -14,6 +14,7 @@ process.env.MEMORY_LLM_PROVIDER = "mock";
 
 const store = await import("../scripts/lib/wiki-store.mjs");
 const { consolidateMemory } = await import("../scripts/consolidate.mjs");
+const { __setSettingsForTest, __clearSettingsForTest } = await import("../scripts/lib/settings.mjs");
 
 const STATE_FILE = path.join(dataDir, "state", ".consolidate.json");
 
@@ -30,10 +31,7 @@ function clearState() {
 function resetLlmEnv() {
   delete process.env.MEMORY_LLM_MOCK_RESPONSE;
   delete process.env.MEMORY_LLM_MOCK_FILE;
-  delete process.env.MEMORY_CONSOLIDATE_LLM_PASSES;
-  delete process.env.MEMORY_CONSOLIDATE_REFRESH_MAX_PER_RUN;
-  delete process.env.MEMORY_CONSOLIDATE_PASSES;
-  delete process.env.MEMORY_CONSOLIDATE_LLM_MAX_RETRIES;
+  __clearSettingsForTest();
 }
 
 after(() => resetLlmEnv());
@@ -259,7 +257,7 @@ test("3E: MEMORY_CONSOLIDATE_LLM_PASSES=off skips 3A; sha256 dedup still archive
   });
   const [keeperId, loserId] = [ID_A, ID_B].sort();
 
-  process.env.MEMORY_CONSOLIDATE_LLM_PASSES = "off";
+  __setSettingsForTest({ consolidate: { llmPassesEnabled: false } });
   // Mock response must NOT be consumed; set a poison value to detect a leak.
   process.env.MEMORY_LLM_MOCK_RESPONSE = JSON.stringify({
     action: "merge",
@@ -420,7 +418,7 @@ test("3B refresh: MEMORY_CONSOLIDATE_REFRESH_MAX_PER_RUN=2 caps to 2 of 4 stale 
     ids.push(id);
   }
 
-  process.env.MEMORY_CONSOLIDATE_REFRESH_MAX_PER_RUN = "2";
+  __setSettingsForTest({ consolidate: { refreshMaxPerRun: 2 } });
 
   // The mock returns ONE canned JSON; the schema only requires `leaf_id` to
   // match the loop's current leaf. A single response can't satisfy two

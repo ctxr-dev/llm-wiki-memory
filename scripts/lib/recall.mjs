@@ -1,4 +1,5 @@
 import { defaultProjectModule } from "./env.mjs";
+import { recallScoreThreshold } from "./settings.mjs";
 import { searchMemoryFiltered, saveDocument, getCategories } from "./wiki-store.mjs";
 import { lessonDocName } from "./slug.mjs";
 
@@ -28,7 +29,11 @@ export async function recallLessons({
   maxResults,
 } = {}) {
   const limit = maxResults || 5;
-  const threshold = scoreThreshold ?? 0.0; // local recall: don't over-prune
+  // Caller-supplied threshold wins; otherwise fall back to the configured
+  // floor (settings.recall.scoreThreshold, default 0 = don't over-prune).
+  // Before this the setting was dead config — wired into the loader, template,
+  // and migrator but read nowhere.
+  const threshold = scoreThreshold ?? recallScoreThreshold();
   // project_module defaults to the workspace, which every leaf carries, so the
   // default scope matches (no more 0-hit-by-default). Pass `area` to narrow to a
   // sub-module. Both are dropped as the LAST ladder rungs so an over-tight scope
@@ -127,6 +132,8 @@ export async function recallLessons({
 // Cross-category search with optional project_module auto-injection.
 export async function searchMemory({ query, datasets, filters, scoreThreshold, maxResults } = {}) {
   const limit = maxResults || 8;
+  // Caller threshold wins; else the configured floor (settings.recall.scoreThreshold).
+  const effectiveThreshold = scoreThreshold ?? recallScoreThreshold();
   // Use getCategories() not the raw CATEGORIES export — getCategories()
   // calls ensureLayoutLoaded() so fresh CLI invocations see the
   // YAML-declared categories (including any custom ones like `issues`).
@@ -145,7 +152,7 @@ export async function searchMemory({ query, datasets, filters, scoreThreshold, m
         query,
         datasetId: slot,
         filters: effectiveFilters,
-        scoreThreshold,
+        scoreThreshold: effectiveThreshold,
         limit,
       });
       all.push(...records);
@@ -182,8 +189,11 @@ export function saveLesson({ title, body, metadata = {}, tags, evidence } = {}) 
       ? String(metadata.tags).split(",").map((t) => t.trim()).filter(Boolean)
       : [];
 
-  const lines = [`# ${title}`, "", `- type: ${LESSON_ATOM_TYPE}`];
-  if (tagList.length) lines.push(`- tags: [${tagList.join(", ")}]`);
+  // Collapse newlines in the column-0 fields so a title/tag can't inject a
+  // forged heading or list item into the rendered lesson.
+  const oneLine = (v) => String(v || "").replace(/[\r\n]+/g, " ");
+  const lines = [`# ${oneLine(title)}`, "", `- type: ${LESSON_ATOM_TYPE}`];
+  if (tagList.length) lines.push(`- tags: [${tagList.map(oneLine).join(", ")}]`);
   lines.push(`- area: ${area}`);
   if (metadata.language) lines.push(`- language: ${metadata.language}`);
   lines.push(`- task_type: ${metadata.task_type}`);

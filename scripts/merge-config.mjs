@@ -6,6 +6,7 @@
 //
 //   node merge-config.mjs <targetFile> <templateFile> <topKey>
 import fs from "node:fs";
+import { writeFileAtomic } from "./lib/atomic-write.mjs";
 
 const [targetFile, templateFile, topKey] = process.argv.slice(2);
 if (!targetFile || !templateFile || !topKey) {
@@ -13,16 +14,39 @@ if (!targetFile || !templateFile || !topKey) {
   process.exit(1);
 }
 
-function readJson(file, fallback) {
+function readJsonOrThrow(file) {
+  // null when absent; throws on a present-but-unparseable file so the caller
+  // decides (template = packaging bug → surface; target = user config → back
+  // up before rewriting). A malformed file is never silently dropped.
+  let raw;
   try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
-    return fallback;
+    raw = fs.readFileSync(file, "utf8");
+  } catch (err) {
+    if (err?.code === "ENOENT") return null;
+    throw err;
   }
+  return { raw, value: JSON.parse(raw) };
 }
 
-const target = readJson(targetFile, {});
-const template = readJson(templateFile, {});
+// The template ships in the package; a parse failure is a packaging bug, so
+// let it surface rather than silently merging nothing.
+const templateRead = readJsonOrThrow(templateFile);
+const template = templateRead ? templateRead.value : {};
+
+// The target is the user's real config. If it exists but is corrupt, preserve
+// it to a .bak before rewriting, so a hand-edited file is never silently lost.
+let target = {};
+try {
+  const targetRead = readJsonOrThrow(targetFile);
+  if (targetRead) target = targetRead.value;
+} catch (err) {
+  try {
+    const raw = fs.readFileSync(targetFile, "utf8");
+    writeFileAtomic(`${targetFile}.bak`, raw);
+    console.error(`merge-config: ${targetFile} is not valid JSON (${err?.message || err}); backed up to ${targetFile}.bak and rewriting from template — reconcile any custom keys from the backup.`);
+  } catch { /* best-effort backup; proceed from empty */ }
+  target = {};
+}
 const incoming = template[topKey] || {};
 
 target[topKey] = target[topKey] && typeof target[topKey] === "object" ? target[topKey] : {};
@@ -34,5 +58,5 @@ for (const [k, v] of Object.entries(incoming)) {
 }
 
 fs.mkdirSync(targetFile.replace(/\/[^/]*$/, "") || ".", { recursive: true });
-fs.writeFileSync(targetFile, `${JSON.stringify(target, null, 2)}\n`);
+writeFileAtomic(targetFile, `${JSON.stringify(target, null, 2)}\n`);
 console.error(`merged ${topKey} into ${targetFile}`);

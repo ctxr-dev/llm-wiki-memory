@@ -12,6 +12,7 @@ after(() => cleanup(dataDir));
 const store = await import("../scripts/lib/wiki-store.mjs");
 const embed = await import("../scripts/lib/embed.mjs");
 const env = await import("../scripts/lib/env.mjs");
+const { __setSettingsForTest, __clearSettingsForTest } = await import("../scripts/lib/settings.mjs");
 
 test("pruneEmbeddingCache drops orphan ids and keeps live-leaf ids", () => {
   // A real live leaf on disk; its rel id must survive the sweep.
@@ -55,7 +56,7 @@ test("pruneEmbeddingCache drops orphan ids and keeps live-leaf ids", () => {
 });
 
 afterEach(() => {
-  delete process.env.MEMORY_GC_INTERVAL_DAYS;
+  __clearSettingsForTest();
 });
 
 test("--if-due throttle: disabled / due / not-due / stamps state", () => {
@@ -70,13 +71,13 @@ test("--if-due throttle: disabled / due / not-due / stamps state", () => {
 
   // disabled (0/off): never sweeps, no state written.
   clearState();
-  process.env.MEMORY_GC_INTERVAL_DAYS = "off";
+  __setSettingsForTest({ gc: { intervalDays: 0 } });
   const disabled = store.pruneEmbeddingCache({ ifDue: true });
   assert.equal(disabled.skipped, "disabled");
   assert.ok(!fs.existsSync(statePath), "disabled run writes no state");
 
   // due (no prior state): sweeps + stamps last_run_utc.
-  process.env.MEMORY_GC_INTERVAL_DAYS = "7";
+  __setSettingsForTest({ gc: { intervalDays: 7 } });
   const first = store.pruneEmbeddingCache({ ifDue: true });
   assert.ok(!first.skipped, "no prior state -> runs");
   const state = JSON.parse(fs.readFileSync(statePath, "utf8"));

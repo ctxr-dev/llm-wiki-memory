@@ -138,6 +138,23 @@ else
   fi
 fi
 
+# --- settings/settings.yaml (canonical app config) + auto-migration ---
+# Run the migrator first. On a fresh install it's a no-op; on an upgrade it
+# carries old .env keys + old llm.yaml into the new settings.yaml, backs up
+# the old .env, and rewrites .env to the strict subset only.
+if ! node "$SRC_DIR/scripts/migrate-settings.mjs" "$DATA_DIR" >&2; then
+  log "ERROR: settings migration failed (see the '[migrate-settings] failed:' line above). Your existing .env is left intact; aborting before the settings.yaml defaults fallback so you don't silently run on default config. Fix the cause and re-run bootstrap."
+  exit 1
+fi
+
+SETTINGS_YAML_FILE="$DATA_DIR/settings/settings.yaml"
+if [[ ! -f "$SETTINGS_YAML_FILE" ]]; then
+  cp "$SRC_DIR/templates/settings.yaml" "$SETTINGS_YAML_FILE"
+  log "Wrote $SETTINGS_YAML_FILE"
+else
+  log "Kept existing $SETTINGS_YAML_FILE"
+fi
+
 # --- Claude Code hooks ---
 node "$SRC_DIR/scripts/merge-config.mjs" \
   "$WORKSPACE_DIR/.claude/settings.json" \
@@ -191,6 +208,21 @@ else
   log "$VALIDATE_OUT"
 fi
 
+# --- wiki git repo (auto-commit history) ---
+# The auto-commit layer (settings wiki.autoCommit) commits ONLY to the wiki's
+# OWN repo: it verifies `git -C <wiki> rev-parse --show-toplevel` equals the
+# wiki root, so it can never commit into the enclosing project. Give the wiki
+# that repo on the default (gitignored) install. Under --commit-memory the
+# wiki content rides inside the WORKSPACE repo, where a nested .git would
+# break tracking — skip, and auto-commit stays a silent no-op.
+if [[ "$COMMIT_MEMORY" -eq 0 && -d "$DATA_DIR/wiki" && ! -e "$DATA_DIR/wiki/.git" ]]; then
+  if git -C "$DATA_DIR/wiki" init -q 2>/dev/null; then
+    log "Initialised git repo at $DATA_DIR/wiki (auto-commit history; disable via settings wiki.autoCommit)"
+  else
+    log "WARNING: could not git init $DATA_DIR/wiki; wiki auto-commit stays a no-op"
+  fi
+fi
+
 # --- render memory-discipline skill/rule files to all agent surfaces ---
 if [ -d "$SRC_DIR/templates/skills" ]; then
   for dest in "$WORKSPACE_DIR/.agents/rules" "$WORKSPACE_DIR/.claude/skills" "$WORKSPACE_DIR/.cursor/rules"; do
@@ -203,18 +235,93 @@ if [ -d "$SRC_DIR/templates/skills" ]; then
   log "Rendered memory rules to .agents/rules, .claude/skills, and .cursor/rules."
 fi
 
-# --- render process-rule files (e.g. planning methodology) to rule surfaces ---
+# --- render process-rule files (e.g. release-docs discipline) to rule surfaces ---
 # Distinct from the skills render above: process rules belong on .claude/RULES
 # (auto-loaded by Claude Code as project instructions), not .claude/skills.
+# Package-shipped rules (templates/rules/) are HARD COPIES to each surface so
+# every install gets them. Workspace-canonical rules (e.g. planning-methodology
+# authored locally in .agents/rules/) are symlinked from .claude/rules/ and
+# .cursor/rules/ so a hand-edit propagates instantly.
 if [ -d "$SRC_DIR/templates/rules" ]; then
   for dest in "$WORKSPACE_DIR/.agents/rules" "$WORKSPACE_DIR/.claude/rules" "$WORKSPACE_DIR/.cursor/rules"; do
     mkdir -p "$dest"
-    # Plain copy (no placeholder substitution). Quoted glob expands per file.
     for f in "$SRC_DIR"/templates/rules/*.md; do
       [ -e "$f" ] && cp "$f" "$dest/"
     done
   done
-  log "Rendered process rules to .agents/rules, .claude/rules, and .cursor/rules."
+  log "Rendered shipped process rules to .agents/rules, .claude/rules, and .cursor/rules."
+fi
+
+# --- wire workspace-canonical rules into the client rule dirs ---
+# Rules authored locally in .agents/rules/ (e.g. planning-methodology.md —
+# workspace-specific, NOT shipped by the package) are the single source of
+# truth. .claude/rules/ and .cursor/rules/ reference them:
+#   - POSIX (Linux/Darwin): a relative SYMLINK, so a hand-edit propagates.
+#   - Windows / unknown OS: a HARD COPY (git's default core.symlinks=false
+#     renders a committed symlink as a plain text file containing the link
+#     TARGET PATH — which Claude Code would then ingest as "the rule". So on
+#     Windows we never rely on symlinks; we copy the content.)
+# Either branch also REPAIRS a "pseudo-symlink": a regular file whose entire
+# content is exactly the relative path to an existing .agents/rules file —
+# the corrupt artifact a Windows checkout produces from a committed symlink.
+# Without repair, a teammate on a mixed-OS team silently gets a path-string
+# where the rule should be.
+HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
+case "$HOST_OS" in
+  Linux|Darwin) RULE_WIRE_MODE="symlink" ;;
+  *)            RULE_WIRE_MODE="copy" ;;
+esac
+
+WORKSPACE_RULES_DIR="$WORKSPACE_DIR/.agents/rules"
+if [ -d "$WORKSPACE_RULES_DIR" ]; then
+  wired=0
+  for src_rule in "$WORKSPACE_RULES_DIR"/*.md; do
+    [ -e "$src_rule" ] || continue
+    rule_name="$(basename "$src_rule")"
+    # Skip rules ALSO shipped by the package — the hard-copy render above
+    # already materialised those in every client dir; symlinking them would
+    # shadow the shipped copy with a link to the (also-rendered) workspace one.
+    if [ -e "$SRC_DIR/templates/rules/$rule_name" ]; then
+      continue
+    fi
+    relpath="../../.agents/rules/$rule_name"
+    for client_dir in "$WORKSPACE_DIR/.claude/rules" "$WORKSPACE_DIR/.cursor/rules"; do
+      mkdir -p "$client_dir"
+      target="$client_dir/$rule_name"
+      # Detect a checked-out pseudo-symlink: a regular (non-link) file whose
+      # sole content is the relpath string (optionally newline-terminated).
+      is_pseudo_symlink=0
+      if [ -f "$target" ] && [ ! -L "$target" ]; then
+        content="$(tr -d '\n' < "$target" 2>/dev/null)"
+        if [ "$content" = "$relpath" ]; then
+          is_pseudo_symlink=1
+        fi
+      fi
+      if [ "$RULE_WIRE_MODE" = "symlink" ]; then
+        # A correct symlink already in place: leave it.
+        if [ -L "$target" ]; then
+          continue
+        fi
+        # A hard copy or a pseudo-symlink: replace with a real symlink.
+        [ -e "$target" ] && rm -f "$target"
+        ln -s "$relpath" "$target"
+        wired=$((wired + 1))
+      else
+        # Windows / unknown: hard-copy the canonical content. Replace a
+        # pseudo-symlink, a stale copy, or a (non-functional) committed symlink.
+        if [ -L "$target" ] || [ "$is_pseudo_symlink" = "1" ] || ! cmp -s "$src_rule" "$target" 2>/dev/null; then
+          rm -f "$target"
+          cp "$src_rule" "$target"
+          wired=$((wired + 1))
+        fi
+      fi
+    done
+  done
+  if [ "$RULE_WIRE_MODE" = "symlink" ]; then
+    log "Wired workspace-canonical rules into .claude/rules and .cursor/rules (symlinks; $wired updated)."
+  else
+    log "Wired workspace-canonical rules into .claude/rules and .cursor/rules (hard copies on '$HOST_OS'; $wired updated)."
+  fi
 fi
 
 # --- pointer block in AGENTS.md and CLAUDE.md (idempotent, marker-fenced) ---
@@ -252,7 +359,7 @@ if [[ "$COMMIT_MEMORY" -eq 1 ]]; then
   # <data>/src/. Ignore the whole `state/` directory so locks + journals +
   # the consolidate/embed-gc bookkeeping never enter git, regardless of which
   # subsystem owns them.
-  for line in "/.llm-wiki-memory/src/node_modules" "/.llm-wiki-memory/index" "/.llm-wiki-memory/settings/.env" "/.llm-wiki-memory/state"; do
+  for line in "/.llm-wiki-memory/src/node_modules" "/.llm-wiki-memory/index" "/.llm-wiki-memory/settings/.env" "/.llm-wiki-memory/settings/.env.bak" "/.llm-wiki-memory/state"; do
     grep -qxF "$line" "$GITIGNORE" || echo "$line" >> "$GITIGNORE"
   done
   log "Committing wiki content; ignoring node_modules / index / secrets only."
@@ -275,9 +382,26 @@ fi
 # any UNRESOLVED error to the user — the system either self-heals on the
 # next hourly tick or the user sees the failure and can investigate.
 # Cron is set to fire hourly (not daily) so transient errors clear quickly.
+
+# Escape XML metacharacters for safe interpolation into the launchd plist.
+# A workspace path containing & < > (all legal in APFS filenames) — or the
+# literal double-quotes job_cmd wraps around $SRC_DIR — would otherwise emit
+# malformed plist XML, which launchd silently refuses to load: the cron job
+# never runs and nothing tells the operator. Order matters: & first, so the
+# &amp; / &lt; ... entities we introduce aren't re-escaped.
+xml_escape() {
+  printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g' -e "s/'/\&apos;/g"
+}
+
 schedule_job() {
   local action="$1"
-  local job_cmd="node \"$SRC_DIR/scripts/cli.mjs\" cron-job"
+  # Resolve an absolute node path so the launchd job (minimal PATH) finds it,
+  # and so we can pass node + args as discrete ProgramArguments elements rather
+  # than a `/bin/sh -c "<string>"` — which would mis-parse an install path that
+  # contains a literal double-quote.
+  local node_bin
+  node_bin="$(command -v node || echo node)"
+  local cli_path="$SRC_DIR/scripts/cli.mjs"
   # Stable id derived from the workspace path (sanitised + short hash).
   local ws_hash
   ws_hash="$(printf '%s' "$WORKSPACE_DIR" | cksum | awk '{print $1}')"
@@ -297,23 +421,28 @@ schedule_job() {
       return 0
     fi
     mkdir -p "$HOME/Library/LaunchAgents"
+    local label_x data_dir_x node_bin_x cli_path_x
+    label_x="$(xml_escape "$label")"
+    data_dir_x="$(xml_escape "$DATA_DIR")"
+    node_bin_x="$(xml_escape "$node_bin")"
+    cli_path_x="$(xml_escape "$cli_path")"
     cat > "$plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>$label</string>
+  <string>$label_x</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>MEMORY_DATA_DIR</key>
-    <string>$DATA_DIR</string>
+    <string>$data_dir_x</string>
   </dict>
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/sh</string>
-    <string>-c</string>
-    <string>$job_cmd</string>
+    <string>$node_bin_x</string>
+    <string>$cli_path_x</string>
+    <string>cron-job</string>
   </array>
   <key>StartCalendarInterval</key>
   <dict>
@@ -332,9 +461,13 @@ PLIST
     fi
     local tag="# llm-wiki-memory:$WORKSPACE_DIR"
     local wrapper="$DATA_DIR/state/cron-daily.sh"
-    # Filter out any prior line for this workspace (idempotent).
+    # Filter out any prior line for THIS workspace (idempotent). The tag is the
+    # exact line suffix (see the cron line below), so match it as a suffix with
+    # awk's literal index/substr — NOT `grep -vF`, whose UNANCHORED substring
+    # match would also strip a sibling workspace whose path is a PREFIX of this
+    # one (e.g. /a/proj vs /a/proj2), silently killing the sibling's cron job.
     local filtered
-    filtered="$(crontab -l 2>/dev/null | grep -vF "$tag" || true)"
+    filtered="$(crontab -l 2>/dev/null | awk -v t="$tag" 'index($0, t) == 0 || substr($0, length($0) - length(t) + 1) != t' || true)"
     if [[ "$action" == "off" ]]; then
       printf '%s\n' "$filtered" | grep -v '^$' | crontab - 2>/dev/null || true
       rm -f "$wrapper"

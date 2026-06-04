@@ -146,7 +146,7 @@ memory/atom/lesson/Jira concepts. Leaf `type` is only `primary | overlay`.
 | `topology-runtime` + `path-compiler` | Load a layout's `topology:` block; run forward `to_path` / reverse `from_path` (tracker `issues/…` trees) with a mandatory **round-trip** check; inline JS runs in a locked-down `vm` sandbox. |
 | `layout-validator` | Strict Zod schema over `layout.yaml` with line:col errors. |
 | `topology-validator` | Sample-facet round-trip pre-flight for a topology. |
-| `embed` | Xenova `bge-large-en-v1.5` (lexical fallback); model-stamped on-disk vector cache; throttled GC (`gc-embeddings --if-due`, `MEMORY_GC_INTERVAL_DAYS`, `.embed-gc.json`). |
+| `embed` | Xenova `bge-large-en-v1.5` (lexical fallback); model-stamped on-disk vector cache; throttled GC (`gc-embeddings --if-due`, `gc.intervalDays` in `settings.yaml`, `.embed-gc.json`). |
 | `recall` | Drop-rung recall ladder (error_pattern → language → task_type → area → project_module), workspace-scoped, with knowledge cross-refs appended. |
 | `plan-sync` + `plan-frontmatter` + `tracker-parse` | Rewrite plan status/progress/flip-log from checkboxes; relocate the leaf into the matching lifecycle folder. |
 | `fs-prune` | Remove ancestor dirs a move/delete emptied (no orphan `index.md`). |

@@ -190,11 +190,18 @@ async function main() {
         const hit = rest.find((a) => a.startsWith(prefix));
         return hit ? hit.slice(prefix.length) : undefined;
       };
-      // --cosine-threshold is honoured by setting the env knob for this
-      // process — env wins over .env-file values, and the consolidate
-      // helpers read env via envFloat.
+      // --cosine-threshold overrides the YAML knob for this CLI process via
+      // the process-level settings override. Operators normally edit
+      // settings.yaml; this flag is a one-shot override for the current
+      // invocation and dies with the process.
       const cosineOverride = opt("cosine-threshold");
-      if (cosineOverride) process.env.MEMORY_CONSOLIDATE_COSINE_THRESHOLD = cosineOverride;
+      if (cosineOverride) {
+        const n = Number.parseFloat(cosineOverride);
+        if (Number.isFinite(n) && n >= 0 && n <= 1) {
+          const { __setSettingsOverride } = await import("./lib/settings.mjs");
+          __setSettingsOverride({ consolidate: { cosineThreshold: n } });
+        }
+      }
       const result = await consolidateMemory({
         dryRun: flag("dry-run"),
         ifDue: flag("if-due"),
@@ -254,6 +261,115 @@ async function main() {
     }
     case "compile":
       return cmdCompile(rest);
+    case "redistill": {
+      // Manual recovery for the failed-distill stash. Three modes:
+      //   --leaf <path>     re-distill against the stash whose session_id
+      //                     matches the leaf's frontmatter.
+      //   --session <id>    re-distill the newest stash for that session.
+      //   --all             sweep every stash in STATE_DIR.
+      const {
+        redistillFromStash,
+        redistillFromLeaf,
+        listFailedDistillStashes,
+        findStashForSession,
+      } = await import("./hooks/flush.mjs");
+      const opt = (name) => {
+        const idx = rest.indexOf(`--${name}`);
+        if (idx < 0) return null;
+        const val = rest[idx + 1];
+        // A following flag (e.g. `--leaf --session x`) means this flag had no
+        // value — return null rather than swallowing the next flag as a value.
+        return val == null || val.startsWith("--") ? null : val;
+      };
+      const leafArg = opt("leaf");
+      const sessionArg = opt("session");
+      const all = rest.includes("--all");
+
+      if (!leafArg && !sessionArg && !all) {
+        process.stderr.write(
+          "usage: llm-wiki-memory redistill --leaf <path> | --session <id> | --all\n",
+        );
+        process.exit(64);
+      }
+
+      const stashes = [];
+      // Leaves without a matching stash are recovered via the in-leaf raw
+      // fallback path (redistillFromLeaf), so we collect those separately
+      // from stash-backed leaves and process them after the stash sweep.
+      const leafFallbacks = [];
+      if (leafArg) {
+        if (!fs.existsSync(leafArg)) {
+          out({ ok: false, error: `leaf not found at ${leafArg}` });
+          process.exit(2);
+        }
+        // Guard the read: --leaf pointed at a directory (EISDIR) or an
+        // unreadable file would otherwise crash with an unhandled exception
+        // instead of a clean JSON error.
+        let leafText;
+        try {
+          leafText = fs.readFileSync(leafArg, "utf8");
+        } catch (readErr) {
+          out({ ok: false, error: `could not read leaf at ${leafArg}: ${readErr?.message || readErr}` });
+          process.exit(2);
+        }
+        const m = leafText.match(/^- session_id:\s*(.+)$/m) ||
+          leafText.match(/^session_id:\s*(.+)$/m);
+        if (!m) {
+          out({ ok: false, error: `leaf at ${leafArg} has no session_id in frontmatter` });
+          process.exit(2);
+        }
+        const stash = findStashForSession(m[1].trim());
+        if (stash) {
+          stashes.push(stash);
+        } else {
+          // No stash — pre-map-reduce leaf, or one whose stash was purged.
+          // Recover from the in-leaf UNTRUSTED MEMORY BODY block instead.
+          leafFallbacks.push(leafArg);
+        }
+      } else if (sessionArg) {
+        const stash = findStashForSession(sessionArg);
+        if (!stash) {
+          out({ ok: false, error: `no stash for session ${sessionArg}` });
+          process.exit(2);
+        }
+        stashes.push(stash);
+      } else {
+        stashes.push(...listFailedDistillStashes());
+        if (stashes.length === 0) {
+          out({ ok: true, redistilled: 0, message: "no failed-distill stashes to process" });
+          return;
+        }
+      }
+
+      const results = [];
+      let anyFailed = false;
+      for (const stash of stashes) {
+        try {
+          const r = await redistillFromStash(stash, { tag: "cli-redistill" });
+          results.push({ stash: path.basename(stash), ok: true, outcome: r.outcome, audit: r.audit });
+        } catch (err) {
+          anyFailed = true;
+          results.push({ stash: path.basename(stash), ok: false, error: err?.message || String(err) });
+        }
+      }
+      for (const leaf of leafFallbacks) {
+        try {
+          const r = await redistillFromLeaf(leaf, { tag: "cli-redistill-leaf" });
+          results.push({ leaf: path.basename(leaf), ok: true, outcome: r.outcome, audit: r.audit });
+        } catch (err) {
+          anyFailed = true;
+          results.push({ leaf: path.basename(leaf), ok: false, error: err?.message || String(err) });
+        }
+      }
+      out({
+        ok: !anyFailed,
+        redistilled: results.filter((r) => r.ok).length,
+        total: stashes.length + leafFallbacks.length,
+        results,
+      });
+      process.exit(anyFailed ? 2 : 0);
+      return;
+    }
     case "nest": {
       const { migrateNest } = await import("./migrate-nest.mjs");
       const res = migrateNest({ dryRun: rest.includes("--dry-run"), check: rest.includes("--check") });
@@ -272,7 +388,7 @@ async function main() {
     }
     default:
       out(
-        "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|recall <q>|search <q>>",
+        "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|recall <q>|search <q>|redistill --leaf <path> | --session <id> | --all>",
       );
       process.exit(cmd ? 1 : 0);
   }

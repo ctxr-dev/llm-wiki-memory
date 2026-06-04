@@ -37,6 +37,14 @@ export const GC_STATE_PATH = path.join(MEMORY_DATA_DIR, "state", ".embed-gc.json
 // Last-run state for the throttled consolidate orchestrator. { last_run_utc,
 // passes: { name: { archived, touched, merged, refreshed, flagged, freedBytes, ms } } }.
 export const CONSOLIDATE_STATE_PATH = path.join(MEMORY_DATA_DIR, "state", ".consolidate.json");
+// Per-entity consolidation attempt history (entity-level self-healing).
+export const CONSOLIDATE_ENTITIES_PATH = path.join(MEMORY_DATA_DIR, "state", ".consolidate-entities.json");
+// Sharded full cron-run logs: <CRON_LOGS_DIR>/<yyyy>/<mm>/cron-<ts>.json.
+export const CRON_LOGS_DIR = path.join(MEMORY_DATA_DIR, "state", "logs");
+// Escalation issue reports: <ISSUES_DIR>/<yyyy>/<mm>/<dd>/<sig>.<version>.md.
+export const ISSUES_DIR = path.join(MEMORY_DATA_DIR, "issues");
+// Episode index for issue reports: signature -> { version, path, status }.
+export const ISSUES_INDEX_PATH = path.join(MEMORY_DATA_DIR, "state", ".issues-index.json");
 export const PROMPTS_DIR = path.join(MEMORY_DIR, "prompts");
 
 // Parse one .env value. Deliberately small (NOT a full dotenv parser): it
@@ -116,25 +124,6 @@ export function envBool(name, fallback) {
   return fallback;
 }
 
-// Cadence (in DAYS) for the throttled embedding-cache GC. Unset -> 7 (weekly).
-// `0`/`off`/`false` -> 0 (disabled). Garbage -> the default. Generic name so a
-// future periodic GC can share the cadence knob.
-export const GC_INTERVAL_DAYS_DEFAULT = 7;
-export function gcIntervalDays() {
-  const raw = envValue("MEMORY_GC_INTERVAL_DAYS", "");
-  if (raw === "") return GC_INTERVAL_DAYS_DEFAULT;
-  const s = String(raw).trim().toLowerCase();
-  if (s === "off" || s === "false") return 0;
-  const n = Number(s);
-  if (!Number.isFinite(n) || n < 0) return GC_INTERVAL_DAYS_DEFAULT;
-  return n;
-}
-
-export const ATOM_BODY_MAX_CHARS_DEFAULT = 700;
-export function atomBodyMaxChars() {
-  return envInt("MEMORY_ATOM_BODY_MAX_CHARS", ATOM_BODY_MAX_CHARS_DEFAULT);
-}
-
 // Absolute path to the hosted wiki root. Override with LLM_WIKI_MEMORY_ROOT
 // (absolute, or relative to the workspace). Defaults to <data>/wiki.
 export function wikiRoot() {
@@ -165,107 +154,21 @@ export function defaultProjectModule() {
   );
 }
 
-// ─── Consolidate orchestrator knobs ──────────────────────────────────────────
-// Cadence (DAYS) for the throttled consolidate. Unset -> 1 (daily). `0`/`off`/
-// `false` -> 0 (disabled). Garbage -> default.
-export const CONSOLIDATE_INTERVAL_DAYS_DEFAULT = 1;
-export function consolidateIntervalDays() {
-  const raw = envValue("MEMORY_CONSOLIDATE_INTERVAL_DAYS", "");
-  if (raw === "") return CONSOLIDATE_INTERVAL_DAYS_DEFAULT;
-  const s = String(raw).trim().toLowerCase();
-  if (s === "off" || s === "false") return 0;
-  const n = Number(s);
-  if (!Number.isFinite(n) || n < 0) return CONSOLIDATE_INTERVAL_DAYS_DEFAULT;
-  return n;
-}
-
-// Cosine threshold above which a cluster pair is treated as a dedup candidate.
-// Real bge-large-en-v1.5 cosine pushes near-paraphrases to ~0.97+ in practice;
-// 0.97 reserves auto-action for "almost the same leaf". Override per env.
-export function consolidateCosineThreshold() {
-  return envFloat("MEMORY_CONSOLIDATE_COSINE_THRESHOLD", 0.97, { min: 0, max: 1 });
-}
-// When the embedding backend falls back to the lexical hash, scores inflate
-// across the board; bump the threshold so we don't mass-archive false positives.
-export function consolidateCosineLexicalThreshold() {
-  return envFloat("MEMORY_CONSOLIDATE_COSINE_LEXICAL_THRESHOLD", 0.995, { min: 0, max: 1 });
-}
-
-// Max search hits per leaf when computing its similarity cluster.
-export function consolidateClusterTopK() {
-  return envInt("MEMORY_CONSOLIDATE_CLUSTER_TOP_K", 12);
-}
-// Minimum cosine for a search hit to enter a leaf's cluster. Coarser than the
-// dedupe threshold so the LLM-refresh prompt sees enough surrounding context.
-export function consolidateClusterScoreThreshold() {
-  return envFloat("MEMORY_CONSOLIDATE_CLUSTER_SCORE_THRESHOLD", 0.75, { min: 0, max: 1 });
-}
-
-export function consolidateOrphanTtlDays() {
-  return envInt("MEMORY_CONSOLIDATE_ORPHAN_TTL_DAYS", 365);
-}
-export function consolidateStaleAfterMonths() {
-  return envInt("MEMORY_CONSOLIDATE_STALE_AFTER_MONTHS", 6);
-}
-export function consolidateArchiveBodyMax() {
-  return envInt("MEMORY_CONSOLIDATE_ARCHIVE_BODY_MAX", 1200);
-}
-export function consolidateArchiveAgeDays() {
-  return envInt("MEMORY_CONSOLIDATE_ARCHIVE_AGE_DAYS", 30);
-}
-
-// Pass allow-list. Empty / "all" -> every pass enabled. CSV of pass names ->
-// only those. Unknown names ignored (logged at orchestrator level).
-export function consolidatePassesEnv() {
-  const raw = envValue("MEMORY_CONSOLIDATE_PASSES", "");
-  return raw === "" ? "all" : String(raw).trim();
-}
-
-// LLM-driven passes (merge near-duplicates, semantic refresh). Default on; turn
-// off in environments without a provider configured or when running pure
-// deterministic mode.
-export function consolidateLlmPassesEnabled() {
-  return envBool("MEMORY_CONSOLIDATE_LLM_PASSES", true);
-}
-export function consolidateLlmMaxRetries() {
-  return envInt("MEMORY_CONSOLIDATE_LLM_MAX_RETRIES", 2);
-}
-// Per-run cap on the semantic-refresh pass. Bounds the LLM-call budget so a
-// stale-flag explosion cannot blow through the API quota in one run.
-export function consolidateRefreshMaxPerRun() {
-  return envInt("MEMORY_CONSOLIDATE_REFRESH_MAX_PER_RUN", 25);
-}
-
-// ─── Recall-touch instrumentation ────────────────────────────────────────────
-// Throttle (in HOURS) for recall-driven freshness writes. Each leaf's
-// `memory.last_recalled_at` updates at most once per this many hours.
-export function recallTouchMinHours() {
-  return envInt("MEMORY_RECALL_TOUCH_MIN_HOURS", 24);
-}
-// Safety valve: set to false to disable recall-touch frontmatter writes
-// entirely. Default true.
-export function recallTouchEnabled() {
-  return envBool("MEMORY_RECALL_TOUCH", true);
-}
-
-// ─── Write-gate (self_improvement) ───────────────────────────────────────────
-// The L3 server-side guard rejecting save_lesson / save_to_dataset(
-// dataset="self_improvement") without `userRequested:true`. Default on. Set to
-// false as an operator escape hatch (L1/L2/L5 still in place).
-export function writeGateSelfImprovementEnabled() {
-  return envBool("MEMORY_WRITE_GATE_SELF_IMPROVEMENT", true);
-}
-
-// ─── LLM provider config (provider-agnostic overrides) ───────────────────────
+// ─── Strict env-var subset (provider switches; secrets via dotenv) ──────────
 // Base URL for OpenAI-compatible local endpoints (ollama at
 // http://localhost:11434/v1, vLLM, lm-studio, llama.cpp server, litellm proxy).
 // Unset -> provider's own default URL.
 export function llmBaseUrl() {
   return envValue("MEMORY_LLM_BASE_URL", "");
 }
-// Provider-agnostic model name override. When unset, llm.mjs falls back to the
-// provider-specific name (ANTHROPIC_MODEL / OPENAI_MODEL), preserving existing
-// behaviour.
+// Provider-agnostic model name override. When set, wins over provider-specific
+// names; see settings.providers for the fallback chain.
 export function llmModel() {
   return envValue("MEMORY_LLM_MODEL", "");
 }
+
+// NOTE: all OTHER configuration (consolidate / flush / hook / embed / recall /
+// compile / gc / gate / providers) lives in <data>/settings/settings.yaml.
+// Read via scripts/lib/settings.mjs. The 2026-06-03/v2 release removed every
+// MEMORY_FOO env var on the non-strict surface — setting them at the shell
+// is now a SILENT no-op. See docs/releases/2026/06/03/v2/update-prompt.md.

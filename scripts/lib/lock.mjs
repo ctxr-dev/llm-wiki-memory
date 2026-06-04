@@ -37,6 +37,14 @@ import fs from "node:fs";
 // stuck/dead lock within a reasonable wait.
 const DEFAULT_STALE_MS = 1_800_000;
 
+// The fast path creates the lockfile with openSync('wx') THEN writes its body
+// as separate syscalls, so a racing acquirer can momentarily observe a 0-byte
+// lockfile. That window is microseconds; a 0-byte file older than this grace
+// period is instead an ABANDONED lock (a writer was SIGKILLed between create
+// and write) and must be reclaimed, or it would livelock every future acquirer
+// forever. 5s is orders of magnitude above the real create→write gap.
+const EMPTY_LOCK_GRACE_MS = 5_000;
+
 function isProcessAlive(pid) {
   if (typeof pid !== "number" || !Number.isFinite(pid) || pid <= 0) return false;
   try {
@@ -103,8 +111,33 @@ export function acquireLock(lockPath, { staleMs = DEFAULT_STALE_MS, label = "com
       `${label}: replacing stale lock (pid=${existing.pid}, age=${Math.round(ageMs / 1000)}s, alive=${alive})\n`,
     );
   } else {
-    // Lockfile exists but is unreadable / non-JSON. Treat as stale.
-    process.stderr.write(`${label}: lockfile at ${lockPath} is unparseable; reclaiming\n`);
+    // readLockBody returned null: the lockfile exists but has no valid JSON.
+    // Distinguish a racing winner mid-create (0-byte + brand new → LOSE
+    // cleanly; reclaiming would hand the same lock to two processes) from a
+    // crash-abandoned 0-byte file or genuinely corrupt body (→ stale, reclaim).
+    let raw = null;
+    try { raw = fs.readFileSync(lockPath, "utf8"); } catch { /* vanished between EEXIST and read */ }
+    if (raw !== null && raw.trim() === "") {
+      let ageMs = Infinity;
+      try { ageMs = Date.now() - fs.statSync(lockPath).mtimeMs; } catch { /* vanished */ }
+      // Treat as a live mid-create racer (LOSE) only when the mtime is CLOSE to
+      // now in EITHER direction: |age| < grace. A just-created file can read a
+      // tiny NEGATIVE age (statSync mtimeMs is a sub-ms float, Date.now() is
+      // integer-truncated) or a sub-second-positive age on coarse-granularity
+      // filesystems. A genuinely abandoned lock ages PAST the grace (large
+      // positive); a clock-step future-date is large NEGATIVE — both fall
+      // through to reclaim, so neither livelocks.
+      if (Math.abs(ageMs) < EMPTY_LOCK_GRACE_MS) {
+        return {
+          ok: false,
+          owner: null,
+          reason: `lock is mid-creation by another process (empty lockfile, age=${Math.round(ageMs)}ms)`,
+        };
+      }
+      process.stderr.write(`${label}: empty + stale lockfile at ${lockPath} (age=${Math.round(ageMs)}ms); reclaiming\n`);
+    } else {
+      process.stderr.write(`${label}: lockfile at ${lockPath} is unparseable; reclaiming\n`);
+    }
   }
 
   writeLockBody(lockPath, body);

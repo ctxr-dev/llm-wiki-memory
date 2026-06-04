@@ -9,8 +9,9 @@ import {
   embedCachePath,
   defaultProjectModule,
   envValue,
-  writeGateSelfImprovementEnabled,
 } from "../scripts/lib/env.mjs";
+import { writeGateSelfImprovementEnabled } from "../scripts/lib/settings.mjs";
+import { withWikiCommit } from "../scripts/lib/wiki-commit.mjs";
 import { activeBackend } from "../scripts/lib/embed.mjs";
 import { INSTRUCTIONS } from "../scripts/lib/discipline.mjs";
 import { isSystemMaintenance } from "../scripts/lib/maintenance-tag.mjs";
@@ -353,7 +354,8 @@ server.registerTool(
       ) {
         return refuseWriteGate("save_lesson");
       }
-      const result = impl.saveLesson({ title, body, metadata, tags, evidence });
+      const result = withWikiCommit({ op: "mcp-save-lesson", actor: "mcp" }, () =>
+        impl.saveLesson({ title, body, metadata, tags, evidence }));
       return jsonResponse({ ok: !!result.created, ...result });
     } catch (error) {
       return errorResponse(error);
@@ -392,13 +394,14 @@ server.registerTool(
             : `save_to_dataset(path=\"${path}\" lands in self_improvement)`,
         );
       }
-      const result = impl.saveDocument({
-        name,
-        text,
-        datasetId: dataset,
-        metadata,
-        placementOverride: path,
-      });
+      const result = withWikiCommit({ op: "mcp-save", actor: "mcp" }, () =>
+        impl.saveDocument({
+          name,
+          text,
+          datasetId: dataset,
+          metadata,
+          placementOverride: path,
+        }));
       return jsonResponse({ ok: !!result.created, ...result });
     } catch (error) {
       return errorResponse(error);
@@ -443,15 +446,16 @@ server.registerTool(
         );
       }
       return jsonResponse(
-        impl.writeMemory({
-          name,
-          text,
-          datasetId,
-          supersedes,
-          supersedesAction,
-          metadata,
-          placementOverride: path,
-        }),
+        withWikiCommit({ op: "mcp-write-memory", actor: "mcp" }, () =>
+          impl.writeMemory({
+            name,
+            text,
+            datasetId,
+            supersedes,
+            supersedesAction,
+            metadata,
+            placementOverride: path,
+          })),
       );
     } catch (error) {
       return errorResponse(error);
@@ -469,7 +473,8 @@ server.registerTool(
   },
   async ({ dataset, documentId }) => {
     try {
-      return jsonResponse(impl.disableDocument({ documentId, datasetId: dataset }));
+      return jsonResponse(withWikiCommit({ op: "mcp-disable", actor: "mcp" }, () =>
+        impl.disableDocument({ documentId, datasetId: dataset })));
     } catch (error) {
       return errorResponse(error);
     }
@@ -485,7 +490,8 @@ server.registerTool(
   },
   async ({ dataset, documentId }) => {
     try {
-      return jsonResponse(impl.enableDocument({ documentId, datasetId: dataset }));
+      return jsonResponse(withWikiCommit({ op: "mcp-enable", actor: "mcp" }, () =>
+        impl.enableDocument({ documentId, datasetId: dataset })));
     } catch (error) {
       return errorResponse(error);
     }
@@ -502,7 +508,8 @@ server.registerTool(
   },
   async ({ dataset, documentId }) => {
     try {
-      return jsonResponse(impl.deleteDocument({ documentId, datasetId: dataset }));
+      return jsonResponse(withWikiCommit({ op: "mcp-delete", actor: "mcp" }, () =>
+        impl.deleteDocument({ documentId, datasetId: dataset })));
     } catch (error) {
       return errorResponse(error);
     }
@@ -514,7 +521,7 @@ server.registerTool(
   {
     title: "Run search-driven memory consolidation",
     description:
-      "Run the AutoDream-style consolidation orchestrator. For each active leaf in self_improvement + knowledge, finds its similarity cluster via internal vector search, then applies deterministic passes (sha256 dedup, lesson-key dedup, cosine archive, staleness flag, orphan archive, compress-archived bodies, embedding-cache GC, index rebuild) and the LLM passes (merge near-duplicate bodies, refresh stale leaves) when enabled. Never hard-deletes; always uses disable_document. Throttled via MEMORY_CONSOLIDATE_INTERVAL_DAYS when ifDue=true. Internal writes are system-maintenance-tagged so the write-gate exempts them. Daily cron + the hook-less `consolidate` skill rule run this on a schedule; invoke manually only when the user asks. NOT subject to the L3 write-gate (it's a system tool, not a save).",
+      "Run the AutoDream-style consolidation orchestrator. For each active leaf in self_improvement + knowledge, finds its similarity cluster via internal vector search, then applies deterministic passes (sha256 dedup, lesson-key dedup, cosine archive, staleness flag, orphan archive, compress-archived bodies, embedding-cache GC, index rebuild) and the LLM passes (merge near-duplicate bodies, refresh stale leaves) when enabled. Never hard-deletes; always uses disable_document. Throttled via `consolidate.intervalDays` in settings.yaml when ifDue=true. Internal writes are system-maintenance-tagged so the write-gate exempts them. Daily cron + the hook-less `consolidate` skill rule run this on a schedule; invoke manually only when the user asks. NOT subject to the L3 write-gate (it's a system tool, not a save).",
     inputSchema: {
       dryRun: z.boolean().optional(),
       ifDue: z.boolean().optional(),
@@ -526,22 +533,16 @@ server.registerTool(
   },
   async ({ dryRun, ifDue, force, llm, passes, cosineThreshold }) => {
     try {
-      // Honour per-call cosine override via env (process.env wins over .env).
-      const restore = process.env.MEMORY_CONSOLIDATE_COSINE_THRESHOLD;
-      if (cosineThreshold != null) {
-        process.env.MEMORY_CONSOLIDATE_COSINE_THRESHOLD = String(cosineThreshold);
-      }
-      try {
-        const { consolidateMemory } = await import("../scripts/consolidate.mjs");
-        return jsonResponse(
-          await consolidateMemory({ dryRun, ifDue, force, llm, passes }),
-        );
-      } finally {
-        if (cosineThreshold != null) {
-          if (restore == null) delete process.env.MEMORY_CONSOLIDATE_COSINE_THRESHOLD;
-          else process.env.MEMORY_CONSOLIDATE_COSINE_THRESHOLD = restore;
-        }
-      }
+      // Per-call cosine override wrapped in an AsyncLocalStorage frame so
+      // concurrent consolidate_memory MCP calls don't trample each other's
+      // overrides. The frame disappears when the wrapped function resolves.
+      const { withSettingsOverride } = await import("../scripts/lib/settings.mjs");
+      const { consolidateMemory } = await import("../scripts/consolidate.mjs");
+      const run = () => consolidateMemory({ dryRun, ifDue, force, llm, passes });
+      const result = cosineThreshold != null
+        ? await withSettingsOverride({ consolidate: { cosineThreshold: Number(cosineThreshold) } }, run)
+        : await run();
+      return jsonResponse(result);
     } catch (error) {
       return errorResponse(error);
     }

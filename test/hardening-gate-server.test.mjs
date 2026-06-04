@@ -22,7 +22,6 @@ function makeWorkspace({ writeGate } = {}) {
   const env = {
     ...process.env,
     MEMORY_DATA_DIR: dataDir,
-    MEMORY_EMBED_BACKEND: "lexical",
     MEMORY_DEFAULT_PROJECT_MODULE: "testproj",
     LLM_WIKI_SKILL_CLI: path.join(
       SRC,
@@ -31,11 +30,13 @@ function makeWorkspace({ writeGate } = {}) {
     LLM_WIKI_FIXED_TIMESTAMP: "1700000000",
     LLM_WIKI_NO_PROMPT: "1",
   };
-  if (writeGate === "off") {
-    env.MEMORY_WRITE_GATE_SELF_IMPROVEMENT = "false";
-  } else {
-    delete env.MEMORY_WRITE_GATE_SELF_IMPROVEMENT;
-  }
+  // Pin settings via the YAML — embed backend always lexical for tests, and
+  // the write-gate toggled per scenario.
+  fs.mkdirSync(path.join(dataDir, "settings"), { recursive: true });
+  const settingsYaml =
+    "embed:\n  backend: lexical\n" +
+    (writeGate === "off" ? "gate:\n  selfImprovementEnabled: false\n" : "");
+  fs.writeFileSync(path.join(dataDir, "settings", "settings.yaml"), settingsYaml);
   const init = spawnSync(process.execPath, [path.join(SRC, "scripts/cli.mjs"), "init"], {
     env,
     encoding: "utf8",

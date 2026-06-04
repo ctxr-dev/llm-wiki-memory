@@ -6,6 +6,7 @@ import { MEMORY_DIR, wikiRoot } from "./lib/env.mjs";
 import { CATEGORIES, placementDirForMeta, renameEmbedding } from "./lib/wiki-store.mjs";
 import { ensureIndexes, validate } from "./lib/wiki-cli.mjs";
 import { dailyDatePath, parseDailyDocName } from "./lib/slug.mjs";
+import { recordWikiChange, withWikiCommit } from "./lib/wiki-commit.mjs";
 
 // One-shot, idempotent migration: move FLAT leaves (files sitting directly in a
 // category root) into the nested layout the writer now produces. The target dir
@@ -64,7 +65,15 @@ function refreshContract(wiki) {
   fs.copyFileSync(tmpl, dest);
 }
 
-export function migrateNest({ wiki = wikiRoot(), dryRun = false, check = false } = {}) {
+export function migrateNest(opts = {}) {
+  const wiki = opts.wiki || wikiRoot();
+  // One nest run = one commit; --check/--dry-run record nothing, so their
+  // batch flushes empty and no commit happens.
+  return withWikiCommit({ op: "migrate-nest", actor: "migrate-nest", rootDir: wiki }, () =>
+    migrateNestInner({ ...opts, wiki }));
+}
+
+function migrateNestInner({ wiki = wikiRoot(), dryRun = false, check = false } = {}) {
   const flats = flatLeaves(wiki);
   const moves = flats.map((leaf) => {
     const mtime = (() => {
@@ -110,6 +119,12 @@ export function migrateNest({ wiki = wikiRoot(), dryRun = false, check = false }
     fs.mkdirSync(path.dirname(m.destAbs), { recursive: true });
     fs.renameSync(m.abs, m.destAbs);
     renameEmbedding(m.from, m.to); // content unchanged, so keep the cached vector
+    recordWikiChange({
+      action: "relocated",
+      leafRelPath: m.to,
+      reason: "migrate-nest from flat category root",
+      extraPaths: [m.from],
+    });
     applied.push({ from: m.from, to: m.to, destAbs: m.destAbs });
   }
 

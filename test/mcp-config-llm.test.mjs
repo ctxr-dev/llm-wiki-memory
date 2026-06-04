@@ -65,6 +65,33 @@ function clearLlmEnv() {
   }
 }
 
+test("health(): with MEMORY_LLM_PROVIDER unset, provider comes from settings.providers.chain head (not hardcoded claude)", async () => {
+  clearLlmEnv();
+  const s = await import("../scripts/lib/settings.mjs");
+  // Force a YAML-style chain headed by anthropic, no env provider override.
+  s.__setSettingsOverride({ providers: { chain: ["anthropic", "claude"], anthropic: { models: ["m1"] } } });
+  try {
+    const r = await health();
+    assert.equal(r.provider, "anthropic", "health must probe the resolved chain head, not default to claude");
+  } finally {
+    s.__clearSettingsOverride();
+  }
+});
+
+test("health(): explicit MEMORY_LLM_PROVIDER still wins over the chain head", async () => {
+  clearLlmEnv();
+  const s = await import("../scripts/lib/settings.mjs");
+  s.__setSettingsOverride({ providers: { chain: ["anthropic"], anthropic: { models: ["m1"] } } });
+  process.env.MEMORY_LLM_PROVIDER = "codex";
+  try {
+    const r = await health();
+    assert.equal(r.provider, "codex", "an explicit env provider overrides the chain head");
+  } finally {
+    s.__clearSettingsOverride();
+    delete process.env.MEMORY_LLM_PROVIDER;
+  }
+});
+
 test("get_memory_config response includes an `llm` block with provider/available/reason", async () => {
   const cfg = parse(await client.callTool({ name: "get_memory_config", arguments: {} }));
   assert.ok(cfg.llm, "llm block is present on the config payload");
@@ -106,8 +133,9 @@ test("health(): anthropic provider with no ANTHROPIC_API_KEY reports available:f
   assert.equal(r.provider, "anthropic");
   assert.equal(r.available, false);
   assert.match(r.reason, /ANTHROPIC_API_KEY/, `reason should mention ANTHROPIC_API_KEY, got: ${r.reason}`);
-  // model is reported for anthropic even when unavailable (default fallback).
-  assert.equal(typeof r.model, "string");
+  // `model` is now either a string (env override set) or null (chain-driven
+  // selection at call-time). Both are valid; assert the field is present.
+  assert.ok(r.model === null || typeof r.model === "string", `model should be null or string, got: ${typeof r.model}`);
 });
 
 test("health(): anthropic provider with ANTHROPIC_API_KEY set reports available:true", async () => {
@@ -127,7 +155,8 @@ test("health(): openai provider includes baseUrl + model fields", async () => {
   const r = await health();
   assert.equal(r.provider, "openai");
   assert.equal(typeof r.baseUrl, "string");
-  assert.equal(typeof r.model, "string");
+  // `model` is string when env override set, null otherwise (chain-driven).
+  assert.ok(r.model === null || typeof r.model === "string", `model should be null or string, got: ${typeof r.model}`);
   assert.equal(r.available, true);
 });
 

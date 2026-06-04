@@ -18,7 +18,7 @@ import path from "node:path";
 import matter from "gray-matter";
 import { setupWorkspace, cleanup } from "./harness.mjs";
 
-process.env.MEMORY_EMBED_BACKEND = "lexical";
+// embed.backend = "lexical" is set by setupWorkspace via the test settings.yaml.
 
 const { dataDir, wiki } = setupWorkspace();
 after(() => cleanup(dataDir));

@@ -4,17 +4,18 @@ import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
 
-// Disable recall-touch BEFORE setupWorkspace so env.mjs (read at import time
-// by lib modules) sees it off. The consolidate orchestrator's per-leaf
-// cluster loop calls searchMemoryFiltered for every active leaf, which would
-// otherwise stamp `last_recalled_at` on each leaf — that would mask the
-// staleness/orphan signals these tests assert on.
-process.env.MEMORY_RECALL_TOUCH = "off";
-
 const { setupWorkspace, cleanup } = await import("./harness.mjs");
 
 const { dataDir, wiki } = setupWorkspace();
 after(() => cleanup(dataDir));
+
+// Disable recall-touch BEFORE any consolidate runs. The orchestrator's
+// per-leaf cluster loop calls searchMemoryFiltered for every active leaf,
+// which would otherwise stamp `last_recalled_at` on each leaf — that would
+// mask the staleness/orphan signals these tests assert on.
+const { __setSettingsForTest, __clearSettingsForTest } = await import("../scripts/lib/settings.mjs");
+__setSettingsForTest({ recall: { touchEnabled: false } });
+after(() => __clearSettingsForTest());
 
 // Simplify the layout so seeded leaves don't require a `subject` facet — same
 // approach as truncateArchivedBody.test.mjs. EVERY category declares

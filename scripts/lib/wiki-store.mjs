@@ -7,12 +7,15 @@ import {
   embedCachePath,
   defaultProjectModule,
   GC_STATE_PATH,
+} from "./env.mjs";
+import {
   gcIntervalDays,
   recallTouchEnabled,
   recallTouchMinHours,
-} from "./env.mjs";
+} from "./settings.mjs";
 import { ensureIndexes } from "./wiki-cli.mjs";
 import { isSystemMaintenance } from "./maintenance-tag.mjs";
+import { writeFileAtomic } from "./atomic-write.mjs";
 import {
   contentHash,
   loadCache,
@@ -25,6 +28,7 @@ import {
 import { slugify, dailyDatePath } from "./slug.mjs";
 import { inferFacets } from "./facets.mjs";
 import { pruneEmptyAncestors } from "./fs-prune.mjs";
+import { recordWikiChange, withWikiCommit } from "./wiki-commit.mjs";
 
 // Drop-in replacement for the boilerplate's dify-write.mjs. Same exported
 // function names/shapes, but every document is a leaf in the local hosted
@@ -676,7 +680,15 @@ function normalisePlacementOverride(raw) {
 // lands at the SAME computed path; dedup across facet folders is the caller's job
 // (compile supersedes the prior leaf via `supersedes`). saveDocument is the
 // upsert-by-name path that searches the whole category recursively.
-export function writeMemory({
+export function writeMemory(args = {}) {
+  // One logical operation: the leaf write plus its optional supersede
+  // disable/delete must land in a single commit even when called outside any
+  // orchestrator frame (a nested frame joins the outer one, so wrapped
+  // callers see no behaviour change).
+  return withWikiCommit({ op: "memory-write", actor: "wiki-store" }, () => writeMemoryInner(args));
+}
+
+function writeMemoryInner({
   name,
   text,
   datasetId,
@@ -728,7 +740,7 @@ export function writeMemory({
   const title = deriveTitle({ metadata, text, name: safeName });
   const leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
   fs.mkdirSync(path.dirname(leafAbs), { recursive: true });
-  fs.writeFileSync(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));
+  writeFileAtomic(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));
 
   const touched = [leafAbs];
   let supersedeResult;
@@ -746,6 +758,7 @@ export function writeMemory({
 
   ensureIndexes(root(), touched);
   upsertEmbedding(toRel(leafAbs), text);
+  recordWikiChange({ action: "saved", leafRelPath: toRel(leafAbs), reason: `${slot} write` });
 
   return {
     ok: true,
@@ -821,7 +834,7 @@ export function saveDocument({ name, text, datasetId, metadata, placementOverrid
   }
 
   fs.mkdirSync(path.dirname(leafAbs), { recursive: true });
-  fs.writeFileSync(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));
+  writeFileAtomic(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));
 
   const touched = [leafAbs];
   if (moved) {
@@ -834,6 +847,12 @@ export function saveDocument({ name, text, datasetId, metadata, placementOverrid
   // After a relocation, drop any source ancestor dir left holding only an
   // orphaned index.md (prune AFTER ensureIndexes, which may have rewritten it).
   if (moved) pruneEmptyAncestors(path.dirname(existing), root());
+  recordWikiChange({
+    action: moved ? "relocated" : "saved",
+    leafRelPath: toRel(leafAbs),
+    reason: moved ? `${slot} upsert relocated from ${replacedId}` : `${slot} upsert`,
+    extraPaths: moved ? [replacedId] : [],
+  });
 
   const metadataAttempted = metadata && Object.keys(metadata).length > 0;
   return {
@@ -854,7 +873,7 @@ export function saveDocument({ name, text, datasetId, metadata, placementOverrid
 // keeps mirroring the metadata: the cached vector is preserved (content is
 // unchanged) and the old + new ancestor indexes are refreshed. compile re-applies
 // the same metadata it placed by, so the common path is a plain in-place rewrite.
-export function updateDocMetadata({ datasetId, documentId, metadata, placementOverride } = {}) {
+export function updateDocMetadata({ datasetId, documentId, metadata, placementOverride, commitReason } = {}) {
   const abs = toAbs(documentId);
   if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
   if (!metadata || Object.keys(metadata).length === 0) return { ok: true, warning: "no metadata" };
@@ -899,15 +918,26 @@ export function updateDocMetadata({ datasetId, documentId, metadata, placementOv
       };
     }
     fs.mkdirSync(path.dirname(newAbs), { recursive: true });
-    fs.writeFileSync(newAbs, rendered);
+    writeFileAtomic(newAbs, rendered);
     fs.rmSync(abs, { force: true });
     renameEmbedding(documentId, newRel);
     ensureIndexes(root(), [abs, newAbs]); // drop the entry from old ancestors, add to new
     // Remove any source ancestor dir left holding only an orphaned index.md.
     pruneEmptyAncestors(path.dirname(abs), root());
+    recordWikiChange({
+      action: "relocated",
+      leafRelPath: newRel,
+      reason: commitReason || `metadata facet change moved ${documentId}`,
+      extraPaths: [documentId],
+    });
     return { ok: true, relocated: { from: documentId, to: newRel } };
   }
-  fs.writeFileSync(abs, rendered);
+  writeFileAtomic(abs, rendered);
+  recordWikiChange({
+    action: "metadata",
+    leafRelPath: documentId,
+    reason: commitReason || "metadata update",
+  });
   return { ok: true };
 }
 
@@ -917,8 +947,9 @@ export function disableDocument({ documentId, datasetId } = {}) {
   if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
   const { data, body } = readLeaf(abs);
   const next = { ...data, memory: { ...leafMemory(data), status: "archived" } };
-  fs.writeFileSync(abs, stringifyLeaf(body, next));
+  writeFileAtomic(abs, stringifyLeaf(body, next));
   removeEmbedding(toRel(abs));
+  recordWikiChange({ action: "archived", leafRelPath: documentId, reason: "status set to archived" });
   return { ok: true, documentId, status: "archived" };
 }
 
@@ -927,8 +958,9 @@ export function enableDocument({ documentId, datasetId } = {}) {
   if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
   const { data, body } = readLeaf(abs);
   const next = { ...data, memory: { ...leafMemory(data), status: "active" } };
-  fs.writeFileSync(abs, stringifyLeaf(body, next));
+  writeFileAtomic(abs, stringifyLeaf(body, next));
   upsertEmbedding(toRel(abs), body);
+  recordWikiChange({ action: "enabled", leafRelPath: documentId, reason: "status restored to active" });
   return { ok: true, documentId, status: "active" };
 }
 
@@ -962,7 +994,8 @@ export function truncateArchivedBody({ documentId, max, nowIso } = {}) {
     ...data,
     memory: { ...mem, consolidate_truncated_at: stamp },
   };
-  fs.writeFileSync(abs, stringifyLeaf(truncated, next));
+  writeFileAtomic(abs, stringifyLeaf(truncated, next));
+  recordWikiChange({ action: "truncated", leafRelPath: documentId, reason: "compress archived body" });
   return { ok: true, documentId, freedBytes };
 }
 
@@ -983,6 +1016,7 @@ export function deleteDocument({ documentId, datasetId } = {}) {
   // orphaned index.md) — same invariant the relocation paths enforce, so a
   // delete never leaves a blind nested dir with no real leaves behind.
   pruneEmptyAncestors(path.dirname(abs), root());
+  recordWikiChange({ action: "deleted", leafRelPath: documentId, reason: "leaf removed" });
   return { ok: true, documentId, deleted: true };
 }
 
@@ -1087,6 +1121,11 @@ async function applyRecallTouch(records, scoreThreshold) {
   const nowMs = Date.now();
   const nowIso = new Date().toISOString();
   for (const r of records) {
+    // Defensive belt-and-suspenders: the sole caller (searchMemoryFiltered)
+    // already drops below-threshold records before calling us, so this never
+    // fires today. It guards against a future caller passing an UNFILTERED
+    // list — a recall touch must never stamp a record the user didn't actually
+    // retrieve above threshold.
     if (typeof r.score === "number" && scoreThreshold != null && r.score < scoreThreshold) {
       continue;
     }
@@ -1110,6 +1149,9 @@ async function applyRecallTouch(records, scoreThreshold) {
           last_recalled_at: nowIso,
           recall_count: Number.isFinite(prev) && prev >= 0 ? prev + 1 : 1,
         },
+        // Telemetry, not an authored edit: the commit layer drops this
+        // sentinel so search hits never spam the wiki's git history.
+        commitReason: "recall-touch",
       });
     } catch (err) {
       process.stderr.write(
@@ -1269,7 +1311,7 @@ export function pruneEmbeddingCache({ dryRun = false, ifDue = false } = {}) {
   if (ifDue) {
     const intervalDays = gcIntervalDays();
     if (intervalDays <= 0) {
-      return { ok: true, skipped: "disabled", reason: "MEMORY_GC_INTERVAL_DAYS is 0/off" };
+      return { ok: true, skipped: "disabled", reason: "settings.gc.intervalDays is 0" };
     }
     const state = readGcState();
     const lastMs = state?.last_run_utc ? Date.parse(state.last_run_utc) : NaN;
@@ -1333,7 +1375,7 @@ function readGcState() {
 function writeGcState(state) {
   try {
     fs.mkdirSync(path.dirname(GC_STATE_PATH), { recursive: true });
-    fs.writeFileSync(GC_STATE_PATH, JSON.stringify(state));
+    writeFileAtomic(GC_STATE_PATH, JSON.stringify(state));
   } catch {
     /* best effort */
   }

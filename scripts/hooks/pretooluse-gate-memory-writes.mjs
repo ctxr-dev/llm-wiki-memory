@@ -23,8 +23,14 @@
 //
 // Fail-closed: every parsing / read failure on a gated tool falls back to
 // "ask" so the user still controls the outcome.
+//
+// Operator off-switch: settings.yaml `gate.claudeHookEnabled: false` turns
+// this hook into a uniform no-op (exit 0, no decision, normal permission
+// flow), as if it were not installed. L1 instructions and the L3 server-side
+// gate still apply. A failure to LOAD settings keeps the hook ENABLED.
 
 import fs from "node:fs";
+import { writeGateClaudeHookEnabled } from "../lib/settings.mjs";
 
 const GATED_TOOLS = new Set([
   "mcp__llm-wiki-memory__save_lesson",
@@ -55,6 +61,15 @@ function untouched() {
   // Exit 0 with empty stdout: Claude Code falls through to its default
   // permission handling. Use this for tools we don't gate at all.
   process.exit(0);
+}
+
+function hookEnabled() {
+  // A broken settings load must not disable the gate: default to enabled.
+  try {
+    return writeGateClaudeHookEnabled();
+  } catch {
+    return true;
+  }
 }
 
 function readTranscriptLastUserText(transcriptPath) {
@@ -102,6 +117,13 @@ function readTranscriptLastUserText(transcriptPath) {
 async function main() {
   let raw = "";
   for await (const chunk of process.stdin) raw += chunk;
+
+  // Operator off-switch: checked after draining stdin and before any parsing
+  // so a disabled hook is a uniform no-op even on malformed input.
+  if (!hookEnabled()) {
+    untouched();
+    return;
+  }
 
   let payload;
   try {

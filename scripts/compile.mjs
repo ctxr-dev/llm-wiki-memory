@@ -1,8 +1,19 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { COMPILE_LOCK_PATH, COMPILE_STATE_PATH, PROMPTS_DIR, envInt, envValue, atomBodyMaxChars } from "./lib/env.mjs";
+import { COMPILE_LOCK_PATH, COMPILE_STATE_PATH, PROMPTS_DIR } from "./lib/env.mjs";
+import {
+  atomBodyMaxChars,
+  compileSlot,
+  compileSearchLimit,
+  compileQualityStrict,
+  compileLockStaleMs,
+  compileMetadataRetryLimit,
+  flushSlotName,
+} from "./lib/settings.mjs";
 import { acquireLock, installLockReleaseHandlers } from "./lib/lock.mjs";
+import { writeFileAtomic } from "./lib/atomic-write.mjs";
+import { withWikiCommit } from "./lib/wiki-commit.mjs";
 import { LLMProviderUnavailable, LLMOutputInvalid } from "./lib/llm.mjs";
 import { callJSON } from "./lib/llm-callJSON.mjs";
 import {
@@ -26,14 +37,11 @@ import { ATOM_TYPE_TO_DATASET, ATOM_TYPES, metadataForDify } from "./lib/dataset
 
 const FORCE = process.argv.includes("--force");
 const DRY_RUN = process.argv.includes("--dry-run");
-const SEARCH_LIMIT = envInt("MEMORY_COMPILE_SEARCH_LIMIT", 5);
-const METADATA_RETRY_LIMIT = envInt("MEMORY_COMPILE_METADATA_RETRY_LIMIT", 3);
-// When true, atoms failing scoreAtomQuality are dropped before promotion.
-// Default false: log the verdict but keep the existing conservative
-// behaviour so the v0.1.0 cut doesn't silently change what makes it into
-// the knowledge store. Opt in via MEMORY_COMPILE_QUALITY_STRICT=true once
-// the rubric is tuned.
-const QUALITY_STRICT = String(envValue("MEMORY_COMPILE_QUALITY_STRICT", "")).toLowerCase() === "true";
+// Compile knobs — sourced from settings.yaml via settings.mjs accessors.
+// Wrapped as zero-arg getters so test-seam overrides take effect mid-process.
+const SEARCH_LIMIT = () => compileSearchLimit();
+const METADATA_RETRY_LIMIT = () => compileMetadataRetryLimit();
+const QUALITY_STRICT = () => compileQualityStrict();
 
 function defaultState() {
   return {
@@ -55,15 +63,13 @@ function readState() {
 }
 
 function writeState(state) {
-  // Atomic write: stage to .tmp then rename. The lockfile already
-  // serialises healthy concurrent writers, but a SIGKILL or hard crash
-  // mid-`writeFileSync` would leave the file truncated. readState
-  // recovers gracefully (returns defaultState) but that silently wipes
-  // metadata_retry counters - defeating the bounded-retry cap that
-  // prevents duplicate-create loops on a stuck daily.
-  const tmp = `${COMPILE_STATE_PATH}.tmp`;
-  fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`);
-  fs.renameSync(tmp, COMPILE_STATE_PATH);
+  // The lockfile serialises healthy concurrent writers, but a SIGKILL or
+  // hard crash mid-write would truncate the state file. readState recovers
+  // to defaultState() — which silently wipes metadata_retry counters, the
+  // bounded-retry cap that prevents duplicate-create loops on a stuck daily.
+  // writeFileAtomic (unique temp + data fsync + rename) closes that window
+  // and matches the rest of the durable-write surface.
+  writeFileAtomic(COMPILE_STATE_PATH, `${JSON.stringify(state, null, 2)}\n`);
 }
 
 function appendCompileLog(entry) {
@@ -159,7 +165,7 @@ function loadPrompt() {
 }
 
 function targetDatasetForAtom(atom) {
-  const fallback = envValue("MEMORY_COMPILE_SLOT", "knowledge");
+  const fallback = compileSlot();
   return ATOM_TYPE_TO_DATASET[atom.type] || fallback;
 }
 
@@ -191,7 +197,7 @@ async function dedupCandidates(atom, targetDataset) {
   const result = await searchMemoryFiltered({
     query,
     datasetId: targetDataset,
-    limit: Math.max(SEARCH_LIMIT, 5),
+    limit: Math.max(SEARCH_LIMIT(), 5),
     filters: compileFilters(atom),
   });
   const records = Array.isArray(result?.records) ? result.records : [];
@@ -203,18 +209,22 @@ async function dedupCandidates(atom, targetDataset) {
     if (seen.has(rec.documentId)) continue;
     seen.add(rec.documentId);
     out.push(rec);
-    if (out.length >= SEARCH_LIMIT) break;
+    if (out.length >= SEARCH_LIMIT()) break;
   }
   return out;
 }
 
 function buildPromotedDocText(atom, mergedTextOverride) {
   const md = atom.metadata || {};
+  // Collapse newlines in the column-0 fields (title, tags) so a stored value
+  // can't inject a forged heading or list item into the promoted doc — the
+  // same invariant validateAtoms enforces on the flush daily format.
+  const oneLine = (v) => String(v || "").replace(/[\r\n]+/g, " ");
   const lines = [
-    `# ${atom.title}`,
+    `# ${oneLine(atom.title)}`,
     "",
     `- type: ${atom.type}`,
-    `- tags: [${atom.tags.join(", ")}]`,
+    `- tags: [${(atom.tags || []).map(oneLine).join(", ")}]`,
     `- area: ${md.area || md.project_module || ""}`,
     `- language: ${md.language || ""}`,
     `- task_type: ${md.task_type || ""}`,
@@ -259,8 +269,8 @@ function buildPromotedDocText(atom, mergedTextOverride) {
 // inspections) signals that an atom is high-signal-density and worth
 // persisting. Returns { ok: boolean, reasons: string[] }. Reasons are
 // human-readable strings safe to log. Used by compile.mjs when
-// MEMORY_COMPILE_QUALITY_STRICT=true to drop low-signal atoms before
-// they pollute retrieval. Default lax mode (env-var unset/false) only
+// settings.compile.qualityStrict is true to drop low-signal atoms before
+// they pollute retrieval. Default lax mode (qualityStrict false) only
 // surfaces the verdict for forensics; the atom is still promoted.
 //
 // Rubric (every rule must pass):
@@ -408,7 +418,7 @@ async function main() {
   // .compile-state.json, mutate it independently, and the last writer
   // wins. The metadata_retry counter would regress and an atom could be
   // promoted twice (once by each compile).
-  const lockStaleMs = envInt("MEMORY_COMPILE_LOCK_STALE_MS", 1_800_000);
+  const lockStaleMs = compileLockStaleMs();
   fs.mkdirSync(path.dirname(COMPILE_LOCK_PATH), { recursive: true });
   installLockReleaseHandlers(COMPILE_LOCK_PATH);
   const lock = acquireLock(COMPILE_LOCK_PATH, { staleMs: lockStaleMs, label: "compile.mjs" });
@@ -417,7 +427,7 @@ async function main() {
     process.exit(0);
   }
 
-  const dailyDataset = envValue("MEMORY_FLUSH_SLOT", "daily");
+  const dailyDataset = flushSlotName();
   let dailies;
   try {
     const listOpts = { prefix: "daily-", datasetId: dailyDataset };
@@ -499,7 +509,7 @@ async function main() {
         appendCompileLog({ event: "atom-skip-plan", source: daily.name, atomTitle: atom.title });
         continue;
       }
-      // Quality rubric: in strict mode (MEMORY_COMPILE_QUALITY_STRICT=true)
+      // Quality rubric: in strict mode (settings.compile.qualityStrict)
       // atoms failing the heuristic checks are dropped before any LLM
       // round-trip. In lax mode (default) we still surface the verdict in
       // the compile log so the user can decide whether to tighten the
@@ -507,7 +517,7 @@ async function main() {
       // false negatives here are atoms that should never have been kept.
       const quality = scoreAtomQuality(atom);
       if (!quality.ok) {
-        if (QUALITY_STRICT) {
+        if (QUALITY_STRICT()) {
           console.error(
             `compile.mjs: dropping low-quality atom (source='${daily.name}', title='${String(atom.title).slice(0, 40)}'): ${quality.reasons.join("; ")}`,
           );
@@ -623,7 +633,7 @@ async function main() {
       const attempts = (state.metadata_retry?.[daily.id] || 0) + 1;
       state.metadata_retry = state.metadata_retry || {};
       state.metadata_retry[daily.id] = attempts;
-      if (attempts >= METADATA_RETRY_LIMIT) {
+      if (attempts >= METADATA_RETRY_LIMIT()) {
         try {
           await disableDocument({ documentId: daily.id, datasetId: dailyDataset });
           appendCompileLog({
@@ -640,7 +650,7 @@ async function main() {
         appendCompileLog({
           event: "kept-enabled",
           document: daily.name,
-          reason: `atom errors; will retry next compile (attempt ${attempts}/${METADATA_RETRY_LIMIT})`,
+          reason: `atom errors; will retry next compile (attempt ${attempts}/${METADATA_RETRY_LIMIT()})`,
           attempts,
         });
       }
@@ -692,5 +702,9 @@ const invokedAsCli = (() => {
 })();
 
 if (invokedAsCli) {
-  await main();
+  // One compile run = one wiki commit (promotions + superseded dailies). The
+  // exit-hook in wiki-commit flushes the batch even when main() bails out via
+  // process.exit (bridge-gone aborts). DRY_RUN writes nothing; noCommit is
+  // belt-and-suspenders.
+  await withWikiCommit({ op: "compile", actor: "compile", noCommit: DRY_RUN }, () => main());
 }

@@ -57,12 +57,12 @@ function clearConsolidateState() {
   }
 }
 
+const { __setSettingsForTest, __clearSettingsForTest } = await import("../scripts/lib/settings.mjs");
+
 function resetEnv() {
   delete process.env.MEMORY_LLM_MOCK_RESPONSE;
   delete process.env.MEMORY_LLM_MOCK_FILE;
-  delete process.env.MEMORY_CONSOLIDATE_LLM_PASSES;
-  delete process.env.MEMORY_CONSOLIDATE_PASSES;
-  delete process.env.MEMORY_GC_INTERVAL_DAYS;
+  __clearSettingsForTest();
 }
 
 after(() => resetEnv());
@@ -163,7 +163,7 @@ test("(1) recall-touch is skipped inside withSystemMaintenance()", async () => {
   // need that. The whole point of this test is to verify the maintenance
   // gate. Force the throttle window past so we KNOW the only thing
   // preventing a re-stamp is the maintenance flag.
-  process.env.MEMORY_RECALL_TOUCH_MIN_HOURS = "1";
+  __setSettingsForTest({ recall: { touchMinHours: 1 } });
   const abs = path.join(wiki, ...id.split("/"));
   const parsed = matter(fs.readFileSync(abs, "utf8"));
   const twoHoursAgo = new Date(Date.now() - 2 * 3600 * 1000).toISOString();
@@ -191,7 +191,7 @@ test("(1) recall-touch is skipped inside withSystemMaintenance()", async () => {
     "last_recalled_at unchanged inside maintenance frame (recall-touch skipped)",
   );
 
-  delete process.env.MEMORY_RECALL_TOUCH_MIN_HOURS;
+  __clearSettingsForTest();
 });
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -261,7 +261,6 @@ function makeGateWorkspace() {
   const env = {
     ...process.env,
     MEMORY_DATA_DIR: gateDir,
-    MEMORY_EMBED_BACKEND: "lexical",
     MEMORY_DEFAULT_PROJECT_MODULE: "testproj",
     LLM_WIKI_SKILL_CLI: path.join(
       SRC,
@@ -270,7 +269,9 @@ function makeGateWorkspace() {
     LLM_WIKI_FIXED_TIMESTAMP: "1700000000",
     LLM_WIKI_NO_PROMPT: "1",
   };
-  delete env.MEMORY_WRITE_GATE_SELF_IMPROVEMENT;
+  // Pin lexical embed via settings.yaml (the subprocess reads it).
+  fs.mkdirSync(path.join(gateDir, "settings"), { recursive: true });
+  fs.writeFileSync(path.join(gateDir, "settings", "settings.yaml"), "embed:\n  backend: lexical\n");
   const init = spawnSync(process.execPath, [path.join(SRC, "scripts/cli.mjs"), "init"], {
     env,
     encoding: "utf8",
@@ -455,7 +456,7 @@ test("(5) prune-embeddings throttle: recent state -> skipped; backdated -> runs"
     metadata: { error_pattern: "gc-throttle" },
   });
 
-  process.env.MEMORY_GC_INTERVAL_DAYS = "7";
+  __setSettingsForTest({ gc: { intervalDays: 7 } });
 
   // Force the gc state to "ran just now" so prune-embeddings is throttled.
   fs.mkdirSync(path.dirname(env.GC_STATE_PATH), { recursive: true });
@@ -520,6 +521,46 @@ test("(5) prune-embeddings throttle: recent state -> skipped; backdated -> runs"
 });
 
 // ───────────────────────────────────────────────────────────────────────────
+// (5b) saveCache persists the recall vector store via the ATOMIC path
+// ───────────────────────────────────────────────────────────────────────────
+//
+// saveCache is the only writer of index/embeddings.json and runs off-lock
+// from both the long-running MCP server and the hourly cron. It MUST use a
+// unique temp (not a fixed `<path>.tmp`) so concurrent writers cannot rename
+// a torn, byte-interleaved file into place. Spy on renameSync to prove the
+// temp is the unique pid+uuid form and the result is valid JSON.
+
+test("(5b) saveCache uses a unique temp (no fixed .tmp collision) and writes valid JSON", async () => {
+  const embed = await import("../scripts/lib/embed.mjs");
+  const cachePath = env.embedCachePath();
+  const cache = embed.loadCache(cachePath);
+  cache.entries["knowledge/x/atomic-savecache-probe.md"] = {
+    hash: "sha256:probe",
+    vector: [0.3, 0.4, 0.5],
+  };
+
+  const originalRename = fs.renameSync;
+  let observedFrom = null;
+  fs.renameSync = function spy(from, to) {
+    if (path.resolve(String(to)) === path.resolve(cachePath)) observedFrom = String(from);
+    return originalRename.call(this, from, to);
+  };
+  try {
+    embed.saveCache(cachePath, cache);
+  } finally {
+    fs.renameSync = originalRename;
+  }
+
+  assert.ok(observedFrom, "saveCache renamed a temp onto the cache path");
+  assert.notEqual(observedFrom, `${cachePath}.tmp`, "must not use the collision-prone fixed temp");
+  assert.match(path.basename(observedFrom), /^\..*\.\d+-[0-9a-f]+\.tmp$/, "unique pid+uuid temp");
+  // No fixed-name leftover, and the persisted file round-trips.
+  assert.equal(fs.existsSync(`${cachePath}.tmp`), false, "no fixed .tmp leftover");
+  const reloaded = embed.loadCache(cachePath);
+  assert.ok(reloaded.entries["knowledge/x/atomic-savecache-probe.md"], "entry persisted + parseable");
+});
+
+// ───────────────────────────────────────────────────────────────────────────
 // (6) "embedding backend is lexical" warning fires ONCE per run
 // ───────────────────────────────────────────────────────────────────────────
 //
@@ -531,13 +572,15 @@ test("(6) cosine lexical warning fires exactly once per run", () => {
   const gcDir = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-warn-"));
   try {
     // Init a fresh wiki so this run is independent of the shared workspace.
+    // Pin embed.backend via settings.yaml — env vars no longer drive it.
+    fs.mkdirSync(path.join(gcDir, "settings"), { recursive: true });
+    fs.writeFileSync(path.join(gcDir, "settings", "settings.yaml"), "embed:\n  backend: lexical\n");
     const init = spawnSync(process.execPath, [CLI, "init"], {
       cwd: SRC,
       encoding: "utf8",
       env: {
         ...process.env,
         MEMORY_DATA_DIR: gcDir,
-        MEMORY_EMBED_BACKEND: "lexical",
         LLM_WIKI_NO_PROMPT: "1",
       },
     });
@@ -553,7 +596,6 @@ test("(6) cosine lexical warning fires exactly once per run", () => {
           "-e",
           [
             `process.env.MEMORY_DATA_DIR = ${JSON.stringify(gcDir)};`,
-            `process.env.MEMORY_EMBED_BACKEND = "lexical";`,
             `process.env.LLM_WIKI_NO_PROMPT = "1";`,
             `const s = await import(${JSON.stringify(path.join(SRC, "scripts/lib/wiki-store.mjs"))});`,
             `s.saveDocument({`,
@@ -579,7 +621,6 @@ test("(6) cosine lexical warning fires exactly once per run", () => {
         env: {
           ...process.env,
           MEMORY_DATA_DIR: gcDir,
-          MEMORY_EMBED_BACKEND: "lexical",
           LLM_WIKI_NO_PROMPT: "1",
         },
       },

@@ -1,0 +1,170 @@
+# llm-wiki-memory canonical settings.
+#
+# Rendered to <data>/settings/settings.yaml by bootstrap.sh on first install,
+# preserved + auto-migrated thereafter (delete to regenerate from this template).
+# Read by scripts/lib/settings.mjs.
+#
+# Two surfaces:
+#   - This file: application config (consolidate / flush / hook / embed /
+#     recall / compile / gc / gate / providers). The source of truth for
+#     everything that isn't a secret / deployment path / provider switch.
+#   - <data>/settings/.env: secrets (API keys), provider switches (CHOICE of
+#     provider, model, base URL, timeout), deployment paths (DATA_DIR,
+#     SETTINGS_PATH, EMBED_CACHE), workspace identity, test seams.
+#
+# Only the STRICT subset in .env supports env-var overrides. Setting
+# MEMORY_CONSOLIDATE_COSINE_THRESHOLD in your shell is silently IGNORED —
+# the canonical place is `consolidate.cosineThreshold:` below. This is a
+# deliberate breaking change from earlier versions; the upgrade runbook at
+# docs/releases/2026/06/03/v2/update-prompt.md migrates an old install.
+
+consolidate:
+  # Cadence (days) for the throttled consolidate orchestrator. 0/off disables.
+  intervalDays: 1
+  # Cosine threshold above which a cluster pair counts as a dedup candidate.
+  cosineThreshold: 0.97
+  # Same threshold when the embedding backend has fallen back to the lexical
+  # hash scorer — scores inflate, so we need a tighter cut to avoid false
+  # positives.
+  cosineLexicalThreshold: 0.995
+  # Per-leaf cluster scope.
+  clusterTopK: 12
+  clusterScoreThreshold: 0.75
+  # Lifecycle windows.
+  orphanTtlDays: 365
+  staleAfterMonths: 6
+  archiveBodyMax: 1200
+  archiveAgeDays: 30
+  # Pass allow-list. Empty / "all" enables every pass; CSV restricts.
+  passes: all
+  # LLM-driven passes (merge-near-duplicates, semantic-refresh).
+  llmPassesEnabled: true
+  llmMaxRetries: 2
+  refreshMaxPerRun: 25
+  # Cron logging + entity-level self-healing.
+  # Slim entries kept in state/.consolidate-attempts.log (one per cron run).
+  attemptsKeep: 50
+  # Days before a sharded full run log (state/logs/yyyy/mm/cron-*.json) is
+  # pruned. Issue reports under issues/ are never auto-pruned.
+  fullLogRetentionDays: 90
+  # Consecutive per-entity failures (while still pending) before the run
+  # escalates and writes a skeleton issue report under issues/yyyy/mm/dd/.
+  escalateAfterAttempts: 3
+
+flush:
+  # Daily slot category (rejected slots fall back to "daily").
+  slot: daily
+  # Retry budget for the per-chunk distill call inside the worker.
+  distillAttempts: 3
+  distillRetryMs: 3000
+  # Stale-lock TTL for the per-session flush lock (worker that crashed
+  # mid-distill has its lock reclaimed after this).
+  lockStaleMs: 600000
+  # Map-reduce parameters.
+  chunkTargetK: 5
+  chunkParallelism: 1
+  reduceMaxChars: 30000
+  # Cap on the raw-fallback leaf body (when distillation fails completely).
+  # Default unbounded: the previous 8K cap dropped 72K of context in the
+  # 2026-06-02 incident.
+  rawFallbackChars: 9007199254740991   # Number.MAX_SAFE_INTEGER
+  # When chunks distil at provider:model-N, ask the reduce step at the NEXT
+  # entry (one tier stronger) in the same provider's model list. Set to false
+  # to keep the reduce step on the same model as the chunks.
+  reduceModelPromote: true
+
+hook:
+  # Transcript caps before redaction + slicing.
+  maxTurns: 30
+  maxChars: 80000
+  # Per-hook minimum-turn gates (session-end can capture 1-turn windows,
+  # pre-compact wants a richer transcript before bothering to distil).
+  sessionEndMinTurns: 1
+  precompactMinTurns: 5
+  # ExitPlanMode auto-capture knobs.
+  exitPlanModeDisable: false
+  exitPlanModeMaxBytes: 256000
+
+embed:
+  # transformers (default, on-device bge-large) | lexical (no model download).
+  backend: transformers
+  model: Xenova/bge-large-en-v1.5
+
+recall:
+  # Cosine score below which a hit is dropped. 0 keeps every hit.
+  scoreThreshold: 0
+  # Recall-touch instrumentation (writes memory.last_recalled_at on hits).
+  touchEnabled: true
+  touchMinHours: 24
+
+compile:
+  # Knowledge slot (the destination compile promotes daily atoms to).
+  slot: knowledge
+  searchLimit: 5
+  atomBodyMaxChars: 700
+  qualityStrict: false
+  lockStaleMs: 1800000
+  metadataRetryLimit: 3
+
+gc:
+  # Embedding-cache GC cadence (days). 0/off disables; plain gc-embeddings
+  # (no --if-due) always runs regardless.
+  intervalDays: 7
+
+gate:
+  # The L3 server-side write-gate refusing self_improvement saves without
+  # `userRequested:true`. Defence-in-depth; turn off only as an operator
+  # escape hatch (L1 instructions + L2 hooks still apply).
+  selfImprovementEnabled: true
+  # The L2 Claude Code PreToolUse hook (enabled by default). Set false to make
+  # the hook a uniform no-op (exit 0, no decision) so Claude Code's normal
+  # permission flow applies; L1 instructions + the L3 server gate still apply.
+  claudeHookEnabled: true
+
+wiki:
+  # Auto-commit every wiki change to the wiki's OWN git repo: one commit per
+  # logical operation (an MCP save, a flush capture, a compile run, a
+  # consolidate run), with the touched leaves + reasons in the commit body.
+  # Best-effort and silent: no-op when <wiki>/.git is absent or the wiki dir
+  # is not its own repo toplevel (so it can never commit into your project).
+  autoCommit: true
+
+# Provider chain + per-provider model fallback lists.
+providers:
+  # Tried head-to-tail when MEMORY_LLM_PROVIDER (env) isn't set. EMPTY here
+  # → the loader auto-detects from environment (API keys present, CLIs on
+  # PATH) in priority order anthropic → openai → claude → codex → cursor.
+  # Uncomment + reorder to override.
+  chain: []
+  # chain:
+  #   - anthropic
+  #   - openai
+  #   - claude
+  #   - codex
+  #   - cursor
+
+  # API providers: models[] tried newest-first on model_not_found / 404.
+  anthropic:
+    models:
+      - claude-haiku-4-5
+      - claude-sonnet-4-6
+      - claude-opus-4-7
+  openai:
+    models:
+      - gpt-5-mini
+      - gpt-5
+      - gpt-4o-mini
+  openai-compatible:
+    models:
+      - gpt-5-mini
+      - gpt-5
+      - gpt-4o-mini
+
+  # CLI providers: defer to whatever their binary is logged into; lists kept
+  # empty so the dispatcher passes no --model flag.
+  claude: { models: [] }
+  codex: { models: [] }
+  cursor: { models: [] }
+
+# Workspace-wide tweaks.
+crossCuttingAreas: []   # comma-separated when set via legacy env; here a YAML list.

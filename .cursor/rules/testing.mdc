@@ -1,0 +1,8 @@
+---
+description: Testing rules for llm-wiki-memory — node:test harness conventions, mock-provider seams, the /tmp/lwm-* leak trap. Canonical file is .agents/rules/testing.md.
+alwaysApply: true
+---
+
+Follow the canonical rule (edit that file, never this shadow):
+
+@.agents/rules/testing.md

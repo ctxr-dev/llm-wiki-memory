@@ -89,7 +89,7 @@ test("health: mock provider with no MOCK env is unavailable", async (t) => {
   assert.equal(h.available, false);
 });
 
-test("health: anthropic with ANTHROPIC_API_KEY is available, model includes claude-", async (t) => {
+test("health: anthropic with ANTHROPIC_API_KEY is available; model is null when no env override is set", async (t) => {
   clearLlmEnv();
   t.after(clearLlmEnv);
   process.env.MEMORY_LLM_PROVIDER = "anthropic";
@@ -97,7 +97,20 @@ test("health: anthropic with ANTHROPIC_API_KEY is available, model includes clau
   const h = await health();
   assert.equal(h.provider, "anthropic");
   assert.equal(h.available, true);
-  assert.ok(typeof h.model === "string" && h.model.includes("claude-"), `expected model to include "claude-", got: ${h.model}`);
+  // No baked-in fallback model: when MEMORY_LLM_MODEL / ANTHROPIC_MODEL
+  // are unset, health() reports model: null so the operator knows model
+  // selection comes from settings/llm.yaml (chain-driven) at call time.
+  assert.equal(h.model, null);
+});
+
+test("health: anthropic surfaces ANTHROPIC_MODEL when set", async (t) => {
+  clearLlmEnv();
+  t.after(clearLlmEnv);
+  process.env.MEMORY_LLM_PROVIDER = "anthropic";
+  process.env.ANTHROPIC_API_KEY = "test";
+  process.env.ANTHROPIC_MODEL = "fixture-anthropic-model";
+  const h = await health();
+  assert.equal(h.model, "fixture-anthropic-model");
 });
 
 test("health: anthropic without key is unavailable, reason mentions ANTHROPIC_API_KEY", async (t) => {
@@ -165,9 +178,9 @@ test("health: MEMORY_LLM_MODEL overrides anthropic model", async (t) => {
   t.after(clearLlmEnv);
   process.env.MEMORY_LLM_PROVIDER = "anthropic";
   process.env.ANTHROPIC_API_KEY = "test";
-  process.env.MEMORY_LLM_MODEL = "claude-custom-override";
+  process.env.MEMORY_LLM_MODEL = "fixture-custom-anthropic";
   const h = await health();
-  assert.equal(h.model, "claude-custom-override");
+  assert.equal(h.model, "fixture-custom-anthropic");
 });
 
 test("health: MEMORY_LLM_MODEL overrides openai model", async (t) => {
@@ -175,9 +188,9 @@ test("health: MEMORY_LLM_MODEL overrides openai model", async (t) => {
   t.after(clearLlmEnv);
   process.env.MEMORY_LLM_PROVIDER = "openai";
   process.env.OPENAI_API_KEY = "test";
-  process.env.MEMORY_LLM_MODEL = "gpt-custom-override";
+  process.env.MEMORY_LLM_MODEL = "fixture-custom-openai";
   const h = await health();
-  assert.equal(h.model, "gpt-custom-override");
+  assert.equal(h.model, "fixture-custom-openai");
 });
 
 test("health: claude provider reason mentions CLI (availability depends on host PATH)", async (t) => {

@@ -2,11 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { envValue } from "./env.mjs";
+import { embedBackend, embedModel, DEFAULT_EMBED_MODEL } from "./settings.mjs";
+import { writeFileAtomic } from "./atomic-write.mjs";
 
 // Local recall engine. The skill-llm-wiki package has NO query/search command
 // (retrieval is "walk the index tree" by design), so ranking a free-text query
 // against existing leaves is our job. Primary backend is transformer embeddings
-// (DEFAULT_MODEL below) via @xenova/transformers (already a transitive dep of the
+// (DEFAULT_EMBED_MODEL, from settings.mjs) via @xenova/transformers (already a transitive dep of the
 // skill); we fall back to a deterministic lexical cosine if the model can't load,
 // so the system never hard-fails on a missing model download.
 
@@ -15,14 +17,14 @@ import { envValue } from "./env.mjs";
 // first download. Override with MEMORY_EMBED_MODEL (e.g. a lighter
 // Xenova/bge-small-en-v1.5 for a smaller footprint; see the README model table). A model
 // change invalidates the vector cache (loadCache stamps + checks the model), so vectors
-// recompute on next search.
-const DEFAULT_MODEL = "Xenova/bge-large-en-v1.5";
+// recompute on next search. The default value (DEFAULT_EMBED_MODEL) is imported from
+// settings.mjs so the fallback model name lives in exactly one place.
 
 let _extractorPromise = null;
 let _backend = null; // "transformers" | "lexical"
 
 function configuredBackend() {
-  return (envValue("MEMORY_EMBED_BACKEND", "") || "").toLowerCase();
+  return (embedBackend() || "").toLowerCase();
 }
 
 export function contentHash(text) {
@@ -32,11 +34,14 @@ export function contentHash(text) {
 async function getExtractor() {
   if (_extractorPromise) return _extractorPromise;
   _extractorPromise = (async () => {
-    const model = envValue("MEMORY_EMBED_MODEL", DEFAULT_MODEL);
+    const model = embedModel() || DEFAULT_EMBED_MODEL;
     const { pipeline, env } = await import("@xenova/transformers");
-    // Keep model cache local + offline-friendly once downloaded.
-    if (process.env.MEMORY_EMBED_CACHE_DIR) {
-      env.cacheDir = process.env.MEMORY_EMBED_CACHE_DIR;
+    // Keep model cache local + offline-friendly once downloaded. Read via
+    // envValue (not process.env) so a value set only in settings/.env — not the
+    // live shell — is still honoured, consistent with every other strict key.
+    const embedCacheDir = envValue("MEMORY_EMBED_CACHE_DIR");
+    if (embedCacheDir) {
+      env.cacheDir = embedCacheDir;
     }
     return pipeline("feature-extraction", model);
   })();
@@ -115,7 +120,7 @@ export function activeBackend() {
 // ---- embedding cache (keyed by leaf id + content hash) ----
 
 export function loadCache(cachePath) {
-  const currentModel = envValue("MEMORY_EMBED_MODEL", DEFAULT_MODEL);
+  const currentModel = embedModel() || DEFAULT_EMBED_MODEL;
   try {
     const raw = JSON.parse(fs.readFileSync(cachePath, "utf8"));
     // Drop the cache when the embedding model changed: vectors from a different
@@ -128,10 +133,17 @@ export function loadCache(cachePath) {
 }
 
 export function saveCache(cachePath, cache) {
+  // This is the ONLY persistence path for the recall vector store, and it is
+  // written off-lock by BOTH the long-running MCP server (every search +
+  // every save) and the hourly cron (compile / consolidate / detached flush
+  // workers). A fixed shared `.tmp` name guarantees those writer populations
+  // collide and rename a byte-interleaved (invalid-JSON) file into place;
+  // loadCache then silently swallows the parse error and resets to an empty
+  // cache, forcing a full-corpus cold re-embed. writeFileAtomic's unique
+  // pid+uuid temp + data fsync eliminates both the collision and the torn
+  // write — the same discipline every other durable write here already uses.
   fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-  const tmp = `${cachePath}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(cache));
-  fs.renameSync(tmp, cachePath);
+  writeFileAtomic(cachePath, JSON.stringify(cache));
 }
 
 // Return the embedding for `id`, recomputing only when the content hash

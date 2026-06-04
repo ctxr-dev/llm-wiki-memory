@@ -105,7 +105,7 @@ test("front exits 0 immediately and the detached worker writes a distilled daily
   assert.match(hit.text, /### Atom · decision · Use feature flags/);
 });
 
-test("a clean empty distillation records a nothing-durable marker (never silent)", async () => {
+test("a clean empty distillation writes NO leaf (nothing to save → nothing on disk; breadcrumb only)", async () => {
   const t = writeTranscript("w-nothing.jsonl", TURNS);
   const r = runFront("w-nothing", t, {
     MEMORY_LLM_PROVIDER: "mock",
@@ -113,10 +113,18 @@ test("a clean empty distillation records a nothing-durable marker (never silent)
     MEMORY_FLUSH_DISTILL_ATTEMPTS: "1",
   });
   assert.equal(r.status, 0, `front exit 0: ${r.stderr}`);
-  const hit = await waitForWorker("w-nothing");
-  assert.ok(hit, `nothing-marker written; flush.log:\n${logTail()}`);
-  assert.match(hit.text, /- outcome: nothing-durable/);
-  assert.match(hit.text, /- pending_promotion: false/);
+  // Detached worker — poll the breadcrumb directly. A flush-and-release
+  // can finish faster than a 50 ms lock-file poll, so checking lock
+  // existence is racy; the breadcrumb append is the durable signal.
+  const start = Date.now();
+  let saw = false;
+  while (Date.now() - start < 20_000) {
+    if (/nothing-durable \(no leaf written\)/.test(logTail())) { saw = true; break; }
+    await sleep(50);
+  }
+  assert.ok(saw, `expected nothing-durable breadcrumb; got:\n${logTail()}`);
+  const hit = findDailyForSession("w-nothing");
+  assert.equal(hit, null, "no daily leaf should be written for a nothing-durable distillation");
 });
 
 test("a distiller error, after retries, falls back to the truncated raw context", async () => {

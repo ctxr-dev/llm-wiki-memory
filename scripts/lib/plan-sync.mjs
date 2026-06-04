@@ -13,10 +13,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { applyFrontmatterUpdate } from "./plan-frontmatter.mjs";
+import { writeFileAtomic } from "./atomic-write.mjs";
 import { loadTopology, pathFor, parsePath } from "./topology-runtime.mjs";
 import { ensureIndexes } from "./wiki-cli.mjs";
 // Shared with wiki-store's relocation paths; single source of truth in fs-prune.
 import { pruneEmptyAncestors } from "./fs-prune.mjs";
+import { recordWikiChange, withWikiCommit } from "./wiki-commit.mjs";
 export { pruneEmptyAncestors } from "./fs-prune.mjs";
 
 // Pick a non-colliding destination by appending -v2 / -v3 / … before the
@@ -51,7 +53,16 @@ export function pickNonColliding(targetAbs) {
 // Per-call result object the hook entry-script logs. Always returned
 // (never throws beyond pickNonColliding's hard-fail or fs errors on
 // write); errors are captured in result.error.
-export async function syncPlanFile(absPath, { wikiRoot, now } = {}) {
+export async function syncPlanFile(absPath, opts = {}) {
+  // One synced plan = one commit when called stand-alone (the PostToolUse
+  // hook); inside syncAllPlans the nested frame joins the sweep's batch.
+  return withWikiCommit(
+    { op: "plan-sync", actor: "plan-sync", rootDir: opts.wikiRoot || "" },
+    () => syncPlanFileInner(absPath, opts),
+  );
+}
+
+async function syncPlanFileInner(absPath, { wikiRoot, now } = {}) {
   const out = {
     file: absPath,
     frontmatter_changed: false,
@@ -88,8 +99,13 @@ export async function syncPlanFile(absPath, { wikiRoot, now } = {}) {
   out.status = update.summary.status;
   out.progress = update.summary.progress;
   if (update.changed) {
-    fs.writeFileSync(absPath, update.text);
+    writeFileAtomic(absPath, update.text);
     out.frontmatter_changed = true;
+    recordWikiChange({
+      action: "metadata",
+      leafRelPath: absPath,
+      reason: `plan frontmatter sync (status: ${out.status || "?"}, progress: ${out.progress || "?"})`,
+    });
   }
 
   // 2. Decide whether the file is under a lifecycle-aware topology.
@@ -135,6 +151,12 @@ export async function syncPlanFile(absPath, { wikiRoot, now } = {}) {
     return out;
   }
   out.moved = { from: absPath, to: picked.path, suffix: picked.suffix };
+  recordWikiChange({
+    action: "relocated",
+    leafRelPath: picked.path,
+    reason: `plan lifecycle move (${parsed.facets.lifecycle} -> ${newLifecycle})`,
+    extraPaths: [absPath],
+  });
 
   try {
     ensureIndexes(wikiRoot, [absPath, picked.path]);
@@ -156,6 +178,14 @@ export async function syncPlanFile(absPath, { wikiRoot, now } = {}) {
 // Bulk variant — used by SessionEnd to sweep every .plan.md under the
 // wiki. Returns an array of per-file result objects.
 export async function syncAllPlans(wikiRoot, { now } = {}) {
+  // The SessionEnd sweep = one commit covering every plan it touched.
+  return withWikiCommit(
+    { op: "plan-sync", actor: "plan-sync-sweep", rootDir: wikiRoot || "" },
+    () => syncAllPlansInner(wikiRoot, { now }),
+  );
+}
+
+async function syncAllPlansInner(wikiRoot, { now } = {}) {
   const results = [];
   if (!fs.existsSync(wikiRoot)) return results;
   function walk(dir) {

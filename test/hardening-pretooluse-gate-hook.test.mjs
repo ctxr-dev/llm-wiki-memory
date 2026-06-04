@@ -9,13 +9,21 @@ import { fileURLToPath } from "node:url";
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const HOOK_REL = "scripts/hooks/pretooluse-gate-memory-writes.mjs";
 
-function runHook(payload, { rawInput } = {}) {
+function runHook(payload, { rawInput, env } = {}) {
   const input = rawInput !== undefined ? rawInput : JSON.stringify(payload);
   return spawnSync("node", [HOOK_REL], {
     cwd: SRC,
     input,
     encoding: "utf8",
+    env: env ? { ...process.env, ...env } : process.env,
   });
+}
+
+function makeSettingsYaml(content) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-hook-settings-"));
+  const file = path.join(dir, "settings.yaml");
+  fs.writeFileSync(file, content, "utf8");
+  return file;
 }
 
 function parseStdout(stdout) {
@@ -201,4 +209,45 @@ test("transcript with user content as array of text blocks is parsed", () => {
   assert.equal(res.status, 0);
   const out = parseStdout(res.stdout);
   assert.equal(out.hookSpecificOutput.permissionDecision, "allow");
+});
+
+test("gate.claudeHookEnabled=false -> gated tool untouched (exit 0, empty stdout)", () => {
+  const settingsFile = makeSettingsYaml("gate:\n  claudeHookEnabled: false\n");
+  const { file } = makeTranscript([userTurn("keep going with the next step")]);
+  const res = runHook(
+    {
+      tool_name: "mcp__llm-wiki-memory__save_lesson",
+      tool_input: { title: "x", body: "y" },
+      transcript_path: file,
+    },
+    { env: { MEMORY_SETTINGS_PATH: settingsFile } },
+  );
+  assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+  assert.equal(res.stdout, "", "disabled hook must behave as if not installed");
+});
+
+test("gate.claudeHookEnabled=false -> even malformed stdin is untouched (no ask)", () => {
+  const settingsFile = makeSettingsYaml("gate:\n  claudeHookEnabled: false\n");
+  const res = runHook(null, {
+    rawInput: "{not valid json",
+    env: { MEMORY_SETTINGS_PATH: settingsFile },
+  });
+  assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+  assert.equal(res.stdout, "", "disabled hook is a uniform no-op even on malformed input");
+});
+
+test("gate.claudeHookEnabled=true (explicit) -> gated tool still asks without a phrase", () => {
+  const settingsFile = makeSettingsYaml("gate:\n  claudeHookEnabled: true\n");
+  const { file } = makeTranscript([userTurn("keep going with the next step")]);
+  const res = runHook(
+    {
+      tool_name: "mcp__llm-wiki-memory__save_lesson",
+      tool_input: { title: "x", body: "y" },
+      transcript_path: file,
+    },
+    { env: { MEMORY_SETTINGS_PATH: settingsFile } },
+  );
+  assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+  const out = parseStdout(res.stdout);
+  assert.equal(out.hookSpecificOutput.permissionDecision, "ask");
 });

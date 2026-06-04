@@ -31,6 +31,9 @@ import {
   CONSOLIDATE_STATE_PATH,
   COMPILE_LOCK_PATH,
   PROMPTS_DIR,
+  wikiRoot,
+} from "./lib/env.mjs";
+import {
   consolidateIntervalDays,
   consolidateCosineThreshold,
   consolidateCosineLexicalThreshold,
@@ -45,10 +48,13 @@ import {
   consolidateLlmMaxRetries,
   consolidateRefreshMaxPerRun,
   atomBodyMaxChars,
-  wikiRoot,
-} from "./lib/env.mjs";
+  compileLockStaleMs,
+} from "./lib/settings.mjs";
 import { acquireLock, installLockReleaseHandlers } from "./lib/lock.mjs";
+import { writeFileAtomic } from "./lib/atomic-write.mjs";
 import { withSystemMaintenance } from "./lib/maintenance-tag.mjs";
+import { withWikiCommit } from "./lib/wiki-commit.mjs";
+import { redact } from "./lib/redact.mjs";
 import { activeBackend, contentHash } from "./lib/embed.mjs";
 import {
   listActiveLeavesForConsolidate,
@@ -241,7 +247,53 @@ function emptyPassReport(name) {
     freedBytes: 0,
     ms: 0,
     skipped: false,
+    // Per-entity outcomes for the sharded full cron log + entity-level
+    // self-healing. `entities` = actions that landed (or were deliberately
+    // skipped); `failures` = per-entity errors with a redacted excerpt.
+    // Sorted by id at orchestrator return so dry-run twice is byte-identical.
+    entities: [],
+    failures: [],
   };
+}
+
+function entityPairId(keeper, loser) {
+  return `pair:${keeper.documentId}|${loser.documentId}`;
+}
+
+function entityLeafId(leaf) {
+  return `leaf:${leaf.documentId}`;
+}
+
+function recordEntity(report, { id, kind, action, ok, reason, error }) {
+  const e = { id, kind, action, ok: Boolean(ok) };
+  // Success reasons can be LLM-authored (decision.reason / archive_reason)
+  // and land in the persisted full cron log — redact like failure excerpts.
+  if (reason) e.reason = redact(String(reason)).replace(/[\r\n]+/g, " ").slice(0, 300);
+  if (e.ok) {
+    report.entities.push(e);
+    return;
+  }
+  e.excerpt = redact(String(error?.message || error || "unknown error"))
+    .replace(/\s+/g, " ")
+    .slice(0, 500);
+  report.failures.push(e);
+}
+
+function sortPassEntities(reportMap) {
+  const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  for (const r of reportMap.values()) {
+    r.entities.sort(byId);
+    r.failures.sort(byId);
+  }
+}
+
+function stripPassEntities(passes) {
+  return Object.fromEntries(
+    Object.entries(passes).map(([k, v]) => {
+      const { entities, failures, ...counts } = v;
+      return [k, counts];
+    }),
+  );
 }
 
 function readState() {
@@ -257,10 +309,11 @@ function readState() {
 function writeState(state) {
   try {
     fs.mkdirSync(path.dirname(CONSOLIDATE_STATE_PATH), { recursive: true });
-    fs.writeFileSync(
-      CONSOLIDATE_STATE_PATH,
-      JSON.stringify(state, null, 2) + "\n",
-    );
+    // Atomic (unique temp + fsync + rename) so a crash mid-write can't leave a
+    // truncated throttle file in place — readState would then treat it as
+    // "never run" and reset the interval. Matches the durable JSON-state
+    // writers (compile state, GC state), which all route through writeFileAtomic.
+    writeFileAtomic(CONSOLIDATE_STATE_PATH, JSON.stringify(state, null, 2) + "\n");
   } catch (err) {
     process.stderr.write(
       `[consolidate] state write failed: ${err?.message || err}\n`,
@@ -357,6 +410,7 @@ function dedupeBySha256({ leaf, clusterLeaves, ctx, now }) {
     });
     ctx.touchedThisRun.add(loser.documentId);
     report.flagged++;
+    recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "flag", ok: true, reason: "sha256-equal" });
   }
   report.ms += Date.now() - t0;
 }
@@ -395,6 +449,7 @@ function dedupeByLessonKey({ leaf, clusterLeaves, ctx, now }) {
     });
     ctx.touchedThisRun.add(loser.documentId);
     report.flagged++;
+    recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "flag", ok: true, reason: "lesson-key-equal" });
   }
   report.ms += Date.now() - t0;
 }
@@ -444,6 +499,7 @@ function dedupeByCosine({ leaf, cluster, ctx, now }) {
     });
     ctx.touchedThisRun.add(loser.documentId);
     report.flagged++;
+    recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "flag", ok: true, reason: `cosine ${Number(member.score).toFixed(4)}` });
   }
   report.ms += Date.now() - t0;
 }
@@ -513,7 +569,7 @@ async function llmMergeNearDuplicates({ candidates, ctx, now, dryRun }) {
         let body = String(decision.merged_body || "");
         if (body.length > bodyCap) {
           body = body.slice(0, bodyCap).replace(/\s+$/, "") +
-            `\n\n[truncated by consolidate at ${toIso(now)} — merged_body exceeded MEMORY_ATOM_BODY_MAX_CHARS]\n`;
+            `\n\n[truncated by consolidate at ${toIso(now)} — merged_body exceeded settings.compile.atomBodyMaxChars]\n`;
           process.stderr.write(
             `[consolidate] 3A merged_body truncated for keeper=${keeper.documentId} (${decision.merged_body.length} -> ${body.length} chars)\n`,
           );
@@ -540,8 +596,10 @@ async function llmMergeNearDuplicates({ candidates, ctx, now, dryRun }) {
             });
             stampLeafMetadata(keeper.documentId, { consolidated_at: toIso(now) });
             report.merged++;
+            recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "merge", ok: true });
           } catch (err) {
             report.errors++;
+            recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "merge", ok: false, error: err });
             process.stderr.write(
               `[consolidate] 3A merge-write failed for keeper=${keeper.documentId}: ${err?.message || err}\n`,
             );
@@ -550,9 +608,11 @@ async function llmMergeNearDuplicates({ candidates, ctx, now, dryRun }) {
           }
         } else {
           report.merged++;
+          recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "merge", ok: true });
         }
       } else if (decision.action === "keep-keeper-unchanged") {
         // No keeper rewrite; finalize still archives loser.
+        recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "keep-keeper", ok: true });
       } else if (decision.action === "skip") {
         // Surface the LLM rejection on the merge-pass report (the source
         // pass already counted the deterministic flag at queue time, so
@@ -565,6 +625,7 @@ async function llmMergeNearDuplicates({ candidates, ctx, now, dryRun }) {
           loserId: loser.documentId,
           reason: decision.reason,
         });
+        recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "skip", ok: true, reason: decision.reason });
       }
     } catch (err) {
       // Terminal LLM failure: fall back to deterministic archive-without-
@@ -575,6 +636,7 @@ async function llmMergeNearDuplicates({ candidates, ctx, now, dryRun }) {
         reason: `llm-merge-failed: ${err?.message || String(err)}`,
       };
       report.errors++;
+      recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "merge", ok: false, error: err });
       process.stderr.write(
         `[consolidate] event=llm-merge-failed pair=${keeper.documentId}|${loser.documentId} ${err?.message || err}\n`,
       );
@@ -634,6 +696,7 @@ async function llmSemanticRefresh({ ctx, now, dryRun }) {
       });
     } catch (err) {
       report.errors++;
+      recordEntity(report, { id: entityLeafId(leaf), kind: "leaf", action: "refresh", ok: false, error: err });
       process.stderr.write(
         `[consolidate] 3B cluster lookup failed for ${leaf.documentId}: ${err?.message || err}\n`,
       );
@@ -683,6 +746,7 @@ async function llmSemanticRefresh({ ctx, now, dryRun }) {
       }
     } catch (err) {
       report.errors++;
+      recordEntity(report, { id: entityLeafId(leaf), kind: "leaf", action: "refresh", ok: false, error: err });
       process.stderr.write(
         `[consolidate] event=llm-refresh-failed leaf=${leaf.documentId} ${err?.message || err}\n`,
       );
@@ -693,6 +757,7 @@ async function llmSemanticRefresh({ ctx, now, dryRun }) {
       if (decision.action === "rewrite") report.refreshed++;
       else if (decision.action === "archive") report.archived++;
       else report.touched++;
+      recordEntity(report, { id: entityLeafId(leaf), kind: "leaf", action: decision.action, ok: true });
       continue;
     }
 
@@ -700,11 +765,12 @@ async function llmSemanticRefresh({ ctx, now, dryRun }) {
       if (decision.action === "keep") {
         stampLeafMetadata(leaf.documentId, { stale: decision.stale_after === true });
         report.touched++;
+        recordEntity(report, { id: entityLeafId(leaf), kind: "leaf", action: "keep", ok: true });
       } else if (decision.action === "rewrite") {
         let body = String(decision.rewritten_body || "");
         if (body.length > bodyCap) {
           body = body.slice(0, bodyCap).replace(/\s+$/, "") +
-            `\n\n[truncated by consolidate at ${toIso(now)} — rewritten_body exceeded MEMORY_ATOM_BODY_MAX_CHARS]\n`;
+            `\n\n[truncated by consolidate at ${toIso(now)} — rewritten_body exceeded settings.compile.atomBodyMaxChars]\n`;
           process.stderr.write(
             `[consolidate] 3B rewritten_body truncated for ${leaf.documentId}\n`,
           );
@@ -724,6 +790,7 @@ async function llmSemanticRefresh({ ctx, now, dryRun }) {
           consolidated_at: toIso(now),
         });
         report.refreshed++;
+        recordEntity(report, { id: entityLeafId(leaf), kind: "leaf", action: "rewrite", ok: true });
       } else if (decision.action === "archive") {
         stampLeafMetadata(leaf.documentId, { consolidated_at: toIso(now) });
         disableDocument({ documentId: leaf.documentId });
@@ -734,9 +801,11 @@ async function llmSemanticRefresh({ ctx, now, dryRun }) {
           reason: decision.reason,
         });
         report.archived++;
+        recordEntity(report, { id: entityLeafId(leaf), kind: "leaf", action: "archive", ok: true, reason: decision.archive_reason });
       }
     } catch (err) {
       report.errors++;
+      recordEntity(report, { id: entityLeafId(leaf), kind: "leaf", action: decision.action, ok: false, error: err });
       process.stderr.write(
         `[consolidate] 3B apply failed for ${leaf.documentId} (action=${decision.action}): ${err?.message || err}\n`,
       );
@@ -759,6 +828,7 @@ function finalizeMergeCandidates({ candidates, ctx, now, dryRun }) {
     if (cand.llmDecision?.action === "skip") continue;
     if (dryRun) {
       report.archived++;
+      recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "archive", ok: true });
       continue;
     }
     try {
@@ -768,11 +838,13 @@ function finalizeMergeCandidates({ candidates, ctx, now, dryRun }) {
       const cur = readLeafForConsolidate({ documentId: loser.documentId });
       if (!cur || !cur.active) {
         report.skipped = true;
+        recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "skip-vanished", ok: true });
         continue;
       }
       const beforeUpdated = String(loser.frontmatter?.updated || "");
       const curUpdated = String(cur.frontmatter?.updated || "");
       if (beforeUpdated && curUpdated && curUpdated !== beforeUpdated) {
+        recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "skip-changed", ok: true });
         process.stderr.write(
           `[consolidate] skip-changed-under-pass: ${loser.documentId} ` +
             `(before=${beforeUpdated}, now=${curUpdated})\n`,
@@ -785,8 +857,10 @@ function finalizeMergeCandidates({ candidates, ctx, now, dryRun }) {
       });
       disableDocument({ documentId: loser.documentId });
       report.archived++;
+      recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "archive", ok: true });
     } catch (err) {
       report.errors++;
+      recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "archive", ok: false, error: err });
       process.stderr.write(
         `[consolidate] archive failed for ${loser.documentId} (${sourcePass}): ${err?.message || err}\n`,
       );
@@ -1133,7 +1207,11 @@ export async function consolidateMemory({
 
   // Lock. Share the compile lock so consolidate never races with compile and
   // both fit one shared LLM-API quota window.
-  const lock = acquireLock(COMPILE_LOCK_PATH, { label: "consolidate" });
+  // Pass the SAME staleMs source compile.mjs uses: both contend on
+  // COMPILE_LOCK_PATH, so a shared lock must have one authoritative TTL —
+  // otherwise an operator who lowers compile.lockStaleMs leaves the two
+  // processes disagreeing on when the lock is stale.
+  const lock = acquireLock(COMPILE_LOCK_PATH, { staleMs: compileLockStaleMs(), label: "consolidate" });
   if (!lock.ok) {
     return {
       ok: false,
@@ -1151,7 +1229,11 @@ export async function consolidateMemory({
   installLockReleaseHandlers(COMPILE_LOCK_PATH);
 
   try {
-    return await withSystemMaintenance(async () => {
+    // One consolidate run = one wiki commit (dedup archives, merges,
+    // refreshes, stale stamps). Nested INSIDE the maintenance frame's caller
+    // so dry-run records nothing and commits nothing.
+    return await withWikiCommit({ op: "consolidate", actor: "consolidate", noCommit: Boolean(dryRun) }, () =>
+      withSystemMaintenance(async () => {
       const backend = activeBackend();
       const lexical = backend === "lexical";
       const cosineThreshold = lexical
@@ -1200,12 +1282,15 @@ export async function consolidateMemory({
       }
 
       const summary = await runConsolidate({ allowed, dryRun, llm: ctx.llmEnabled, now, ctx });
+      sortPassEntities(ctx.report);
 
       const stateOut = {
         last_run_utc: toIso(now),
         durationMs: Date.now() - startMs,
         dryRun: Boolean(dryRun),
-        passes: Object.fromEntries(ctx.report),
+        // Counts only: the per-entity arrays travel via the returned report
+        // (and the sharded full cron log), never the slim state file.
+        passes: stripPassEntities(Object.fromEntries(ctx.report)),
         totals: summary.totals,
       };
       if (!dryRun) writeState(stateOut);
@@ -1217,7 +1302,7 @@ export async function consolidateMemory({
         ...summary,
         stateOut,
       };
-    });
+    }));
   } finally {
     try {
       lock.release && lock.release();

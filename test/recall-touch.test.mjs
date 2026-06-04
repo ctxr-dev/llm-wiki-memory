@@ -32,24 +32,24 @@ layout:
 );
 
 const store = await import("../scripts/lib/wiki-store.mjs");
+const { __setSettingsForTest, __clearSettingsForTest } = await import("../scripts/lib/settings.mjs");
 store._resetLayoutCacheForTests();
 
 after(() => cleanup(dataDir));
 
-// Capture original env values so each test can restore them via after().
-function snapshotTouchEnv() {
-  return {
-    MEMORY_RECALL_TOUCH: process.env.MEMORY_RECALL_TOUCH,
-    MEMORY_RECALL_TOUCH_MIN_HOURS: process.env.MEMORY_RECALL_TOUCH_MIN_HOURS,
-  };
+// Per-test settings overrides — the recall-touch knobs live in
+// settings.yaml's `recall:` section, but tests need quick overrides without
+// touching disk. Each test that mutates them is paired with the seam.
+function setRecallTouch({ enabled, minHours } = {}) {
+  const recall = {};
+  if (enabled !== undefined) recall.touchEnabled = enabled;
+  if (minHours !== undefined) recall.touchMinHours = minHours;
+  __setSettingsForTest({ recall });
 }
-
-function restoreTouchEnv(snap) {
-  for (const k of Object.keys(snap)) {
-    if (snap[k] === undefined) delete process.env[k];
-    else process.env[k] = snap[k];
-  }
+function restoreTouchEnv() {
+  __clearSettingsForTest();
 }
+function snapshotTouchEnv() { return {}; }
 
 function readLeafMemory(documentId) {
   const abs = path.join(wiki, ...String(documentId).split("/"));
@@ -71,8 +71,7 @@ function seedLeaf({ name, text, area, atomType = "reference", tags = [] }) {
 
 test("(1) first search above threshold stamps last_recalled_at and recall_count=1", async () => {
   const envSnap = snapshotTouchEnv();
-  delete process.env.MEMORY_RECALL_TOUCH;
-  delete process.env.MEMORY_RECALL_TOUCH_MIN_HOURS;
+  __clearSettingsForTest();
 
   const id = seedLeaf({
     name: "recall-touch-stamp-first.md",
@@ -105,8 +104,7 @@ test("(1) first search above threshold stamps last_recalled_at and recall_count=
 
 test("(2) second search within 24h is throttled (no update)", async () => {
   const envSnap = snapshotTouchEnv();
-  delete process.env.MEMORY_RECALL_TOUCH;
-  delete process.env.MEMORY_RECALL_TOUCH_MIN_HOURS;
+  __clearSettingsForTest();
 
   const id = seedLeaf({
     name: "recall-touch-throttled.md",
@@ -145,12 +143,10 @@ test("(2) second search within 24h is throttled (no update)", async () => {
 
 test("(3) once the throttle window has elapsed, the next search bumps recall_count", async () => {
   const envSnap = snapshotTouchEnv();
-  delete process.env.MEMORY_RECALL_TOUCH;
-  // The env helper `envInt` rejects values <= 0 and falls back to 24h, so we
-  // can't drive throttling to "always-on" via MEMORY_RECALL_TOUCH_MIN_HOURS=0.
-  // Use a 1h window and back-date the leaf's last_recalled_at by 2h to step
-  // past the window deterministically (no real wall-clock advance needed).
-  process.env.MEMORY_RECALL_TOUCH_MIN_HOURS = "1";
+  // Use a 1h throttle window and back-date the leaf's last_recalled_at by 2h
+  // to step past the window deterministically (no real wall-clock advance
+  // needed).
+  setRecallTouch({ minHours: 1 });
 
   const id = seedLeaf({
     name: "recall-touch-elapsed.md",
@@ -196,8 +192,7 @@ test("(3) once the throttle window has elapsed, the next search bumps recall_cou
 
 test("(4) MEMORY_RECALL_TOUCH=off writes nothing; last_recalled_at stays absent", async () => {
   const envSnap = snapshotTouchEnv();
-  process.env.MEMORY_RECALL_TOUCH = "off";
-  delete process.env.MEMORY_RECALL_TOUCH_MIN_HOURS;
+  setRecallTouch({ enabled: false });
 
   const id = seedLeaf({
     name: "recall-touch-disabled.md",
@@ -222,8 +217,7 @@ test("(4) MEMORY_RECALL_TOUCH=off writes nothing; last_recalled_at stays absent"
 
 test("(5) below-threshold record is NOT touched", async () => {
   const envSnap = snapshotTouchEnv();
-  delete process.env.MEMORY_RECALL_TOUCH;
-  delete process.env.MEMORY_RECALL_TOUCH_MIN_HOURS;
+  __clearSettingsForTest();
 
   const id = seedLeaf({
     name: "recall-touch-below-threshold.md",
@@ -256,8 +250,7 @@ test("(5) below-threshold record is NOT touched", async () => {
 
 test("(6) errors during touch do NOT propagate to the caller", async () => {
   const envSnap = snapshotTouchEnv();
-  delete process.env.MEMORY_RECALL_TOUCH;
-  delete process.env.MEMORY_RECALL_TOUCH_MIN_HOURS;
+  __clearSettingsForTest();
 
   const id = seedLeaf({
     name: "recall-touch-error-swallow.md",
@@ -265,25 +258,25 @@ test("(6) errors during touch do NOT propagate to the caller", async () => {
     area: "sagas",
   });
 
-  // Monkey-patch fs.writeFileSync to throw on writes that target THIS leaf.
-  // The recall-touch path calls updateDocMetadata -> fs.writeFileSync; we want
-  // that write to throw, but the SEARCH call still has to succeed and return
-  // records (touch is best-effort).
+  // The recall-touch path calls updateDocMetadata, which persists the leaf via
+  // writeFileAtomic — write-to-temp, then fs.renameSync(tmp, leaf) to publish.
+  // It NEVER calls fs.writeFileSync, so patch the rename: throw when it
+  // publishes to THIS leaf, simulating a failed frontmatter write. The SEARCH
+  // itself must still succeed and return records (touch is best-effort).
   const targetAbs = path.join(wiki, ...id.split("/"));
-  const originalWrite = fs.writeFileSync;
+  const originalRename = fs.renameSync;
   let throwsObserved = 0;
-  fs.writeFileSync = function patched(p, data, opts) {
+  fs.renameSync = function patched(from, to) {
     try {
-      const resolved = path.resolve(String(p));
-      if (resolved === path.resolve(targetAbs)) {
+      if (path.resolve(String(to)) === path.resolve(targetAbs)) {
         throwsObserved += 1;
         throw new Error("simulated touch write failure");
       }
     } catch (e) {
       if (e && e.message === "simulated touch write failure") throw e;
-      // ignore resolve errors and fall through to the real write
+      // ignore resolve errors and fall through to the real rename
     }
-    return originalWrite.call(this, p, data, opts);
+    return originalRename.call(this, from, to);
   };
 
   let res;
@@ -295,7 +288,7 @@ test("(6) errors during touch do NOT propagate to the caller", async () => {
       scoreThreshold: 0,
     });
   } finally {
-    fs.writeFileSync = originalWrite;
+    fs.renameSync = originalRename;
   }
 
   assert.ok(res, "search returned a result envelope despite touch error");

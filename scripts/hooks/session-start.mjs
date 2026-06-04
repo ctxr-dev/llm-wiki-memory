@@ -1,10 +1,36 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { MEMORY_DIR, COMPILE_STATE_PATH, envValue, wikiRoot } from "../lib/env.mjs";
+import { MEMORY_DIR, MEMORY_DATA_DIR, COMPILE_STATE_PATH, envValue, wikiRoot } from "../lib/env.mjs";
 import { buildSessionStartContext } from "../lib/discipline.mjs";
 import { isReentrant, reentryEnv } from "../lib/reentry.mjs";
 import { buildWorkContextSection } from "../lib/work-context.mjs";
+import { migrate as migrateSettings } from "../migrate-settings.mjs";
+
+// Self-heal a "live upgrade": an operator who git-pulls a new src/ and just
+// restarts their client (never re-running bootstrap.sh) would otherwise run on
+// an un-migrated install — old .env with now-ignored MEMORY_* vars and NO
+// settings.yaml, so the loader silently serves template defaults and the
+// operator's tuning (and a disabled write-gate!) is lost. The migrator is
+// idempotent and read-only on an already-migrated / fresh install (it early-
+// outs without writing), so calling it here is cheap and safe. Best-effort:
+// a failure must never block session start. Skipped inside memory-spawned
+// subprocesses (the re-entry guard).
+function maybeMigrateSettings() {
+  if (isReentrant()) return;
+  try {
+    // Buffer the migrator's log lines; only surface them if a migration
+    // actually ran. The common already-migrated / fresh-install paths must
+    // stay silent so they don't print on every single session start.
+    const buffered = [];
+    const result = migrateSettings(MEMORY_DATA_DIR, { log: (m) => buffered.push(m) });
+    if (result && result.migrated) {
+      for (const line of buffered) process.stderr.write(line + "\n");
+    }
+  } catch (err) {
+    console.error(`session-start.mjs: settings self-heal skipped: ${err instanceof Error ? err.message : err}`);
+  }
+}
 
 const RECURSION_GUARD = "memory_compile";
 
@@ -44,6 +70,9 @@ function maybeTriggerCompile() {
 }
 
 const memoryServerName = envValue("MEMORY_MCP_SERVER_NAME") || "llm-wiki-memory";
+
+// Self-heal a live (no-bootstrap) upgrade BEFORE anything reads settings().
+maybeMigrateSettings();
 
 const compileTriggered = (() => {
   try {
@@ -93,11 +122,19 @@ try {
   // field consulted from the result is `summary`.
   const h = cronHealth({ limit: 0 });
   if (!h.healthy) {
+    const open = Array.isArray(h.escalations) ? h.escalations.length : 0;
+    // Entity-level escalations point at a skeleton issue report the agent may
+    // deepen ONLY on explicit user yes; run-level failures keep the original
+    // wording. Either way: one short summary line, never the logs themselves.
+    const detail = open > 0
+      ? `\n\n${open} consolidation escalation(s) are open (the same entities kept failing across cron runs); the newest skeleton report is at the path in the summary above, with links to the full sharded run logs. ` +
+        "Tell the user and ASK before investigating — don't open the report or the full logs on your own. "
+      : "\n\nThe hourly cron's last attempt errored and the next tick hasn't cleared it yet. " +
+        "Tell the user and ASK before investigating — don't pull the full log on your own. ";
     cronHealthSection =
       "\n\n## Memory cron health: UNRESOLVED FAILURE\n\n" +
       h.summary +
-      "\n\nThe hourly cron's last attempt errored and the next tick hasn't cleared it yet. " +
-      "Tell the user and ASK before investigating — don't pull the full log on your own. " +
+      detail +
       "If they want details, run `node .llm-wiki-memory/src/scripts/cli.mjs cron-health` for the full attempt; " +
       "or `node .llm-wiki-memory/src/scripts/cli.mjs cron-job` to retry now.\n";
   }

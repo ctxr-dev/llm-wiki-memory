@@ -11,7 +11,7 @@ Claude Code runs this on the daily cron (chained after `compile` in `bootstrap.s
 
 ## When to run
 
-- **At session end**, after `embed-gc`. Self-throttled to `MEMORY_CONSOLIDATE_INTERVAL_DAYS` (default `1`), so a too-frequent call is a no-op.
+- **At session end**, after `embed-gc`. Self-throttled to `consolidate.intervalDays` in `<data>/settings/settings.yaml` (default `1`), so a too-frequent call is a no-op.
 - **Never mid-task.** Acquires the compile lock — if compile is running, the call returns `{ skipped: "locked-by", ... }`.
 - **Never inside a propose-then-confirm save flow.** Consolidate is system maintenance; user-driven saves go through `save_lesson` / `save_to_dataset` and are subject to the L3 write-gate.
 

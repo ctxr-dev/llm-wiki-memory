@@ -5,8 +5,10 @@ import { pathToFileURL } from "node:url";
 import { slugify } from "../lib/slug.mjs";
 import { saveDocument, WikiStoreUnavailable } from "../lib/wiki-store.mjs";
 import { syncPlanFile } from "../lib/plan-sync.mjs";
-import { envValue, envInt, wikiRoot } from "../lib/env.mjs";
+import { wikiRoot } from "../lib/env.mjs";
+import { hookExitPlanModeDisable, hookExitPlanModeMaxBytes } from "../lib/settings.mjs";
 import { redact } from "../lib/redact.mjs";
+import { defangFenceMarkers } from "../lib/fence.mjs";
 
 const PLANS_SLOT = "plans";
 // 256KB default cap on plan body size. Dify create-by-text accepts
@@ -37,28 +39,8 @@ export function extractTitle(body) {
   return firstLine ? firstLine.slice(0, 80) : "untitled";
 }
 
-// Neutralise any fence markers the plan body itself contains before we
-// wrap it. Without this, a plan whose body includes a literal
-// `<!-- END UNTRUSTED PLAN BODY -->` (whether authored by a malicious
-// upstream or copy-pasted from another fenced doc) would close the fence
-// early, and a downstream reader would treat everything after that
-// premature END as trusted content OUTSIDE the fence - defeating the
-// prompt-injection mitigation the fence exists for. We defang BOTH the
-// PLAN markers and the sibling INVESTIGATION / MEMORY variants (referenced
-// in the skills) by inserting a zero-width space after the opening `<!--`,
-// which keeps the text human-readable but breaks the exact-match an
-// attacker (or a naive reader-side splitter) would rely on. Idempotent:
-// re-fencing an already-defanged body changes nothing further.
-const ZERO_WIDTH_SPACE = "\u200b";
-function defangFenceMarkers(text) {
-  // Match any "<!-- BEGIN/END UNTRUSTED ... BODY ... -->" comment and
-  // break the leading "<!--" token with a zero-width space (U+200B) so
-  // the marker no longer matches an exact-string fence splitter.
-  return String(text).replace(
-    /<!--(\s*(?:BEGIN|END)\s+UNTRUSTED\b[^>]*?BODY\b[^>]*?-->)/gi,
-    `<!${ZERO_WIDTH_SPACE}--$1`,
-  );
-}
+// Fence-marker defanging (prevents a body from closing its own fence early)
+// lives in lib/fence.mjs so flush.mjs and this hook share one implementation.
 
 // Wrap raw plan text in the untrusted-content fence + an origin header
 // line so chunked retrieval still carries provenance. Defangs any fence
@@ -199,11 +181,11 @@ function parseJsonMaybe(raw) {
 async function main() {
   // Kill switch: users who don't want auto-capture can set
   // MEMORY_HOOK_EXITPLANMODE_DISABLE=true in ./.memory/settings/.env.
-  if (envValue("MEMORY_HOOK_EXITPLANMODE_DISABLE", "") === "true") {
-    throw new SkipPlanCapture("disabled via MEMORY_HOOK_EXITPLANMODE_DISABLE=true");
+  if (hookExitPlanModeDisable()) {
+    throw new SkipPlanCapture("disabled via settings.hook.exitPlanModeDisable=true");
   }
 
-  const maxBytes = envInt("MEMORY_HOOK_EXITPLANMODE_MAX_BYTES", DEFAULT_MAX_PLAN_BYTES);
+  const maxBytes = hookExitPlanModeMaxBytes() || DEFAULT_MAX_PLAN_BYTES;
   const hookInput = parseJsonMaybe(readStdin()) || {};
   const spec = planDocSpec(hookInput, { maxBytes });
   if (spec.skip) throw new SkipPlanCapture(spec.skip);

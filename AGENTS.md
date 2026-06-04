@@ -4,6 +4,22 @@
 recall, stored as leaves in a git-versioned local wiki (via `@ctxr/skill-llm-wiki`), with
 local-embedding recall. No RAG, no Docker.
 
+## Development discipline (`.agents/`)
+
+Rules for working ON this repo are canonical in `.agents/rules/`:
+`dev-principles.md` (durability / parsing / injection / config invariants, cross-client
+portability, wiki placement, LLM-pipeline contracts, hook design),
+`testing.md` (harness + mocking conventions, the `/tmp/lwm-*` leak trap),
+`releases-docs-authoring.md` (when and how to write a
+`docs/releases/yyyy/mm/dd[/vN]/update-prompt.md` runbook + the paired-repo release order),
+and `docs-style.md` (README/docs conventions). Step-by-step procedures live in
+`.agents/skills/` (`write-release-runbook.md`, `run-tests-safely.md`,
+`debug-capture-pipeline.md`). Per-client shadows
+reference the canonical files via `@`-imports — `.claude/rules/` + `.claude/skills/`
+(Claude Code), `.cursor/rules/` (Cursor); always edit the `.agents/` file, never a shadow.
+These govern DEVELOPING llm-wiki-memory; the rules shipped into consumer installs live in
+`templates/rules/` and are rendered by bootstrap — keep the two audiences separate.
+
 ## Layout
 
 - `scripts/hooks/`: Claude Code lifecycle hooks (bash wrappers calling `.mjs`).
@@ -12,6 +28,16 @@ local-embedding recall. No RAG, no Docker.
   `daily/`), `exit-plan-mode` (capture approved plans to `plans/`).
 - `scripts/compile.mjs`: once-per-day promotion of daily atoms into `knowledge/` and
   `self_improvement/`, with embedding plus metadata dedup; archives promoted dailies.
+- `scripts/lib/wiki-commit.mjs`: the wiki auto-commit layer (`wiki.autoCommit`). Every
+  wiki-store writer records per-leaf changes; orchestrators wrap a run in
+  `withWikiCommit` so one logical operation = one commit to the wiki's OWN repo
+  (toplevel-checked — it can never commit into the workspace repo). Best-effort;
+  failures breadcrumb to `state/.wiki-commit.log`.
+- `scripts/cron-job.mjs`: hourly compile+consolidate runner with two-tier logging
+  (slim `state/.consolidate-attempts.log` + full sharded `state/logs/yyyy/mm/`),
+  per-entity healing state (`state/.consolidate-entities.json`), and escalation
+  issue reports (`issues/yyyy/mm/dd/<sig>.<version>.md`; episode index in
+  `state/.issues-index.json`).
 - `scripts/lib/wiki-store.mjs`: the storage seam, a drop-in for a RAG bridge whose every
   document is a wiki leaf. Drives `skill-llm-wiki` for index-rebuild, validate, heal,
   rebuild (it owns tree-building; we own category routing). Hardens arbitrary names via
@@ -45,7 +71,7 @@ local-embedding recall. No RAG, no Docker.
 
 `npm test` (unit: wiki-store, recall, slug, discipline, MCP boot and round-trip) and
 `npm run test:e2e` (full lifecycle against the real skill CLI; LLM stubbed via
-`MEMORY_LLM_PROVIDER=mock`, embeddings via `MEMORY_EMBED_BACKEND=lexical`).
+`MEMORY_LLM_PROVIDER=mock`, embeddings via `embed.backend: lexical` in the test workspace's `settings.yaml` — see `test/harness.mjs`).
 
 ## Conventions
 
