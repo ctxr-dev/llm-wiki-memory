@@ -638,3 +638,29 @@ test("parity: provider model lists live in the template, NOT in code defaults", 
   assert.ok(templateVals.providers.openai.models.length > 0, "template ships openai models");
   fs.rmSync(emptyPath, { force: true });
 });
+
+test("cosineBandFloor: valid value passes, invalid/out-of-range values fail-safe to null", () => {
+  clearEnv();
+  withYaml("consolidate:\n  cosineBandFloor: 0.9\n", () => {
+    const s = settings();
+    assert.equal(s.consolidate.cosineBandFloor, 0.9, "0.9 under the 0.97 threshold is accepted");
+  });
+  withYaml("consolidate:\n  cosineBandFloor: 0.5\n", () => {
+    assert.equal(settings().consolidate.cosineBandFloor, null, "below 0.8 disables the band");
+  });
+  withYaml("consolidate:\n  cosineBandFloor: 0.98\n", () => {
+    assert.equal(settings().consolidate.cosineBandFloor, null, ">= threshold disables the band");
+  });
+  withYaml("consolidate:\n  cosineBandFloor: ''\n", () => {
+    assert.equal(settings().consolidate.cosineBandFloor, null, "empty string disables");
+  });
+  withYaml("consolidate: {}\n", () => {
+    assert.equal(settings().consolidate.cosineBandFloor, null, "absent key defaults to disabled");
+  });
+  withYaml("consolidate:\n  cosineThreshold: 0.92\n  cosineBandFloor: 0.95\n", () => {
+    assert.equal(settings().consolidate.cosineBandFloor, null, "floor above a lowered threshold disables");
+  });
+  withYaml("consolidate:\n  cosineThreshold: 0.92\n  cosineBandFloor: 0.85\n", () => {
+    assert.equal(settings().consolidate.cosineBandFloor, 0.85, "floor under a lowered threshold is accepted");
+  });
+});

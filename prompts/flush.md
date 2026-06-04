@@ -46,6 +46,9 @@ If nothing in the transcript is durable, return exactly: `{"atoms": []}`.
 # Metadata guidance
 
 - `area` is the part of the codebase the atom belongs to (e.g. `auth`, `billing`, `frontend`, `infra`, `cli`). Use lowercase, hyphenated. Use `unknown` if you cannot infer it. The workspace identifier is recorded automatically, so do NOT emit a `project_module`.
+- Known areas already in this memory: {{KNOWN_AREAS}}. Known error patterns by area:
+{{KNOWN_ERROR_PATTERNS}}
+  REUSE an existing value when it fits; invent a new one only for genuinely new ground.
 - `language` is the programming language of the affected code, lowercase (`swift`, `python`, `typescript`, `bash`, `sql`). Use `""` for language-agnostic lessons.
 - `task_type` constrains to one of: `planning`, `implementation`, `debugging`, `refactor`, `review`, `deploy`, `docs`, `unknown`.
 - `error_pattern` is a short kebab-case identifier for the failure mode. Required for `self-improvement-lesson`. Optional for `bug-root-cause`. Empty for the rest.
@@ -69,6 +72,7 @@ Each atom must:
 3. Be ≤ 80 chars title, ≤ {{ATOM_BODY_MAX_CHARS}} chars body.
 4. Have at least one tag.
 5. For `self-improvement-lesson`: have `metadata.area`, `metadata.task_type`, AND `metadata.error_pattern` set.
+6. Consolidate aggressively: if multiple findings share the same topic AND the same actionable rule, emit ONE atom that captures the rule with its supporting evidence. Prefer fewer, richer atoms over many thin near-duplicates.
 
 If you are unsure whether an atom meets the bar, omit it.
 

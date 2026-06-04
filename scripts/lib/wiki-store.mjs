@@ -25,7 +25,7 @@ import {
   embed,
   cosine,
 } from "./embed.mjs";
-import { slugify, dailyDatePath } from "./slug.mjs";
+import { slugify, dailyDatePath, truncateAtWordBoundary } from "./slug.mjs";
 import { inferFacets } from "./facets.mjs";
 import { pruneEmptyAncestors } from "./fs-prune.mjs";
 import { recordWikiChange, withWikiCommit } from "./wiki-commit.mjs";
@@ -299,7 +299,7 @@ function deriveTitle({ metadata, text, name }) {
   if (metadata && metadata.title) return String(metadata.title).trim();
   const h1 = String(text || "").match(/^#\s+(.+?)\s*$/m);
   if (h1) return h1[1].trim();
-  return String(name || "untitled").replace(/\.md$/, "").replace(/[-_]/g, " ").slice(0, 80);
+  return truncateAtWordBoundary(String(name || "untitled").replace(/\.md$/, "").replace(/[-_]/g, " "), 80);
 }
 
 function oneLine(s, max = 160) {

@@ -203,6 +203,16 @@ function coerceFloat01(v, def) {
   const n = toNumber(v);
   return n !== null && n >= 0 && n <= 1 ? n : def;
 }
+
+// Band floor for the LLM-only merge band. null/0/absent disables the band;
+// anything outside [0.8, threshold) also disables it (fail-safe OFF — a low
+// floor must never silently widen the deterministic-archive surface).
+function coerceBandFloor(v, threshold) {
+  const n = toNumber(v);
+  if (n === null || n <= 0) return null;
+  if (n < 0.8 || n >= threshold) return null;
+  return n;
+}
 function coerceBool(v, def) {
   if (typeof v === "boolean") return v;
   return def;
@@ -230,6 +240,7 @@ function buildSettings({ configPath, cmdProbe } = {}) {
     intervalDays: 1,
     cosineThreshold: 0.97,
     cosineLexicalThreshold: 0.995,
+    cosineBandFloor: null,
     clusterTopK: 12,
     clusterScoreThreshold: 0.75,
     orphanTtlDays: 365,
@@ -398,6 +409,7 @@ function buildSettings({ configPath, cmdProbe } = {}) {
   consolidate.intervalDays = coerceNonNeg(consolidate.intervalDays, 1);
   consolidate.cosineThreshold = coerceFloat01(consolidate.cosineThreshold, 0.97);
   consolidate.cosineLexicalThreshold = coerceFloat01(consolidate.cosineLexicalThreshold, 0.995);
+  consolidate.cosineBandFloor = coerceBandFloor(consolidate.cosineBandFloor, consolidate.cosineThreshold);
   consolidate.clusterTopK = coercePos(consolidate.clusterTopK, 12);
   consolidate.clusterScoreThreshold = coerceFloat01(consolidate.clusterScoreThreshold, 0.75);
   consolidate.orphanTtlDays = coercePos(consolidate.orphanTtlDays, 365);
@@ -527,6 +539,7 @@ export function settings(opts = {}) {
 export function consolidateIntervalDays() { return settings().consolidate.intervalDays; }
 export function consolidateCosineThreshold() { return settings().consolidate.cosineThreshold; }
 export function consolidateCosineLexicalThreshold() { return settings().consolidate.cosineLexicalThreshold; }
+export function consolidateCosineBandFloor() { return settings().consolidate.cosineBandFloor; }
 export function consolidateClusterTopK() { return settings().consolidate.clusterTopK; }
 export function consolidateClusterScoreThreshold() { return settings().consolidate.clusterScoreThreshold; }
 export function consolidateOrphanTtlDays() { return settings().consolidate.orphanTtlDays; }

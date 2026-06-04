@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { setupWorkspace, cleanup, SRC } from "./harness.mjs";
+import { setupWorkspace, cleanup, SRC, runScript } from "./harness.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(SRC, "scripts", "cli.mjs");
@@ -205,4 +205,14 @@ test("bootstrap.sh installs cron at hourly cadence (0 * * * *)", () => {
   // The Linux cron line is interpolated with $wrapper / $tag, so we match
   // the literal "0 * * * *" prefix.
   assert.match(raw, /local line="0 \* \* \* \*/, "cron entry uses hourly cadence (0 * * * *)");
+});
+
+test("consolidate CLI: bare value-taking flags and invalid values abort loudly (exit 2)", () => {
+  const bare = runScript("scripts/cli.mjs", ["consolidate", "--dry-run", "--cosine-threshold", "0.9"]);
+  assert.equal(bare.status, 2, "bare --cosine-threshold must not silently run at defaults");
+  assert.match(bare.stderr, /requires the equals form/);
+
+  const garbage = runScript("scripts/cli.mjs", ["consolidate", "--dry-run", "--cosine-threshold=abc"]);
+  assert.equal(garbage.status, 2, "invalid value must not silently run at defaults");
+  assert.match(garbage.stderr, /invalid --cosine-threshold value/);
 });

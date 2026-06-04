@@ -30,6 +30,14 @@ consolidate:
   # Per-leaf cluster scope.
   clusterTopK: 12
   clusterScoreThreshold: 0.75
+  # Optional LLM-only "merge band": when set (valid range [0.8, cosineThreshold)),
+  # cluster pairs scoring at/above this floor but BELOW cosineThreshold are
+  # flagged as band candidates. Band candidates are acted on ONLY by the LLM
+  # merge pass — if the LLM is unreachable (or the run has LLM passes
+  # disabled) a band pair is left alone (both leaves stay active), never
+  # deterministically archived. Pairs at/above cosineThreshold keep the
+  # established archive-on-LLM-failure behaviour. null/0 disables the band.
+  cosineBandFloor: null
   # Lifecycle windows.
   orphanTtlDays: 365
   staleAfterMonths: 6

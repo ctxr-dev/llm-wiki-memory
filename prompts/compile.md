@@ -5,6 +5,9 @@ You decide how to merge a NEW project-memory atom into the existing knowledge st
 You receive:
 - ONE new atom: `{ type, title, body, tags, metadata, evidence? }` where `metadata` carries `area`, `language`, `task_type`, and (for self-improvement-lesson and bug-root-cause) `error_pattern`.
 - Up to 5 existing entries from the same dataset, ALREADY filtered to the same `atom_type` and (when present) the same `area`, `language`, and `error_pattern`. Candidates carry `documentId`, `documentName`, `score`, `content`.
+- Known areas in this memory: {{KNOWN_AREAS}}. Known error patterns by area:
+{{KNOWN_ERROR_PATTERNS}}
+  When refining metadata, REUSE an existing slug when it fits; invent only for genuinely new ground.
 
 # Output schema (STRICT - pick exactly ONE action)
 

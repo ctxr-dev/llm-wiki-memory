@@ -34,6 +34,7 @@ import {
   parseLessonDocName,
 } from "./lib/slug.mjs";
 import { ATOM_TYPE_TO_DATASET, ATOM_TYPES, metadataForDify } from "./lib/datasets.mjs";
+import { collectFacetVocab, renderVocabVars } from "./lib/facet-vocab.mjs";
 
 const FORCE = process.argv.includes("--force");
 const DRY_RUN = process.argv.includes("--dry-run");
@@ -164,9 +165,13 @@ export function parseAtomsFromMarkdown(text) {
 
 function loadPrompt() {
   const cap = atomBodyMaxChars();
+  const vocab = renderVocabVars(collectFacetVocab());
   return fs.readFileSync(path.join(PROMPTS_DIR, "compile.md"), "utf8")
-    .replace(/\{\{ATOM_BODY_MAX_CHARS\}\}/g, String(cap));
+    .replace(/\{\{ATOM_BODY_MAX_CHARS\}\}/g, String(cap))
+    .replace(/\{\{KNOWN_AREAS\}\}/g, vocab.KNOWN_AREAS)
+    .replace(/\{\{KNOWN_ERROR_PATTERNS\}\}/g, vocab.KNOWN_ERROR_PATTERNS);
 }
+export const __loadPromptForTest = loadPrompt;
 
 function targetDatasetForAtom(atom) {
   const fallback = compileSlot();

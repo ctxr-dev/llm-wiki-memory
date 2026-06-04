@@ -37,6 +37,7 @@ import {
   consolidateIntervalDays,
   consolidateCosineThreshold,
   consolidateCosineLexicalThreshold,
+  consolidateCosineBandFloor,
   consolidateClusterTopK,
   consolidateClusterScoreThreshold,
   consolidateOrphanTtlDays,
@@ -55,6 +56,7 @@ import { writeFileAtomic } from "./lib/atomic-write.mjs";
 import { withSystemMaintenance } from "./lib/maintenance-tag.mjs";
 import { withWikiCommit } from "./lib/wiki-commit.mjs";
 import { redact } from "./lib/redact.mjs";
+import { truncateAtWordBoundary } from "./lib/slug.mjs";
 import { activeBackend, contentHash } from "./lib/embed.mjs";
 import {
   listActiveLeavesForConsolidate,
@@ -474,10 +476,16 @@ function dedupeByCosine({ leaf, cluster, ctx, now }) {
   const t0 = Date.now();
   const report = ctx.report.get("dedupe-by-cosine");
   const threshold = ctx.cosineThreshold;
+  // The LLM-only band exists ONLY when the merge pass can actually adjudicate
+  // this run: when the LLM is unavailable, finalize archives every flagged
+  // loser deterministically, so flagging a sub-threshold pair would archive
+  // it without judgment — exactly what the band forbids.
+  const bandActive = ctx.cosineBandFloor != null && ctx.llmEnabled === true;
+  const effectiveFloor = bandActive ? ctx.cosineBandFloor : threshold;
   for (const member of cluster.records) {
     if (member.documentId === leaf.documentId) continue;
     if (ctx.touchedThisRun.has(member.documentId)) continue;
-    if (member.score < threshold) continue;
+    if (member.score < effectiveFloor) continue;
     const memberLeaf = readLeafForConsolidate({
       documentId: member.documentId,
     });
@@ -491,15 +499,17 @@ function dedupeByCosine({ leaf, cluster, ctx, now }) {
     const loser = keeper.documentId === leaf.documentId ? memberLeaf : leaf;
     if (ctx.pairsSeen.has(loserKey(keeper, loser))) continue;
     ctx.pairsSeen.add(loserKey(keeper, loser));
+    const inBand = member.score < threshold;
     ctx.mergeCandidates.push({
       keeper,
       loser,
       sourcePass: "dedupe-by-cosine",
       score: member.score,
+      band: inBand,
     });
     ctx.touchedThisRun.add(loser.documentId);
     report.flagged++;
-    recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "flag", ok: true, reason: `cosine ${Number(member.score).toFixed(4)}` });
+    recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "flag", ok: true, reason: `cosine ${Number(member.score).toFixed(4)}${inBand ? " (band)" : ""}` });
   }
   report.ms += Date.now() - t0;
 }
@@ -568,7 +578,7 @@ async function llmMergeNearDuplicates({ candidates, ctx, now, dryRun }) {
       if (decision.action === "merge") {
         let body = String(decision.merged_body || "");
         if (body.length > bodyCap) {
-          body = body.slice(0, bodyCap).replace(/\s+$/, "") +
+          body = truncateAtWordBoundary(body, bodyCap, { preferSentence: true }) +
             `\n\n[truncated by consolidate at ${toIso(now)} — merged_body exceeded settings.compile.atomBodyMaxChars]\n`;
           process.stderr.write(
             `[consolidate] 3A merged_body truncated for keeper=${keeper.documentId} (${decision.merged_body.length} -> ${body.length} chars)\n`,
@@ -603,8 +613,17 @@ async function llmMergeNearDuplicates({ candidates, ctx, now, dryRun }) {
             process.stderr.write(
               `[consolidate] 3A merge-write failed for keeper=${keeper.documentId}: ${err?.message || err}\n`,
             );
-            // Treat as fallback so finalize still archives the loser.
-            cand.llmDecision = { action: "fallback", reason: `merge-write failed: ${err?.message || err}` };
+            if (cand.band) {
+              // Band pairs are LLM-judgment-only: a failed rewrite must not
+              // degrade into a deterministic archive. Keep both leaves.
+              cand.llmDecision = { action: "skip", reason: `band pair, merge-write failed — kept both active`, bandFallback: true };
+              ctx.flaggedSkips = ctx.flaggedSkips || [];
+              ctx.flaggedSkips.push({ class: "band-llm-unreachable", keeperId: keeper.documentId, loserId: loser.documentId, reason: String(err?.message || err) });
+              recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "skip", ok: true, reason: "band pair, merge-write failed — kept both active" });
+            } else {
+              // Treat as fallback so finalize still archives the loser.
+              cand.llmDecision = { action: "fallback", reason: `merge-write failed: ${err?.message || err}` };
+            }
           }
         } else {
           report.merged++;
@@ -628,13 +647,30 @@ async function llmMergeNearDuplicates({ candidates, ctx, now, dryRun }) {
         recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "skip", ok: true, reason: decision.reason });
       }
     } catch (err) {
-      // Terminal LLM failure: fall back to deterministic archive-without-
-      // merge. The cand's llmDecision is set to fallback so finalize archives
-      // the loser without rewriting the keeper.
-      cand.llmDecision = {
-        action: "fallback",
-        reason: `llm-merge-failed: ${err?.message || String(err)}`,
-      };
+      // Terminal LLM failure. At/above the threshold the established
+      // contract holds: fall back to deterministic archive-without-merge.
+      // In the BAND the pair exists only for LLM adjudication, so an
+      // unreachable LLM means keep both leaves (skip), never blind-archive.
+      if (cand.band) {
+        cand.llmDecision = {
+          action: "skip",
+          reason: `band pair, llm unreachable — kept both active`,
+          bandFallback: true,
+        };
+        ctx.flaggedSkips = ctx.flaggedSkips || [];
+        ctx.flaggedSkips.push({
+          class: "band-llm-unreachable",
+          keeperId: keeper.documentId,
+          loserId: loser.documentId,
+          reason: String(err?.message || err),
+        });
+        recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "skip", ok: true, reason: "band pair, llm unreachable — kept both active" });
+      } else {
+        cand.llmDecision = {
+          action: "fallback",
+          reason: `llm-merge-failed: ${err?.message || String(err)}`,
+        };
+      }
       report.errors++;
       recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "merge", ok: false, error: err });
       process.stderr.write(
@@ -769,7 +805,7 @@ async function llmSemanticRefresh({ ctx, now, dryRun }) {
       } else if (decision.action === "rewrite") {
         let body = String(decision.rewritten_body || "");
         if (body.length > bodyCap) {
-          body = body.slice(0, bodyCap).replace(/\s+$/, "") +
+          body = truncateAtWordBoundary(body, bodyCap, { preferSentence: true }) +
             `\n\n[truncated by consolidate at ${toIso(now)} — rewritten_body exceeded settings.compile.atomBodyMaxChars]\n`;
           process.stderr.write(
             `[consolidate] 3B rewritten_body truncated for ${leaf.documentId}\n`,
@@ -1248,6 +1284,14 @@ export async function consolidateMemory({
             `auto-bumped to ${cosineThreshold} (real bge cosine inflates on the lexical fallback).\n`,
         );
       }
+      // Band floor re-clamped against the ACTIVE threshold: the lexical
+      // backend bumps the threshold to 0.995, and a floor that is no longer
+      // strictly below it must disable the band (fail-safe OFF).
+      const bandFloorRaw = consolidateCosineBandFloor();
+      const cosineBandFloor =
+        bandFloorRaw != null && bandFloorRaw >= 0.8 && bandFloorRaw < cosineThreshold
+          ? bandFloorRaw
+          : null;
       const ctx = {
         report: new Map(ALL_PASS_NAMES.map((n) => [n, emptyPassReport(n)])),
         touchedThisRun: new Set(),
@@ -1255,6 +1299,7 @@ export async function consolidateMemory({
         mergeCandidates: [], // accumulated across all leaves; finalized per leaf
         activeBackend: backend,
         cosineThreshold,
+        cosineBandFloor,
         llmEnabled: false,
         refineCategories: layout.refine,
         excludedCategories: layout.excluded,

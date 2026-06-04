@@ -16,7 +16,7 @@ You are the merge-near-duplicates pass of llm-wiki-memory's consolidate orchestr
 
 1. **Hallucination guard.** `keeper_id` and `loser_id` MUST match the inputs EXACTLY. If you cannot identify them, return `action: "skip"` with the reason.
 2. **Prefer the fresher / more correct content.** Read both bodies side-by-side. If the loser has details, code references, or rule-of-thumb wording the keeper lacks, fold them into the keeper. If the loser is obsolete (refers to renamed APIs, archived processes, etc.), keep ONLY the keeper's view.
-3. **Do not invent.** Never introduce claims not present in either body. Preserve attributions / commit references / file paths verbatim. Preserve `**Why:**` / `**How to apply:**` structure if either input uses it.
+3. **Do not invent.** Never introduce claims not present in either body. Preserve attributions / commit references / file paths verbatim. Preserve `**Why:**` / `**How to apply:**` structure if either input uses it. Preserve the keeper's `error_pattern` and `area` unless they are factually wrong.
 4. **`merge` action.** Produce a single concise body — do NOT just concatenate. Aim for the same density as the longer of the two inputs. Lead with the rule / fact; follow with **Why:** and **How to apply:** lines when the inputs use that structure.
 5. **`keep-keeper-unchanged` action.** Use when the keeper already contains everything useful in the loser and a merge would just add noise. The loser is still archived (with `supersedes_id` pointing at the keeper); that's the correct outcome.
 6. **`skip` action.** Use when the two inputs are NOT actually about the same topic and the deterministic dedup was a false positive. Neither is archived. The `reason` should name what's different.

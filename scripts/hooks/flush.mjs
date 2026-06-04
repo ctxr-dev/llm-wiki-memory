@@ -25,7 +25,8 @@ import {
 } from "../lib/settings.mjs";
 import { redact } from "../lib/redact.mjs";
 import { defangFenceMarkers } from "../lib/fence.mjs";
-import { dailyDocName } from "../lib/slug.mjs";
+import { dailyDocName, truncateAtWordBoundary } from "../lib/slug.mjs";
+import { collectFacetVocab, renderVocabVars } from "../lib/facet-vocab.mjs";
 import { ATOM_TYPES, TASK_TYPES } from "../lib/datasets.mjs";
 import { callLLMChain, LLMOutputInvalid } from "../lib/llm.mjs";
 import { chunkSource } from "../lib/chunker.mjs";
@@ -218,8 +219,13 @@ function loadPrompt() {
     throw new Error(`flush prompt missing at ${file}`);
   }
   const cap = atomBodyMaxChars();
-  return fs.readFileSync(file, "utf8").replace(/\{\{ATOM_BODY_MAX_CHARS\}\}/g, String(cap));
+  const vocab = renderVocabVars(collectFacetVocab());
+  return fs.readFileSync(file, "utf8")
+    .replace(/\{\{ATOM_BODY_MAX_CHARS\}\}/g, String(cap))
+    .replace(/\{\{KNOWN_AREAS\}\}/g, vocab.KNOWN_AREAS)
+    .replace(/\{\{KNOWN_ERROR_PATTERNS\}\}/g, vocab.KNOWN_ERROR_PATTERNS);
 }
+export const __loadPromptForTest = loadPrompt;
 
 function normaliseMetadata(raw) {
   const md = (raw && typeof raw === "object") ? raw : {};
@@ -291,8 +297,8 @@ function validateAtoms(parsed) {
     }
     cleaned.push({
       type,
-      title: title.slice(0, 80),
-      body: body.slice(0, bodyMaxChars),
+      title: truncateAtWordBoundary(title, 80),
+      body: truncateAtWordBoundary(body, bodyMaxChars, { preferSentence: true }),
       tags,
       metadata,
       evidence: atom.evidence ? String(atom.evidence).slice(0, 240).trim() : undefined,

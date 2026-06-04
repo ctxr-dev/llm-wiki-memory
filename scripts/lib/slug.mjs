@@ -9,6 +9,41 @@ export function slugify(text, { maxLen = 60 } = {}) {
   return base.slice(0, maxLen).replace(/-+$/g, "") || "untitled";
 }
 
+// Cap text without cutting mid-word: hard caps on LLM-authored titles/bodies
+// used to slice blindly, shipping leaves that ended "varies by contex". The
+// cut backs off a dangling UTF-16 high surrogate (truncation mirror of
+// chunker.mjs surrogateSafe, which shifts FORWARD because it keeps the left
+// chunk), then retreats to the last whitespace — or, for bodies
+// (preferSentence), to the last sentence end within the final sentenceWindow
+// chars. Falls back to the hard surrogate-safe slice when the text has no
+// boundary in range, so the result is never empty for non-empty input.
+export function truncateAtWordBoundary(text, max, { preferSentence = false, sentenceWindow = 80 } = {}) {
+  const s = String(text ?? "");
+  if (!Number.isFinite(max) || max <= 0) return "";
+  if (s.length <= max) return s;
+  let cut = max;
+  // A high surrogate as the LAST retained unit is always dangling — whether
+  // its low half sits just past the cut (straddled pair) or the source text
+  // was already malformed. Back off unconditionally.
+  const hi = s.charCodeAt(cut - 1);
+  if (hi >= 0xd800 && hi <= 0xdbff) cut -= 1;
+  const hard = s.slice(0, cut);
+  if (preferSentence) {
+    const windowStart = Math.max(0, cut - sentenceWindow);
+    const m = hard.slice(windowStart).match(/^[\s\S]*[.!?](?=\s|$)/);
+    if (m && m[0].length > 0) {
+      const out = s.slice(0, windowStart + m[0].length).replace(/\s+$/, "");
+      if (out) return out;
+    }
+  }
+  const lastWs = hard.search(/\s\S*$/);
+  if (lastWs > 0) {
+    const out = s.slice(0, lastWs).replace(/\s+$/, "");
+    if (out) return out;
+  }
+  return hard;
+}
+
 function pad(n, w = 2) {
   return String(n).padStart(w, "0");
 }
