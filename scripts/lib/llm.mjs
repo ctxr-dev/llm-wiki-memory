@@ -584,13 +584,20 @@ async function fetchWithTimeout(url, { timeoutMs, ...init } = {}) {
 // Returns `{ provider, model, baseUrl, available, reason }`. `baseUrl` is
 // present only for openai / openai-compatible.
 export async function health() {
-  // The probed provider is: an explicit MEMORY_LLM_PROVIDER env override, else
-  // the HEAD of the resolved settings.providers.chain (which honors the YAML
-  // chain + auto-detection), else "claude". Reading the chain keeps `cli where`
+  // The probed provider is: an explicit MEMORY_LLM_PROVIDER *process-env*
+  // override, else the HEAD of the resolved settings.providers.chain (which
+  // honors the YAML chain + a .env-configured provider + auto-detection + any
+  // settings override), else "claude". Reading the chain keeps `cli where`
   // aligned with what the real dispatcher (callLLMChain) actually uses — before
   // this, an install configured entirely via settings.yaml reported "claude"
   // and "CLI not on PATH" even though the pipeline correctly used anthropic.
-  let provider = envValue("MEMORY_LLM_PROVIDER", "").trim().toLowerCase();
+  //
+  // Read process.env directly here, NOT envValue(): envValue also reads the
+  // settings/.env file, but a .env-configured provider is NOT an explicit
+  // override — buildSettings already folds it into the chain (so a settings
+  // override can re-head it). Using envValue would let the .env provider
+  // short-circuit the chain and mis-report it (diverging from the dispatcher).
+  let provider = (process.env.MEMORY_LLM_PROVIDER || "").trim().toLowerCase();
   if (!provider) {
     try {
       provider = settings().providers.chain[0] || "claude";
