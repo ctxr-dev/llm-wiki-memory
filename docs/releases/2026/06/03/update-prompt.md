@@ -14,7 +14,7 @@ maintenance cron + cron-health, the AutoDream `consolidate`, and the consolidate
 In a Claude Code (or any capable agent) session inside the target repo, do either:
 
 - **Reference it:** "Fetch and follow the runbook at
-  `https://raw.githubusercontent.com/ctxr-dev/llm-wiki-memory/main/docs/releases/2026-06-03T082959Z/update-prompt.md`,
+  `https://raw.githubusercontent.com/ctxr-dev/llm-wiki-memory/main/docs/releases/2026/06/03/update-prompt.md`,
   applying it to this project." (any pinned release folder works), or
 - **Paste it:** copy everything inside the `--- PROMPT ---` fence below into the session.
 
