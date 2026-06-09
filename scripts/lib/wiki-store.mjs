@@ -97,6 +97,12 @@ const VOCABULARIES = Object.create(null);
 // refuses to run when any category lacks the field. null-prototype mirrors
 // PLACEMENT_RULES.
 const CONSOLIDATE_ELIGIBILITY = Object.create(null);
+// Per-category presence of a `topology:` block in the layout YAML. A topology
+// category (e.g. tracker `issues`) nests via the topology path-compiler, NOT
+// facet placement — so a write to it MUST carry an explicit `path` and a
+// no-path write fails loud (see the placement guard). Keyed on block presence,
+// never the literal category name.
+const TOPOLOGY_CATEGORIES = Object.create(null);
 let _layoutLoaded = false;
 let _layoutRootSeen = null;
 let _layoutMtimeSeen = null;
@@ -136,6 +142,7 @@ function ensureLayoutLoaded() {
   //   <missing> -> error. The orchestrator refuses to run until the field is
   //                declared (no defaults — author intent must be explicit).
   const consolidateEligibility = Object.create(null);
+  const topologyCategories = Object.create(null);
 
   // Layout YAML canonical location is <wiki>/.layout/layout.yaml (resolved above).
   if (fs.existsSync(layoutPath)) {
@@ -186,6 +193,11 @@ function ensureLayoutLoaded() {
             // any other value falls through and the orchestrator surfaces the
             // missing/invalid field at runtime.
           }
+          // A `topology:` block means this category nests via the path-compiler,
+          // not facet placement: writes must supply an explicit path.
+          if (e.topology && typeof e.topology === "object") {
+            topologyCategories[name] = true;
+          }
         }
         // Drop default facet keys for categories the YAML did NOT declare.
         for (const k of Object.keys(facets)) {
@@ -207,6 +219,8 @@ function ensureLayoutLoaded() {
   Object.assign(VOCABULARIES, vocabs);
   for (const k of Object.keys(CONSOLIDATE_ELIGIBILITY)) delete CONSOLIDATE_ELIGIBILITY[k];
   Object.assign(CONSOLIDATE_ELIGIBILITY, consolidateEligibility);
+  for (const k of Object.keys(TOPOLOGY_CATEGORIES)) delete TOPOLOGY_CATEGORIES[k];
+  Object.assign(TOPOLOGY_CATEGORIES, topologyCategories);
 
   _layoutLoaded = true;
   _layoutRootSeen = r;
@@ -255,6 +269,31 @@ export function _resetLayoutCacheForTests() {
 export function getCategories() {
   ensureLayoutLoaded();
   return [...CATEGORIES];
+}
+
+// True when the category declares a `topology:` block (e.g. tracker `issues`).
+// Such a category nests via the topology path-compiler, so writes must carry an
+// explicit `path`; a no-path write is refused by the placement guard.
+export function categoryHasTopology(category) {
+  ensureLayoutLoaded();
+  return Boolean(TOPOLOGY_CATEGORIES[String(category || "")]);
+}
+
+// Fail loud (never default to the category root) when a topology category is
+// written without an explicit placement path. Facet placement can't express a
+// topology tree, so a no-path write would silently land flat at the root — the
+// exact bug that stranded the tracker plans. The MCP boundary additionally
+// validates that a SUPPLIED path matches the topology (async round-trip); this
+// sync guard closes the no-path hole for EVERY caller (saveDocument,
+// updateDocMetadata, hooks, CLI). Compute the path from `.layout/layout.yaml`'s
+// file_kind facets and pass it as `path`/`placementOverride`.
+function assertTopologyPlacement(category, placementOverride) {
+  if (placementOverride !== undefined && placementOverride !== null) return;
+  if (!categoryHasTopology(category)) return;
+  throw new WikiStoreUnavailable(
+    `category "${category}" has a topology block in .layout/layout.yaml and requires an explicit path; ` +
+      `compute it from the file_kind facets (e.g. issues plan -> issues/<tracker>/<prefix>/<buckets>/<lifecycle>/<file>.plan.md) and pass it as path`,
+  );
 }
 
 export function slotToCategory(slot) {
@@ -703,6 +742,11 @@ function writeMemoryInner({
   }
   const slot = datasetId;
   const category = assertKnownSlot(slot);
+  // The THIRD write door (alongside saveDocument + updateDocMetadata): a no-path
+  // write into a topology category would flat-root here too. MCP write_memory is
+  // also guarded at the boundary, but a non-MCP caller (e.g. a misconfigured
+  // flush slot) reaches this directly — fail loud for all of them.
+  assertTopologyPlacement(category, placementOverride);
 
   // `placementOverride` (optional): when supplied, the leaf is written verbatim
   // at <override>/<name> and facet inference is skipped. CASING is preserved
@@ -779,6 +823,7 @@ export function saveDocument({ name, text, datasetId, metadata, placementOverrid
   }
   const slot = datasetId;
   const category = assertKnownSlot(slot);
+  assertTopologyPlacement(category, placementOverride);
 
   // `placementOverride` (optional): when supplied, the existence check is
   // scoped to the override path only (we do NOT broad-search the category
@@ -888,6 +933,11 @@ export function updateDocMetadata({ datasetId, documentId, metadata, placementOv
 
   const rel = String(documentId).split("/");
   const curDir = rel.slice(0, -1).join("/");
+  // Second door to the flat-root bug: an UNPINNED metadata update on a topology
+  // category would recompute placement via placementDirForMeta -> category root
+  // and relocate the nested leaf flat. Require an explicit placementOverride
+  // (consolidate already pins to curDir); fail loud otherwise.
+  assertTopologyPlacement(slotToCategory(rel[0]), placementOverride);
   // `placementOverride` (optional): pin the leaf to a caller-chosen directory
   // and bypass facet-driven relocation. A caller passing the leaf's CURRENT dir
   // keeps it in place: this is how consolidate stamps non-facet bookkeeping

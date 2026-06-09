@@ -15,6 +15,48 @@ import { withWikiCommit } from "../scripts/lib/wiki-commit.mjs";
 import { activeBackend } from "../scripts/lib/embed.mjs";
 import { INSTRUCTIONS } from "../scripts/lib/discipline.mjs";
 import { isSystemMaintenance } from "../scripts/lib/maintenance-tag.mjs";
+import { loadTopology, parsePath } from "../scripts/lib/topology-runtime.mjs";
+
+// Topology categories (e.g. tracker `issues`) nest via the path-compiler, not
+// facet placement. Reject a no-path write up front with an actionable message
+// (the wiki-store sync guard would also throw, but later and less helpfully),
+// and validate that a SUPPLIED path actually round-trips through the topology
+// for the leaf's file_kind — so a wrong-shape path can never silently misplace
+// a leaf. parsePath anchors on the FILENAME, so validate the full leaf path.
+async function assertTopologyPathValid({ dataset, name, path: placePath }) {
+  if (typeof impl.categoryHasTopology !== "function" || !impl.categoryHasTopology(dataset)) return;
+  const supplied = placePath !== undefined && placePath !== null && String(placePath).trim() !== "";
+  if (!supplied) {
+    throw new Error(
+      `save to "${dataset}" requires an explicit path: that category has a topology block in .layout/layout.yaml. ` +
+        `Consult the layout and compute the path from the file_kind facets (e.g. issues plan -> issues/<tracker>/<prefix>/<buckets>/<lifecycle>/<file>.plan.md), then pass it as path.`,
+    );
+  }
+  const topo = await loadTopology(wikiRoot(), { categoryPath: dataset });
+  const { name: safeName } = impl.normalizeLeafNamePreservingCase(name);
+  const dir = String(placePath).replace(/\/+$/, "");
+  // `path` is a DIRECTORY; the leaf name is appended. A caller that mistakenly
+  // put the filename in `path` would otherwise double it into a dir-named-like-
+  // a-file that a greedy slug matcher can still parse — reject it explicitly.
+  if (dir.endsWith(`/${safeName}`) || dir === safeName) {
+    throw new Error(
+      `path "${placePath}" must be the DIRECTORY only — the leaf name "${safeName}" is appended automatically; do not include it in path.`,
+    );
+  }
+  const rel = `${dir}/${safeName}`;
+  const parsed = parsePath(topo, rel);
+  if (!parsed) {
+    throw new Error(
+      `path "${placePath}" does not match the "${dataset}" topology in .layout/layout.yaml (no file_kind parses ${rel}).`,
+    );
+  }
+  const kind = safeName.endsWith(".plan.md") ? "plan" : "knowledge";
+  if (parsed.kind !== kind) {
+    throw new Error(
+      `path "${placePath}" resolves to topology kind "${parsed.kind}", but leaf name "${safeName}" implies "${kind}".`,
+    );
+  }
+}
 
 // ---- in-process hot reload ----
 // wiki-store.mjs + recall.mjs hold the tool logic. We re-import them
@@ -368,7 +410,7 @@ server.registerTool(
   {
     title: "Upsert a document into a named category",
     description:
-      "Write `text` as a wiki leaf with the given exact `name`, replacing any existing leaf in the category that has the same name. Use for plans, investigations, and knowledge artefacts. `dataset` is a category name (knowledge, plans, investigations, self_improvement, or any extra category declared in <wiki>/.layout/layout.yaml). Optional `metadata` applies filterable frontmatter. Optional `path` is a relative directory under the wiki root (e.g. \"issues/JIRA/DEV/129/95/7\") and, when supplied, overrides facet-derived placement so the leaf is written verbatim at <path>/<name>; casing is preserved. Use `path` for custom topologies (Jira/GitHub/Linear issue trees, multi-faceted hierarchies) the default facet machinery cannot express. WRITE-GATED for dataset=\"self_improvement\" only: pass `userRequested:true` after the user explicitly asks (propose-then-confirm); other datasets are not gated.",
+      "Write `text` as a wiki leaf with the given exact `name`, replacing any existing leaf in the category that has the same name. Use for plans, investigations, and knowledge artefacts. `dataset` is a category name (knowledge, plans, investigations, self_improvement, or any extra category declared in <wiki>/.layout/layout.yaml). Optional `metadata` applies filterable frontmatter. `path` is a relative directory under the wiki root (e.g. \"issues/JIRA/DEV/129/95/7\") that overrides facet-derived placement so the leaf is written verbatim at <path>/<name> (casing preserved). `path` is REQUIRED for any category with a `topology:` block in .layout/layout.yaml (e.g. tracker issues): consult the layout, pick the file_kind for your intent (plan vs knowledge), and compute the path from its required facets. A missing or topology-mismatched `path` for such a category is REFUSED. For default facet categories `path` is optional (placement is facet-derived). WRITE-GATED for dataset=\"self_improvement\" only: pass `userRequested:true` after the user explicitly asks (propose-then-confirm); other datasets are not gated.",
     inputSchema: {
       dataset: z.string().trim().min(1),
       name: z.string().trim().min(1).max(180),
@@ -394,6 +436,7 @@ server.registerTool(
             : `save_to_dataset(path=\"${path}\" lands in self_improvement)`,
         );
       }
+      await assertTopologyPathValid({ dataset, name, path });
       const result = withWikiCommit({ op: "mcp-save", actor: "mcp" }, () =>
         impl.saveDocument({
           name,
@@ -414,7 +457,7 @@ server.registerTool(
   {
     title: "Write project memory",
     description:
-      "Create a new wiki leaf from concise memory text. Optionally supersede an existing leaf by passing its documentId (the old leaf is archived, or deleted with supersedesAction='delete'). Optional `path` is a relative directory under the wiki root and, when supplied, overrides facet-derived placement so the leaf is written verbatim at <path>/<name>; casing is preserved. Use `path` for custom topologies the default facet machinery cannot express. WRITE-GATED for datasetId=\"self_improvement\" only — pass `userRequested:true` (server refuses without it). Other categories are not gated.",
+      "Create a new wiki leaf from concise memory text. Optionally supersede an existing leaf by passing its documentId (the old leaf is archived, or deleted with supersedesAction='delete'). `path` is a relative directory under the wiki root that overrides facet-derived placement so the leaf is written verbatim at <path>/<name> (casing preserved). `path` is REQUIRED for any category with a `topology:` block in .layout/layout.yaml (e.g. tracker issues) and must match that topology for the leaf file_kind; it is optional for default facet categories. A missing or topology-mismatched path for a topology category is REFUSED. WRITE-GATED for datasetId=\"self_improvement\" only — pass `userRequested:true` (server refuses without it). Other categories are not gated.",
     inputSchema: {
       name: z.string().trim().min(1).max(180),
       text: z.string().trim().min(20).max(200_000),
@@ -445,6 +488,7 @@ server.registerTool(
             : `write_memory(path=\"${path}\" lands in self_improvement)`,
         );
       }
+      await assertTopologyPathValid({ dataset: datasetId, name, path });
       return jsonResponse(
         withWikiCommit({ op: "mcp-write-memory", actor: "mcp" }, () =>
           impl.writeMemory({

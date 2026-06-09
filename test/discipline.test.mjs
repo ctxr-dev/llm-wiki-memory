@@ -19,6 +19,12 @@ test("INSTRUCTIONS names the core discipline tools", () => {
   }
 });
 
+test("INSTRUCTIONS encodes the topology-path discipline (rule 10)", () => {
+  assert.match(INSTRUCTIONS, /topology:` block/i);
+  assert.match(INSTRUCTIONS, /MUST pass `path=`/);
+  assert.match(INSTRUCTIONS, /REFUSED by the server/i);
+});
+
 test("INSTRUCTIONS encodes the attempt-first routing rule", () => {
   assert.match(INSTRUCTIONS, /health check IS the attempt/);
   assert.match(INSTRUCTIONS, /ALWAYS try the save FIRST/);

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { wikiRoot, defaultProjectModule } from "./lib/env.mjs";
-import { listDocuments, readDocument, updateDocMetadata } from "./lib/wiki-store.mjs";
+import { listDocuments, readDocument, updateDocMetadata, categoryHasTopology } from "./lib/wiki-store.mjs";
 import { indexRebuildAll, validate } from "./lib/wiki-cli.mjs";
 
 // One-shot upgrade for wikis built before the project_module/area split:
@@ -28,6 +28,10 @@ export function migrate({ dryRun = false, check = false } = {}) {
   const { documents } = listDocuments({});
   const candidates = [];
   for (const doc of documents) {
+    // Topology categories (tracker `issues`) nest by the path-compiler, carry no
+    // facet `area`, and reject an unpinned updateDocMetadata — skip them so a
+    // legacy issues leaf can't abort this one-shot facet migration.
+    if (categoryHasTopology(doc.datasetId)) continue;
     let meta;
     try {
       meta = readDocument({ documentId: doc.id, datasetId: doc.datasetId }).metadata || {};

@@ -3,7 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import matter from "gray-matter";
 import { wikiRoot } from "./lib/env.mjs";
-import { CATEGORIES, updateDocMetadata } from "./lib/wiki-store.mjs";
+import { getCategories, categoryHasTopology, updateDocMetadata } from "./lib/wiki-store.mjs";
 import { ensureIndexes, validate } from "./lib/wiki-cli.mjs";
 import { facetIssues, classifyFacetsLLM } from "./lib/facets.mjs";
 
@@ -20,7 +20,13 @@ import { facetIssues, classifyFacetsLLM } from "./lib/facets.mjs";
 // offenders + their issues (no LLM); a real run calls the LLM only for the
 // offenders. A clean wiki is a no-op.
 
-const FACET_CATEGORIES = CATEGORIES.filter((c) => c !== "daily");
+// Live list (getCategories triggers layout load; the module-level CATEGORIES
+// binding is empty until then). Excludes `daily` (date-placed) and any topology
+// category (path-compiler-placed, no facet `area` — would be flagged forever
+// and reject the unpinned updateDocMetadata).
+function facetCategories() {
+  return getCategories().filter((c) => c !== "daily" && !categoryHasTopology(c));
+}
 
 function relPosix(wiki, abs) {
   return path.relative(wiki, abs).split(path.sep).join("/");
@@ -53,7 +59,7 @@ function leafOf(abs) {
 function findOffenders(wiki) {
   const offenders = [];
   const unparseable = [];
-  for (const cat of FACET_CATEGORIES) {
+  for (const cat of facetCategories()) {
     for (const abs of walkLeaves(path.join(wiki, cat))) {
       const leaf = leafOf(abs);
       if (!leaf.ok) {
@@ -72,7 +78,7 @@ function findOffenders(wiki) {
 // re-indexed by the caller. Bottom-up so nested empties collapse.
 function pruneEmptyDirs(wiki) {
   const pruned = [];
-  for (const cat of FACET_CATEGORIES) {
+  for (const cat of facetCategories()) {
     const catAbs = path.join(wiki, cat);
     if (!fs.existsSync(catAbs)) continue;
     const dirs = [];

@@ -388,7 +388,7 @@ async function main() {
     }
     case "nest": {
       const { migrateNest } = await import("./migrate-nest.mjs");
-      const res = migrateNest({ dryRun: rest.includes("--dry-run"), check: rest.includes("--check") });
+      const res = await migrateNest({ dryRun: rest.includes("--dry-run"), check: rest.includes("--check") });
       out(res);
       if (res.mode === "check" && !res.ok) process.exit(3);
       if (res.mode === "migrate" && !res.ok) process.exit(2);

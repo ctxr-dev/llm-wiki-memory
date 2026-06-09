@@ -78,6 +78,14 @@ Do NOT invoke when:
    an existing leaf. Idempotent: re-running with the same content yields
    no changes.
 
+   `issues` is a TOPOLOGY category: the `path` above is MANDATORY and must
+   match the layout's topology for the leaf's file_kind (here `<KEY>.md` is a
+   tracker-`knowledge` leaf, so the path has NO `<lifecycle>` segment; a
+   `<KEY>-<slug>.plan.md` leaf would). Compute it from `.layout/layout.yaml`
+   (see the `topology-path-routing` rule). A missing or topology-mismatched
+   `path` is refused by the server — it would otherwise land flat at the
+   category root.
+
 4. **Lessons learned are WRITE-GATED — propose, don't save.** If the
    session produced a generalisable lesson (not specific to this one
    issue), PROPOSE it to the user in one short line (e.g. *"Want me to

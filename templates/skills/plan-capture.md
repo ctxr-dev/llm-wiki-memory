@@ -24,7 +24,7 @@ The project ships a `PostToolUse` hook (`scripts/hooks/exit-plan-mode.mjs`, invo
 
 Iterating on the SAME plan title overwrites the SAME wiki leaf: no duplicates accumulate. The hook skips cleanly (exit 0) with a stderr message on rejection (`approved !== true`), empty plans, or any wiki write failure.
 
-You do NOT need to manually save approved plans. The hook handles it. For a **tracker-bound** plan (a Jira/Linear/GitHub issue exists), promote the capture to the `issues` tree (`save_to_dataset(dataset="issues", …)`) and disable/delete this `plans/` copy — see the planning-methodology rule's *routing precedence*.
+You do NOT need to manually save approved plans. The hook handles it. For a **tracker-bound** plan (a Jira/Linear/GitHub issue exists), promote the capture to the `issues` tree and disable/delete this `plans/` copy. The `issues` tree is a TOPOLOGY category: you MUST pass an explicit `path=` computed from `.layout/layout.yaml` (e.g. `save_to_dataset(dataset="issues", name="DEV-129957-fix.plan.md", path="issues/JIRA/DEV/129/95/7/in-progress", …)`) — a no-path or topology-mismatched save is refused. See the `topology-path-routing` rule for how to compute the path, and the planning-methodology rule for routing precedence.
 
 ## When to save manually
 
