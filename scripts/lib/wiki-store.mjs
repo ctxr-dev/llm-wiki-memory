@@ -279,6 +279,16 @@ export function categoryHasTopology(category) {
   return Boolean(TOPOLOGY_CATEGORIES[String(category || "")]);
 }
 
+// Public accessor for a category's declared placement facets (a fresh copy; []
+// when the category is flat / undeclared). Lets layout-aware tooling (e.g. the
+// `doctor` scan) tell a facet-managed category (knowledge / self_improvement /
+// plans / ...) from a flat human-curated one without re-reading the YAML.
+export function getPlacementFacets(category) {
+  ensureLayoutLoaded();
+  const f = PLACEMENT_FACETS[String(category || "")];
+  return Array.isArray(f) ? [...f] : [];
+}
+
 // Fail loud (never default to the category root) when a topology category is
 // written without an explicit placement path. Facet placement can't express a
 // topology tree, so a no-path write would silently land flat at the root — the
@@ -337,7 +347,9 @@ function isActive(data) {
 function deriveTitle({ metadata, text, name }) {
   if (metadata && metadata.title) return String(metadata.title).trim();
   const h1 = String(text || "").match(/^#\s+(.+?)\s*$/m);
-  if (h1) return h1[1].trim();
+  // A separator-only ATX heading (`# ===…`, `# ---`, `# ***`) is decoration, not a
+  // title — fall through to the basename so the leaf isn't named "===" / "---".
+  if (h1 && !/^[=\-_*#>~\s]+$/.test(h1[1])) return h1[1].trim();
   return truncateAtWordBoundary(String(name || "untitled").replace(/\.md$/, "").replace(/[-_]/g, " "), 80);
 }
 
@@ -989,6 +1001,97 @@ export function updateDocMetadata({ datasetId, documentId, metadata, placementOv
     reason: commitReason || "metadata update",
   });
   return { ok: true };
+}
+
+// Relocate a leaf to a caller-chosen `toPath` (dir + filename), preserving its
+// content verbatim, its cached embedding, and refreshing BOTH the source and
+// destination ancestor indexes. Atomic order mirrors saveDocument's relocate
+// branch (write-new -> rm-old) so a half-replicated cloud-sync move can't lose data.
+//
+// LAYOUT-AWARE by regime, never a hardcoded category set: a free `toPath` is only
+// safe for the curated human zone (consolidate:none, NO placement facets, not
+// topology, not daily). Facet categories place by metadata (a free path would
+// desync frontmatter<->path and get relocated back on the next upsert) -> use
+// updateDocMetadata. Topology categories nest via the path-compiler (a free path
+// re-opens the stranded-leaf bug) -> re-save with a compiled path. Both are
+// REFUSED here with an actionable message rather than silently corrupting placement.
+export function moveDocument({ documentId, fromPath, toPath, datasetId } = {}) {
+  const fromId = documentId || fromPath;
+  if (!fromId || !toPath) {
+    throw new WikiStoreUnavailable("moveDocument requires documentId (or fromPath) and toPath");
+  }
+  const fromAbs = toAbs(fromId);
+  if (!fs.existsSync(fromAbs)) return { ok: false, reason: `leaf not found: ${fromId}` };
+  const fromRel = toRel(fromAbs);
+
+  const toStr = String(toPath).trim();
+  const slash = toStr.lastIndexOf("/");
+  if (slash < 0) {
+    return {
+      ok: false,
+      reason: `toPath must be a category dir + filename (e.g. "Notes/My Note.md"); got ${JSON.stringify(toStr)}`,
+    };
+  }
+  let toDir;
+  let safeName;
+  try {
+    toDir = normalisePlacementOverride(toStr.slice(0, slash));
+    ({ name: safeName } = normalizeLeafNamePreservingCase(toStr.slice(slash + 1)));
+  } catch (e) {
+    return { ok: false, reason: `invalid toPath: ${e.message}` };
+  }
+
+  // Regime guard on BOTH the source and destination top-level categories.
+  const srcCat = slotToCategory(fromRel.split("/")[0]);
+  const dstCat = slotToCategory(toDir.split("/")[0]);
+  for (const [role, cat] of [["source", srcCat], ["destination", dstCat]]) {
+    if (!CATEGORIES.includes(cat)) {
+      return { ok: false, reason: `${role} category "${cat}" is not declared in the layout` };
+    }
+    if (categoryHasTopology(cat)) {
+      return {
+        ok: false,
+        reason: `${role} category "${cat}" is topology-managed; moveDocument cannot relocate it by free path — re-save with a compiler-derived path.`,
+      };
+    }
+    if (getPlacementFacets(cat).length > 0) {
+      return {
+        ok: false,
+        reason: `${role} category "${cat}" places by facet metadata; relocate via updateDocMetadata / save metadata, not a free path.`,
+      };
+    }
+    if (cat === "daily") {
+      return { ok: false, reason: `${role} category "daily" is date-nested and not movable by path.` };
+    }
+  }
+
+  const toAbsPath = path.join(root(), toDir.split("/").join(path.sep), safeName);
+  if (path.resolve(toAbsPath) === path.resolve(fromAbs)) {
+    return { ok: true, moved: false, reason: "source and destination are identical" };
+  }
+  if (fs.existsSync(toAbsPath)) {
+    return {
+      ok: false,
+      reason: `destination ${toDir}/${safeName} is occupied by a different leaf; refusing to overwrite`,
+      conflict: { from: fromRel, to: toRel(toAbsPath) },
+    };
+  }
+
+  const raw = fs.readFileSync(fromAbs, "utf8");
+  fs.mkdirSync(path.dirname(toAbsPath), { recursive: true });
+  writeFileAtomic(toAbsPath, raw); // verbatim — moving must not re-render content
+  fs.rmSync(fromAbs);
+  const toRelPath = toRel(toAbsPath);
+  renameEmbedding(fromRel, toRelPath); // content unchanged -> keep the cached vector
+  ensureIndexes(root(), [fromAbs, toAbsPath]); // refresh both source + destination ancestors
+  pruneEmptyAncestors(path.dirname(fromAbs), root());
+  recordWikiChange({
+    action: "moved",
+    leafRelPath: toRelPath,
+    reason: "moveDocument (manual relocate)",
+    extraPaths: [fromRel],
+  });
+  return { ok: true, moved: true, from: fromRel, to: toRelPath };
 }
 
 // Soft-delete: mark archived so listings/search skip it; file stays in git.

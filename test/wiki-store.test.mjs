@@ -252,6 +252,26 @@ test("long scalars are not folded into block scalars (validate stays clean)", ()
   );
 });
 
+test("a separator-only ATX heading does not become the title (falls back to basename)", () => {
+  // `# ===========` is decoration emitted by some note styles, not a title. The
+  // H1 regex matches it, so without the guard the leaf would be titled "===".
+  const res = store.writeMemory({
+    name: "knowledge-separator-title-2026-06-11-000000000.md",
+    text: "# ==============================\n\nReal body prose for the separator-title guard.\nWhy: decoration must not name the leaf.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "reference", project_module: "llm-wiki-memory" }, // no title -> derive
+  });
+  const id = res.created.document.id;
+  const abs = path.join(wiki, id.split("/").join(path.sep));
+  const fm = fs.readFileSync(abs, "utf8").split("\n---", 2)[0];
+  // The derived title lands in the `focus` frontmatter field.
+  const focus = (fm.match(/^focus:\s*(.+)$/m) || [, ""])[1].trim().replace(/^["']|["']$/g, "");
+  assert.ok(focus, "a focus/title was written");
+  assert.ok(!/^[=\-_*#>~\s]+$/.test(focus), `title must not be separator-only, got ${JSON.stringify(focus)}`);
+  assert.match(focus, /separator/, "fell back to the basename-derived title");
+  assert.equal(cli.validate(wiki).ok, true, "validate clean");
+});
+
 test("non-daily leaves nest by metadata facets (search-aligned)", () => {
   const lesson = store.saveDocument({
     name: "lesson-always-await-2026-05-25-120000000.md",

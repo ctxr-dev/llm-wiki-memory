@@ -402,9 +402,35 @@ async function main() {
       if (res.mode === "migrate" && !res.ok) process.exit(2);
       return;
     }
+    case "doctor": {
+      // Read-only curated-wiki health scan: broken index refs, leaves missing from
+      // their index, raw no-frontmatter strays, orphans. Layout-derived (see
+      // lib/doctor.mjs). Exit 3 on findings (mirrors nest/migrate --check) so a
+      // cron/CI preflight can key on it. Run after a suspected cloud-sync event.
+      const { doctor } = await import("./lib/doctor.mjs");
+      const report = doctor(wikiRoot());
+      out(report);
+      process.exit(report.ok ? 0 : 3);
+    }
+    case "move-leaf": {
+      // Relocate a curated leaf: move-leaf <from> <to> (wiki-relative paths).
+      // moveDocument refuses facet/topology/daily regimes (see wiki-store.mjs).
+      const [from, to] = rest.filter((a) => !a.startsWith("--"));
+      if (!from || !to) {
+        process.stderr.write("usage: llm-wiki-memory move-leaf <from> <to>\n");
+        process.exit(64);
+      }
+      const { moveDocument } = await import("./lib/wiki-store.mjs");
+      const { withWikiCommit } = await import("./lib/wiki-commit.mjs");
+      const res = withWikiCommit({ op: "cli-move-leaf", actor: "cli" }, () =>
+        moveDocument({ fromPath: from, toPath: to }),
+      );
+      out(res);
+      process.exit(res.ok ? 0 : 2);
+    }
     default:
       out(
-        "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|recall <q>|search <q>|redistill --leaf <path> | --session <id> | --all>",
+        "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|doctor|move-leaf <from> <to>|recall <q>|search <q>|redistill --leaf <path> | --session <id> | --all>",
       );
       process.exit(cmd ? 1 : 0);
   }

@@ -308,3 +308,51 @@ On failure, `stage` (`validate_facets` | `compile`) plus `errors[]` /
 | `path_template` (only) | Topology nests are trivial substitutions of caller-supplied facets — no math, no conditionals. |
 | `to_path` / `from_path` (inline) | Quick prototypes; one-liner arrows. Keeps all logic in the YAML for grep-ability. |
 | `to_path_file` / `from_path_file` (default, recommended) | Logic is more than a one-liner, deserves its own file with unit tests, and can be shared across file_kinds via named exports. Drop the file into `wiki/layout/`. |
+
+## Index leaf contract (`index.md`)
+
+Every directory that holds leaves carries exactly **one** `index.md` — a thin
+navigation node, not a content page. `cli.mjs doctor` checks this contract;
+violations surface as `brokenRefs` / `unlisted` / `orphans`.
+
+- **One per directory.** A directory has at most one `index.md`; it is the
+  parent every sibling leaf points at.
+- **`parents: ["index.md"]`.** Each non-index leaf declares its directory's
+  index as its parent. The index itself points at its own parent index (or none
+  at the wiki root).
+- **Every reference resolves.** A name listed under the index's children (or in
+  the engine's index records) must correspond to a leaf that exists on disk. A
+  dangling reference is a `brokenRef` — the usual cause is an out-of-band file
+  move (a manual `mv`, a `git` operation, or a cloud-sync daemon relocating the
+  leaf). See the `cloud-sync-safety` rule.
+- **Thin authored zone.** The human-authored part of an index is a short nav
+  blurb plus links: keep it under ~2 KB and **free of fenced code blocks** (a
+  fence can swallow following list items in some markdown parsers and confuses
+  the thin-node heuristic). Substantial content belongs in its own leaf, linked
+  from the index — never inlined into it.
+
+`doctor` is layout-derived: it runs the broken-reference check on every
+non-topology category and the stray / unlisted / orphan heuristics only on
+curated, facet-free categories (it skips topology and `daily-date` categories,
+which nest by a compiler / by date rather than by a hand-authored index).
+
+## Filename constraints
+
+A leaf's **filename** is also a URL component (Obsidian `obsidian://open?file=…`
+deep-links, web exports, some MCP clients), so keep URI-reserved and
+shell-hostile characters OUT of filenames — put the decorative symbols in the
+note's `# H1` / `title`, not the filename.
+
+- **Avoid in filenames:** `& # ? % / \ : < > " | *`, control characters, and a
+  leading `.` or `..`. An `&` is the worst offender: an `obsidian://` link to
+  `Enable & Verify.md` truncates at the `&` and silently opens/creates a blank
+  `Enable ` note. (Percent-encoding the `&` as `%26` does NOT help — the issue is
+  the raw filename, and a double-encoded link is worse.)
+- **Prefer:** spaces or `-` as separators, ASCII words; write `Enable and Verify`,
+  not `Enable & Verify`. Deep-links then need only space-encoding (`%20`).
+- The engine's `normalizeLeafNamePreservingCase` already throws on
+  `[<>:"/\|?*]`, control characters, and `..`; this constraint extends the same
+  hygiene to the human-authored Title-Case names that bypass slugification.
+- A separator-only `# ===…` ATX heading is treated as decoration, not a title:
+  the engine derives the leaf's title from the basename instead, so a divider
+  line can't become the note's name.

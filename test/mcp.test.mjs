@@ -144,3 +144,79 @@ test("save_to_dataset upserts and search_memory finds it", async () => {
   );
   assert.ok(found.records.some((r) => r.documentName === "knowledge-mcp-note.md"), "search finds the note");
 });
+
+test("move_document is registered", async () => {
+  const { tools } = await client.listTools();
+  assert.ok(tools.map((t) => t.name).includes("move_document"), "move_document registered");
+});
+
+test("move_document refuses a facet-category free-path move (structured, no crash)", async () => {
+  // The default test layout has only facet/daily categories — none curated. A
+  // facet leaf relocates by metadata, so a raw-path move must be refused with a
+  // structured reason, not throw and kill the server.
+  const saved = parse(
+    await client.callTool({
+      name: "save_to_dataset",
+      arguments: {
+        dataset: "knowledge",
+        name: "knowledge-move-victim.md",
+        text: "# Move victim\n\nA facet leaf relocates by metadata, never a raw path.",
+        metadata: { atom_type: "reference", project_module: "testproj" },
+      },
+    }),
+  );
+  assert.equal(saved.ok, true);
+  const id = saved.created.document.id;
+  const res = parse(
+    await client.callTool({
+      name: "move_document",
+      arguments: { documentId: id, toPath: "knowledge/elsewhere/knowledge-move-victim.md" },
+    }),
+  );
+  assert.equal(res.ok, false, "facet move refused, not thrown");
+  assert.match(res.reason, /facet/, `structured refusal reason: ${JSON.stringify(res)}`);
+});
+
+test("search_memory excerpts oversized hit bodies at the MCP boundary; fullContent opts out", async () => {
+  const marker = "zqxoverflowmarker";
+  const huge = `# Huge note\n\n${`${marker} padding sentence number. `.repeat(400)}`;
+  assert.ok(huge.length > 5000, "body is genuinely large");
+  const saved = parse(
+    await client.callTool({
+      name: "save_to_dataset",
+      arguments: {
+        dataset: "knowledge",
+        name: "knowledge-huge-body.md",
+        text: huge,
+        metadata: { atom_type: "reference", project_module: "testproj" },
+      },
+    }),
+  );
+  assert.equal(saved.ok, true);
+
+  const clipped = parse(
+    await client.callTool({
+      name: "search_memory",
+      arguments: { query: `${marker} padding sentence`, filters: { project_module: "testproj" } },
+    }),
+  );
+  const hit = clipped.records.find((r) => r.documentName === "knowledge-huge-body.md");
+  assert.ok(hit, "huge note found");
+  assert.ok(hit.content.length < 1000, `body excerpted, got ${hit.content.length}`);
+  assert.equal(hit.truncated, true);
+  assert.ok(hit.fullChars > hit.content.length, "fullChars records the original length");
+
+  const full = parse(
+    await client.callTool({
+      name: "search_memory",
+      arguments: {
+        query: `${marker} padding sentence`,
+        filters: { project_module: "testproj" },
+        fullContent: true,
+      },
+    }),
+  );
+  const fullHit = full.records.find((r) => r.documentName === "knowledge-huge-body.md");
+  assert.ok(fullHit.content.length > 1000, "fullContent returns the whole body");
+  assert.equal(fullHit.truncated, undefined, "no truncation flag when full");
+});

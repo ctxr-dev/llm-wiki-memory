@@ -392,16 +392,21 @@ The **LLM provider** that extracts typed atoms during capture / compile / consol
 | Tool | Purpose |
 | --- | --- |
 | `recall_lessons` | Recall self-improvement lessons before a task (fall-back ladder drops `error_pattern`, then `language`, then `task_type`). |
-| `search_memory` | Cross-category embedding search with metadata pre-filtering. |
+| `search_memory` | Cross-category embedding search with metadata pre-filtering. Hit bodies are excerpted at the response boundary (per-hit + total budget) so a broad query can't overflow; pass `fullContent: true` for whole bodies. |
 | `save_lesson` | **Write-gated.** Persist a lesson after explicit user yes (requires `userRequested: true`). |
 | `save_to_dataset` | Upsert a plan, investigation, knowledge artefact, or other category by name. Write-gated when `dataset="self_improvement"`. |
 | `write_memory` | Create a memory leaf, optionally superseding an existing one. Write-gated when `datasetId="self_improvement"`. |
 | `consolidate_memory` | Run the deterministic + LLM consolidation passes. System-maintenance; not write-gated. |
 | `disable_document` / `enable_document` / `delete_document` | Archive (reversible) or remove a leaf. |
+| `move_document` | Relocate a leaf within the curated (`consolidate: none`, non-facet) zone, preserving content + embedding + both `index.md` files. Facet / topology categories relocate via metadata / compiler path instead, and are refused. |
 | `audit_memory` | Surface duplicate keys, missing metadata, and cleanup candidates. |
 | `list_datasets`, `get_memory_config`, `reload_provider`, `reload_layout` | Inspect categories, config, LLM provider, and force-refresh caches. |
 | `validate_layout`, `validate_topology`, `test_path_compiler` | Layout + topology + placement-compiler sanity checks. |
 ![](docs/assets/line-thin.svg)
+
+Two read-only CLI counterparts have no MCP tool: `cli.mjs doctor` (a layout-derived health scan that lists broken index references and stray / orphan leaves, exit `3` on findings) and `cli.mjs move-leaf <from> <to>` (the curated-move above, from a shell). Run `doctor` after any suspected cloud-sync event.
+
+> **Caveat — cloud-synced workspaces.** A sync daemon (Drive, Dropbox, iCloud, OneDrive) can relocate, revert, or half-replicate files mid-session and strip the executable bit from shell scripts. The wiki's own git repo is the source of truth: commit per step, recover with `git reset --hard HEAD`, run `cli.mjs doctor` after a suspected scramble, and set `git config core.fileMode false` in the `src/` clone so mode-only changes don't block `--ff-only` updates. The shipped `cloud-sync-safety` rule (rendered by bootstrap) carries the full checklist.
 
 ## Configuration
 ![](docs/assets/line-bold.svg)

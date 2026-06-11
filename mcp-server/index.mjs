@@ -16,6 +16,7 @@ import { activeBackend } from "../scripts/lib/embed.mjs";
 import { INSTRUCTIONS } from "../scripts/lib/discipline.mjs";
 import { isSystemMaintenance } from "../scripts/lib/maintenance-tag.mjs";
 import { loadTopology, parsePath } from "../scripts/lib/topology-runtime.mjs";
+import { clampSearchResponse } from "../scripts/lib/search-clamp.mjs";
 
 // Topology categories (e.g. tracker `issues`) nest via the path-compiler, not
 // facet placement. Reject a no-path write up front with an actionable message
@@ -278,18 +279,21 @@ server.registerTool(
   {
     title: "Search project memory",
     description:
-      "Search the local wiki memory and return scored chunks. Pass `filters` (atom_type, area, language, task_type, error_pattern, tags) to pre-filter by frontmatter metadata before embedding rank. `area` scopes to a sub-module. `datasets` accepts category names; default searches every category. project_module is the workspace identifier and is auto-injected when you pass `filters` (so results stay within this install).",
+      "Search the local wiki memory and return scored chunks. Pass `filters` (atom_type, area, language, task_type, error_pattern, tags) to pre-filter by frontmatter metadata before embedding rank. `area` scopes to a sub-module. `datasets` accepts category names; default searches every category. project_module is the workspace identifier and is auto-injected when you pass `filters` (so results stay within this install). Hit bodies are EXCERPTED by default (~600 chars each + a total budget) so a broad query can't overflow the response; pass `fullContent:true` (or read a leaf by id) for whole bodies, or `maxChars` to tune the excerpt width.",
     inputSchema: {
       query: z.string().trim().min(1).max(1000),
       datasets: z.array(z.string().trim().min(1)).optional(),
       filters: FilterSchema.optional(),
       scoreThreshold: z.number().min(0).max(1).optional(),
       maxResults: z.number().int().min(1).max(50).optional(),
+      maxChars: z.number().int().min(80).max(20000).optional(),
+      fullContent: z.boolean().optional(),
     },
   },
-  async ({ query, datasets, filters, scoreThreshold, maxResults }) => {
+  async ({ query, datasets, filters, scoreThreshold, maxResults, maxChars, fullContent }) => {
     try {
-      return jsonResponse(await impl.searchMemory({ query, datasets, filters, scoreThreshold, maxResults }));
+      const result = await impl.searchMemory({ query, datasets, filters, scoreThreshold, maxResults });
+      return jsonResponse(clampSearchResponse(result, { maxChars, fullContent }));
     } catch (error) {
       return errorResponse(error);
     }
@@ -313,11 +317,13 @@ server.registerTool(
       includeKnowledge: z.boolean().optional(),
       scoreThreshold: z.number().min(0).max(1).optional(),
       maxResults: z.number().int().min(1).max(20).optional(),
+      maxChars: z.number().int().min(80).max(20000).optional(),
+      fullContent: z.boolean().optional(),
     },
   },
-  async (args) => {
+  async ({ maxChars, fullContent, ...args }) => {
     try {
-      return jsonResponse(await impl.recallLessons(args));
+      return jsonResponse(clampSearchResponse(await impl.recallLessons(args), { maxChars, fullContent, perHitDefault: 1500 }));
     } catch (error) {
       return errorResponse(error);
     }
@@ -554,6 +560,28 @@ server.registerTool(
     try {
       return jsonResponse(withWikiCommit({ op: "mcp-delete", actor: "mcp" }, () =>
         impl.deleteDocument({ documentId, datasetId: dataset })));
+    } catch (error) {
+      return errorResponse(error);
+    }
+  },
+);
+
+server.registerTool(
+  "move_document",
+  {
+    title: "Relocate a curated leaf to a new path (preserves content, embedding, indexes)",
+    description:
+      "Move a leaf to a new path within the CURATED human zone, preserving its content + embedding and refreshing both the source and destination index.md. Free-path moves are only for curated (consolidate:none, non-facet) categories — facet categories relocate via metadata (save_to_dataset / write_memory), and topology categories via a compiler-derived path; moves into/out of those are refused. Also refuses a destination collision or a missing source. toPath is a wiki-relative dir + filename, e.g. \"Notes/Testing/My Note.md\".",
+    inputSchema: {
+      dataset: z.string().trim().min(1).optional(),
+      documentId: z.string().trim().min(1),
+      toPath: z.string().trim().min(1).max(500),
+    },
+  },
+  async ({ dataset, documentId, toPath }) => {
+    try {
+      return jsonResponse(withWikiCommit({ op: "mcp-move", actor: "mcp" }, () =>
+        impl.moveDocument({ documentId, datasetId: dataset, toPath })));
     } catch (error) {
       return errorResponse(error);
     }
