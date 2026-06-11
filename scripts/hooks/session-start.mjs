@@ -144,11 +144,33 @@ try {
   );
 }
 
+// Self-observability surface — DETERMINISTIC, MINIMAL (opt-in feature).
+// When unreviewed monitoring captures exist (status:open), emit ONE short line so
+// the user can decide whether to triage. Empty (omitted) otherwise — which is the
+// case on every install that did not opt into self-observability (the monitoring
+// dir is absent, so monitoringHealth returns healthy with no scan cost).
+let monitoringSection = "";
+try {
+  const { monitoringHealth } = await import("../lib/monitoring.mjs");
+  const m = monitoringHealth({ limit: 0 });
+  if (!m.healthy && m.open > 0) {
+    monitoringSection =
+      "\n\n## Memory self-observability: unreviewed anomalies\n\n" +
+      m.summary +
+      "\n\nCaptured by an earlier session under `.llm-wiki-memory/monitoring/`. ASK the user " +
+      "before triaging; details via `node .llm-wiki-memory/src/scripts/cli.mjs monitoring-health`.\n";
+  }
+} catch (err) {
+  console.error(
+    `session-start.mjs: monitoring-health skipped: ${err instanceof Error ? err.message : err}`,
+  );
+}
+
 console.log(
   JSON.stringify({
     hookSpecificOutput: {
       hookEventName: "SessionStart",
-      additionalContext: disciplineContext + workContext + cronHealthSection,
+      additionalContext: disciplineContext + workContext + cronHealthSection + monitoringSection,
     },
   }),
 );

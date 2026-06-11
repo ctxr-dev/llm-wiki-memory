@@ -55,5 +55,18 @@ no Docker) in this project. Follow these steps EXACTLY; do not improvise.
       cron-health. If HEAD already equals `origin/main`, say "already up to
       date" and stop.
 
-4. Never run `git add -A`, never commit or push anything; show the user the
+4. **Offer self-observability (opt-in — ask once).** After bootstrap finishes,
+   check whether `.llm-wiki-memory/settings/self-observability.enabled` exists.
+   - If it does NOT, ASK the user once: "Enable llm-wiki-memory
+     self-observability? The agent will watch the memory system while you work,
+     record redacted anomaly captures under `.llm-wiki-memory/monitoring/`, and
+     offer to plan engine fixes at session-end. Opt-in; default off." If they
+     say yes, run `./.llm-wiki-memory/src/bootstrap.sh --enable-self-observability`
+     (it references the `self-observability` rule into `.agents/rules`,
+     `.claude/rules`, `.cursor/rules` and records consent in that sentinel). If
+     they decline, do nothing.
+   - If the sentinel ALREADY exists, consent was given previously — do NOT
+     re-ask; the flag-less bootstrap re-run above already preserved it.
+
+5. Never run `git add -A`, never commit or push anything; show the user the
    resulting change set and let them gate the git writes.

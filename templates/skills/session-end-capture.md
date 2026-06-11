@@ -102,7 +102,18 @@ Do NOT invoke when:
    current. Your job here is the *content* layer (issue narrative,
    lessons), not the *mechanical* layer (status fields, folder moves).
 
-6. **Don't fabricate.** If you didn't actually learn or do anything
+6. **Offer to triage llm-wiki-memory anomalies (self-observability).** If
+   this project opted into self-observability, check
+   `node .llm-wiki-memory/src/scripts/cli.mjs monitoring-health`; when
+   `open > 0`, OFFER the user — in ONE line — to review the captured
+   llm-wiki-memory anomalies and plan fixes for `.llm-wiki-memory/src`.
+   Surface the count + signatures; do NOT auto-open or auto-fix. On yes,
+   read the captures and follow the `self-observability` rule (plan via
+   ExitPlanMode → `plans/`, or the `issues` tree if tracker-bound), then mark
+   each handled capture with `cli.mjs monitor --resolve <path>`. This is a
+   no-op on installs that did not opt in (no captures exist).
+
+7. **Don't fabricate.** If you didn't actually learn or do anything
    durable, skip the capture. False positives pollute the wiki and make
    future recall noisier.
 
@@ -114,6 +125,7 @@ Tell the user briefly what you captured:
 Captured to wiki:
 - Issue: `DEV-129957` — appended 2 investigation notes (Cassandra timeout, rc22 bisect)
 - Lesson: `cats-effect resource leak detection via heap dump` (self_improvement)
+- Self-observability: 2 open llm-wiki-memory anomalies — offered to plan src fixes
 ```
 
 Or, if nothing was captured:

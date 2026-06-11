@@ -6,11 +6,19 @@
 # Expected layout: this script lives at <workspace>/.llm-wiki-memory/src/bootstrap.sh
 #
 # Usage:
-#   ./.llm-wiki-memory/src/bootstrap.sh [--commit-memory] [--provider claude|codex|anthropic|openai|openai-compatible|mock] [--schedule daily|off]
+#   ./.llm-wiki-memory/src/bootstrap.sh [--commit-memory] [--provider claude|codex|anthropic|openai|openai-compatible|mock] [--schedule daily|off] [--enable-self-observability|--disable-self-observability]
 #
 #   --commit-memory  Do NOT gitignore the whole ./.llm-wiki-memory tree; commit
 #                    the wiki content (still ignores node_modules, the embed
 #                    index, and settings/.env). Default: ignore the whole tree.
+#   --enable-self-observability / --disable-self-observability
+#                    Opt in / out of self-observability: reference the
+#                    `self-observability` rule into this project's rule dirs so
+#                    the agent records llm-wiki-memory anomalies under
+#                    .llm-wiki-memory/monitoring/ and offers engine fixes at
+#                    session-end. Consent persists in a settings sentinel across
+#                    re-runs; default: leave prior consent untouched (off when
+#                    never set).
 #   --schedule       daily: (re)install a daily compile job (launchd on macOS,
 #                    crontab on Linux). off: remove it. Default: do nothing.
 #   --provider       Explicit choice. Otherwise auto-detected in priority order:
@@ -34,11 +42,14 @@ DATA_DIR="$WORKSPACE_DIR/.llm-wiki-memory"
 COMMIT_MEMORY=0
 PROVIDER=""
 SCHEDULE=""
+SELF_OBS=""   # "on" enables, "off" disables, "" leaves prior consent untouched
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --commit-memory) COMMIT_MEMORY=1; shift ;;
     --provider) PROVIDER="${2:-}"; shift 2 ;;
     --schedule) SCHEDULE="${2:-}"; shift 2 ;;
+    --enable-self-observability)  SELF_OBS="on";  shift ;;
+    --disable-self-observability) SELF_OBS="off"; shift ;;
     *) echo "unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -281,7 +292,9 @@ if [ -d "$WORKSPACE_RULES_DIR" ]; then
     # Skip rules ALSO shipped by the package — the hard-copy render above
     # already materialised those in every client dir; symlinking them would
     # shadow the shipped copy with a link to the (also-rendered) workspace one.
-    if [ -e "$SRC_DIR/templates/rules/$rule_name" ]; then
+    # self-observability.md is owned end-to-end by the opt-in wiring block below
+    # (independent pointers, never symlinks); keep this generic loop off it.
+    if [ -e "$SRC_DIR/templates/rules/$rule_name" ] || [ "$rule_name" = "self-observability.md" ]; then
       continue
     fi
     relpath="../../.agents/rules/$rule_name"
@@ -324,6 +337,42 @@ if [ -d "$WORKSPACE_RULES_DIR" ]; then
   fi
 fi
 
+# --- self-observability (OPT-IN): reference the rule into the project rule dirs ---
+# Consent is a sentinel under settings/ so a flag-less re-bootstrap (the normal
+# AI-install-prompt update path) PRESERVES it; we never derive consent from the
+# pointer files themselves (a cloud-sync daemon can scramble those). The reference
+# is three INDEPENDENT pointer files (never symlinks — Drive breaks them), each
+# @-including the canonical rule in src so its content tracks engine updates.
+SELF_OBS_SENTINEL="$DATA_DIR/settings/self-observability.enabled"
+SELF_OBS_CANON="$SRC_DIR/.agents/rules/self-observability.md"
+if [ "$SELF_OBS" = "on" ]; then
+  : > "$SELF_OBS_SENTINEL"
+elif [ "$SELF_OBS" = "off" ]; then
+  rm -f "$SELF_OBS_SENTINEL"
+fi
+if [ -f "$SELF_OBS_SENTINEL" ] && [ -f "$SELF_OBS_CANON" ]; then
+  for rdir in "$WORKSPACE_DIR/.agents/rules" "$WORKSPACE_DIR/.claude/rules" "$WORKSPACE_DIR/.cursor/rules"; do
+    mkdir -p "$rdir"
+    cat > "$rdir/self-observability.md" <<'EOF'
+# Self-observability (opt-in)
+
+Canonical rule (single source of truth; tracks engine updates):
+`.llm-wiki-memory/src/.agents/rules/self-observability.md`
+
+@../../.llm-wiki-memory/src/.agents/rules/self-observability.md
+
+If your client does not auto-resolve the `@`-include above, read the canonical
+file at the path named on the line before it.
+EOF
+  done
+  log "Self-observability ENABLED: rule referenced into .agents/rules, .claude/rules, .cursor/rules."
+else
+  # Disabled or never opted in: remove any stale pointers so the rule is truly off.
+  for rdir in "$WORKSPACE_DIR/.agents/rules" "$WORKSPACE_DIR/.claude/rules" "$WORKSPACE_DIR/.cursor/rules"; do
+    rm -f "$rdir/self-observability.md"
+  done
+fi
+
 # --- pointer block in AGENTS.md and CLAUDE.md (idempotent, marker-fenced) ---
 POINTER_CONTENT="$(cat <<'EOF'
 ## Project memory (llm-wiki-memory)
@@ -359,7 +408,7 @@ if [[ "$COMMIT_MEMORY" -eq 1 ]]; then
   # <data>/src/. Ignore the whole `state/` directory so locks + journals +
   # the consolidate/embed-gc bookkeeping never enter git, regardless of which
   # subsystem owns them.
-  for line in "/.llm-wiki-memory/src/node_modules" "/.llm-wiki-memory/index" "/.llm-wiki-memory/settings/.env" "/.llm-wiki-memory/settings/.env.bak" "/.llm-wiki-memory/state"; do
+  for line in "/.llm-wiki-memory/src/node_modules" "/.llm-wiki-memory/index" "/.llm-wiki-memory/settings/.env" "/.llm-wiki-memory/settings/.env.bak" "/.llm-wiki-memory/state" "/.llm-wiki-memory/monitoring" "/.llm-wiki-memory/settings/self-observability.enabled"; do
     grep -qxF "$line" "$GITIGNORE" || echo "$line" >> "$GITIGNORE"
   done
   log "Committing wiki content; ignoring node_modules / index / secrets only."

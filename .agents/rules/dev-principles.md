@@ -117,3 +117,12 @@ relax one without a review and (if user-visible) a release runbook.
   the `issues` tree; only custom plans flow through the ExitPlanMode hook into `plans/`.
   Do not "fix" one into the other, and confirm intent before filing any bug-root-cause
   about the memory system's own behaviour.
+- Self-observability is the INTERACTIVE counterpart to the cron self-healing path: when an
+  agent observes a confirmed llm-wiki-memory bug while working, the (opt-in) `self-observability`
+  rule has it record a redacted capture under `<data>/monitoring/` (via `cli.mjs monitor`,
+  reusing `redact` + `normalizeErrorSignature` + `writeFileAtomic`) and OFFER to plan an `src`
+  fix at session-end. That capture store is disjoint from cron's `issues/` + `state/` — never
+  cross-write them; cross-reference by signature only. The fix-PLANNING half lives here in the
+  dev rules (this is where engine fixes get designed and committed by the user); the
+  observe/capture/offer half ships as the rendered rule. See
+  `.agents/rules/self-observability.md`.
