@@ -104,12 +104,33 @@ test("saveDocument: valid topology path succeeds and nests", () => {
   assert.ok(fs.existsSync(path.join(wsA.wiki, "issues/JIRA/DEV/0/0/1/pending/DEV-1-x.plan.md")));
 });
 
-test("updateDocMetadata: unpinned update on a topology leaf throws; pinned to its dir is ok", () => {
+test("updateDocMetadata: UNPINNED in-place stamp on a topology leaf pins to curDir (no throw, no flatten)", () => {
+  // The recall-touch regression: an unpinned in-place metadata stamp (e.g.
+  // last_recalled_at) on a NESTED issues leaf must stay put — NOT throw, and
+  // NOT relocate to the category root. Pre-fix this threw (non-fatal log, no
+  // stamp); the old stale-instance code flattened it.
   const id = "issues/JIRA/DEV/0/0/1/pending/DEV-1-x.plan.md";
-  assert.throws(
-    () => store.updateDocMetadata({ datasetId: "issues", documentId: id, metadata: { tags: "a" } }),
-    /topology block .* requires an explicit path/i,
+  const res = store.updateDocMetadata({
+    datasetId: "issues",
+    documentId: id,
+    metadata: { last_recalled_at: "2026-06-11T00:00:00.000Z", recall_count: 1 },
+  });
+  assert.equal(res.ok, true, "in-place stamp succeeds without a path");
+  assert.ok(!res.relocated, "leaf was NOT relocated");
+  assert.ok(
+    fs.existsSync(path.join(wsA.wiki, "issues/JIRA/DEV/0/0/1/pending/DEV-1-x.plan.md")),
+    "leaf stayed at its nested topology path",
   );
+  assert.ok(
+    !fs.existsSync(path.join(wsA.wiki, "issues/DEV-1-x.plan.md")),
+    "leaf did NOT land flat at the category root",
+  );
+  const leaf = store.readLeafForConsolidate({ documentId: id });
+  assert.equal(leaf.memory.recall_count, 1, "the stamp was applied in place");
+});
+
+test("updateDocMetadata: an explicit pin to the leaf's dir still works", () => {
+  const id = "issues/JIRA/DEV/0/0/1/pending/DEV-1-x.plan.md";
   const ok = store.updateDocMetadata({
     datasetId: "issues",
     documentId: id,

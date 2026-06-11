@@ -11,7 +11,7 @@ Claude Code, Cursor, Codex, and every other MCP client forget everything when a 
 <br/>
 <br/>
 
-[![tests](https://img.shields.io/badge/TESTS-925_PASSING-0D0D14?style=for-the-badge&labelColor=5EFFC0)](#testing)
+[![tests](https://img.shields.io/badge/TESTS-958_PASSING-0D0D14?style=for-the-badge&labelColor=5EFFC0)](#testing)
 [![node](https://img.shields.io/badge/NODE-%E2%89%A5_20-0D0D14?style=for-the-badge&logo=nodedotjs&logoColor=0D0D14&labelColor=5EF6FF)](https://nodejs.org)
 [![license](https://img.shields.io/badge/LICENSE-MIT-0D0D14?style=for-the-badge&labelColor=FCEE0A)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-STDIO_SERVER-0D0D14?style=for-the-badge&logo=anthropic&logoColor=0D0D14&labelColor=5EF6FF)](https://modelcontextprotocol.io)
@@ -582,7 +582,7 @@ npm test           # unit suite
 npm run test:e2e   # full lifecycle against the real skill-llm-wiki CLI (LLM stubbed)
 ```
 
-**925 tests** in total. The unit suite covers the chunker (header/paragraph/hard-cut boundaries, surrogate-safe cuts), the provider+model chain (model-not-found iteration, cross-provider fallback, provenance accumulation), the map-reduce flow (depth cap, shrink check, partial-failure stash, in-leaf recovery), the redistill CLI, the wiki auto-commit layer (batching, repo-safety probe, injection guards), and the entity-level self-healing pipeline (escalations, episode-versioned issue reports, log retention, provider-availability tracking: compile's EX_UNAVAILABLE exit, synthetic `system:` entities, the hybrid cron PATH builder), word-boundary truncation, the facet vocabulary collector, and the LLM-only cosine merge band. The e2e suite builds a wiki from scratch in a temp directory and asserts genesis, daily capture, lesson + knowledge + plan + investigation absorption, compile promotion + dedup, recall, tree-growth integrity, and idempotency — against the real `skill-llm-wiki` CLI with mocked LLM responses.
+**958 tests** in total. The unit suite covers the chunker (header/paragraph/hard-cut boundaries, surrogate-safe cuts), the provider+model chain (model-not-found iteration, cross-provider fallback, provenance accumulation), the map-reduce flow (depth cap, shrink check, partial-failure stash, in-leaf recovery), the redistill CLI, the wiki auto-commit layer (batching, repo-safety probe, injection guards), and the entity-level self-healing pipeline (escalations, episode-versioned issue reports, log retention, provider-availability tracking: compile's EX_UNAVAILABLE exit, synthetic `system:` entities, the hybrid cron PATH builder), word-boundary truncation, the facet vocabulary collector, and the LLM-only cosine merge band. The e2e suite builds a wiki from scratch in a temp directory and asserts genesis, daily capture, lesson + knowledge + plan + investigation absorption, compile promotion + dedup, recall, tree-growth integrity, and idempotency — against the real `skill-llm-wiki` CLI with mocked LLM responses.
 
 ## Requirements
 ![](docs/assets/line-bold.svg)

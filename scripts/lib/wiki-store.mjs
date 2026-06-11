@@ -945,11 +945,23 @@ export function updateDocMetadata({ datasetId, documentId, metadata, placementOv
 
   const rel = String(documentId).split("/");
   const curDir = rel.slice(0, -1).join("/");
-  // Second door to the flat-root bug: an UNPINNED metadata update on a topology
-  // category would recompute placement via placementDirForMeta -> category root
-  // and relocate the nested leaf flat. Require an explicit placementOverride
-  // (consolidate already pins to curDir); fail loud otherwise.
-  assertTopologyPlacement(slotToCategory(rel[0]), placementOverride);
+  const category = slotToCategory(rel[0]);
+  // Topology categories (tracker `issues`) nest via the path-compiler, NOT facet
+  // placement. An UNPINNED in-place metadata update (recall-touch stamping
+  // last_recalled_at / recall_count, or any non-relocating stamp) must NEVER
+  // recompute placement via placementDirForMeta — that returns the category
+  // ROOT and would relocate the nested leaf flat (the 2026-06 stale-instance
+  // flatten). Pin to the leaf's CURRENT dir: an in-place stamp keeps the leaf
+  // where it is, and lifecycle moves go through plan-sync (fs.rename + pathFor),
+  // never here. saveDocument / writeMemory still THROW on a no-path topology
+  // CREATE (no existing leaf, so no curDir to pin to) via assertTopologyPlacement;
+  // only this in-place UPDATE path pins instead of failing.
+  const effectiveOverride =
+    placementOverride !== undefined && placementOverride !== null
+      ? placementOverride
+      : categoryHasTopology(category)
+        ? curDir
+        : undefined;
   // `placementOverride` (optional): pin the leaf to a caller-chosen directory
   // and bypass facet-driven relocation. A caller passing the leaf's CURRENT dir
   // keeps it in place: this is how consolidate stamps non-facet bookkeeping
@@ -958,9 +970,9 @@ export function updateDocMetadata({ datasetId, documentId, metadata, placementOv
   // supersedes_id) or a leaf it is about to disable. Mirrors saveDocument's
   // placementOverride contract.
   const newDir =
-    placementOverride !== undefined && placementOverride !== null
-      ? normalisePlacementOverride(placementOverride)
-      : placementDirForMeta(slotToCategory(rel[0]), merged); // null for daily
+    effectiveOverride !== undefined && effectiveOverride !== null
+      ? normalisePlacementOverride(effectiveOverride)
+      : placementDirForMeta(category, merged); // null for daily
   if (newDir && newDir !== curDir) {
     const newRel = `${newDir}/${rel[rel.length - 1]}`;
     const newAbs = toAbs(newRel);
