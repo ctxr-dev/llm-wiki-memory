@@ -12,7 +12,11 @@
 //     the one-index-per-folder + stamped-frontmatter conventions hold. Facet/
 //     machine categories are engine-managed and covered by `validate`.
 //
-// Pure + read-only: doctor REPORTS; `ensureIndexes`/`nest` are the fixers.
+// Read-only by DEFAULT (doctor REPORTS; `ensureIndexes`/`nest` are the fixers).
+// The opt-in `{ fix }` path rebuilds the parents that hold a broken ref via
+// index-rebuild-one (disk-authoritative), then re-scans — the surgical repair
+// for stale parent->pruned-child refs. strays/orphans/unlisted are still only
+// reported (different damage classes).
 import fs from "node:fs";
 import path from "node:path";
 import { wikiRoot } from "./env.mjs";
@@ -22,6 +26,8 @@ import {
   categoryHasTopology,
   getPlacementFacets,
 } from "./wiki-store.mjs";
+import { indexRebuildOne } from "./wiki-cli.mjs";
+import { recordWikiChange } from "./wiki-commit.mjs";
 
 function isHidden(name) {
   return name.startsWith(".");
@@ -210,10 +216,37 @@ export function findOrphanLeaves(wiki = wikiRoot()) {
   return found;
 }
 
-// Orchestrator: run all detectors, return a structured, read-only report.
-export function doctor(wiki = wikiRoot()) {
+// Orchestrator: run all detectors, return a structured report. Read-only unless
+// `fix` is set, in which case it rebuilds every broken-ref parent and re-scans;
+// the returned `brokenRefs` then reflects the POST-fix state and `fixed` lists
+// the refs that were cleared.
+export function doctor(wiki = wikiRoot(), { fix = false } = {}) {
   const w = path.resolve(wiki);
-  const brokenRefs = findBrokenIndexRefs(w);
+  let brokenRefs = findBrokenIndexRefs(w);
+  let fixed;
+  if (fix && brokenRefs.length) {
+    const before = brokenRefs;
+    for (const entry of before) {
+      try {
+        indexRebuildOne(path.dirname(path.resolve(w, entry.index)), w);
+        // Commit the repair when run inside a wiki-commit frame (cli doctor
+        // --fix wraps one); a no-op outside a git wiki.
+        recordWikiChange({ action: "reindexed", leafRelPath: entry.index, reason: "doctor --fix reindex" });
+      } catch {
+        /* best-effort; the re-scan reports whatever remains broken */
+      }
+    }
+    const after = findBrokenIndexRefs(w);
+    const remainingByIndex = new Map(after.map((e) => [e.index, new Set(e.broken)]));
+    fixed = before
+      .map((e) => {
+        const remaining = remainingByIndex.get(e.index) || new Set();
+        const cleared = e.broken.filter((r) => !remaining.has(r));
+        return cleared.length ? { index: e.index, fixed: cleared } : null;
+      })
+      .filter(Boolean);
+    brokenRefs = after;
+  }
   const unlisted = findUnlistedChildren(w);
   const strays = findStrayLeaves(w);
   const orphans = findOrphanLeaves(w);
@@ -224,7 +257,7 @@ export function doctor(wiki = wikiRoot()) {
     orphans: orphans.length,
   };
   const ok = Object.values(summary).every((n) => n === 0);
-  return {
+  const report = {
     ok,
     wiki: w,
     scanned: { brokenRefCategories: brokenRefCategories(), curatedCategories: curatedCategories() },
@@ -234,4 +267,6 @@ export function doctor(wiki = wikiRoot()) {
     orphans,
     summary,
   };
+  if (fix) report.fixed = fixed || [];
+  return report;
 }

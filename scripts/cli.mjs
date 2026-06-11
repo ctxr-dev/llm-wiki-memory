@@ -403,12 +403,23 @@ async function main() {
       return;
     }
     case "doctor": {
-      // Read-only curated-wiki health scan: broken index refs, leaves missing from
-      // their index, raw no-frontmatter strays, orphans. Layout-derived (see
+      // Curated-wiki health scan: broken index refs, leaves missing from their
+      // index, raw no-frontmatter strays, orphans. Layout-derived (see
       // lib/doctor.mjs). Exit 3 on findings (mirrors nest/migrate --check) so a
       // cron/CI preflight can key on it. Run after a suspected cloud-sync event.
+      // `--fix` (opt-in) surgically rebuilds the parents holding a broken ref;
+      // without it, doctor stays purely read-only.
+      const fix = rest.includes("--fix");
       const { doctor } = await import("./lib/doctor.mjs");
-      const report = doctor(wikiRoot());
+      let report;
+      if (fix) {
+        // --fix mutates index.md files; commit the repairs as ONE wiki commit
+        // (a no-op outside a git wiki). Default doctor stays frame-free/read-only.
+        const { withWikiCommit } = await import("./lib/wiki-commit.mjs");
+        report = withWikiCommit({ op: "doctor-fix", actor: "cli" }, () => doctor(wikiRoot(), { fix }));
+      } else {
+        report = doctor(wikiRoot());
+      }
       out(report);
       process.exit(report.ok ? 0 : 3);
     }

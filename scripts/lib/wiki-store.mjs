@@ -13,7 +13,7 @@ import {
   recallTouchEnabled,
   recallTouchMinHours,
 } from "./settings.mjs";
-import { ensureIndexes } from "./wiki-cli.mjs";
+import { ensureIndexes, indexRebuildOne } from "./wiki-cli.mjs";
 import { isSystemMaintenance } from "./maintenance-tag.mjs";
 import { writeFileAtomic } from "./atomic-write.mjs";
 import {
@@ -903,7 +903,12 @@ export function saveDocument({ name, text, datasetId, metadata, placementOverrid
   upsertEmbedding(toRel(leafAbs), text);
   // After a relocation, drop any source ancestor dir left holding only an
   // orphaned index.md (prune AFTER ensureIndexes, which may have rewritten it).
-  if (moved) pruneEmptyAncestors(path.dirname(existing), root());
+  // Rebuild the surviving ancestor: ensureIndexes ran while the now-pruned child
+  // still existed, so its index.md would otherwise keep a stale child ref.
+  if (moved) {
+    const { survivor } = pruneEmptyAncestors(path.dirname(existing), root());
+    if (survivor) indexRebuildOne(survivor, root());
+  }
   recordWikiChange({
     action: moved ? "relocated" : "saved",
     leafRelPath: toRel(leafAbs),
@@ -996,8 +1001,10 @@ export function updateDocMetadata({ datasetId, documentId, metadata, placementOv
     fs.rmSync(abs, { force: true });
     renameEmbedding(documentId, newRel);
     ensureIndexes(root(), [abs, newAbs]); // drop the entry from old ancestors, add to new
-    // Remove any source ancestor dir left holding only an orphaned index.md.
-    pruneEmptyAncestors(path.dirname(abs), root());
+    // Remove any source ancestor dir left holding only an orphaned index.md,
+    // then rebuild the survivor so it doesn't keep a stale ref to the pruned child.
+    const { survivor } = pruneEmptyAncestors(path.dirname(abs), root());
+    if (survivor) indexRebuildOne(survivor, root());
     recordWikiChange({
       action: "relocated",
       leafRelPath: newRel,
@@ -1096,7 +1103,8 @@ export function moveDocument({ documentId, fromPath, toPath, datasetId } = {}) {
   const toRelPath = toRel(toAbsPath);
   renameEmbedding(fromRel, toRelPath); // content unchanged -> keep the cached vector
   ensureIndexes(root(), [fromAbs, toAbsPath]); // refresh both source + destination ancestors
-  pruneEmptyAncestors(path.dirname(fromAbs), root());
+  const { survivor: moveSurvivor } = pruneEmptyAncestors(path.dirname(fromAbs), root());
+  if (moveSurvivor) indexRebuildOne(moveSurvivor, root());
   recordWikiChange({
     action: "moved",
     leafRelPath: toRelPath,
@@ -1179,8 +1187,16 @@ export function deleteDocument({ documentId, datasetId } = {}) {
   }
   // Drop any ancestor dir the deletion just emptied (left holding only an
   // orphaned index.md) — same invariant the relocation paths enforce, so a
-  // delete never leaves a blind nested dir with no real leaves behind.
-  pruneEmptyAncestors(path.dirname(abs), root());
+  // delete never leaves a blind nested dir with no real leaves behind. Rebuild
+  // the survivor so its index.md doesn't keep a stale ref to the pruned child.
+  const { survivor } = pruneEmptyAncestors(path.dirname(abs), root());
+  if (survivor) {
+    try {
+      indexRebuildOne(survivor, root());
+    } catch {
+      /* best effort; a later heal / doctor --fix reconciles */
+    }
+  }
   recordWikiChange({ action: "deleted", leafRelPath: documentId, reason: "leaf removed" });
   return { ok: true, documentId, deleted: true };
 }

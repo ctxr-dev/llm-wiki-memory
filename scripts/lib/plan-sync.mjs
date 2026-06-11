@@ -15,7 +15,7 @@ import path from "node:path";
 import { applyFrontmatterUpdate } from "./plan-frontmatter.mjs";
 import { writeFileAtomic } from "./atomic-write.mjs";
 import { loadTopology, pathFor, parsePath } from "./topology-runtime.mjs";
-import { ensureIndexes } from "./wiki-cli.mjs";
+import { ensureIndexes, indexRebuildOne } from "./wiki-cli.mjs";
 // Shared with wiki-store's relocation paths; single source of truth in fs-prune.
 import { pruneEmptyAncestors } from "./fs-prune.mjs";
 import { recordWikiChange, withWikiCommit } from "./wiki-commit.mjs";
@@ -170,7 +170,21 @@ async function syncPlanFileInner(absPath, { wikiRoot, now } = {}) {
   // index.md. Bounded above by `wikiRoot` so we never reach into the
   // wiki's parent. Defensive — never deletes if anything unexpected is
   // present (only the auto-generated index.md is acceptable to remove).
-  pruneEmptyAncestors(path.dirname(absPath), wikiRoot);
+  const { survivor } = pruneEmptyAncestors(path.dirname(absPath), wikiRoot);
+  if (survivor) {
+    try {
+      indexRebuildOne(survivor, wikiRoot);
+      // Record explicitly so the rebuilt index is staged even when syncOnePlan
+      // runs standalone (the relocate record above flushes before this rebuild).
+      recordWikiChange({
+        action: "reindexed",
+        leafRelPath: path.join(survivor, "index.md"),
+        reason: "plan-move survivor reindex",
+      });
+    } catch (err) {
+      out.error = `${out.error ? `${out.error}; ` : ""}survivor reindex failed: ${err.message}`;
+    }
+  }
 
   return out;
 }

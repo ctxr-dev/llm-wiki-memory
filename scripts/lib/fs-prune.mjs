@@ -10,9 +10,18 @@ import path from "node:path";
 // "Empty" = zero entries, OR exactly one entry that is index.md (the only file
 // the skill itself writes in a non-leaf dir). A dir with any other file or any
 // subdir is meaningful and stops the walk.
+//
+// Returns `{ removed, survivor }`: `removed` is the absolute dirs actually
+// rmdir'd (climb order); `survivor` is the first ancestor the walk STOPPED at
+// when something was removed — the dir whose index.md still lists the now-gone
+// child and so MUST be rebuilt by the caller (its disk-authoritative rebuild
+// drops the dead ref). `survivor` is null when nothing was pruned (no stale ref
+// can exist). The rebuild decision lives with the caller (which owns the
+// wiki-commit frame), so this fn stays pure node-only.
 export function pruneEmptyAncestors(dir, wikiRoot) {
   const wikiAbs = path.resolve(wikiRoot);
   let cur = path.resolve(dir);
+  const removed = [];
   while (cur !== wikiAbs && cur.startsWith(wikiAbs + path.sep)) {
     let entries;
     try {
@@ -34,6 +43,8 @@ export function pruneEmptyAncestors(dir, wikiRoot) {
     } catch {
       break;
     }
+    removed.push(cur);
     cur = path.dirname(cur);
   }
+  return { removed, survivor: removed.length > 0 ? cur : null };
 }

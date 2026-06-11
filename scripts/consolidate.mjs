@@ -54,7 +54,7 @@ import {
 import { acquireLock, installLockReleaseHandlers } from "./lib/lock.mjs";
 import { writeFileAtomic } from "./lib/atomic-write.mjs";
 import { withSystemMaintenance } from "./lib/maintenance-tag.mjs";
-import { withWikiCommit } from "./lib/wiki-commit.mjs";
+import { withWikiCommit, recordWikiChange } from "./lib/wiki-commit.mjs";
 import { redact } from "./lib/redact.mjs";
 import { truncateAtWordBoundary } from "./lib/slug.mjs";
 import { activeBackend, contentHash } from "./lib/embed.mjs";
@@ -72,7 +72,7 @@ import {
   getConsolidateLayout,
 } from "./lib/wiki-store.mjs";
 import { pruneEmptyAncestors } from "./lib/fs-prune.mjs";
-import { ensureIndexes } from "./lib/wiki-cli.mjs";
+import { ensureIndexes, indexRebuildOne } from "./lib/wiki-cli.mjs";
 import { callJSON } from "./lib/llm-callJSON.mjs";
 import { health as llmHealth, LLMProviderUnavailable, LLMOutputInvalid } from "./lib/llm.mjs";
 
@@ -1088,16 +1088,32 @@ function pruneEmptyAncestorsCorpus({ ctx, dryRun }) {
     return;
   }
   const root = wikiRoot();
+  const survivors = new Set();
   for (const cat of getCategoryListSafe()) {
     const catDir = path.join(root, cat);
     if (!fs.existsSync(catDir)) continue;
     walkDirsDepthFirst(catDir, (dir) => {
       try {
-        pruneEmptyAncestors(dir, root);
+        const { survivor } = pruneEmptyAncestors(dir, root);
+        if (survivor) survivors.add(survivor);
       } catch {
         /* best-effort */
       }
     });
+  }
+  // Rebuild each surviving ancestor so its index.md drops the now-pruned child,
+  // and record it so the wiki-commit frame stages the regenerated index. The
+  // indexRebuildCorpus closer only refreshes category roots, not a deep survivor.
+  for (const survivor of survivors) {
+    if (!fs.existsSync(survivor)) continue; // a later prune removed it too
+    try {
+      indexRebuildOne(survivor, root);
+      const rel = path.relative(root, path.join(survivor, "index.md")).split(path.sep).join("/");
+      recordWikiChange({ action: "reindexed", leafRelPath: rel, reason: "prune survivor reindex" });
+      report.touched = (report.touched || 0) + 1;
+    } catch {
+      /* best-effort */
+    }
   }
   report.ms += Date.now() - t0;
 }

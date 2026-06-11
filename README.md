@@ -11,7 +11,7 @@ Claude Code, Cursor, Codex, and every other MCP client forget everything when a 
 <br/>
 <br/>
 
-[![tests](https://img.shields.io/badge/TESTS-958_PASSING-0D0D14?style=for-the-badge&labelColor=5EFFC0)](#testing)
+[![tests](https://img.shields.io/badge/TESTS-973_PASSING-0D0D14?style=for-the-badge&labelColor=5EFFC0)](#testing)
 [![node](https://img.shields.io/badge/NODE-%E2%89%A5_20-0D0D14?style=for-the-badge&logo=nodedotjs&logoColor=0D0D14&labelColor=5EF6FF)](https://nodejs.org)
 [![license](https://img.shields.io/badge/LICENSE-MIT-0D0D14?style=for-the-badge&labelColor=FCEE0A)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-STDIO_SERVER-0D0D14?style=for-the-badge&logo=anthropic&logoColor=0D0D14&labelColor=5EF6FF)](https://modelcontextprotocol.io)
@@ -404,7 +404,7 @@ The **LLM provider** that extracts typed atoms during capture / compile / consol
 | `validate_layout`, `validate_topology`, `test_path_compiler` | Layout + topology + placement-compiler sanity checks. |
 ![](docs/assets/line-thin.svg)
 
-Some read-only CLI counterparts have no MCP tool: `cli.mjs doctor` (a layout-derived health scan that lists broken index references and stray / orphan leaves, exit `3` on findings), `cli.mjs move-leaf <from> <to>` (the curated-move above, from a shell), and the self-observability pair `cli.mjs monitor` / `cli.mjs monitoring-health` (below). Run `doctor` after any suspected cloud-sync event.
+Some read-only CLI counterparts have no MCP tool: `cli.mjs doctor` (a layout-derived health scan that lists broken index references and stray / orphan leaves, exit `3` on findings; the opt-in `cli.mjs doctor --fix` surgically rebuilds the parent indexes holding a broken ref — the default stays read-only), `cli.mjs move-leaf <from> <to>` (the curated-move above, from a shell), and the self-observability pair `cli.mjs monitor` / `cli.mjs monitoring-health` (below). Run `doctor` after any suspected cloud-sync event.
 
 **Self-observability (opt-in).** Enable it with `bootstrap.sh --enable-self-observability` and the agent watches the memory system while you work: on a confirmed llm-wiki-memory bug it records a redacted forensic capture under `.llm-wiki-memory/monitoring/<yyyy>/<mm>/<dd>/` via `cli.mjs monitor` (reusing the same redaction + signature primitives as the cron escalation path), and at session-end it offers to review the open captures (`cli.mjs monitoring-health`) and plan fixes for `.llm-wiki-memory/src`. The capture tree lives outside the wiki: gitignored, never indexed, never auto-fixed. Opt out any time with `--disable-self-observability`. This is the interactive counterpart to the background cron self-healing path — distinct stores, shared signature vocabulary.
 
@@ -582,7 +582,7 @@ npm test           # unit suite
 npm run test:e2e   # full lifecycle against the real skill-llm-wiki CLI (LLM stubbed)
 ```
 
-**958 tests** in total. The unit suite covers the chunker (header/paragraph/hard-cut boundaries, surrogate-safe cuts), the provider+model chain (model-not-found iteration, cross-provider fallback, provenance accumulation), the map-reduce flow (depth cap, shrink check, partial-failure stash, in-leaf recovery), the redistill CLI, the wiki auto-commit layer (batching, repo-safety probe, injection guards), and the entity-level self-healing pipeline (escalations, episode-versioned issue reports, log retention, provider-availability tracking: compile's EX_UNAVAILABLE exit, synthetic `system:` entities, the hybrid cron PATH builder), word-boundary truncation, the facet vocabulary collector, and the LLM-only cosine merge band. The e2e suite builds a wiki from scratch in a temp directory and asserts genesis, daily capture, lesson + knowledge + plan + investigation absorption, compile promotion + dedup, recall, tree-growth integrity, and idempotency — against the real `skill-llm-wiki` CLI with mocked LLM responses.
+**973 tests** in total. The unit suite covers the chunker (header/paragraph/hard-cut boundaries, surrogate-safe cuts), the provider+model chain (model-not-found iteration, cross-provider fallback, provenance accumulation), the map-reduce flow (depth cap, shrink check, partial-failure stash, in-leaf recovery), the redistill CLI, the wiki auto-commit layer (batching, repo-safety probe, injection guards), and the entity-level self-healing pipeline (escalations, episode-versioned issue reports, log retention, provider-availability tracking: compile's EX_UNAVAILABLE exit, synthetic `system:` entities, the hybrid cron PATH builder), word-boundary truncation, the facet vocabulary collector, and the LLM-only cosine merge band. The e2e suite builds a wiki from scratch in a temp directory and asserts genesis, daily capture, lesson + knowledge + plan + investigation absorption, compile promotion + dedup, recall, tree-growth integrity, and idempotency — against the real `skill-llm-wiki` CLI with mocked LLM responses.
 
 ## Requirements
 ![](docs/assets/line-bold.svg)

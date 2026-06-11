@@ -109,3 +109,67 @@ test("CLI: doctor exits 0 when clean, 3 on findings", () => {
   r = runScript("scripts/cli.mjs", ["doctor"]);
   assert.equal(r.status, 3, `findings → exit 3; got ${r.status}: ${r.stdout}`);
 });
+
+test("doctor --fix rebuilds broken-ref parents and clears them", () => {
+  resetNotes();
+  w("Notes/Real.md", FM("Real"));
+  w(
+    "Notes/index.md",
+    INDEX("| [Real.md](Real.md) | primary | Real |\n| [Sub/index.md](Sub/index.md) | index | Sub |"),
+  );
+  assert.equal(doctor(wiki).ok, false, "phantom Sub/index.md flagged before fix");
+  const r = doctor(wiki, { fix: true });
+  assert.equal(r.summary.brokenRefs, 0, `cleared after fix; got ${JSON.stringify(r.brokenRefs)}`);
+  assert.ok(
+    r.fixed.some((f) => f.index === "Notes/index.md" && f.fixed.includes("Sub/index.md")),
+    `fixed lists the cleared ref; got ${JSON.stringify(r.fixed)}`,
+  );
+  const idx = fs.readFileSync(path.join(wiki, "Notes/index.md"), "utf8");
+  assert.doesNotMatch(idx, /Sub\/index\.md/, "rebuilt index drops the dead child");
+  assert.match(idx, /Real\.md/, "real child kept");
+});
+
+test("plain doctor (no --fix) never mutates an index.md", () => {
+  resetNotes();
+  w("Notes/Real.md", FM("Real"));
+  w(
+    "Notes/index.md",
+    INDEX("| [Real.md](Real.md) | primary | Real |\n| [Sub/index.md](Sub/index.md) | index | Sub |"),
+  );
+  const before = fs.readFileSync(path.join(wiki, "Notes/index.md"), "utf8");
+  const r = doctor(wiki); // default: read-only
+  assert.equal(r.ok, false, "still reports the broken ref");
+  assert.equal(r.fixed, undefined, "no `fixed` field without --fix");
+  assert.equal(
+    fs.readFileSync(path.join(wiki, "Notes/index.md"), "utf8"),
+    before,
+    "index untouched (read-only invariant)",
+  );
+});
+
+test("doctor --fix on a clean wiki is a no-op (fixed empty, no rewrite)", () => {
+  resetNotes();
+  w("Notes/Real.md", FM("Real"));
+  w("Notes/index.md", INDEX("| [Real.md](Real.md) | primary | Real |"));
+  const before = fs.readFileSync(path.join(wiki, "Notes/index.md"), "utf8");
+  const r = doctor(wiki, { fix: true });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.fixed, [], "nothing to fix");
+  assert.equal(
+    fs.readFileSync(path.join(wiki, "Notes/index.md"), "utf8"),
+    before,
+    "no rebuild when there are no broken refs",
+  );
+});
+
+test("CLI: doctor --fix exits 0 after clearing; idempotent re-run stays 0", () => {
+  resetNotes();
+  w("Notes/Real.md", FM("Real"));
+  w(
+    "Notes/index.md",
+    INDEX("| [Real.md](Real.md) | primary | Real |\n| [Sub/index.md](Sub/index.md) | index | Sub |"),
+  );
+  assert.equal(runScript("scripts/cli.mjs", ["doctor"]).status, 3, "broken → exit 3");
+  assert.equal(runScript("scripts/cli.mjs", ["doctor", "--fix"]).status, 0, "fix clears → exit 0");
+  assert.equal(runScript("scripts/cli.mjs", ["doctor", "--fix"]).status, 0, "idempotent re-run → exit 0");
+});
