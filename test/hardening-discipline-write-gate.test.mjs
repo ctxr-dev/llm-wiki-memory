@@ -59,3 +59,23 @@ test("templates/rules/memory-write-gate.md exists and contains the propose-then-
     "memory-write-gate.md mentions explicit confirmation",
   );
 });
+
+test("INSTRUCTIONS encodes per-lesson consent and points at the audit ledger", () => {
+  assert.ok(/per-lesson/i.test(INSTRUCTIONS), "INSTRUCTIONS mentions per-lesson consent");
+  assert.ok(INSTRUCTIONS.includes("gate-audit"), "INSTRUCTIONS points at cli.mjs gate-audit");
+});
+
+test("every gate surface consistently documents per-lesson consent + the audit trail", () => {
+  const rule = fs.readFileSync(path.join(SRC, "templates/rules/memory-write-gate.md"), "utf8");
+  const si = fs.readFileSync(path.join(SRC, "templates/skills/self-improvement.md"), "utf8");
+  const sec = fs.readFileSync(path.join(SRC, "templates/skills/session-end-capture.md"), "utf8");
+  for (const [name, raw] of [
+    ["memory-write-gate.md", rule],
+    ["self-improvement.md", si],
+    ["session-end-capture.md", sec],
+  ]) {
+    assert.ok(/per-lesson/i.test(raw), `${name} mentions per-lesson consent`);
+  }
+  assert.ok(/audit/i.test(rule), "memory-write-gate.md documents the audit trail");
+  assert.ok(rule.includes("gate-audit"), "memory-write-gate.md points at cli.mjs gate-audit");
+});

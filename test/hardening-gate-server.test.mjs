@@ -11,11 +11,11 @@ import { withSystemMaintenance, isSystemMaintenance } from "../scripts/lib/maint
 
 // The MCP server child process MUST be spawned with the env vars it should see;
 // the harness's setupWorkspace() mutates THIS process's env (which the parent
-// then forwards to children), so the child sees the same MEMORY_DATA_DIR and
-// MEMORY_WRITE_GATE_SELF_IMPROVEMENT we configure here. We deliberately do not
-// re-use the shared harness setup because two scenarios in this file need a
-// different MEMORY_WRITE_GATE_SELF_IMPROVEMENT value (default vs "off"), so
-// each scenario brings up its own isolated workspace + server.
+// then forwards to children), so the child sees the same MEMORY_DATA_DIR we
+// configure here. We deliberately do not re-use the shared harness setup because
+// two scenarios in this file need a different gate state (default vs disabled via
+// settings.yaml `gate.selfImprovementEnabled: false`), so each scenario brings up
+// its own isolated workspace + server.
 
 function makeWorkspace({ writeGate } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-gate-"));
@@ -69,6 +69,19 @@ function rmDir(dir) {
 
 function parse(res) {
   return JSON.parse(res.content[0].text);
+}
+
+function readAuditLog(dir) {
+  const p = path.join(dir, "state", ".save-gate-audit.log");
+  try {
+    return fs
+      .readFileSync(p, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
+  } catch {
+    return [];
+  }
 }
 
 // ─── Scenario A: write gate ON (default) ─────────────────────────────────────
@@ -163,6 +176,80 @@ test("save_lesson with userRequested:true -> success", async () => {
   assert.equal(payload.ok, true, `save_lesson should succeed: ${JSON.stringify(payload)}`);
 });
 
+test("audit trail records L3 decisions (refused + accepted/consent) and skips non-gated writes", async () => {
+  const auditPath = path.join(gateOn.dataDir, "state", ".save-gate-audit.log");
+  const readRecs = () => {
+    let raw = "";
+    try {
+      raw = fs.readFileSync(auditPath, "utf8");
+    } catch {
+      return [];
+    }
+    return raw
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => {
+        try {
+          return JSON.parse(l);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  };
+
+  // (1) A refused save_lesson (explicit false reaches the handler) is audited.
+  await gateOnClient.callTool({
+    name: "save_lesson",
+    arguments: {
+      title: "AUDIT refused probe",
+      body: "no real flag; should be refused and audited.",
+      userRequested: false,
+      metadata: { area: "auditarea", task_type: "implementation", error_pattern: "audit-refused" },
+    },
+  });
+  const refused = readRecs().find((r) => r.title === "AUDIT refused probe");
+  assert.ok(refused, "refused save_lesson is audited");
+  assert.equal(refused.layer, "L3");
+  assert.equal(refused.tool, "save_lesson");
+  assert.equal(refused.status, "refused");
+  assert.equal(refused.consent, undefined, "a refusal records no consent");
+  assert.equal(refused.userRequested, false, "the rejected false flag is recorded as-is");
+
+  // (2) An accepted save_lesson records status:accepted + consent:user-flag.
+  await gateOnClient.callTool({
+    name: "save_lesson",
+    arguments: {
+      title: "AUDIT accepted probe",
+      body: "explicit flag; should be accepted and audited.",
+      userRequested: true,
+      metadata: { area: "auditarea", task_type: "implementation", error_pattern: "audit-accepted" },
+    },
+  });
+  const accepted = readRecs().find((r) => r.title === "AUDIT accepted probe");
+  assert.ok(accepted, "accepted save_lesson is audited");
+  assert.equal(accepted.status, "accepted");
+  assert.equal(accepted.consent, "user-flag");
+  assert.equal(accepted.userRequested, true);
+  assert.equal(accepted.area, "auditarea");
+  assert.equal(accepted.error_pattern, "audit-accepted");
+
+  // (3) A non-gated knowledge write is NOT audited.
+  await gateOnClient.callTool({
+    name: "save_to_dataset",
+    arguments: {
+      dataset: "knowledge",
+      name: "AUDIT-knowledge-probe.md",
+      text: "# Knowledge probe\n\na fact body that must not be gated or audited.",
+      metadata: { atom_type: "reference", area: "auditarea", task_type: "docs" },
+    },
+  });
+  assert.ok(
+    !readRecs().some((r) => r.title === "AUDIT-knowledge-probe.md"),
+    "non-gated knowledge writes leave no audit record",
+  );
+});
+
 test("save_to_dataset(dataset=\"self_improvement\") WITHOUT userRequested -> refused", async () => {
   const res = await gateOnClient.callTool({
     name: "save_to_dataset",
@@ -231,6 +318,62 @@ test("save_to_dataset(dataset=\"self_improvement\") with userRequested:true -> s
   assert.equal(payload.ok, true, `gated save_to_dataset with flag should succeed: ${JSON.stringify(payload)}`);
 });
 
+test("audit covers the save_to_dataset + write_memory accept paths (consent: user-flag)", async () => {
+  await gateOnClient.callTool({
+    name: "save_to_dataset",
+    arguments: {
+      dataset: "self_improvement",
+      name: "AUDIT-dataset-probe.md",
+      text: "# Dataset probe\n\n- type: self-improvement-lesson\n- area: auditarea\n- task_type: implementation\n- error_pattern: ds-audit\n\nbody for the dataset audit probe.",
+      userRequested: true,
+      metadata: { atom_type: "self-improvement-lesson", area: "auditarea", task_type: "implementation", error_pattern: "ds-audit" },
+    },
+  });
+  await gateOnClient.callTool({
+    name: "write_memory",
+    arguments: {
+      name: "AUDIT-writemem-probe.md",
+      text: "# Write-memory probe\n\nA write_memory probe body long enough to satisfy the 20-char minimum.",
+      datasetId: "self_improvement",
+      userRequested: true,
+      metadata: { atom_type: "self-improvement-lesson", area: "auditarea", task_type: "implementation", error_pattern: "wm-audit" },
+    },
+  });
+  const recs = readAuditLog(gateOn.dataDir);
+  const ds = recs.find((r) => r.tool === "save_to_dataset" && r.title === "AUDIT-dataset-probe.md");
+  assert.ok(ds, "save_to_dataset(self_improvement) accept is audited");
+  assert.equal(ds.status, "accepted");
+  assert.equal(ds.consent, "user-flag");
+  const wm = recs.find((r) => r.tool === "write_memory" && r.title === "AUDIT-writemem-probe.md");
+  assert.ok(wm, "write_memory(self_improvement) accept is audited");
+  assert.equal(wm.status, "accepted");
+  assert.equal(wm.consent, "user-flag");
+});
+
+test("audit covers the path-into-self_improvement bypass (dataset:knowledge + path)", async () => {
+  // The security-relevant branch: a write whose dataset claims "knowledge" but
+  // whose path lands in self_improvement must STILL be gated AND audited. The
+  // load-bearing proof is that an audit record EXISTS for a dataset:"knowledge"
+  // call — which only happens if the path-bypass gating fired.
+  const res = await gateOnClient.callTool({
+    name: "save_to_dataset",
+    arguments: {
+      dataset: "knowledge",
+      name: "AUDIT-pathbypass-probe.md",
+      text: "# Path bypass probe\n\nrouted into self_improvement via a path override.",
+      path: "self_improvement/auditable",
+      userRequested: true,
+      metadata: { atom_type: "self-improvement-lesson", area: "auditarea", task_type: "implementation", error_pattern: "path-audit" },
+    },
+  });
+  assert.equal(parse(res).ok, true, `path-routed write should succeed: ${JSON.stringify(parse(res))}`);
+  const rec = readAuditLog(gateOn.dataDir).find((r) => r.title === "AUDIT-pathbypass-probe.md");
+  assert.ok(rec, "a knowledge-dataset write smuggled into self_improvement via path is audited");
+  assert.equal(rec.tool, "save_to_dataset");
+  assert.equal(rec.status, "accepted");
+  assert.equal(rec.consent, "user-flag");
+});
+
 // ─── Scenario B: write gate OFF via env -─────────────────────────────────────
 
 const gateOff = makeWorkspace({ writeGate: "off" });
@@ -252,10 +395,11 @@ after(async () => {
   rmDir(gateOff.dataDir);
 });
 
-test("MEMORY_WRITE_GATE_SELF_IMPROVEMENT=off: save_lesson without userRequested -> success", async () => {
+test("gate.selfImprovementEnabled=false (YAML): save_lesson without userRequested -> success", async () => {
   // Schema still requires userRequested (z.boolean()), so we satisfy the SCHEMA
-  // by passing false — but with the gate disabled the handler should NOT
-  // refuse on `userRequested:false`. This proves the env-driven escape hatch.
+  // by passing false — but with the gate disabled in settings.yaml the handler
+  // should NOT refuse on `userRequested:false`. This proves the operator escape
+  // hatch (settings.yaml `gate.selfImprovementEnabled: false`).
   const res = await gateOffClient.callTool({
     name: "save_lesson",
     arguments: {
@@ -271,6 +415,12 @@ test("MEMORY_WRITE_GATE_SELF_IMPROVEMENT=off: save_lesson without userRequested 
   });
   const payload = parse(res);
   assert.equal(payload.ok, true, `gate-off save should succeed: ${JSON.stringify(payload)}`);
+  // The accepted write is audited with consent "gate-disabled" (gate off, no
+  // userRequested flag, no maintenance frame) — the consentBasis(false,false) path.
+  const rec = readAuditLog(gateOff.dataDir).find((r) => r.title === "Gate disabled — should save");
+  assert.ok(rec, "the gate-off save is audited");
+  assert.equal(rec.status, "accepted");
+  assert.equal(rec.consent, "gate-disabled");
 });
 
 // ─── Scenario C: source-level maintenance-tag exemption ──────────────────────

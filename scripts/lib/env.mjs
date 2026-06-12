@@ -45,6 +45,10 @@ export const CRON_LOGS_DIR = path.join(MEMORY_DATA_DIR, "state", "logs");
 export const ISSUES_DIR = path.join(MEMORY_DATA_DIR, "issues");
 // Episode index for issue reports: signature -> { version, path, status }.
 export const ISSUES_INDEX_PATH = path.join(MEMORY_DATA_DIR, "state", ".issues-index.json");
+// Append-only ledger of write activity on the gated (self_improvement) category:
+// one redacted JSONL record per L2 hook allow/ask, L3 server accepted/refused, and
+// compile-distilled lesson promotion. Observability only. Gitignored.
+export const SAVE_GATE_AUDIT_PATH = path.join(MEMORY_DATA_DIR, "state", ".save-gate-audit.log");
 export const PROMPTS_DIR = path.join(MEMORY_DIR, "prompts");
 
 // Parse one .env value. Deliberately small (NOT a full dotenv parser): it

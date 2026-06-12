@@ -35,6 +35,7 @@ import {
 } from "./lib/slug.mjs";
 import { ATOM_TYPE_TO_DATASET, ATOM_TYPES, metadataForDify } from "./lib/datasets.mjs";
 import { collectFacetVocab, renderVocabVars } from "./lib/facet-vocab.mjs";
+import { recordGatedWrite } from "./lib/save-gate-audit.mjs";
 
 const FORCE = process.argv.includes("--force");
 const DRY_RUN = process.argv.includes("--dry-run");
@@ -353,6 +354,34 @@ async function decideAction(atom, candidates, systemPrompt) {
   return callJSON({ systemPrompt, userPrompt, maxTokens: 800 });
 }
 
+// Observability only: record that the compile pipeline distilled a
+// self_improvement lesson into the wiki. Compile bypasses the MCP write-gate by
+// design (it is the auto-learn system path, not an interactive save), so these
+// promotions would otherwise be invisible in the gate-audit ledger. This NEVER
+// gates, blocks, or alters compile: recordGatedWrite is best-effort and a no-op
+// when auditing is off, and the whole call is wrapped so nothing here can affect
+// the promotion. Only a successful (non-dry-run) self-improvement-lesson write is
+// recorded.
+function auditCompileLessonPromotion(atom, action, writeResult) {
+  try {
+    if (atom?.type !== "self-improvement-lesson") return;
+    if (!writeResult || writeResult.dryRun || !writeResult.created) return;
+    const md = atom?.metadata || {};
+    recordGatedWrite({
+      layer: "compile",
+      tool: "compile",
+      status: "accepted",
+      consent: "compile-distilled",
+      action,
+      title: atom?.title,
+      area: md.area || md.project_module,
+      error_pattern: md.error_pattern,
+    });
+  } catch {
+    /* auditing must never affect distillation */
+  }
+}
+
 async function executeAction(atom, decision, candidates, targetDataset) {
   if (decision.action === "skip") {
     return { ok: true, action: "skip", reason: decision.reason };
@@ -365,7 +394,9 @@ async function executeAction(atom, decision, candidates, targetDataset) {
     // Pass metadata at write so placement nests by the atom's facets
     // (project_module / atom_type / task_type). applyMetadataToWritten still
     // re-merges it afterwards (idempotent) for the retry/un-filterable bookkeeping.
-    return writeMemory({ name, text, datasetId: targetDataset, metadata: metadataForDify(atom) });
+    const result = await writeMemory({ name, text, datasetId: targetDataset, metadata: metadataForDify(atom) });
+    auditCompileLessonPromotion(atom, "create", result);
+    return result;
   }
   if (decision.action === "update") {
     if (!decision.supersedes) throw new Error("update action missing supersedes");
@@ -391,7 +422,7 @@ async function executeAction(atom, decision, candidates, targetDataset) {
     if (DRY_RUN) {
       return { ok: true, dryRun: true, action: "update", name, supersedes: decision.supersedes, datasetId: targetDataset };
     }
-    return writeMemory({
+    const result = await writeMemory({
       name,
       text,
       datasetId: targetDataset,
@@ -399,6 +430,8 @@ async function executeAction(atom, decision, candidates, targetDataset) {
       supersedes: decision.supersedes,
       supersedesAction: "disable",
     });
+    auditCompileLessonPromotion(atom, "update", result);
+    return result;
   }
   throw new Error(`unknown decision action: ${decision.action}`);
 }

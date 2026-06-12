@@ -68,6 +68,7 @@ Trigger conditions for proposing a lesson:
 Then:
 - **User says yes** -> call `save_lesson` with `userRequested:true` (see template below).
 - **User says no, ignores, redirects, or asks something else** -> do NOT save. Continue helping. Saving without an in-turn yes is a discipline violation. The server REFUSES the call without `userRequested:true` anyway (a deterministic L3 gate); the Claude Code PreToolUse hook returns `permissionDecision:"ask"` for the same purpose.
+- **One approval = one lesson.** If you have several lessons, propose and confirm EACH separately; never flush a batch on a single "save it". On Claude Code the L2 hook re-prompts for every additional self_improvement write in the same turn (per-lesson consent). Every gated decision is recorded to a redacted audit ledger (`cli.mjs gate-audit`).
 
 ```
 save_lesson({

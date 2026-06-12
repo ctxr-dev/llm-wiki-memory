@@ -15,6 +15,8 @@ import { withWikiCommit } from "../scripts/lib/wiki-commit.mjs";
 import { activeBackend } from "../scripts/lib/embed.mjs";
 import { INSTRUCTIONS } from "../scripts/lib/discipline.mjs";
 import { isSystemMaintenance } from "../scripts/lib/maintenance-tag.mjs";
+import { recordGatedWrite, consentBasis } from "../scripts/lib/save-gate-audit.mjs";
+import { placementTargetsCategory } from "../scripts/lib/gate-target.mjs";
 import { loadTopology, parsePath } from "../scripts/lib/topology-runtime.mjs";
 import { clampSearchResponse } from "../scripts/lib/search-clamp.mjs";
 
@@ -355,9 +357,26 @@ function refuseWriteGate(toolName) {
 // effective target — not the caller's claim — governs the refusal.
 function targetsGatedCategory(dataset, placementOverride) {
   if (dataset === "self_improvement") return true;
-  if (typeof placementOverride !== "string" || !placementOverride.trim()) return false;
-  const segs = placementOverride.replace(/^\/+/, "").split(/[\\/]+/).filter(Boolean);
-  return segs[0] === "self_improvement";
+  return placementTargetsCategory(placementOverride, "self_improvement");
+}
+
+// Append an L3 audit record for a gated-category decision. Best-effort: the
+// underlying recordGatedWrite never throws and is a no-op when auditing is off,
+// so this can never change a gate decision or fail a write. `consent` is derived
+// from the same inputs the gate used, so the ledger shows WHY a write landed: an
+// explicit user flag, a system-maintenance frame (consolidate), or a disabled gate.
+function auditGatedL3({ tool, status, userRequested, title, metadata }) {
+  const consent = status === "accepted" ? consentBasis(userRequested, isSystemMaintenance()) : undefined;
+  recordGatedWrite({
+    layer: "L3",
+    tool,
+    status,
+    consent,
+    title,
+    area: metadata?.area,
+    error_pattern: metadata?.error_pattern,
+    userRequested,
+  });
 }
 
 server.registerTool(
@@ -400,10 +419,12 @@ server.registerTool(
         userRequested !== true &&
         !isSystemMaintenance()
       ) {
+        auditGatedL3({ tool: "save_lesson", status: "refused", userRequested, title, metadata });
         return refuseWriteGate("save_lesson");
       }
       const result = withWikiCommit({ op: "mcp-save-lesson", actor: "mcp" }, () =>
         impl.saveLesson({ title, body, metadata, tags, evidence }));
+      auditGatedL3({ tool: "save_lesson", status: "accepted", userRequested, title, metadata });
       return jsonResponse({ ok: !!result.created, ...result });
     } catch (error) {
       return errorResponse(error);
@@ -436,6 +457,7 @@ server.registerTool(
         userRequested !== true &&
         !isSystemMaintenance()
       ) {
+        auditGatedL3({ tool: "save_to_dataset", status: "refused", userRequested, title: name, metadata });
         return refuseWriteGate(
           dataset === "self_improvement"
             ? "save_to_dataset(dataset=\"self_improvement\")"
@@ -451,6 +473,9 @@ server.registerTool(
           metadata,
           placementOverride: path,
         }));
+      if (targetsGatedCategory(dataset, path)) {
+        auditGatedL3({ tool: "save_to_dataset", status: "accepted", userRequested, title: name, metadata });
+      }
       return jsonResponse({ ok: !!result.created, ...result });
     } catch (error) {
       return errorResponse(error);
@@ -488,6 +513,7 @@ server.registerTool(
         userRequested !== true &&
         !isSystemMaintenance()
       ) {
+        auditGatedL3({ tool: "write_memory", status: "refused", userRequested, title: name, metadata });
         return refuseWriteGate(
           datasetId === "self_improvement"
             ? "write_memory(datasetId=\"self_improvement\")"
@@ -495,18 +521,20 @@ server.registerTool(
         );
       }
       await assertTopologyPathValid({ dataset: datasetId, name, path });
-      return jsonResponse(
-        withWikiCommit({ op: "mcp-write-memory", actor: "mcp" }, () =>
-          impl.writeMemory({
-            name,
-            text,
-            datasetId,
-            supersedes,
-            supersedesAction,
-            metadata,
-            placementOverride: path,
-          })),
-      );
+      const result = withWikiCommit({ op: "mcp-write-memory", actor: "mcp" }, () =>
+        impl.writeMemory({
+          name,
+          text,
+          datasetId,
+          supersedes,
+          supersedesAction,
+          metadata,
+          placementOverride: path,
+        }));
+      if (targetsGatedCategory(datasetId, path)) {
+        auditGatedL3({ tool: "write_memory", status: "accepted", userRequested, title: name, metadata });
+      }
+      return jsonResponse(result);
     } catch (error) {
       return errorResponse(error);
     }

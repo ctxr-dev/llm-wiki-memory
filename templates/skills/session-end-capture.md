@@ -96,6 +96,13 @@ Do NOT invoke when:
    REFUSES self_improvement writes without `userRequested:true`; the
    Claude Code PreToolUse hook returns `permissionDecision:"ask"` to
    the user as a defence-in-depth layer.
+   **PER-LESSON CONSENT (this matters most at session-end).** When you
+   have several candidate lessons, propose and confirm them ONE AT A
+   TIME; a single "yes, save them" does NOT license a batch flush. On
+   Claude Code, after the first gated write of the turn every additional
+   self_improvement write re-prompts, and the whole gate decision trail
+   is recorded to a redacted audit ledger (`cli.mjs gate-audit`).
+   (Knowledge / issue / plan writes are NOT gated, so batch those freely.)
 
 5. **DO NOT re-write plan files.** The mechanical hook
    (`plan-frontmatter-sync`) keeps plan frontmatter / lifecycle folders

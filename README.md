@@ -11,7 +11,7 @@ Claude Code, Cursor, Codex, and every other MCP client forget everything when a 
 <br/>
 <br/>
 
-[![tests](https://img.shields.io/badge/TESTS-973_PASSING-0D0D14?style=for-the-badge&labelColor=5EFFC0)](#testing)
+[![tests](https://img.shields.io/badge/TESTS-1011_PASSING-0D0D14?style=for-the-badge&labelColor=5EFFC0)](#testing)
 [![node](https://img.shields.io/badge/NODE-%E2%89%A5_20-0D0D14?style=for-the-badge&logo=nodedotjs&logoColor=0D0D14&labelColor=5EF6FF)](https://nodejs.org)
 [![license](https://img.shields.io/badge/LICENSE-MIT-0D0D14?style=for-the-badge&labelColor=FCEE0A)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-STDIO_SERVER-0D0D14?style=for-the-badge&logo=anthropic&logoColor=0D0D14&labelColor=5EF6FF)](https://modelcontextprotocol.io)
@@ -92,7 +92,7 @@ The bootstrap is **idempotent** — re-running preserves your edits to `.env` an
 
 ![03](https://img.shields.io/badge/03-WRITE_GATED-0D0D14?style=flat-square&labelColor=FCEE0A)
 
-**Self-improvement lessons save only with explicit user consent.** Three layers of enforcement: discipline instructions, a Claude Code hook enabled by default (disable via `gate.claudeHookEnabled`), and an airtight MCP server-side gate (covers Cursor, Codex, generic clients).
+**Self-improvement lessons save only with explicit user consent, one approval per lesson.** Three layers of enforcement: discipline instructions, a Claude Code hook enabled by default (disable via `gate.claudeHookEnabled`) that confirms each lesson rather than letting one save phrase flush a batch, and an airtight MCP server-side gate (covers Cursor, Codex, generic clients). Every gate decision (and each compile-distilled lesson) lands in a redacted audit ledger (`cli.mjs gate-audit`).
 
 ![04](https://img.shields.io/badge/04-FAULT_TOLERANT-0D0D14?style=flat-square&labelColor=FCEE0A)
 
@@ -208,13 +208,15 @@ Three enforcement layers, defence-in-depth:
 | Layer | Where | What it does | Why |
 | --- | --- | --- | --- |
 | **Instructions (probabilistic)** | MCP `initialize` + rule files in `.agents/rules/`, `.claude/rules/`, `.cursor/rules/` | Tells the model the rule, the wording to propose, and the consent contract. | Reaches *every* MCP client (Claude Code, Cursor, Codex, generic). Not airtight on its own — the model could still ignore it — which is why the next two layers exist. |
-| **Claude Code hook (deterministic, Claude Code only)** | `PreToolUse` hook on the three gated writers; enabled by default, `gate.claudeHookEnabled: false` makes it a no-op | Inspects the latest user turn for explicit save phrases. Matches → `allow`. No match → `ask` (Claude Code prompts the user yes/no). Also denies direct `Write`/`Edit` to `~/.claude/projects/<workspace>/memory/`. | Stops a mis-instructed model BEFORE the call leaves the client. Adds a one-click user gate when needed. |
+| **Claude Code hook (deterministic, Claude Code only)** | `PreToolUse` hook on the three gated writers; enabled by default, `gate.claudeHookEnabled: false` makes it a no-op | Inspects the latest user turn for explicit save phrases. Matches → `allow`. No match → `ask` (Claude Code prompts the user yes/no). **Per-lesson consent** (`gate.perLessonConsent`, default on): a save phrase auto-allows only the FIRST gated write of a turn; every later one re-prompts, so a batch flush cannot ride one yes. Also denies direct `Write`/`Edit` to `~/.claude/projects/<workspace>/memory/`. | Stops a mis-instructed model BEFORE the call leaves the client. Adds a one-click user gate when needed, per lesson. |
 | **MCP server-side gate (deterministic, every client)** | `save_lesson` / `save_to_dataset` / `write_memory` handlers in the local stdio MCP server | Refuses calls without `userRequested: true`. Also refuses when `path:` lands the write under `self_improvement/...` from a non-gated `dataset:` claim (closes the path-bypass). | The airtight bottom layer. Works for Cursor, Codex, Claude Desktop, generic MCP clients — they don't have hooks, so the server is the only deterministic checkpoint. |
 ![](docs/assets/line-thin.svg)
 
 **Reconciliation:** layers are independent and additive. Any one of them can refuse a save. The model can NOT bypass them: it can't suppress the discipline (sent at `initialize`), can't disable the Claude Code hook from inside a tool call, and can't forge the `userRequested` flag (the only legitimate-bypass path is the internal `withSystemMaintenance` async frame that consolidate uses for its own bookkeeping — entered only by the orchestrator's own code, never by a client request body).
 
 Knowledge, plans, investigations, daily, and tracker-issue writes are **not** gated — their routing rules apply directly. Set `gate.selfImprovementEnabled: false` in `settings.yaml` to disable the server-side check as an operator escape hatch (the other two layers still apply). Set `gate.claudeHookEnabled: false` to disable the Claude Code hook the same way: it exits with no decision and the normal permission flow applies.
+
+**Audit trail.** Every write to the gated self_improvement category is appended (redacted, gitignored) to `state/.save-gate-audit.log`, so the ledger shows how each lesson came to exist: the server records each interactive `accepted` decision (with its consent basis: `user-flag`, `system-maintenance`, or `gate-disabled`) and each `refused` decision; the Claude Code hook records each `allow` / `ask` decision (`allow` records also carry the redacted trigger phrase that authorised them); and the compile pipeline records each lesson it auto-distills from your sessions (`layer: compile`, `consent: compile-distilled`). Inspect it with `cli.mjs gate-audit [--limit N]`. It is best-effort observability (never blocks or slows a write or compile, creates no file until something is recorded). Disable with `gate.auditTrailEnabled: false`; bound its size with `gate.auditKeep` (default 1000). Restore the legacy turn-level consent with `gate.perLessonConsent: false`.
 
 ## Consolidate (offline refinement)
 ![](docs/assets/line-bold.svg)
@@ -451,6 +453,9 @@ Highlights from `settings.yaml`:
 | `embed.backend` | `transformers` | `transformers` (on-device bge) or `lexical` (no model download). |
 | `gate.selfImprovementEnabled` | `true` | Operator escape hatch for the server-side write-gate. |
 | `gate.claudeHookEnabled` | `true` | Enable or disable the Claude Code PreToolUse write-gate hook (no-op when false). |
+| `gate.perLessonConsent` | `true` | One save phrase auto-allows only the first gated write of a turn; later ones re-prompt (Claude Code). `false` restores turn-level consent. |
+| `gate.auditTrailEnabled` | `true` | Append a redacted ledger of every gate decision to `state/.save-gate-audit.log` (read via `cli.mjs gate-audit`). |
+| `gate.auditKeep` | `1000` | Max records kept in the audit ledger (older lines front-truncated). |
 | `consolidate.intervalDays` | `1` | Throttle for `consolidate --if-due`. |
 | `consolidate.llmPassesEnabled` | `true` | Disable to run deterministic-only consolidation. |
 | `consolidate.attemptsKeep` | `50` | Slim cron attempt entries kept in `state/.consolidate-attempts.log`. |
@@ -582,7 +587,7 @@ npm test           # unit suite
 npm run test:e2e   # full lifecycle against the real skill-llm-wiki CLI (LLM stubbed)
 ```
 
-**973 tests** in total. The unit suite covers the chunker (header/paragraph/hard-cut boundaries, surrogate-safe cuts), the provider+model chain (model-not-found iteration, cross-provider fallback, provenance accumulation), the map-reduce flow (depth cap, shrink check, partial-failure stash, in-leaf recovery), the redistill CLI, the wiki auto-commit layer (batching, repo-safety probe, injection guards), and the entity-level self-healing pipeline (escalations, episode-versioned issue reports, log retention, provider-availability tracking: compile's EX_UNAVAILABLE exit, synthetic `system:` entities, the hybrid cron PATH builder), word-boundary truncation, the facet vocabulary collector, and the LLM-only cosine merge band. The e2e suite builds a wiki from scratch in a temp directory and asserts genesis, daily capture, lesson + knowledge + plan + investigation absorption, compile promotion + dedup, recall, tree-growth integrity, and idempotency — against the real `skill-llm-wiki` CLI with mocked LLM responses.
+**1011 tests** in total. The unit suite covers the chunker (header/paragraph/hard-cut boundaries, surrogate-safe cuts), the provider+model chain (model-not-found iteration, cross-provider fallback, provenance accumulation), the map-reduce flow (depth cap, shrink check, partial-failure stash, in-leaf recovery), the redistill CLI, the wiki auto-commit layer (batching, repo-safety probe, injection guards), and the entity-level self-healing pipeline (escalations, episode-versioned issue reports, log retention, provider-availability tracking: compile's EX_UNAVAILABLE exit, synthetic `system:` entities, the hybrid cron PATH builder), word-boundary truncation, the facet vocabulary collector, and the LLM-only cosine merge band. The e2e suite builds a wiki from scratch in a temp directory and asserts genesis, daily capture, lesson + knowledge + plan + investigation absorption, compile promotion + dedup, recall, tree-growth integrity, and idempotency — against the real `skill-llm-wiki` CLI with mocked LLM responses.
 
 ## Requirements
 ![](docs/assets/line-bold.svg)

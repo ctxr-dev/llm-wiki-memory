@@ -492,9 +492,22 @@ async function main() {
       out(monitoringHealth());
       return;
     }
+    case "gate-audit": {
+      // Read-only view of the write-gate audit ledger
+      // (state/.save-gate-audit.log): every decision on the gated self_improvement
+      // category, newest last: L2 hook allow/ask, L3 server accepted/refused, and
+      // compile-distilled lesson promotions (observability only). Inspect how (or
+      // whether) each lesson was consented to. Returns [] when nothing recorded yet.
+      const { readAudit } = await import("./lib/save-gate-audit.mjs");
+      const idx = rest.indexOf("--limit");
+      const limRaw = idx >= 0 ? Number(rest[idx + 1]) : NaN;
+      const limit = Number.isFinite(limRaw) && limRaw > 0 ? limRaw : 50;
+      out(readAudit({ limit }));
+      return;
+    }
     default:
       out(
-        "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|doctor|move-leaf <from> <to>|monitor --title <t> [...] | --resolve <file>|monitoring-health|recall <q>|search <q>|redistill --leaf <path> | --session <id> | --all>",
+        "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|doctor|move-leaf <from> <to>|monitor --title <t> [...] | --resolve <file>|monitoring-health|gate-audit [--limit N]|recall <q>|search <q>|redistill --leaf <path> | --session <id> | --all>",
       );
       process.exit(cmd ? 1 : 0);
   }

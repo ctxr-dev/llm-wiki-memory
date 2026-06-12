@@ -188,6 +188,21 @@ test("5. compile promotes daily atoms into knowledge + self_improvement, archive
   const activeDailies = store.listDocuments({ prefix: "daily-", enabled: "true", datasetId: "daily" }).documents;
   assert.equal(activeDailies.length, 0, "source daily archived after promotion");
   assert.equal(cli.validate(wiki).ok, true);
+
+  // The compile pipeline records each self_improvement promotion in the
+  // gate-audit ledger (observability only; it never gates compile). The audit
+  // is best-effort, so its absence must NOT fail compile — but on a healthy run
+  // the promoted lesson above should have produced a compile-distilled record.
+  const auditLog = path.join(dataDir, "state", ".save-gate-audit.log");
+  const auditRecs = fs.existsSync(auditLog)
+    ? fs.readFileSync(auditLog, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l))
+    : [];
+  const compileLesson = auditRecs.find(
+    (a) => a.layer === "compile" && a.consent === "compile-distilled" && a.target === "self_improvement",
+  );
+  assert.ok(compileLesson, `compile promotion is audited: ${JSON.stringify(auditRecs)}`);
+  assert.equal(compileLesson.status, "accepted");
+  assert.ok(["create", "update"].includes(compileLesson.action), "records a create/update action");
 });
 
 test("5b. dedup: a second daily lesson with the same error_pattern force-updates, not duplicates", async () => {
@@ -208,6 +223,16 @@ test("5b. dedup: a second daily lesson with the same error_pattern force-updates
   }
   assert.equal(activeLessons.length, 1, "exactly one active lesson per error_pattern (old archived)");
   assert.equal(cli.validate(wiki).ok, true);
+
+  // The force-update is also audited with action:"update" (the compile UPDATE
+  // branch of auditCompileLessonPromotion, distinct from test 5's create path).
+  const auditLog = path.join(dataDir, "state", ".save-gate-audit.log");
+  const updateRec = (fs.existsSync(auditLog)
+    ? fs.readFileSync(auditLog, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l))
+    : []
+  ).find((a) => a.layer === "compile" && a.action === "update");
+  assert.ok(updateRec, "compile records an action:update on a force-update");
+  assert.equal(updateRec.consent, "compile-distilled");
 });
 
 test("6. recall surfaces the promoted lesson by project_module", async () => {

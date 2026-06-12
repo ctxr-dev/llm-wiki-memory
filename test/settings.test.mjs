@@ -22,6 +22,9 @@ const {
   gcIntervalDays,
   writeGateSelfImprovementEnabled,
   writeGateClaudeHookEnabled,
+  writeGateAuditTrailEnabled,
+  writeGatePerLessonConsent,
+  writeGateAuditKeep,
   resolvedChain,
   pickStrongerModel,
   isCliProvider,
@@ -78,6 +81,45 @@ test("defaults: no user YAML -> loader falls back to shipped templates/settings.
     // specific names — they live in the YAML, not in code).
     assert.ok(s.providers.anthropic.models.length > 0);
   });
+});
+
+test("gate: audit + per-lesson keys default ON; auditKeep default 1000", () => {
+  clearEnv();
+  withYaml(null, () => {
+    settings({ cmdProbe: () => false });
+    assert.equal(writeGateAuditTrailEnabled(), true);
+    assert.equal(writeGatePerLessonConsent(), true);
+    assert.equal(writeGateAuditKeep(), 1000);
+  });
+});
+
+test("gate: explicit false disables audit / per-lesson; positive auditKeep honored", () => {
+  clearEnv();
+  withYaml(
+    `gate:\n  auditTrailEnabled: false\n  perLessonConsent: false\n  auditKeep: 50\n`,
+    () => {
+      settings({ cmdProbe: () => false });
+      assert.equal(writeGateAuditTrailEnabled(), false);
+      assert.equal(writeGatePerLessonConsent(), false);
+      assert.equal(writeGateAuditKeep(), 50);
+    },
+  );
+});
+
+test("gate: null/bare audit + per-lesson keys FAIL CLOSED to true (not Boolean(null) false)", () => {
+  clearEnv();
+  // A bare `auditTrailEnabled:` / `perLessonConsent:` (null) must NOT silently
+  // disable consent recording or per-lesson prompting — same fail-closed rule
+  // as selfImprovementEnabled. Garbage auditKeep falls back to the default.
+  withYaml(
+    `gate:\n  auditTrailEnabled:\n  perLessonConsent:\n  auditKeep: nonsense\n`,
+    () => {
+      settings({ cmdProbe: () => false });
+      assert.equal(writeGateAuditTrailEnabled(), true, "bare auditTrailEnabled must stay ON");
+      assert.equal(writeGatePerLessonConsent(), true, "bare perLessonConsent must stay ON");
+      assert.equal(writeGateAuditKeep(), 1000, "garbage auditKeep must fall back to default");
+    },
+  );
 });
 
 test("user YAML overrides template", () => {

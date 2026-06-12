@@ -292,7 +292,13 @@ function buildSettings({ configPath, cmdProbe } = {}) {
     metadataRetryLimit: 3,
   };
   const gc = { intervalDays: 7 };
-  const gate = { selfImprovementEnabled: true, claudeHookEnabled: true };
+  const gate = {
+    selfImprovementEnabled: true,
+    claudeHookEnabled: true,
+    auditTrailEnabled: true,
+    perLessonConsent: true,
+    auditKeep: 1000,
+  };
   const wiki = { autoCommit: true };
   const providers = {
     chain: [],
@@ -353,6 +359,18 @@ function buildSettings({ configPath, cmdProbe } = {}) {
     // value through uncoerced so null/empty falls back to the safe default
     // (true) in the coerceBool below, while an explicit false still disables.
     gate.claudeHookEnabled = raw.gate.claudeHookEnabled;
+  }
+  if (raw.gate && raw.gate.auditTrailEnabled !== undefined) {
+    // Fail-closed like the gate flags above: pass the raw value uncoerced so a
+    // null/empty value falls back to the safe default (true) in coerceBool below.
+    gate.auditTrailEnabled = raw.gate.auditTrailEnabled;
+  }
+  if (raw.gate && raw.gate.perLessonConsent !== undefined) {
+    // Same fail-closed rule: a null/empty value keeps per-lesson consent ON.
+    gate.perLessonConsent = raw.gate.perLessonConsent;
+  }
+  if (raw.gate && raw.gate.auditKeep !== undefined) {
+    gate.auditKeep = raw.gate.auditKeep;
   }
   if (raw.wiki && raw.wiki.autoCommit !== undefined) {
     wiki.autoCommit = raw.wiki.autoCommit;
@@ -458,6 +476,9 @@ function buildSettings({ configPath, cmdProbe } = {}) {
   gc.intervalDays = coerceNonNeg(gc.intervalDays, 7);
   gate.selfImprovementEnabled = coerceBool(gate.selfImprovementEnabled, true);
   gate.claudeHookEnabled = coerceBool(gate.claudeHookEnabled, true);
+  gate.auditTrailEnabled = coerceBool(gate.auditTrailEnabled, true);
+  gate.perLessonConsent = coerceBool(gate.perLessonConsent, true);
+  gate.auditKeep = coercePos(gate.auditKeep, 1000);
   wiki.autoCommit = coerceBool(wiki.autoCommit, true);
 
   const built = {
@@ -587,6 +608,9 @@ export function compileMetadataRetryLimit() { return settings().compile.metadata
 export function gcIntervalDays() { return settings().gc.intervalDays; }
 export function writeGateSelfImprovementEnabled() { return Boolean(settings().gate.selfImprovementEnabled); }
 export function writeGateClaudeHookEnabled() { return Boolean(settings().gate.claudeHookEnabled); }
+export function writeGateAuditTrailEnabled() { return Boolean(settings().gate.auditTrailEnabled); }
+export function writeGatePerLessonConsent() { return Boolean(settings().gate.perLessonConsent); }
+export function writeGateAuditKeep() { return settings().gate.auditKeep; }
 export function wikiAutoCommit() { return Boolean(settings().wiki.autoCommit); }
 export function crossCuttingAreas() { return settings().crossCuttingAreas; }
 

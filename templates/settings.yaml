@@ -128,6 +128,18 @@ gate:
   # the hook a uniform no-op (exit 0, no decision) so Claude Code's normal
   # permission flow applies; L1 instructions + the L3 server gate still apply.
   claudeHookEnabled: true
+  # Append a redacted audit record for every gated-category decision (accepted,
+  # refused, and the L2 hook's allow/ask) to state/.save-gate-audit.log. Read it
+  # with `cli.mjs gate-audit`. Disk-cheap; set false to stop recording.
+  auditTrailEnabled: true
+  # Per-lesson consent (L2 Claude Code hook). When true, one save phrase in a
+  # user turn auto-allows only the FIRST gated write; each subsequent gated write
+  # in the same turn prompts one-click, so a session-end flush can no longer ride
+  # a single approval. Set false for the legacy turn-level behaviour. Enforced on
+  # Claude Code only; other clients rely on L1 discipline + the audit trail.
+  perLessonConsent: true
+  # Max records kept in the audit log; older lines are front-truncated.
+  auditKeep: 1000
 
 wiki:
   # Auto-commit every wiki change to the wiki's OWN git repo: one commit per
