@@ -1,6 +1,6 @@
 import { defaultProjectModule } from "./env.mjs";
-import { recallScoreThreshold } from "./settings.mjs";
-import { searchMemoryFiltered, saveDocument, getCategories } from "./wiki-store.mjs";
+import { recallScoreThreshold, recallPriorityBand } from "./settings.mjs";
+import { searchMemoryFiltered, saveDocument, getCategories, rerankWithinBands } from "./wiki-store.mjs";
 import { lessonDocName } from "./slug.mjs";
 
 export const LESSON_ATOM_TYPE = "self-improvement-lesson";
@@ -94,6 +94,20 @@ export async function recallLessons({
     if (r !== 0) return r;
     return (b.score ?? -1) - (a.score ?? -1);
   });
+  // Priority breaks ties WITHIN a rung's cosine band only — rung (scope) stays
+  // primary, cosine second, priority third. Reorder per-rung group so a band
+  // tie-break never pulls a hit across rungs.
+  const band = recallPriorityBand();
+  const reranked = [];
+  for (let k = 0; k < lessonHits.length; ) {
+    const rung = lessonHits[k].rungIndex ?? 0;
+    let m = k + 1;
+    while (m < lessonHits.length && (lessonHits[m].rungIndex ?? 0) === rung) m += 1;
+    reranked.push(...rerankWithinBands(lessonHits.slice(k, m), band));
+    k = m;
+  }
+  lessonHits.length = 0;
+  lessonHits.push(...reranked);
 
   const supplementary = [];
   if (includeKnowledge !== false && effectiveProjectModule) {
@@ -124,6 +138,7 @@ export async function recallLessons({
       datasetId: r.datasetId,
       documentName: r.documentName,
       score: r.score,
+      priority: r.priority,
       content: r.content,
     })),
   };
@@ -198,6 +213,7 @@ export function saveLesson({ title, body, metadata = {}, tags, evidence } = {}) 
   if (metadata.language) lines.push(`- language: ${metadata.language}`);
   lines.push(`- task_type: ${metadata.task_type}`);
   lines.push(`- error_pattern: ${metadata.error_pattern}`);
+  if (metadata.priority) lines.push(`- priority: ${oneLine(metadata.priority)}`);
   lines.push(`- updated_at_utc: ${new Date().toISOString()}`);
   lines.push("", body);
   if (evidence) lines.push("", `evidence: ${evidence}`);
@@ -211,6 +227,9 @@ export function saveLesson({ title, body, metadata = {}, tags, evidence } = {}) 
   };
   if (metadata.language) fullMetadata.language = metadata.language;
   if (tagList.length) fullMetadata.tags = tagList.join(",");
+  // Gated lesson: honour the user-picked priority (P0 allowed here); normaliseMeta
+  // fills the rubric default (P1 for a lesson) when omitted.
+  if (metadata.priority) fullMetadata.priority = metadata.priority;
 
   const result = saveDocument({
     name: lessonDocName(title),

@@ -78,6 +78,7 @@ function buildRecord(fields = {}) {
     title,
     area,
     error_pattern,
+    priority, // apply-strength of the saved atom (P0/P1/P2), optional
     userRequested,
     trigger, // the matched user phrase (L2), redacted
     now = new Date(),
@@ -95,6 +96,7 @@ function buildRecord(fields = {}) {
   if (a !== null) rec.area = a;
   const ep = field(error_pattern, FIELD_MAX);
   if (ep !== null) rec.error_pattern = ep;
+  if (priority) rec.priority = String(priority).trim().toUpperCase();
   if (userRequested !== undefined) rec.userRequested = userRequested === true;
   const tr = field(trigger, TRIGGER_MAX);
   if (tr !== null) rec.trigger = tr;

@@ -706,3 +706,18 @@ test("cosineBandFloor: valid value passes, invalid/out-of-range values fail-safe
     assert.equal(settings().consolidate.cosineBandFloor, 0.85, "floor under a lowered threshold is accepted");
   });
 });
+
+test("recall.priorityBand: coerced via coerceFloat01 (valid kept; invalid / out-of-range -> default 0.05)", () => {
+  withYaml("recall:\n  priorityBand: 0.12\n", () => {
+    assert.equal(settings().recall.priorityBand, 0.12, "valid value in [0,1] is kept");
+  });
+  withYaml("recall:\n  priorityBand: nope\n", () => {
+    assert.equal(settings().recall.priorityBand, 0.05, "non-number falls back to the default");
+  });
+  withYaml("recall:\n  priorityBand: 1.5\n", () => {
+    assert.equal(settings().recall.priorityBand, 0.05, "out of [0,1] falls back to the default");
+  });
+  withYaml("recall: {}\n", () => {
+    assert.equal(settings().recall.priorityBand, 0.05, "absent key defaults to 0.05");
+  });
+});

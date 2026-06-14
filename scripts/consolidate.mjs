@@ -73,6 +73,7 @@ import {
 } from "./lib/wiki-store.mjs";
 import { pruneEmptyAncestors } from "./lib/fs-prune.mjs";
 import { ensureIndexes, indexRebuildOne } from "./lib/wiki-cli.mjs";
+import { priorityRank, normalisePriority } from "./lib/datasets.mjs";
 import { callJSON } from "./lib/llm-callJSON.mjs";
 import { health as llmHealth, LLMProviderUnavailable, LLMOutputInvalid } from "./lib/llm.mjs";
 
@@ -892,6 +893,19 @@ function finalizeMergeCandidates({ candidates, ctx, now, dryRun }) {
         consolidated_at: toIso(now),
       });
       disableDocument({ documentId: loser.documentId });
+      // Merge must never demote the higher tier: bump the keeper to the MAX
+      // priority of the pair so a P1/P0 loser isn't archived into a lower-priority
+      // keeper. Best-effort — a priority bump never blocks the merge.
+      try {
+        const keeperCur = readLeafForConsolidate({ documentId: keeper.documentId });
+        const kp = normalisePriority(keeperCur?.frontmatter?.memory?.priority) || "P2";
+        const lp = normalisePriority(cur.frontmatter?.memory?.priority) || "P2";
+        if (priorityRank(lp) < priorityRank(kp)) {
+          stampLeafMetadata(keeper.documentId, { priority: lp });
+        }
+      } catch {
+        /* best-effort; priority bump is non-fatal */
+      }
       report.archived++;
       recordEntity(report, { id: entityPairId(keeper, loser), kind: "dedup-pair", action: "archive", ok: true });
     } catch (err) {

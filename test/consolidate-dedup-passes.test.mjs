@@ -138,6 +138,45 @@ test("dedupe-by-sha256: two identical bodies → one archived, supersedes_id poi
   assert.equal(memA.supersedes_id, idB, "A.supersedes_id points to keeper B");
 });
 
+test("dedupe-by-sha256: keeper takes the MAX priority of the merged pair (P1 loser bumps P2 keeper)", async () => {
+  const body = "# Prio Merge\n\nidentical body; the keeper must inherit the HIGHER priority of the merged pair.";
+  const keeperRes = store.saveDocument({
+    name: uniqueName("lesson-prio-keep"),
+    text: body,
+    datasetId: "self_improvement",
+    metadata: {
+      atom_type: "self-improvement-lesson",
+      area: "prioMerge",
+      task_type: "implementation",
+      error_pattern: "prio-merge-keep",
+      priority: "P2", // keeper starts LOWER
+    },
+  });
+  const loserRes = store.saveDocument({
+    name: uniqueName("lesson-prio-keep"),
+    text: body,
+    datasetId: "self_improvement",
+    metadata: {
+      atom_type: "self-improvement-lesson",
+      area: "prioMerge",
+      task_type: "implementation",
+      error_pattern: "prio-merge-lose",
+      priority: "P1", // loser is HIGHER -> must bump the keeper
+    },
+  });
+  const keeperId = keeperRes.created.document.id;
+  const loserId = loserRes.created.document.id;
+  stampFrontmatter(keeperId, { updated: "2026-06-01" }); // newer -> survives as keeper
+  stampFrontmatter(loserId, { updated: "2026-05-01" }); // older -> archived loser
+  assert.equal(readMemoryBlock(keeperId).priority, "P2", "keeper starts P2");
+
+  const r = await runDedupPasses({ passes: ["dedupe-by-sha256"] });
+  assert.equal(r.ok, true);
+
+  assert.ok(!activeIds("self_improvement").includes(loserId), "loser archived");
+  assert.equal(readMemoryBlock(keeperId).priority, "P1", "keeper bumped P2 -> P1 (max of the pair)");
+});
+
 test("dedupe-by-sha256: three identical bodies → newest survives, two archived (chained supersedes)", async () => {
   const body = "# SHA Trio\n\nthe three bodies are byte-identical, only the keeper survives.";
   const leaves = ["2026-04-01", "2026-05-01", "2026-06-01"].map((updated, i) => {

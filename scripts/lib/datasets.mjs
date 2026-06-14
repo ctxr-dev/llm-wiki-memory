@@ -48,7 +48,62 @@ export const METADATA_SCHEMA = [
   { name: "language", type: "string" },
   { name: "task_type", type: "string" },
   { name: "error_pattern", type: "string" },
+  // Apply-strength of the atom (P0 hard constraint / P1 strong default / P2
+  // contextual). Drives priority-aware recall (within-band tie-break + which
+  // bodies survive the response budget). Filled by the rubric when absent.
+  { name: "priority", type: "string" },
 ];
+
+// Apply-strength tiers. P0 = a hard constraint (guardrail/invariant) the model
+// must honour and that governs on contradiction; P1 = strong default; P2 =
+// contextual. P0 is SCARCE: never produced by the rubric or auto-assigned — it
+// enters only via an explicit user/human designation (e.g. a gated lesson), so
+// the "hard constraint" tier stays trustworthy.
+export const PRIORITIES = new Set(["P0", "P1", "P2"]);
+export const DEFAULT_PRIORITY = "P2";
+
+const PRIORITY_P1_TYPES = new Set([
+  "feedback-rule",
+  "decision",
+  "bug-root-cause",
+  "pattern-gotcha",
+  "investigation",
+  "self-improvement-lesson",
+]);
+
+// Deterministic default priority for an atom_type when none was supplied.
+// NEVER returns P0 (see PRIORITIES). Used by the write choke point
+// (normaliseMeta) and the backfill CLI so every leaf carries a valid priority.
+export function priorityForAtomType(atomType, { lifecycle } = {}) {
+  const t = String(atomType || "").trim();
+  if (t === "plan") {
+    const lc = String(lifecycle || "").trim().toLowerCase();
+    return lc === "done" || lc === "archived" ? "P2" : "P1";
+  }
+  if (PRIORITY_P1_TYPES.has(t)) return "P1";
+  return DEFAULT_PRIORITY; // reference, project-lore, daily-capture, unknown
+}
+
+// Coerce an arbitrary value to a valid priority, or null if not one.
+export function normalisePriority(value) {
+  const v = String(value || "").trim().toUpperCase();
+  return PRIORITIES.has(v) ? v : null;
+}
+
+// Ordinal for sorting: lower = higher priority (P0 first). Unknown/absent sorts
+// as P2 (lowest) so a missing value never outranks a real one.
+export function priorityRank(p) {
+  return p === "P0" ? 0 : p === "P1" ? 1 : 2;
+}
+
+// P0 is scarce: a write may set it only with an explicit consent signal
+// (`p0Allowed` = an in-turn user flag or a system-maintenance frame). Otherwise
+// the requested P0 is coerced DOWN to P1. Pure + unit-testable; the MCP boundary
+// supplies p0Allowed and the user-facing note.
+export function enforceP0Scarcity(priority, p0Allowed) {
+  if (priority === "P0" && !p0Allowed) return { priority: "P1", coerced: true };
+  return { priority, coerced: false };
+}
 
 export const TASK_TYPES = new Set([
   "planning",
@@ -87,5 +142,8 @@ export function metadataForDify(atom) {
   maybe("language", md.language);
   maybe("task_type", md.task_type);
   maybe("error_pattern", md.error_pattern);
+  // Pass an explicit priority through if the atom already carries one; otherwise
+  // the write choke point (normaliseMeta) fills the rubric default by atom_type.
+  maybe("priority", md.priority);
   return out;
 }

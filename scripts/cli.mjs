@@ -423,6 +423,20 @@ async function main() {
       out(report);
       process.exit(report.ok ? 0 : 3);
     }
+    case "backfill-priority": {
+      // Stamp a deterministic rubric priority (never P0) on every leaf that
+      // lacks one — no LLM. --dry-run previews. Pinned in place; one commit.
+      // Recall already lazy-defaults a missing priority, so this just persists it.
+      const dryRun = rest.includes("--dry-run");
+      const { backfillPriority } = await import("./lib/wiki-store.mjs");
+      if (dryRun) {
+        out(backfillPriority({ dryRun: true }));
+        return;
+      }
+      const { withWikiCommit } = await import("./lib/wiki-commit.mjs");
+      out(withWikiCommit({ op: "backfill-priority", actor: "cli" }, () => backfillPriority({ dryRun: false })));
+      return;
+    }
     case "move-leaf": {
       // Relocate a curated leaf: move-leaf <from> <to> (wiki-relative paths).
       // moveDocument refuses facet/topology/daily regimes (see wiki-store.mjs).

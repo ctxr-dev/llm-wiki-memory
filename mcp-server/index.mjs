@@ -11,6 +11,7 @@ import {
   envValue,
 } from "../scripts/lib/env.mjs";
 import { writeGateSelfImprovementEnabled } from "../scripts/lib/settings.mjs";
+import { enforceP0Scarcity } from "../scripts/lib/datasets.mjs";
 import { withWikiCommit } from "../scripts/lib/wiki-commit.mjs";
 import { activeBackend } from "../scripts/lib/embed.mjs";
 import { INSTRUCTIONS } from "../scripts/lib/discipline.mjs";
@@ -184,6 +185,11 @@ const MetadataSchema = z
     language: z.string().optional(),
     task_type: z.string().optional(),
     error_pattern: z.string().optional(),
+    // Apply-strength (optional; the engine fills a rubric default by atom_type
+    // when absent). P0 is scarce: a non-gated write requesting P0 without an
+    // explicit user/maintenance consent signal is coerced to P1 (see
+    // guardScarcePriority).
+    priority: z.enum(["P0", "P1", "P2"]).optional(),
   })
   .partial();
 
@@ -375,8 +381,26 @@ function auditGatedL3({ tool, status, userRequested, title, metadata }) {
     title,
     area: metadata?.area,
     error_pattern: metadata?.error_pattern,
+    priority: metadata?.priority,
     userRequested,
   });
+}
+
+// P0 is the scarce "hard constraint" tier. A write may set priority:"P0" only
+// with an explicit consent signal — an in-turn user flag (userRequested) or a
+// system-maintenance frame. Otherwise coerce to P1 so the write still succeeds,
+// and report the coercion (never silent) so the caller can re-request via the
+// gated/explicit path. Keeps P0 trustworthy without failing the write.
+function guardScarcePriority(metadata, userRequested) {
+  const p0Allowed = userRequested === true || isSystemMaintenance();
+  const { coerced } = enforceP0Scarcity(metadata?.priority, p0Allowed);
+  if (coerced) {
+    return {
+      metadata: { ...metadata, priority: "P1" },
+      note: "priority P0 coerced to P1: P0 requires an explicit user designation (a gated lesson, or userRequested:true)",
+    };
+  }
+  return { metadata, note: undefined };
 }
 
 server.registerTool(
@@ -401,6 +425,10 @@ server.registerTool(
           error_pattern: z.string().trim().min(1),
           language: z.string().trim().optional(),
           tags: z.string().trim().optional(),
+          // Apply-strength. Gated saves are user-confirmed, so P0 is allowed
+          // here (the user picks it in the propose-then-confirm). Defaults to
+          // the rubric (P1 for a lesson) when omitted.
+          priority: z.enum(["P0", "P1", "P2"]).optional(),
         })
         // saveLesson needs a sub-module: `area`, or legacy `project_module` as a
         // fallback. Enforce here so clients get a validation error, not a runtime throw.
@@ -465,18 +493,19 @@ server.registerTool(
         );
       }
       await assertTopologyPathValid({ dataset, name, path });
+      const { metadata: md, note: priorityNote } = guardScarcePriority(metadata, userRequested);
       const result = withWikiCommit({ op: "mcp-save", actor: "mcp" }, () =>
         impl.saveDocument({
           name,
           text,
           datasetId: dataset,
-          metadata,
+          metadata: md,
           placementOverride: path,
         }));
       if (targetsGatedCategory(dataset, path)) {
-        auditGatedL3({ tool: "save_to_dataset", status: "accepted", userRequested, title: name, metadata });
+        auditGatedL3({ tool: "save_to_dataset", status: "accepted", userRequested, title: name, metadata: md });
       }
-      return jsonResponse({ ok: !!result.created, ...result });
+      return jsonResponse({ ok: !!result.created, ...result, ...(priorityNote ? { priorityNote } : {}) });
     } catch (error) {
       return errorResponse(error);
     }
@@ -521,6 +550,7 @@ server.registerTool(
         );
       }
       await assertTopologyPathValid({ dataset: datasetId, name, path });
+      const { metadata: md, note: priorityNote } = guardScarcePriority(metadata, userRequested);
       const result = withWikiCommit({ op: "mcp-write-memory", actor: "mcp" }, () =>
         impl.writeMemory({
           name,
@@ -528,13 +558,13 @@ server.registerTool(
           datasetId,
           supersedes,
           supersedesAction,
-          metadata,
+          metadata: md,
           placementOverride: path,
         }));
       if (targetsGatedCategory(datasetId, path)) {
-        auditGatedL3({ tool: "write_memory", status: "accepted", userRequested, title: name, metadata });
+        auditGatedL3({ tool: "write_memory", status: "accepted", userRequested, title: name, metadata: md });
       }
-      return jsonResponse(result);
+      return jsonResponse({ ...result, ...(priorityNote ? { priorityNote } : {}) });
     } catch (error) {
       return errorResponse(error);
     }

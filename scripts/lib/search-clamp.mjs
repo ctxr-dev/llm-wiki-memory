@@ -8,6 +8,7 @@
 // (and id where present) so the agent can `read_document` the whole leaf.
 // `fullContent: true` opts out entirely; `maxChars` tunes the per-hit width.
 import { truncateAtWordBoundary } from "./slug.mjs";
+import { priorityRank } from "./datasets.mjs";
 
 export const SEARCH_PER_HIT_CHARS = 600;
 export const SEARCH_TOTAL_BUDGET = 16000;
@@ -18,9 +19,17 @@ export function clampSearchResponse(
 ) {
   if (fullContent || !result || !Array.isArray(result.records)) return result;
   const perHit = Number.isInteger(maxChars) && maxChars > 0 ? maxChars : perHitDefault;
+  // Spend the total body budget in PRIORITY order (P0 > P1 > P2; original order
+  // within a tier) so that when it runs out the LOWEST-priority bodies are the
+  // ones emptied — a relevant hit is NEVER dropped (it keeps name/score/id), only
+  // its body is trimmed. The OUTPUT preserves the caller's (relevance) order.
+  const spendOrder = result.records
+    .map((r, i) => ({ i, r }))
+    .sort((a, b) => priorityRank(a.r.priority) - priorityRank(b.r.priority));
+  const decided = new Array(result.records.length);
   let total = 0;
   let anyTruncated = false;
-  const records = result.records.map((r) => {
+  for (const { i, r } of spendOrder) {
     const full = String(r.content ?? "");
     let content = full;
     let truncated = false;
@@ -33,7 +42,7 @@ export function clampSearchResponse(
     }
     total += content.length;
     if (truncated) anyTruncated = true;
-    return truncated ? { ...r, content, truncated: true, fullChars: full.length } : { ...r, content };
-  });
-  return anyTruncated ? { ...result, records, truncated: true } : { ...result, records };
+    decided[i] = truncated ? { ...r, content, truncated: true, fullChars: full.length } : { ...r, content };
+  }
+  return anyTruncated ? { ...result, records: decided, truncated: true } : { ...result, records: decided };
 }

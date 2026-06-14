@@ -104,6 +104,10 @@ recall:
   # Recall-touch instrumentation (writes memory.last_recalled_at on hits).
   touchEnabled: true
   touchMinHours: 24
+  # Cosine proximity within which `priority` (P0/P1/P2) breaks ties at recall.
+  # Relevance stays dominant: a hit more than this far below the band leader keeps
+  # its cosine rank; only near-equally-relevant hits are ordered P0 > P1 > P2.
+  priorityBand: 0.05
 
 compile:
   # Knowledge slot (the destination compile promotes daily atoms to).

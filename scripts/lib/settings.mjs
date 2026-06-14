@@ -282,6 +282,10 @@ function buildSettings({ configPath, cmdProbe } = {}) {
     scoreThreshold: 0,
     touchEnabled: true,
     touchMinHours: 24,
+    // Cosine proximity within which priority breaks ties at recall (a relevant
+    // P0/P1 orders above an equally-relevant P2). Relevance stays dominant: a
+    // hit more than this far below the band leader keeps its cosine rank.
+    priorityBand: 0.05,
   };
   const compile = {
     slot: "knowledge",
@@ -465,6 +469,7 @@ function buildSettings({ configPath, cmdProbe } = {}) {
   recall.scoreThreshold = coerceFloat01(recall.scoreThreshold, 0);
   recall.touchMinHours = coercePos(recall.touchMinHours, 24);
   recall.touchEnabled = coerceBool(recall.touchEnabled, true);
+  recall.priorityBand = coerceFloat01(recall.priorityBand, 0.05);
 
   if (typeof compile.slot !== "string") compile.slot = "knowledge";
   compile.searchLimit = coercePos(compile.searchLimit, 5);
@@ -597,6 +602,7 @@ export function embedModel() { return settings().embed.model; }
 export function recallScoreThreshold() { return settings().recall.scoreThreshold; }
 export function recallTouchEnabled() { return Boolean(settings().recall.touchEnabled); }
 export function recallTouchMinHours() { return settings().recall.touchMinHours; }
+export function recallPriorityBand() { return settings().recall.priorityBand; }
 
 export function compileSlot() { return settings().compile.slot; }
 export function compileSearchLimit() { return settings().compile.searchLimit; }

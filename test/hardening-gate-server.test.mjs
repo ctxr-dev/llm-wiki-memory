@@ -176,6 +176,44 @@ test("save_lesson with userRequested:true -> success", async () => {
   assert.equal(payload.ok, true, `save_lesson should succeed: ${JSON.stringify(payload)}`);
 });
 
+test("save_to_dataset (non-gated) requesting P0 without consent -> coerced to P1 + priorityNote", async () => {
+  const res = await gateOnClient.callTool({
+    name: "save_to_dataset",
+    arguments: {
+      dataset: "knowledge",
+      name: "P0 coercion probe.md",
+      text: "a knowledge atom requesting P0 with no consent signal; the server must coerce it to P1.",
+      metadata: { atom_type: "reference", area: "prio", priority: "P0" },
+    },
+  });
+  const payload = parse(res);
+  assert.equal(payload.ok ?? Boolean(payload.created), true, `write succeeds: ${JSON.stringify(payload)}`);
+  assert.ok(payload.priorityNote && /coerced/i.test(payload.priorityNote), "coercion reported via priorityNote");
+  const id = payload.created?.document?.id;
+  assert.ok(id, "leaf id returned");
+  const raw = fs.readFileSync(path.join(gateOn.dataDir, "wiki", id), "utf8");
+  assert.match(raw, /priority:\s*P1/, "stored as P1 (coerced), never P0");
+  assert.doesNotMatch(raw, /priority:\s*P0/, "P0 not persisted on a non-gated write");
+});
+
+test("save_lesson with userRequested:true keeps a user-picked P0 (gated, no coercion)", async () => {
+  const res = await gateOnClient.callTool({
+    name: "save_lesson",
+    arguments: {
+      title: "Gated P0 lesson",
+      body: "a user-confirmed guardrail lesson that should keep its P0 priority.",
+      userRequested: true,
+      metadata: { area: "prio", task_type: "implementation", error_pattern: "gated-p0", priority: "P0" },
+    },
+  });
+  const payload = parse(res);
+  assert.equal(payload.ok, true, `save ok: ${JSON.stringify(payload)}`);
+  assert.equal(payload.priorityNote, undefined, "no coercion note for a gated, user-confirmed P0");
+  const id = payload.created?.document?.id;
+  const raw = fs.readFileSync(path.join(gateOn.dataDir, "wiki", id), "utf8");
+  assert.match(raw, /priority:\s*P0/, "gated lesson keeps the user-picked P0");
+});
+
 test("audit trail records L3 decisions (refused + accepted/consent) and skips non-gated writes", async () => {
   const auditPath = path.join(gateOn.dataDir, "state", ".save-gate-audit.log");
   const readRecs = () => {

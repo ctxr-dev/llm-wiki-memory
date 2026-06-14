@@ -12,6 +12,7 @@ import {
   gcIntervalDays,
   recallTouchEnabled,
   recallTouchMinHours,
+  recallPriorityBand,
 } from "./settings.mjs";
 import { ensureIndexes, indexRebuildOne } from "./wiki-cli.mjs";
 import { isSystemMaintenance } from "./maintenance-tag.mjs";
@@ -27,6 +28,7 @@ import {
 } from "./embed.mjs";
 import { slugify, dailyDatePath, truncateAtWordBoundary } from "./slug.mjs";
 import { inferFacets } from "./facets.mjs";
+import { priorityForAtomType, normalisePriority, priorityRank } from "./datasets.mjs";
 import { pruneEmptyAncestors } from "./fs-prune.mjs";
 import { recordWikiChange, withWikiCommit } from "./wiki-commit.mjs";
 
@@ -463,6 +465,12 @@ export function normaliseMeta(metadata = {}, extra = {}) {
     error_pattern: String(m.error_pattern || "").trim().toLowerCase(),
     status: extra.status || m.status || "active",
   };
+  // Apply-strength priority. Honour an explicit valid value (incl. a gated P0 —
+  // the P0-scarcity guard for non-gated writes lives at the MCP boundary, not
+  // here, since this choke point also serves system/consolidate writers and the
+  // gated lesson path); otherwise fill the deterministic rubric default by
+  // atom_type (never P0). Always present, never stripped.
+  out.priority = normalisePriority(m.priority) || priorityForAtomType(out.atom_type);
   const tags = m.tags;
   if (Array.isArray(tags)) out.tags = tags.join(",");
   else if (tags) out.tags = String(tags);
@@ -1201,6 +1209,37 @@ export function deleteDocument({ documentId, datasetId } = {}) {
   return { ok: true, documentId, deleted: true };
 }
 
+// Stamp a deterministic rubric priority (never P0) on every leaf that lacks a
+// valid one. Pinned in place (no relocation). Deterministic + cheap (no LLM):
+// recall already lazy-defaults a missing priority by the same rubric, so this
+// just PERSISTS it. `daily` is skipped (transient, compiled away). Idempotent.
+export function backfillPriority({ dryRun = false } = {}) {
+  ensureLayoutLoaded();
+  const stamped = [];
+  for (const cat of CATEGORIES) {
+    if (cat === "daily") continue;
+    const catAbs = path.join(root(), cat);
+    for (const leaf of walkLeaves(catAbs)) {
+      const { data } = readLeaf(leaf);
+      const mem = leafMemory(data);
+      if (normalisePriority(mem.priority)) continue; // already has a valid priority
+      const priority = priorityForAtomType(mem.atom_type);
+      const documentId = toRel(leaf);
+      stamped.push({ documentId, priority });
+      if (!dryRun) {
+        updateDocMetadata({
+          datasetId: cat,
+          documentId,
+          metadata: { priority },
+          placementOverride: path.dirname(documentId), // pin in place, never relocate
+          commitReason: "backfill-priority",
+        });
+      }
+    }
+  }
+  return { ok: true, dryRun, stamped: stamped.length, leaves: stamped };
+}
+
 export function listDocuments({ prefix, enabled, datasetId } = {}) {
   const cats = datasetId ? [slotToCategory(datasetId)] : CATEGORIES;
   const documents = [];
@@ -1343,6 +1382,26 @@ async function applyRecallTouch(records, scoreThreshold) {
 }
 
 // Filter leaves by frontmatter metadata, then rank by embedding similarity.
+// Stable within-band priority tie-break over a cosine-descending list. Cosine
+// stays dominant: a hit more than `band` below its group leader keeps its rank;
+// only hits within `band` of each other are reordered P0 > P1 > P2 (Array.sort
+// is stable, so equal-priority ties keep cosine order). band <= 0 disables it.
+export function rerankWithinBands(sortedDesc, band) {
+  if (!(band > 0) || sortedDesc.length < 2) return sortedDesc;
+  const out = [];
+  let i = 0;
+  while (i < sortedDesc.length) {
+    const lead = sortedDesc[i].score;
+    let j = i + 1;
+    while (j < sortedDesc.length && lead - sortedDesc[j].score <= band) j += 1;
+    const group = sortedDesc.slice(i, j);
+    group.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
+    out.push(...group);
+    i = j;
+  }
+  return out;
+}
+
 export async function searchMemoryFiltered({ query, datasetId, limit = 5, filters, scoreThreshold } = {}) {
   ensureLayoutLoaded();
   const cats = datasetId ? [slotToCategory(datasetId)] : CATEGORIES.filter((c) => c !== "daily");
@@ -1359,6 +1418,9 @@ export async function searchMemoryFiltered({ query, datasetId, limit = 5, filter
         text: body,
         documentName: path.basename(leaf),
         datasetId: cat,
+        // Lazy-default legacy leaves that predate the priority field by the
+        // deterministic rubric (never P0), so ranking has a value without a write.
+        priority: normalisePriority(mem.priority) || priorityForAtomType(mem.atom_type),
       });
     }
   }
@@ -1374,14 +1436,20 @@ export async function searchMemoryFiltered({ query, datasetId, limit = 5, filter
   saveCache(embedCachePath(), cache);
   scored.sort((a, b) => b.score - a.score);
 
-  const records = scored
-    .filter((r) => scoreThreshold == null || r.score >= scoreThreshold)
+  // Relevance is the gate (cosine sort + scoreThreshold). Priority is a
+  // within-band tie-break only: among near-equally-relevant hits a P0/P1 orders
+  // above a P2, but a clearly-more-relevant hit keeps its rank. Applied BEFORE
+  // the limit so a within-band P0 can make the cut over a tied P2.
+  const eligible = scored.filter((r) => scoreThreshold == null || r.score >= scoreThreshold);
+  const ranked = rerankWithinBands(eligible, recallPriorityBand());
+  const records = ranked
     .slice(0, limit)
     .map((r) => ({
       datasetId: r.datasetId,
       documentId: r.id,
       documentName: r.documentName,
       score: r.score,
+      priority: r.priority,
       content: r.text,
     }));
 
