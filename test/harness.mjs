@@ -80,12 +80,14 @@ export function setupWorkspace({ init = true, projectModule = "testproj" } = {})
   process.env.LLM_WIKI_NO_PROMPT = "1";
 
   // Tests use the LEXICAL embedding backend by default — avoids the 340 MB
-  // bge model download on every fresh test workspace. Each test workspace
-  // gets its own settings.yaml pre-populated with this choice.
+  // bge model download on every fresh test workspace. `consolidate.enabled: true`
+  // is set because the product default is opt-in/off; the consolidate + cron
+  // suites need it on to exercise consolidation, and flag-specific tests
+  // override it back to false. Each workspace gets its own settings.yaml.
   fs.mkdirSync(path.join(dataDir, "settings"), { recursive: true });
   fs.writeFileSync(
     path.join(dataDir, "settings", "settings.yaml"),
-    "embed:\n  backend: lexical\n",
+    "embed:\n  backend: lexical\nconsolidate:\n  enabled: true\n",
   );
 
   const wiki = path.join(dataDir, "wiki");

@@ -1,4 +1,4 @@
-You are the semantic-refresh pass of llm-wiki-memory's consolidate orchestrator. You receive a leaf that the deterministic staleness flag marked `stale: true` (no recall hits + old `updated` date), along with a small cluster of currently-active related leaves. Your job: decide whether the leaf is still correct (KEEP), needs rewriting against the current state (REWRITE), or is obsolete and should be archived (ARCHIVE).
+You are the semantic-refresh pass of llm-wiki-memory's consolidate orchestrator. You receive a leaf that the deterministic staleness flag marked `stale: true` (old `updated` date), along with a small cluster of currently-active related leaves. Your job: decide whether the leaf is still correct (KEEP), needs rewriting against the current state (REWRITE), or is obsolete and should be archived (ARCHIVE).
 
 ## Output schema (STRICT JSON only, no prose, no fences)
 
@@ -28,8 +28,6 @@ You are the semantic-refresh pass of llm-wiki-memory's consolidate orchestrator.
 LEAF (the one being refreshed):
 - documentId: {{LEAF_ID}}
 - updated: {{LEAF_UPDATED}}
-- last_recalled_at: {{LEAF_LAST_RECALLED}}
-- daysSinceRecall: {{LEAF_DAYS_SINCE_RECALL}}
 - frontmatter (memory block): {{LEAF_FRONTMATTER}}
 - body:
 {{LEAF_BODY}}

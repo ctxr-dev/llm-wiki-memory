@@ -34,6 +34,7 @@ import {
   wikiRoot,
 } from "./lib/env.mjs";
 import {
+  consolidateEnabled,
   consolidateIntervalDays,
   consolidateCosineThreshold,
   consolidateCosineLexicalThreshold,
@@ -704,13 +705,13 @@ async function llmSemanticRefresh({ ctx, now, dryRun }) {
       stale.push({ ...leaf, category: cat });
     }
   }
-  // Process recently-recalled leaves first; they're more likely to be
+  // Process most-recently-updated leaves first; they're more likely to be
   // load-bearing in current work. Tie-break by lex-ascending documentId
   // so two runs with identical timestamps pick the same leaves first
   // (deterministic ordering under the per-run cap).
   stale.sort((a, b) => {
-    const aMs = Date.parse(a.memory?.last_recalled_at || "") || 0;
-    const bMs = Date.parse(b.memory?.last_recalled_at || "") || 0;
+    const aMs = Date.parse(a.frontmatter?.updated || "") || 0;
+    const bMs = Date.parse(b.frontmatter?.updated || "") || 0;
     if (aMs !== bMs) return bMs - aMs;
     return a.documentId < b.documentId ? -1 : a.documentId > b.documentId ? 1 : 0;
   });
@@ -749,16 +750,9 @@ async function llmSemanticRefresh({ ctx, now, dryRun }) {
       content: String(r.content || "").slice(0, 600),
     }));
 
-    const lastRecalled = leaf.memory?.last_recalled_at || "";
-    const daysSinceRecall = lastRecalled
-      ? Math.max(0, Math.round(ageInDays(lastRecalled, now)))
-      : "never";
-
     const vars = {
       LEAF_ID: leaf.documentId,
       LEAF_UPDATED: String(leaf.frontmatter?.updated || ""),
-      LEAF_LAST_RECALLED: lastRecalled || "never",
-      LEAF_DAYS_SINCE_RECALL: daysSinceRecall,
       LEAF_FRONTMATTER: leaf.memory || {},
       LEAF_BODY: String(leaf.text || ""),
       CLUSTER_BUNDLE: clusterBundle,
@@ -948,7 +942,7 @@ function stalenessFlag({ ctx, now, dryRun }) {
 
   for (const leaf of candidates) {
     const m = leaf.memory || {};
-    const last = m.last_recalled_at || leaf.frontmatter?.updated || null;
+    const last = leaf.frontmatter?.updated || null;
     const stale = ageInMonths(last, now) > months;
     if (stale && m.stale !== true) {
       if (!dryRun) stampLeafMetadata(leaf.documentId, { stale: true });
@@ -962,7 +956,7 @@ function stalenessFlag({ ctx, now, dryRun }) {
 }
 
 // 2F — archive orphan leaves: no inbound `[[link]]`, no non-index `parents:`,
-// `frontmatter.updated` older than orphan TTL, never recalled.
+// `frontmatter.updated` older than orphan TTL.
 //
 // The INBOUND-LINK MAP is built across the WHOLE active wiki (every
 // category): a knowledge leaf with one inbound from a plan still counts as
@@ -1012,7 +1006,6 @@ function pruneOrphanLeaves({ ctx, now, dryRun }) {
     if (!refineSet.has(cat)) continue;
     const m = leaf.memory || {};
     if (ORPHAN_EXCLUDE_ATOM_TYPES.has(String(m.atom_type || ""))) continue;
-    if (m.last_recalled_at) continue;
     if (ageInDays(leaf.frontmatter?.updated, now) <= ttlDays) continue;
     // Has inbound link via document id, leaf name, or frontmatter parent?
     const candidates = [leaf.documentId, leaf.name].filter(Boolean);
@@ -1222,6 +1215,13 @@ export async function consolidateMemory({
   passes,
   now,
 } = {}) {
+  // Master switch (settings.consolidate.enabled, default false). When off,
+  // consolidation is a no-op in EVERY path — cron, CLI, MCP tool, skill — and
+  // `force` does NOT override it: flip the flag to run. Off by design so the
+  // engine never reconciles memory unless the operator opts in.
+  if (!consolidateEnabled()) {
+    return { ok: true, skipped: "disabled", llmRequested: false, llm: false };
+  }
   const startMs = Date.now();
   const allowed = resolveAllowedPasses(passes);
 

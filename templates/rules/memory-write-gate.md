@@ -59,7 +59,6 @@ Inspect it with `node .llm-wiki-memory/src/scripts/cli.mjs gate-audit [--limit N
 
 - **Other categories** (`knowledge`, `plans`, `investigations`, `daily`, `issues`). Their routing rules in `self-improvement.md` / `investigation-capture.md` / `plan-capture.md` still apply directly — no `userRequested` flag needed.
 - **System-maintenance writes.** The consolidate orchestrator runs every internal write under `withSystemMaintenance(...)` (AsyncLocalStorage frame). The MCP server detects the flag and exempts these from the gate. The model has no way to enter that frame from outside the orchestrator process.
-- **The recall-touch instrumentation** (`searchMemoryFiltered` / `recallLessons` writing `memory.last_recalled_at` + `memory.recall_count` on returned leaves). Same maintenance frame, same exemption.
 
 ## Operator override
 

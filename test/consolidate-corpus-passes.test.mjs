@@ -9,14 +9,6 @@ const { setupWorkspace, cleanup } = await import("./harness.mjs");
 const { dataDir, wiki } = setupWorkspace();
 after(() => cleanup(dataDir));
 
-// Disable recall-touch BEFORE any consolidate runs. The orchestrator's
-// per-leaf cluster loop calls searchMemoryFiltered for every active leaf,
-// which would otherwise stamp `last_recalled_at` on each leaf — that would
-// mask the staleness/orphan signals these tests assert on.
-const { __setSettingsForTest, __clearSettingsForTest } = await import("../scripts/lib/settings.mjs");
-__setSettingsForTest({ recall: { touchEnabled: false } });
-after(() => __clearSettingsForTest());
-
 // Simplify the layout so seeded leaves don't require a `subject` facet — same
 // approach as truncateArchivedBody.test.mjs. EVERY category declares
 // `consolidate:` explicitly — the orchestrator refuses to run otherwise.
@@ -145,15 +137,15 @@ test("staleness-flag: self_improvement leaf 7mo old with no last_recalled_at -> 
   assert.equal(fm.data.memory.stale, true, `flipped to stale (got ${JSON.stringify(fm.data.memory.stale)})`);
 });
 
-test("staleness-flag: self_improvement leaf with recent last_recalled_at + stale:true -> unflips", async () => {
+test("staleness-flag: self_improvement leaf with recent `updated` + stale:true -> unflips", async () => {
   const { documentId, absPath } = seedSelfImprovement({
     name: uniqName("si-stale-unflip"),
     body: "# unflip candidate\n\nbody.",
   });
-  // Old `updated`, but a RECENT recall — stalenessFlag must prefer
-  // last_recalled_at over updated.
-  setUpdated(absPath, "2024-01-01");
-  setMemory(absPath, { stale: true, last_recalled_at: "2026-05-02T00:00:00.000Z" });
+  // Recent `updated` (1mo before NOW, within staleAfterMonths=6) with a stale
+  // flag left over — stalenessFlag must clear it.
+  setUpdated(absPath, "2026-05-02");
+  setMemory(absPath, { stale: true });
 
   const r = await consolidateMemory({
     llm: false,
@@ -163,7 +155,7 @@ test("staleness-flag: self_improvement leaf with recent last_recalled_at + stale
   assert.equal(r.ok, true);
 
   const fm = readFm(absFor(documentId));
-  assert.equal(fm.data.memory.stale, false, "stale flipped back to false after recent recall");
+  assert.equal(fm.data.memory.stale, false, "stale flipped back to false after a recent update");
 });
 
 test("staleness-flag: knowledge leaf 7mo old NEVER gets the stale flag", async () => {

@@ -237,6 +237,7 @@ function buildSettings({ configPath, cmdProbe } = {}) {
   const raw = readEffectiveYaml(file) || {};
 
   const consolidate = {
+    enabled: false,
     intervalDays: 1,
     cosineThreshold: 0.97,
     cosineLexicalThreshold: 0.995,
@@ -280,8 +281,6 @@ function buildSettings({ configPath, cmdProbe } = {}) {
   };
   const recall = {
     scoreThreshold: 0,
-    touchEnabled: true,
-    touchMinHours: 24,
     // Cosine proximity within which priority breaks ties at recall (a relevant
     // P0/P1 orders above an equally-relevant P2). Relevance stays dominant: a
     // hit more than this far below the band leader keeps its cosine rank.
@@ -444,6 +443,7 @@ function buildSettings({ configPath, cmdProbe } = {}) {
   consolidate.fullLogRetentionDays = coercePos(consolidate.fullLogRetentionDays, 90);
   consolidate.escalateAfterAttempts = coercePos(consolidate.escalateAfterAttempts, 3);
   consolidate.llmPassesEnabled = coerceBool(consolidate.llmPassesEnabled, true);
+  consolidate.enabled = coerceBool(consolidate.enabled, false);
   if (typeof consolidate.passes !== "string") consolidate.passes = "all";
 
   flush.chunkTargetK = coercePos(flush.chunkTargetK, 5);
@@ -467,8 +467,6 @@ function buildSettings({ configPath, cmdProbe } = {}) {
   if (typeof embed.model !== "string") embed.model = DEFAULT_EMBED_MODEL;
 
   recall.scoreThreshold = coerceFloat01(recall.scoreThreshold, 0);
-  recall.touchMinHours = coercePos(recall.touchMinHours, 24);
-  recall.touchEnabled = coerceBool(recall.touchEnabled, true);
   recall.priorityBand = coerceFloat01(recall.priorityBand, 0.05);
 
   if (typeof compile.slot !== "string") compile.slot = "knowledge";
@@ -562,6 +560,7 @@ export function settings(opts = {}) {
 // Convenience helpers (mirror the OLD env.mjs API so the call-site refactor
 // is one-line per call). Each just reads from settings().<section>.<key>.
 
+export function consolidateEnabled() { return Boolean(settings().consolidate.enabled); }
 export function consolidateIntervalDays() { return settings().consolidate.intervalDays; }
 export function consolidateCosineThreshold() { return settings().consolidate.cosineThreshold; }
 export function consolidateCosineLexicalThreshold() { return settings().consolidate.cosineLexicalThreshold; }
@@ -600,8 +599,6 @@ export function embedBackend() { return settings().embed.backend; }
 export function embedModel() { return settings().embed.model; }
 
 export function recallScoreThreshold() { return settings().recall.scoreThreshold; }
-export function recallTouchEnabled() { return Boolean(settings().recall.touchEnabled); }
-export function recallTouchMinHours() { return settings().recall.touchMinHours; }
 export function recallPriorityBand() { return settings().recall.priorityBand; }
 
 export function compileSlot() { return settings().compile.slot; }

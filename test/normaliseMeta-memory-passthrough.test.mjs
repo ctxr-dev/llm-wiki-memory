@@ -2,78 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { normaliseMeta } from "../scripts/lib/wiki-store.mjs";
 
-test("normaliseMeta: all 7 memory-block keys absent -> absent in output", () => {
+test("normaliseMeta: all 5 memory-block keys absent -> absent in output", () => {
   const out = normaliseMeta({ atom_type: "decision", area: "billing" });
-  assert.equal("last_recalled_at" in out, false);
-  assert.equal("recall_count" in out, false);
   assert.equal("stale" in out, false);
   assert.equal("supersedes_id" in out, false);
   assert.equal("consolidated_at" in out, false);
   assert.equal("last_refreshed_at" in out, false);
   assert.equal("consolidate_truncated_at" in out, false);
-});
-
-test("normaliseMeta: last_recalled_at valid ISO string -> passed through", () => {
-  const iso = "2026-06-02T12:34:56.000Z";
-  const out = normaliseMeta({ atom_type: "decision", last_recalled_at: iso });
-  assert.equal(out.last_recalled_at, iso);
-});
-
-test("normaliseMeta: last_recalled_at with surrounding whitespace -> trimmed", () => {
-  const out = normaliseMeta({ atom_type: "decision", last_recalled_at: "  2026-06-02T12:34:56.000Z  " });
-  assert.equal(out.last_recalled_at, "2026-06-02T12:34:56.000Z");
-});
-
-test("normaliseMeta: last_recalled_at empty string -> dropped", () => {
-  const out = normaliseMeta({ atom_type: "decision", last_recalled_at: "" });
-  assert.equal("last_recalled_at" in out, false);
-});
-
-test("normaliseMeta: last_recalled_at whitespace-only -> dropped", () => {
-  const out = normaliseMeta({ atom_type: "decision", last_recalled_at: "   " });
-  assert.equal("last_recalled_at" in out, false);
-});
-
-test("normaliseMeta: recall_count numeric -> integer in output", () => {
-  const out = normaliseMeta({ atom_type: "decision", recall_count: 5 });
-  assert.equal(out.recall_count, 5);
-  assert.equal(typeof out.recall_count, "number");
-});
-
-test('normaliseMeta: recall_count "3" (string number) -> parsed as integer 3', () => {
-  const out = normaliseMeta({ atom_type: "decision", recall_count: "3" });
-  assert.equal(out.recall_count, 3);
-  assert.equal(typeof out.recall_count, "number");
-});
-
-test("normaliseMeta: recall_count 0 -> kept (zero is a non-negative integer)", () => {
-  const out = normaliseMeta({ atom_type: "decision", recall_count: 0 });
-  assert.equal(out.recall_count, 0);
-});
-
-test("normaliseMeta: recall_count -1 -> dropped (negative is invalid)", () => {
-  const out = normaliseMeta({ atom_type: "decision", recall_count: -1 });
-  assert.equal("recall_count" in out, false);
-});
-
-test('normaliseMeta: recall_count "abc" -> dropped (not parseable)', () => {
-  const out = normaliseMeta({ atom_type: "decision", recall_count: "abc" });
-  assert.equal("recall_count" in out, false);
-});
-
-test("normaliseMeta: recall_count null -> dropped", () => {
-  const out = normaliseMeta({ atom_type: "decision", recall_count: null });
-  assert.equal("recall_count" in out, false);
-});
-
-test("normaliseMeta: recall_count undefined -> dropped", () => {
-  const out = normaliseMeta({ atom_type: "decision", recall_count: undefined });
-  assert.equal("recall_count" in out, false);
-});
-
-test("normaliseMeta: recall_count 2.7 (float) -> parsed by parseInt to 2", () => {
-  const out = normaliseMeta({ atom_type: "decision", recall_count: 2.7 });
-  assert.equal(out.recall_count, 2);
 });
 
 test("normaliseMeta: stale=true (real boolean) -> kept", () => {
@@ -172,14 +107,12 @@ test("normaliseMeta: consolidate_truncated_at trimmed", () => {
   assert.equal(out.consolidate_truncated_at, "2026-05-15T20:00:00.000Z");
 });
 
-test("normaliseMeta: all 7 memory keys valid together -> all passed through alongside core fields", () => {
+test("normaliseMeta: all 5 memory keys valid together -> all passed through alongside core fields", () => {
   const input = {
     atom_type: "decision",
     area: "Billing",
     language: "Scala",
     task_type: "Refactor",
-    last_recalled_at: "2026-06-02T12:00:00.000Z",
-    recall_count: "7",
     stale: false,
     supersedes_id: "knowledge/x/old.md",
     consolidated_at: "2026-06-01T00:00:00.000Z",
@@ -191,13 +124,21 @@ test("normaliseMeta: all 7 memory keys valid together -> all passed through alon
   assert.equal(out.area, "billing");
   assert.equal(out.language, "scala");
   assert.equal(out.task_type, "refactor");
-  assert.equal(out.last_recalled_at, "2026-06-02T12:00:00.000Z");
-  assert.equal(out.recall_count, 7);
   assert.equal(out.stale, false);
   assert.equal(out.supersedes_id, "knowledge/x/old.md");
   assert.equal(out.consolidated_at, "2026-06-01T00:00:00.000Z");
   assert.equal(out.last_refreshed_at, "2026-05-30T08:15:00.000Z");
   assert.equal(out.consolidate_truncated_at, "2026-05-15T20:00:00.000Z");
+});
+
+test("normaliseMeta: last_recalled_at / recall_count are DROPPED (feature removed)", () => {
+  const out = normaliseMeta({
+    atom_type: "decision",
+    last_recalled_at: "2026-06-02T12:00:00.000Z",
+    recall_count: 7,
+  });
+  assert.equal("last_recalled_at" in out, false);
+  assert.equal("recall_count" in out, false);
 });
 
 test("normaliseMeta: existing core fields (atom_type, area, language, task_type, error_pattern, status) unaffected by memory keys", () => {
@@ -208,8 +149,6 @@ test("normaliseMeta: existing core fields (atom_type, area, language, task_type,
       language: "TypeScript",
       task_type: "Debug",
       error_pattern: "null-deref",
-      last_recalled_at: "2026-06-02T12:00:00.000Z",
-      recall_count: 4,
       stale: true,
     },
     { status: "active" },
@@ -220,16 +159,12 @@ test("normaliseMeta: existing core fields (atom_type, area, language, task_type,
   assert.equal(out.task_type, "debug");
   assert.equal(out.error_pattern, "null-deref");
   assert.equal(out.status, "active");
-  assert.equal(out.last_recalled_at, "2026-06-02T12:00:00.000Z");
-  assert.equal(out.recall_count, 4);
   assert.equal(out.stale, true);
 });
 
 test("normaliseMeta: empty input -> none of the memory keys appear in output", () => {
   const out = normaliseMeta({});
   for (const k of [
-    "last_recalled_at",
-    "recall_count",
     "stale",
     "supersedes_id",
     "consolidated_at",
@@ -243,12 +178,10 @@ test("normaliseMeta: empty input -> none of the memory keys appear in output", (
 test("normaliseMeta: non-string ISO field (number) -> dropped (typeof guard rejects)", () => {
   const out = normaliseMeta({
     atom_type: "decision",
-    last_recalled_at: 1717329600000,
     consolidated_at: 1717329600000,
     last_refreshed_at: 1717329600000,
     consolidate_truncated_at: 1717329600000,
   });
-  assert.equal("last_recalled_at" in out, false);
   assert.equal("consolidated_at" in out, false);
   assert.equal("last_refreshed_at" in out, false);
   assert.equal("consolidate_truncated_at" in out, false);

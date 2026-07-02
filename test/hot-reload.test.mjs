@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { SRC } from "./harness.mjs";
 
 // The MCP server hot-reloads its logic by dynamic-importing the implementation
 // modules with a cache-busting query (`?v=N`) on file change, then swapping the
@@ -34,6 +35,18 @@ test("a cache-busted re-import observes a changed module without process restart
   const second = await import(`${url}?v=2`);
   assert.equal(second.value, "v2", "new specifier re-evaluates the module");
   assert.equal(second.tag(), "two");
+});
+
+test("consolidate.mjs resolves under the cache-bust specifier (dynamic-reload path)", async () => {
+  // The MCP server imports consolidate.mjs per tool call with `?v=${reloadSeq}`
+  // so an edit to it applies without a restart. Lock that the real module
+  // resolves under that specifier and that distinct versions are distinct
+  // instances (the reload guarantee).
+  const spec = pathToFileURL(path.join(SRC, "scripts/consolidate.mjs")).href;
+  const a = await import(`${spec}?v=1`);
+  const b = await import(`${spec}?v=2`);
+  assert.equal(typeof a.consolidateMemory, "function", "consolidateMemory is exported");
+  assert.notEqual(a, b, "different version specifiers yield distinct module instances");
 });
 
 test("the holder-swap pattern routes calls to the latest loaded module", async () => {

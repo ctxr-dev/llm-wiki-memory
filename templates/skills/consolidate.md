@@ -1,6 +1,6 @@
 ---
 name: consolidate
-description: At session end (after embed-gc), run the deterministic + LLM memory consolidation orchestrator. Search-driven; refines self_improvement + knowledge over time without touching daily/plans/investigations. Self-throttled (default daily) so it no-ops cheaply when not due. Claude Code runs it on the daily cron; hook-less agents (Codex, Cursor) invoke it once at session end via this rule.
+description: At session end (after embed-gc), run the deterministic + LLM memory consolidation orchestrator. Search-driven; refines self_improvement + knowledge over time without touching daily/plans/investigations. Opt-in via `consolidate.enabled` (default false, off): a no-op in every path until enabled; when on, self-throttled (default daily) so it no-ops cheaply when not due. Claude Code runs it on the daily cron; hook-less agents (Codex, Cursor) invoke it once at session end via this rule.
 ---
 
 # Consolidate (memory refinement)
@@ -11,6 +11,7 @@ Claude Code runs this on the daily cron (chained after `compile` in `bootstrap.s
 
 ## When to run
 
+- **Only when enabled.** `consolidate.enabled` in `<data>/settings/settings.yaml` defaults to `false` (opt-in). While off, `consolidate_memory` / `cli.mjs consolidate` return `{ skipped: "disabled" }` and this rule is a no-op — `force` does NOT override it. Enable it only if the user asks.
 - **At session end**, after `embed-gc`. Self-throttled to `consolidate.intervalDays` in `<data>/settings/settings.yaml` (default `1`), so a too-frequent call is a no-op.
 - **Never mid-task.** Acquires the compile lock — if compile is running, the call returns `{ skipped: "locked-by", ... }`.
 - **Never inside a propose-then-confirm save flow.** Consolidate is system maintenance; user-driven saves go through `save_lesson` / `save_to_dataset` and are subject to the L3 write-gate.

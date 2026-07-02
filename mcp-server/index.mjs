@@ -10,7 +10,7 @@ import {
   defaultProjectModule,
   envValue,
 } from "../scripts/lib/env.mjs";
-import { writeGateSelfImprovementEnabled } from "../scripts/lib/settings.mjs";
+import { writeGateSelfImprovementEnabled, settingsPath } from "../scripts/lib/settings.mjs";
 import { enforceP0Scarcity } from "../scripts/lib/datasets.mjs";
 import { withWikiCommit } from "../scripts/lib/wiki-commit.mjs";
 import { activeBackend } from "../scripts/lib/embed.mjs";
@@ -74,11 +74,20 @@ async function assertTopologyPathValid({ dataset, name, path: placePath }) {
 // change confined to one of their STATIC deps (slug.mjs, facets.mjs, ...)
 // resolves to the cached copy and still needs a one-time restart.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-// Flat directories that hold the reloadable logic (no nested subdirs), so a
-// NON-recursive watch suffices. Recursive fs.watch is unsupported on some
-// platforms (historically throws on Linux), so avoiding it keeps reload working
-// cross-platform.
-const WATCH_DIRS = [path.join(HERE, "../scripts/lib"), HERE];
+// Directories holding reloadable logic, each watched NON-recursively (recursive
+// fs.watch is unsupported on some platforms). scripts/lib holds wiki-store.mjs +
+// recall.mjs; scripts/ holds consolidate.mjs; the settings dir holds
+// settings.yaml. A non-recursive watch on scripts/ reports its DIRECT files
+// only, so scripts/lib is listed separately (no double-fire on nested files).
+const SETTINGS_DIR = (() => {
+  try { return path.dirname(settingsPath()); } catch { return null; }
+})();
+const WATCH_DIRS = [
+  path.join(HERE, "../scripts/lib"),
+  path.join(HERE, "../scripts"),
+  HERE,
+  ...(SETTINGS_DIR ? [SETTINGS_DIR] : []),
+];
 
 let impl = {};
 // Monotonic, not Date.now(): each value busts the ESM module cache so a changed
@@ -102,10 +111,17 @@ async function loadImpl() {
 }
 await loadImpl();
 
-// Only these modules are re-imported on change; everything else they import
-// statically (facets/slug/datasets/embed) and this entry file itself need a
-// restart, so a reload would be a no-op for them.
+// wiki-store.mjs + recall.mjs are re-imported into `impl` on change. Everything
+// they import statically (facets/slug/datasets/embed) and this entry file need a
+// restart. consolidate.mjs is re-imported lazily at its call site (see
+// DYNAMIC_RELOADABLE); settings.yaml is re-read on the next tool call.
 const RELOADABLE = new Set(["wiki-store.mjs", "recall.mjs"]);
+// Dynamically imported per tool call (not folded into `impl`); bumping reloadSeq
+// makes the next import re-evaluate. consolidate.mjs is the only MCP-invoked
+// script module — compile.mjs runs solely via cron/CLI in a fresh process, so it
+// never needs in-process reload.
+const DYNAMIC_RELOADABLE = new Set(["consolidate.mjs"]);
+const SETTINGS_FILE = "settings.yaml";
 
 function watchForReload() {
   let timer = null;
@@ -115,15 +131,27 @@ function watchForReload() {
   let chain = Promise.resolve();
   const onChange = (_event, filename) => {
     const base = filename ? path.basename(filename) : null;
-    // When we can identify the changed file and it is NOT one of the hot-reloaded
-    // modules, skip the no-op reload and tell the operator a restart is needed,
-    // rather than logging a misleading "hot-reloaded". We deliberately do NOT
-    // clear a pending timer here: a git pull often changes a hot module AND a
-    // static dep together, and the queued reload (for the hot module) must still
-    // fire. When filename is null (platform-dependent), fall through and reload.
-    if (base && !RELOADABLE.has(base)) {
+    // settings.yaml is not a module: it is re-read on the next settings() call
+    // via the mtime cache, so it needs neither a re-import nor a restart. Emit a
+    // breadcrumb and stop — bumping reloadSeq would pointlessly re-import code.
+    if (base === SETTINGS_FILE) {
       process.stderr.write(
-        `[llm-wiki-memory] '${base}' changed; restart required to pick it up (only ${[...RELOADABLE].join("/")} hot-reload)\n`,
+        "[llm-wiki-memory] settings.yaml changed; applied on the next tool call (no restart)\n",
+      );
+      return;
+    }
+    // A change to a file we cannot hot-reload (settings.mjs, embed.mjs, llm.mjs,
+    // this entry file, or a static dep like slug.mjs/facets.mjs) is a no-op for
+    // the running process: tell the operator a restart is needed rather than
+    // logging a misleading "hot-reloaded". We deliberately do NOT clear a pending
+    // timer here: a git pull often changes a hot module AND a static dep
+    // together, and the queued reload (for the hot module) must still fire. When
+    // filename is null (platform-dependent), fall through and reload.
+    if (base && !RELOADABLE.has(base) && !DYNAMIC_RELOADABLE.has(base)) {
+      process.stderr.write(
+        `[llm-wiki-memory] '${base}' changed; restart required to pick it up ` +
+          `(hot-reload: ${[...RELOADABLE, ...DYNAMIC_RELOADABLE].join("/")}; ` +
+          `settings.yaml applies on next call; everything else needs a restart)\n`,
       );
       return;
     }
@@ -132,8 +160,12 @@ function watchForReload() {
     timer = setTimeout(() => {
       chain = chain.then(async () => {
         try {
+          // Bump the shared cache-bust seq FIRST so the next dynamic import of a
+          // DYNAMIC_RELOADABLE module (consolidate.mjs, imported per tool call)
+          // re-evaluates. Only RELOADABLE modules are folded into `impl` here;
+          // dynamic ones are re-imported lazily at their call site.
           reloadSeq += 1;
-          await loadImpl();
+          if (!base || RELOADABLE.has(base)) await loadImpl();
           // stderr ONLY: stdout carries the JSON-RPC protocol stream. `lastBase`
           // is null only when the platform did not report a filename, in which
           // case this is a best-effort reload on any change under the watched dir.
@@ -341,8 +373,7 @@ server.registerTool(
 // L3 of the memory-write hardening stack. Refuses gated self_improvement
 // writes that lack `userRequested:true` UNLESS the call is inside a
 // system-maintenance scope (the consolidate orchestrator runs every internal
-// write under `withSystemMaintenance(...)`, the recall-touch instrumentation
-// in searchMemoryFiltered / recallLessons does the same — see
+// write under `withSystemMaintenance(...)` — see
 // scripts/lib/maintenance-tag.mjs). The exemption is impossible to set from
 // outside the orchestrator process (AsyncLocalStorage frame, not an
 // arg / env var). Returning a structured error instead of throwing lets the
@@ -667,7 +698,7 @@ server.registerTool(
       // concurrent consolidate_memory MCP calls don't trample each other's
       // overrides. The frame disappears when the wrapped function resolves.
       const { withSettingsOverride } = await import("../scripts/lib/settings.mjs");
-      const { consolidateMemory } = await import("../scripts/consolidate.mjs");
+      const { consolidateMemory } = await import(`../scripts/consolidate.mjs?v=${reloadSeq}`);
       const run = () => consolidateMemory({ dryRun, ifDue, force, llm, passes });
       const result = cosineThreshold != null
         ? await withSettingsOverride({ consolidate: { cosineThreshold: Number(cosineThreshold) } }, run)

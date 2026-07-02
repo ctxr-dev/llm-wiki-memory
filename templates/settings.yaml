@@ -19,6 +19,13 @@
 # docs/releases/2026/06/03/v2/update-prompt.md migrates an old install.
 
 consolidate:
+  # Master switch for ALL consolidation (a.k.a. reconciliation). false (default)
+  # = opt-in: consolidateMemory() is a no-op in EVERY path — the hourly cron,
+  # `cli.mjs consolidate`, the MCP `consolidate_memory` tool, and the hook-less
+  # `consolidate` skill. The hourly cron (compile + consolidate) also no-ops.
+  # `force` does NOT override this — set true here to enable. Manual
+  # `cli.mjs compile` is unaffected.
+  enabled: false
   # Cadence (days) for the throttled consolidate orchestrator. 0/off disables.
   intervalDays: 1
   # Cosine threshold above which a cluster pair counts as a dedup candidate.
@@ -101,9 +108,6 @@ embed:
 recall:
   # Cosine score below which a hit is dropped. 0 keeps every hit.
   scoreThreshold: 0
-  # Recall-touch instrumentation (writes memory.last_recalled_at on hits).
-  touchEnabled: true
-  touchMinHours: 24
   # Cosine proximity within which `priority` (P0/P1/P2) breaks ties at recall.
   # Relevance stays dominant: a hit more than this far below the band leader keeps
   # its cosine rank; only near-equally-relevant hits are ordered P0 > P1 > P2.

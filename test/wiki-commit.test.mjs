@@ -163,23 +163,6 @@ test("an empty batch commits nothing", async () => {
   assert.equal(commitCount(), before);
 });
 
-test("recall-touch bookkeeping is git-silent", () => {
-  const saved = store.writeMemory({
-    name: "touched-leaf.md",
-    text: "leaf that will be recall-touched",
-    datasetId: "knowledge",
-    metadata: { area: "alpha", atom_type: "reference" },
-  });
-  const before = commitCount();
-  const r = store.updateDocMetadata({
-    documentId: saved.created.document.id,
-    metadata: { last_recalled_at: new Date().toISOString(), recall_count: 1 },
-    commitReason: "recall-touch",
-  });
-  assert.equal(r.ok, true);
-  assert.equal(commitCount(), before, "telemetry stamp must not produce a commit");
-});
-
 test("a held index.lock never fails the write; it leaves a breadcrumb and skips the commit", () => {
   const lockPath = path.join(wiki, ".git", "index.lock");
   fs.writeFileSync(lockPath, "held by test");

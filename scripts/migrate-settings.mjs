@@ -66,6 +66,7 @@ const RENAMED_KEYS = {
 // type isn't trivially compatible (e.g. CSV → list) the migrate function
 // handles it inline.
 const ENV_TO_SETTINGS = {
+  MEMORY_CONSOLIDATE_ENABLED: "consolidate.enabled",
   MEMORY_CONSOLIDATE_INTERVAL_DAYS: "consolidate.intervalDays",
   MEMORY_CONSOLIDATE_COSINE_THRESHOLD: "consolidate.cosineThreshold",
   MEMORY_CONSOLIDATE_COSINE_LEXICAL_THRESHOLD: "consolidate.cosineLexicalThreshold",
@@ -100,8 +101,6 @@ const ENV_TO_SETTINGS = {
   MEMORY_EMBED_MODEL: "embed.model",
 
   MEMORY_RECALL_SCORE_THRESHOLD: "recall.scoreThreshold",
-  MEMORY_RECALL_TOUCH: "recall.touchEnabled",
-  MEMORY_RECALL_TOUCH_MIN_HOURS: "recall.touchMinHours",
 
   MEMORY_COMPILE_SLOT: "compile.slot",
   MEMORY_COMPILE_SEARCH_LIMIT: "compile.searchLimit",
@@ -118,9 +117,9 @@ const ENV_TO_SETTINGS = {
 };
 
 const BOOL_KEYS = new Set([
+  "consolidate.enabled",
   "consolidate.llmPassesEnabled",
   "hook.exitPlanModeDisable",
-  "recall.touchEnabled",
   "compile.qualityStrict",
   "gate.selfImprovementEnabled",
 ]);
