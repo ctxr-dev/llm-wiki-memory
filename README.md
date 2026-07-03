@@ -79,6 +79,28 @@ The bootstrap is **idempotent** — re-running preserves your edits to `.env` an
 
 </details>
 
+## What to expect
+![](docs/assets/line-bold.svg)
+
+Here's what happens in the everyday moments you'll actually hit. Everything you recall stays on your machine, and when the assistant wants to save a lesson mid-conversation, it asks you first.
+
+**Reading the last column:** **Automatic** = it just happens, no action from you. **Agent-led** = your assistant does it as part of its normal workflow. **Asks first** = it proposes and saves only after you say yes. **Background** = offline housekeeping while you're away.
+
+![](docs/assets/line-thin.svg)
+
+| When you… | What happens | How |
+| --- | --- | --- |
+| **Open a session** | Surfaces the issue you were on, your in-progress plans with their checkbox progress, and context relevant to your current branch, so you never re-explain where you left off. | **Automatic** |
+| **Start a real task** ("implement X", "fix the timeout") | Recalls the lessons it learned on past work like this and quietly applies them, so it doesn't repeat old mistakes. | **Agent-led** |
+| **Say "remember this"** (a fact, a decision, a convention) | Saves it to your project's local memory as plain Markdown, versioned in git and shared with every agent, not a per-session scratchpad that vanishes. | **Agent-led** |
+| **Correct it, or say "save that as a lesson"** | It offers to save a short lesson it applies next time. It asks first, one lesson at a time, and saves nothing unless you say yes. | **Asks first** |
+| **Approve a plan** | Captures the approved plan as a tracked file with its checkboxes and status, so progress survives across sessions. | **Automatic** |
+| **End or compact a session** | Distills the conversation into dated notes; a later step folds those into the durable knowledge and lessons you'll recall. | **Automatic** |
+| **Enable the optional schedule** | Offline, it merges near-duplicate notes and archives stale ones. Never a hard delete, always reversible, and it never interrupts you. Off by default. | **Background** |
+![](docs/assets/line-thin.svg)
+
+The **Automatic** rows fire as hooks in Claude Code; in Cursor, Codex, and other MCP clients your assistant does the same steps by following the rules bundled at install. Lessons stay behind the "asks first" rule on every client, and Claude Code enforces the yes/no prompt with a hook too.
+
 ## Highlights
 ![](docs/assets/line-bold.svg)
 
