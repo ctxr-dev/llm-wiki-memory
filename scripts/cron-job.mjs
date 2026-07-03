@@ -47,6 +47,7 @@ import {
   consolidateAttemptsKeep,
   consolidateFullLogRetentionDays,
   consolidateEscalateAfterAttempts,
+  consolidateEnabled,
 } from "./lib/settings.mjs";
 
 export const ATTEMPTS_LOG_PATH = path.join(
@@ -625,6 +626,23 @@ function runStep(cli, args) {
 export async function runCronJob() {
   const start = new Date();
   const ts = start.toISOString();
+  // Master switch (settings.consolidate.enabled, default false). When off the
+  // hourly maintenance cron (compile + consolidate) is a no-op — no steps run,
+  // no logs written, no self-healing state mutates. Opt in via settings.
+  if (!consolidateEnabled()) {
+    return {
+      ts,
+      kind: "cron-job",
+      ok: true,
+      skipped: "disabled",
+      durationMs: 0,
+      compile: null,
+      consolidate: null,
+      error: null,
+      logPath: null,
+      escalations: 0,
+    };
+  }
   const cli = path.join(MEMORY_DIR, "scripts", "cli.mjs");
   const fullLogAbs = fullLogPathFor(start);
   const logPathRel = relToDataDir(fullLogAbs);
@@ -796,6 +814,19 @@ export async function runCronJob() {
 // kept failing across runs, or one signature spans many entities). A failure
 // that later resolved stays silent.
 export function cronHealth({ limit = 20 } = {}) {
+  if (!consolidateEnabled()) {
+    const escalations = openEscalationsFromIndex();
+    return {
+      ok: true,
+      healthy: true,
+      disabled: true,
+      summary: `consolidation disabled (consolidate.enabled=false)${
+        escalations.length ? `; ${escalations.length} open escalation(s) preserved` : ""
+      }`.slice(0, 200),
+      lastAttempt: null,
+      escalations,
+    };
+  }
   const all = readAttempts({ limit: Math.max(attemptsKeepSafe(), 200) });
   const escalations = openEscalationsFromIndex();
   const lastAttempt = all.length ? all[all.length - 1] : null;

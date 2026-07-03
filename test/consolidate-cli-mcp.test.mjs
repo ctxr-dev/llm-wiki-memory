@@ -15,9 +15,13 @@ const BOOTSTRAP = path.join(SRC, "bootstrap.sh");
 
 function freshDataDir(label) {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), `lwm-${label}-`));
-  // Pin lexical embed via settings.yaml — env vars no longer drive it.
+  // Pin lexical embed via settings.yaml — env vars no longer drive it. Enable
+  // consolidation (product default is opt-in/off) so these CLI/MCP tests run it.
   fs.mkdirSync(path.join(d, "settings"), { recursive: true });
-  fs.writeFileSync(path.join(d, "settings", "settings.yaml"), "embed:\n  backend: lexical\n");
+  fs.writeFileSync(
+    path.join(d, "settings", "settings.yaml"),
+    "embed:\n  backend: lexical\nconsolidate:\n  enabled: true\n",
+  );
   return d;
 }
 

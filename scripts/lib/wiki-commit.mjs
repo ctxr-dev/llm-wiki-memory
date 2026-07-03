@@ -17,8 +17,6 @@
 //   staging folds the uncommitted delta in.
 // - The probe result is cached per root, so wikis without a repo (every test
 //   workspace) cost one existsSync and zero git spawns per process.
-// - recall-touch bookkeeping is git-silent by design: it is telemetry, not an
-//   authored edit, and would otherwise produce a commit per search hit.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -28,7 +26,6 @@ import { MEMORY_DATA_DIR, wikiRoot } from "./env.mjs";
 import { wikiAutoCommit } from "./settings.mjs";
 
 const STORE = new AsyncLocalStorage();
-const RECALL_TOUCH = "recall-touch";
 const GIT_TIMEOUT_MS = 10_000;
 const MAX_BODY_ENTRIES = 200;
 const LOCK_RETRY_DELAYS_MS = [50, 100, 200];
@@ -100,7 +97,6 @@ export function withWikiCommit(meta, fn) {
 
 export function recordWikiChange({ action, leafRelPath, reason = "", extraPaths = [] } = {}) {
   if (!action || !leafRelPath) return;
-  if (reason === RECALL_TOUCH) return;
   const batch = STORE.getStore();
   const base = batch?.rootDir || "";
   const entry = {

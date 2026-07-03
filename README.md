@@ -11,7 +11,7 @@ Claude Code, Cursor, Codex, and every other MCP client forget everything when a 
 <br/>
 <br/>
 
-[![tests](https://img.shields.io/badge/TESTS-1028_PASSING-0D0D14?style=for-the-badge&labelColor=5EFFC0)](#testing)
+[![tests](https://img.shields.io/badge/TESTS-1014_PASSING-0D0D14?style=for-the-badge&labelColor=5EFFC0)](#testing)
 [![node](https://img.shields.io/badge/NODE-%E2%89%A5_20-0D0D14?style=for-the-badge&logo=nodedotjs&logoColor=0D0D14&labelColor=5EF6FF)](https://nodejs.org)
 [![license](https://img.shields.io/badge/LICENSE-MIT-0D0D14?style=for-the-badge&labelColor=FCEE0A)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-STDIO_SERVER-0D0D14?style=for-the-badge&logo=anthropic&logoColor=0D0D14&labelColor=5EF6FF)](https://modelcontextprotocol.io)
@@ -63,7 +63,7 @@ The bootstrap is **idempotent** — re-running preserves your edits to `.env` an
 5. Renders vendor-neutral configs into `.agents/` and discipline rules into `.agents/rules/`, `.claude/skills/`, `.claude/rules/`, `.cursor/rules/`.
 6. Materialises the hosted wiki at `./.llm-wiki-memory/wiki` (with the layout template that declares `consolidate: refine | none` per category) and validates it.
 7. Adds `/.llm-wiki-memory` to `.gitignore` (`--commit-memory` commits the wiki instead).
-8. Optionally installs the hourly compile + consolidate cron via a wrapper script (`--schedule daily`).
+8. Optionally installs the hourly cron (`compile` + an opt-in `consolidate`) via a wrapper script (`--schedule daily`); consolidation runs only when `consolidate.enabled: true` (default off).
 
 </details>
 
@@ -78,6 +78,28 @@ The bootstrap is **idempotent** — re-running preserves your edits to `.env` an
 ```
 
 </details>
+
+## What to expect
+![](docs/assets/line-bold.svg)
+
+Here's what happens in the everyday moments you'll actually hit. Everything you recall stays on your machine, and when the assistant wants to save a lesson mid-conversation, it asks you first.
+
+**Reading the last column:** **Automatic** = it just happens, no action from you. **Agent-led** = your assistant does it as part of its normal workflow. **Asks first** = it proposes and saves only after you say yes. **Background** = offline housekeeping while you're away.
+
+![](docs/assets/line-thin.svg)
+
+| When you… | What happens | How |
+| --- | --- | --- |
+| **Open a session** | Surfaces the issue you were on, your in-progress plans with their checkbox progress, and context relevant to your current branch, so you never re-explain where you left off. | **Automatic** |
+| **Start a real task** ("implement X", "fix the timeout") | Recalls the lessons it learned on past work like this and quietly applies them, so it doesn't repeat old mistakes. | **Agent-led** |
+| **Say "remember this"** (a fact, a decision, a convention) | Saves it to your project's local memory as plain Markdown, versioned in git and shared with every agent, not a per-session scratchpad that vanishes. | **Agent-led** |
+| **Correct it, or say "save that as a lesson"** | It offers to save a short lesson it applies next time. It asks first, one lesson at a time, and saves nothing unless you say yes. | **Asks first** |
+| **Approve a plan** | Captures the approved plan as a tracked file with its checkboxes and status, so progress survives across sessions. | **Automatic** |
+| **End or compact a session** | Distills the conversation into dated notes; a later step folds those into the durable knowledge and lessons you'll recall. | **Automatic** |
+| **Enable the optional schedule** | Offline, it merges near-duplicate notes and archives stale ones. Never a hard delete, always reversible, and it never interrupts you. Off by default. | **Background** |
+![](docs/assets/line-thin.svg)
+
+The **Automatic** rows fire as hooks in Claude Code; in Cursor, Codex, and other MCP clients your assistant does the same steps by following the rules bundled at install. Lessons stay behind the "asks first" rule on every client, and Claude Code enforces the yes/no prompt with a hook too.
 
 ## Highlights
 ![](docs/assets/line-bold.svg)
@@ -295,10 +317,10 @@ A memory store that only ever GROWS becomes a graveyard. Bug root-causes get fix
 %%{init: {"theme":"base","flowchart":{"curve":"linear"},"themeVariables":{"lineColor":"#00B8C4","primaryColor":"#0D0D14","primaryTextColor":"#FCEE0A","primaryBorderColor":"#FCEE0A","secondaryColor":"#16161E","tertiaryColor":"#16161E","clusterBkg":"#16161E","clusterBorder":"#00B8C4","edgeLabelBackground":"#0D0D14","textColor":"#00B8C4"}}}%%
 flowchart TD
     A["all active leaves in<br/>refine-eligible categories"]
-    A --> B{"atom_type eligible<br/>(self-improvement-lesson / bug-root-cause /<br/>feedback-rule / pattern-gotcha)<br/>AND last_recalled_at &gt; N months?"}
+    A --> B{"atom_type eligible<br/>(self-improvement-lesson / bug-root-cause /<br/>feedback-rule / pattern-gotcha)<br/>AND frontmatter.updated &gt; N months?"}
     B -- "no" --> SKIP["leave as-is"]
-    B -- "yes (deterministic, ~1ms/leaf)" --> F["memory.stale = true<br/>(reversible — clears on next recall)"]
-    F --> CAP{"first N of stale-flagged<br/>(sorted by last_recalled_at desc;<br/>cap = consolidate.refreshMaxPerRun)"}
+    B -- "yes (deterministic, ~1ms/leaf)" --> F["memory.stale = true<br/>(reversible — clears on next update)"]
+    F --> CAP{"first N of stale-flagged<br/>(sorted by frontmatter.updated desc;<br/>cap = consolidate.refreshMaxPerRun)"}
     CAP -- "overflow" --> CARRY["carries to next hourly tick"]
     CAP -- "within cap" --> LLM["LLM reads leaf body<br/>+ current similarity cluster<br/>(local embeddings provide the cluster)"]
     LLM --> K["keep: still relevant<br/>→ clear stale flag"]
@@ -307,7 +329,7 @@ flowchart TD
     LLM --> FB["fallback (provider unreachable<br/>or schema invalid after retries)<br/>→ leave flag, retry next tick"]
 ```
 
-**Step 1 — staleness-flag (deterministic).** Pure file-metadata rule: atom_type in the eligible set + `max(last_recalled_at, frontmatter.updated)` older than `consolidate.staleAfterMonths` (default 6). No LLM, no body inspection — just a flag. It also flips OFF: a single recall hit on a previously-stale leaf clears the flag on the next run, so freshly-relevant content un-flags itself automatically.
+**Step 1 — staleness-flag (deterministic).** Pure file-metadata rule: atom_type in the eligible set + `frontmatter.updated` older than `consolidate.staleAfterMonths` (default 6). No LLM, no body inspection — just a flag. It also flips OFF: a fresh edit (a newer `frontmatter.updated`) clears the flag on the next run, so freshly-updated content un-flags itself automatically.
 
 **Step 2 — llm-semantic-refresh (LLM, capped, runs on the stale-flagged subset only).** For each candidate, the LLM sees the leaf's body, its frontmatter, and a small bundle of *currently-active* leaves on the same topic (the similarity cluster — pulled via local embeddings, no network). It returns one of four verdicts:
 
@@ -460,6 +482,7 @@ Highlights from `settings.yaml`:
 | `gate.perLessonConsent` | `true` | One save phrase auto-allows only the first gated write of a turn; later ones re-prompt (Claude Code). `false` restores turn-level consent. |
 | `gate.auditTrailEnabled` | `true` | Append a redacted ledger of every gate decision to `state/.save-gate-audit.log` (read via `cli.mjs gate-audit`). |
 | `gate.auditKeep` | `1000` | Max records kept in the audit ledger (older lines front-truncated). |
+| `consolidate.enabled` | `false` | Master switch for consolidation (reconciliation). Off by default: `consolidateMemory()` no-ops in every path — cron, `cli.mjs consolidate`, the MCP `consolidate_memory` tool, the `consolidate` skill — and the hourly cron too; `force` does not override. Set `true` to enable. |
 | `consolidate.intervalDays` | `1` | Throttle for `consolidate --if-due`. |
 | `consolidate.llmPassesEnabled` | `true` | Disable to run deterministic-only consolidation. |
 | `consolidate.attemptsKeep` | `50` | Slim cron attempt entries kept in `state/.consolidate-attempts.log`. |
@@ -467,7 +490,6 @@ Highlights from `settings.yaml`:
 | `consolidate.escalateAfterAttempts` | `3` | Consecutive per-entity failures before an escalation issue report is written. |
 | `wiki.autoCommit` | `true` | Auto-commit every wiki change to the wiki's own git repo (one commit per logical operation). |
 | `consolidate.cosineThreshold` | `0.97` | Dedup threshold (auto-bumped to `0.995` on the lexical fallback). |
-| `recall.touchEnabled` | `true` | Whether `searchMemoryFiltered` stamps `last_recalled_at` on hits. |
 | `providers.chain` | `[]` → auto-detect | Cross-provider fallback chain. |
 | `providers.<api-provider>.models` | (template ships) | Per-provider model fallback list (newest-first). |
 ![](docs/assets/line-thin.svg)
@@ -562,7 +584,7 @@ The cron entry calls a generated wrapper (`state/cron-daily.sh`) — safe across
 
 | Path | Role |
 | --- | --- |
-| `scripts/lib/wiki-store.mjs` | Storage seam: every document is a wiki leaf. Drives the skill for index-rebuild / validate / heal / rebuild. Hosts the recall-touch instrumentation and `getConsolidateLayout()` reader. |
+| `scripts/lib/wiki-store.mjs` | Storage seam: every document is a wiki leaf. Drives the skill for index-rebuild / validate / heal / rebuild. Hosts the `getConsolidateLayout()` reader. |
 | `scripts/lib/embed.mjs` | Transformer embeddings, cosine, content-hash cache (lexical fallback). The only retrieval engine. |
 | `scripts/lib/recall.mjs` | `recall_lessons` ladder, `search_memory`, `save_lesson`. |
 | `scripts/lib/llm.mjs` | LLM provider dispatch (claude / codex / anthropic / openai / openai-compatible / mock) + `health()` probe + `isLocalEndpoint` heuristic. |
@@ -591,7 +613,7 @@ npm test           # unit suite
 npm run test:e2e   # full lifecycle against the real skill-llm-wiki CLI (LLM stubbed)
 ```
 
-**1028 tests** in total. The unit suite covers the chunker (header/paragraph/hard-cut boundaries, surrogate-safe cuts), the provider+model chain (model-not-found iteration, cross-provider fallback, provenance accumulation), the map-reduce flow (depth cap, shrink check, partial-failure stash, in-leaf recovery), the redistill CLI, the wiki auto-commit layer (batching, repo-safety probe, injection guards), and the entity-level self-healing pipeline (escalations, episode-versioned issue reports, log retention, provider-availability tracking: compile's EX_UNAVAILABLE exit, synthetic `system:` entities, the hybrid cron PATH builder), word-boundary truncation, the facet vocabulary collector, and the LLM-only cosine merge band. The e2e suite builds a wiki from scratch in a temp directory and asserts genesis, daily capture, lesson + knowledge + plan + investigation absorption, compile promotion + dedup, recall, tree-growth integrity, and idempotency — against the real `skill-llm-wiki` CLI with mocked LLM responses.
+**1014 tests** in total. The unit suite covers the chunker (header/paragraph/hard-cut boundaries, surrogate-safe cuts), the provider+model chain (model-not-found iteration, cross-provider fallback, provenance accumulation), the map-reduce flow (depth cap, shrink check, partial-failure stash, in-leaf recovery), the redistill CLI, the wiki auto-commit layer (batching, repo-safety probe, injection guards), and the entity-level self-healing pipeline (escalations, episode-versioned issue reports, log retention, provider-availability tracking: compile's EX_UNAVAILABLE exit, synthetic `system:` entities, the hybrid cron PATH builder), word-boundary truncation, the facet vocabulary collector, and the LLM-only cosine merge band. The e2e suite builds a wiki from scratch in a temp directory and asserts genesis, daily capture, lesson + knowledge + plan + investigation absorption, compile promotion + dedup, recall, tree-growth integrity, and idempotency — against the real `skill-llm-wiki` CLI with mocked LLM responses.
 
 ## Requirements
 ![](docs/assets/line-bold.svg)

@@ -62,7 +62,7 @@ test("upgrade: old .env with consolidate threshold → migrated to settings.yaml
       "MEMORY_FLUSH_CHUNK_TARGET_K=7",
       "MEMORY_HOOK_MAX_TURNS=42",
       "MEMORY_EMBED_MODEL=Xenova/bge-small-en-v1.5",
-      "MEMORY_RECALL_TOUCH=false",
+      "MEMORY_CONSOLIDATE_ENABLED=true",
       "MEMORY_WRITE_GATE_SELF_IMPROVEMENT=off",
     ].join("\n") + "\n",
   );
@@ -78,7 +78,7 @@ test("upgrade: old .env with consolidate threshold → migrated to settings.yaml
   assert.equal(yaml.flush.chunkTargetK, 7);
   assert.equal(yaml.hook.maxTurns, 42);
   assert.equal(yaml.embed.model, "Xenova/bge-small-en-v1.5");
-  assert.equal(yaml.recall.touchEnabled, false);
+  assert.equal(yaml.consolidate.enabled, true);
   assert.equal(yaml.gate.selfImprovementEnabled, false);
 
   // .env backed up.
@@ -143,7 +143,7 @@ test("BOOL coercion: 'off' → false, 'true' → true; garbage skipped", () => {
     dir,
     [
       "MEMORY_LLM_PROVIDER=claude",
-      "MEMORY_RECALL_TOUCH=off",
+      "MEMORY_CONSOLIDATE_ENABLED=off",
       "MEMORY_CONSOLIDATE_LLM_PASSES=true",
       "MEMORY_COMPILE_QUALITY_STRICT=garbage",
     ].join("\n") + "\n",
@@ -151,7 +151,7 @@ test("BOOL coercion: 'off' → false, 'true' → true; garbage skipped", () => {
   const result = migrate(dir, { log: noop });
   assert.equal(result.migrated, true);
   const yaml = readYaml(dir, "settings.yaml");
-  assert.equal(yaml.recall.touchEnabled, false);
+  assert.equal(yaml.consolidate.enabled, false);
   assert.equal(yaml.consolidate.llmPassesEnabled, true);
   // Garbage bool falls back to the template's default (false).
   assert.equal(yaml.compile.qualityStrict, false);
@@ -366,7 +366,7 @@ test("round-trip: migrated settings.yaml loads through settings() with correct a
     dir,
     [
       "MEMORY_LLM_PROVIDER=claude",
-      "MEMORY_RECALL_TOUCH=off",
+      "MEMORY_CONSOLIDATE_ENABLED=on",
       "MEMORY_HOOK_EXITPLANMODE_DISABLE=yes",
       "MEMORY_CONSOLIDATE_INTERVAL_DAYS=0",
       "MEMORY_CROSS_CUTTING_AREAS=infra,billing",
@@ -380,7 +380,7 @@ test("round-trip: migrated settings.yaml loads through settings() with correct a
   try {
     const s = await import(`../scripts/lib/settings.mjs?roundtrip=${Date.now()}`);
     s.__clearSettingsForTest();
-    assert.equal(s.recallTouchEnabled(), false, "MEMORY_RECALL_TOUCH=off → recall.touchEnabled false");
+    assert.equal(s.consolidateEnabled(), true, "MEMORY_CONSOLIDATE_ENABLED=on → consolidate.enabled true");
     assert.equal(s.hookExitPlanModeDisable(), true, "EXITPLANMODE_DISABLE=yes → hook.exitPlanModeDisable true");
     assert.equal(s.consolidateIntervalDays(), 0, "INTERVAL_DAYS=0 → consolidate.intervalDays 0 (disabled)");
     assert.equal(s.consolidateCosineThreshold(), 0.85);

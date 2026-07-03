@@ -10,12 +10,9 @@ import {
 } from "./env.mjs";
 import {
   gcIntervalDays,
-  recallTouchEnabled,
-  recallTouchMinHours,
   recallPriorityBand,
 } from "./settings.mjs";
 import { ensureIndexes, indexRebuildOne } from "./wiki-cli.mjs";
-import { isSystemMaintenance } from "./maintenance-tag.mjs";
 import { writeFileAtomic } from "./atomic-write.mjs";
 import {
   contentHash,
@@ -481,20 +478,9 @@ export function normaliseMeta(metadata = {}, extra = {}) {
   // omitted (placement applies its fallback).
   const subjectArr = slugSegments(m.subject);
   if (subjectArr.length) out.subject = subjectArr;
-  // Consolidate / recall-touch / refresh fields. Optional pass-throughs:
-  // absent in metadata stays absent in the output. Types are coerced
-  // defensively (ISO strings trimmed; recall_count parsed as a non-negative
-  // integer; stale is a real boolean). These are mutated only by
-  // consolidate.mjs and the recall-touch instrumentation in
-  // searchMemoryFiltered / recallLessons, both of which carry the
-  // system-maintenance tag.
-  if (typeof m.last_recalled_at === "string" && m.last_recalled_at.trim() !== "") {
-    out.last_recalled_at = m.last_recalled_at.trim();
-  }
-  if (m.recall_count !== undefined && m.recall_count !== null) {
-    const n = Number.parseInt(m.recall_count, 10);
-    if (Number.isFinite(n) && n >= 0) out.recall_count = n;
-  }
+  // Consolidate / refresh fields. Optional pass-throughs: absent in metadata
+  // stays absent in the output. Coerced defensively (stale is a real boolean).
+  // Mutated only by consolidate.mjs, which carries the system-maintenance tag.
   if (typeof m.stale === "boolean") out.stale = m.stale;
   if (typeof m.supersedes_id === "string" && m.supersedes_id.trim() !== "") {
     out.supersedes_id = m.supersedes_id.trim();
@@ -960,8 +946,8 @@ export function updateDocMetadata({ datasetId, documentId, metadata, placementOv
   const curDir = rel.slice(0, -1).join("/");
   const category = slotToCategory(rel[0]);
   // Topology categories (tracker `issues`) nest via the path-compiler, NOT facet
-  // placement. An UNPINNED in-place metadata update (recall-touch stamping
-  // last_recalled_at / recall_count, or any non-relocating stamp) must NEVER
+  // placement. An UNPINNED in-place metadata update (consolidate stamping
+  // `stale` / `consolidated_at`, or any non-relocating stamp) must NEVER
   // recompute placement via placementDirForMeta — that returns the category
   // ROOT and would relocate the nested leaf flat (the 2026-06 stale-instance
   // flatten). Pin to the leaf's CURRENT dir: an in-place stamp keeps the leaf
@@ -1325,62 +1311,6 @@ function metaMatchesFilters(memoryMeta, filters) {
   return true;
 }
 
-// Stamp `last_recalled_at` + bump `recall_count` on every returned record
-// above `scoreThreshold`. Throttled per-leaf to one write per N hours so
-// frequent searches don't churn frontmatter. These writes are NOT user-
-// authored saves — they're a usage signal the consolidate's staleness
-// pass will consume — so they go through `updateDocMetadata` directly
-// (not the MCP gate). Best-effort: a failure here MUST NOT fail the
-// search itself. The caller in `searchMemoryFiltered` ALSO checks
-// `isSystemMaintenance()` and skips this helper entirely when consolidate
-// invoked the search internally, to keep the usage signal a true
-// user-recall signal (not a system-driven refresh).
-async function applyRecallTouch(records, scoreThreshold) {
-  if (!recallTouchEnabled() || !records || records.length === 0) return;
-  const minHours = recallTouchMinHours();
-  const nowMs = Date.now();
-  const nowIso = new Date().toISOString();
-  for (const r of records) {
-    // Defensive belt-and-suspenders: the sole caller (searchMemoryFiltered)
-    // already drops below-threshold records before calling us, so this never
-    // fires today. It guards against a future caller passing an UNFILTERED
-    // list — a recall touch must never stamp a record the user didn't actually
-    // retrieve above threshold.
-    if (typeof r.score === "number" && scoreThreshold != null && r.score < scoreThreshold) {
-      continue;
-    }
-    try {
-      const abs = toAbs(r.documentId);
-      if (!fs.existsSync(abs)) continue;
-      const { data } = readLeaf(abs);
-      if (!isActive(data)) continue;
-      const mem = leafMemory(data);
-      const last = mem?.last_recalled_at;
-      if (typeof last === "string" && last) {
-        const lastMs = Date.parse(last);
-        if (Number.isFinite(lastMs) && nowMs - lastMs < minHours * 3600 * 1000) {
-          continue;
-        }
-      }
-      const prev = Number.parseInt(mem?.recall_count, 10);
-      updateDocMetadata({
-        documentId: r.documentId,
-        metadata: {
-          last_recalled_at: nowIso,
-          recall_count: Number.isFinite(prev) && prev >= 0 ? prev + 1 : 1,
-        },
-        // Telemetry, not an authored edit: the commit layer drops this
-        // sentinel so search hits never spam the wiki's git history.
-        commitReason: "recall-touch",
-      });
-    } catch (err) {
-      process.stderr.write(
-        `[recall-touch] non-fatal: ${r.documentId}: ${err?.message || err}\n`,
-      );
-    }
-  }
-}
-
 // Filter leaves by frontmatter metadata, then rank by embedding similarity.
 // Stable within-band priority tie-break over a cosine-descending list. Cosine
 // stays dominant: a hit more than `band` below its group leader keeps its rank;
@@ -1452,29 +1382,6 @@ export async function searchMemoryFiltered({ query, datasetId, limit = 5, filter
       priority: r.priority,
       content: r.text,
     }));
-
-  // Recall-touch: stamp `last_recalled_at` + bump `recall_count` on every
-  // record above the caller's scoreThreshold (24h-throttled; opt-out via
-  // MEMORY_RECALL_TOUCH=off). Failures are swallowed — search must never
-  // fail because of a bookkeeping write.
-  //
-  // CRITICAL: skip the touch entirely when invoked from inside a system-
-  // maintenance frame. Otherwise consolidate's own per-leaf cluster search
-  // (orchestrator + 3B refresh) would refresh `last_recalled_at` on every
-  // returned record, defeating its own staleness-flag and orphan-prune
-  // passes (a leaf that hasn't been TRULY recalled by a user / tool gets
-  // its timestamp bumped, so it never ages out). The maintenance frame
-  // means "search initiated by system code, not a user recall" — exactly
-  // when we DON'T want the usage signal.
-  if (records.length > 0 && !isSystemMaintenance()) {
-    try {
-      await applyRecallTouch(records, scoreThreshold);
-    } catch (err) {
-      process.stderr.write(
-        `[recall-touch] outer wrapper non-fatal: ${err?.message || err}\n`,
-      );
-    }
-  }
 
   return { records };
 }

@@ -4,7 +4,6 @@
 // One file, one workspace, many small targeted tests — each one pins a
 // specific invariant the review demanded:
 //
-//   (1) recall-touch SKIPS inside withSystemMaintenance()
 //   (2) llm-merge keeper rewrite does NOT relocate the keeper
 //   (3) write_memory write-gate: self_improvement is gated, others are not
 //   (4) consolidate installs signal-release handlers (lock cleanup on SIGTERM)
@@ -28,7 +27,6 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import matter from "gray-matter";
 import { setupWorkspace, cleanup, SRC } from "./harness.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -43,7 +41,6 @@ process.env.MEMORY_LLM_PROVIDER = "mock";
 
 const store = await import("../scripts/lib/wiki-store.mjs");
 const { consolidateMemory, _internals } = await import("../scripts/consolidate.mjs");
-const { withSystemMaintenance } = await import("../scripts/lib/maintenance-tag.mjs");
 const lockMod = await import("../scripts/lib/lock.mjs");
 const env = await import("../scripts/lib/env.mjs");
 
@@ -91,12 +88,6 @@ function seedSelfImprovementLeaf({ name, text, metadata = {} } = {}) {
   return r.created.document.id;
 }
 
-function readLeafMemory(documentId) {
-  const abs = path.join(wiki, ...String(documentId).split("/"));
-  const raw = fs.readFileSync(abs, "utf8");
-  return matter(raw).data?.memory || {};
-}
-
 function countLeavesOnDisk() {
   let total = 0;
   for (const cat of ["self_improvement", "knowledge", "plans", "investigations", "daily"]) {
@@ -124,75 +115,6 @@ function countLeavesOnDisk() {
   }
   return total;
 }
-
-// ───────────────────────────────────────────────────────────────────────────
-// (1) recall-touch SKIPS when invoked inside withSystemMaintenance()
-// ───────────────────────────────────────────────────────────────────────────
-
-test("(1) recall-touch is skipped inside withSystemMaintenance()", async () => {
-  purgeActiveLeaves();
-  clearConsolidateState();
-  resetEnv();
-
-  const id = seedSelfImprovementLeaf({
-    name: "lesson-recall-touch-maint-2026-06-01-000000000.md",
-    text: "# Recall-touch maintenance guard\n\nAvoid stamping last_recalled_at when consolidate searches internally.\nWhy: maintenance-self-loop.",
-    metadata: { error_pattern: "recall-touch-maint" },
-  });
-
-  // First, a search OUTSIDE the maintenance frame must stamp the leaf.
-  // This proves the test's instrumentation works (otherwise a no-op below
-  // could falsely "pass").
-  const r1 = await store.searchMemoryFiltered({
-    query: "recall-touch maintenance guard avoid stamping",
-    datasetId: "self_improvement",
-    filters: { error_pattern: "recall-touch-maint" },
-    scoreThreshold: 0,
-  });
-  assert.ok(r1.records.some((r) => r.documentId === id), "search returned the seeded leaf");
-  const memOutside = readLeafMemory(id);
-  assert.ok(
-    typeof memOutside.last_recalled_at === "string" && memOutside.last_recalled_at.length > 0,
-    "last_recalled_at stamped by search outside maintenance frame",
-  );
-  const stampedAt = memOutside.last_recalled_at;
-  const recallCountOutside = memOutside.recall_count;
-  assert.equal(recallCountOutside, 1, "recall_count===1 after first user-style search");
-
-  // The 24h throttle would mask the SECOND OUTSIDE write too — but we don't
-  // need that. The whole point of this test is to verify the maintenance
-  // gate. Force the throttle window past so we KNOW the only thing
-  // preventing a re-stamp is the maintenance flag.
-  __setSettingsForTest({ recall: { touchMinHours: 1 } });
-  const abs = path.join(wiki, ...id.split("/"));
-  const parsed = matter(fs.readFileSync(abs, "utf8"));
-  const twoHoursAgo = new Date(Date.now() - 2 * 3600 * 1000).toISOString();
-  parsed.data.memory = { ...parsed.data.memory, last_recalled_at: twoHoursAgo };
-  fs.writeFileSync(
-    abs,
-    matter.stringify(`\n${parsed.content.trim()}\n`, parsed.data, { lineWidth: -1 }),
-  );
-
-  // Now: a search INSIDE withSystemMaintenance must NOT change last_recalled_at,
-  // even though the throttle window is past.
-  const r2 = await withSystemMaintenance(async () =>
-    store.searchMemoryFiltered({
-      query: "recall-touch maintenance guard avoid stamping",
-      datasetId: "self_improvement",
-      filters: { error_pattern: "recall-touch-maint" },
-      scoreThreshold: 0,
-    }),
-  );
-  assert.ok(r2.records.some((r) => r.documentId === id), "search still works inside maintenance");
-  const memInside = readLeafMemory(id);
-  assert.equal(
-    memInside.last_recalled_at,
-    twoHoursAgo,
-    "last_recalled_at unchanged inside maintenance frame (recall-touch skipped)",
-  );
-
-  __clearSettingsForTest();
-});
 
 // ───────────────────────────────────────────────────────────────────────────
 // (2) llm-merge keeper rewrite does NOT relocate the keeper
@@ -574,7 +496,10 @@ test("(6) cosine lexical warning fires exactly once per run", () => {
     // Init a fresh wiki so this run is independent of the shared workspace.
     // Pin embed.backend via settings.yaml — env vars no longer drive it.
     fs.mkdirSync(path.join(gcDir, "settings"), { recursive: true });
-    fs.writeFileSync(path.join(gcDir, "settings", "settings.yaml"), "embed:\n  backend: lexical\n");
+    fs.writeFileSync(
+      path.join(gcDir, "settings", "settings.yaml"),
+      "embed:\n  backend: lexical\nconsolidate:\n  enabled: true\n",
+    );
     const init = spawnSync(process.execPath, [CLI, "init"], {
       cwd: SRC,
       encoding: "utf8",

@@ -29,7 +29,7 @@ Observed failure modes (each cost a real recovery):
   reconcile every add/delete against your intended change — the daemon's moves
   masquerade as renames under default `git status`. An add at a category root
   paired with a delete from a nested folder is a sync stray: confirm it's
-  byte-identical to HEAD (only engine recall-touch frontmatter should differ),
+  byte-identical to HEAD (only consolidate stamps like `stale` should differ),
   restore with `git checkout HEAD -- <nested>`, and remove the stray.
 - **Run the health scan after any suspected sync event:**
   `node .llm-wiki-memory/src/scripts/cli.mjs doctor` (read-only; exits non-zero

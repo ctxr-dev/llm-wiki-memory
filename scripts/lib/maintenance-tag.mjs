@@ -2,10 +2,9 @@
 //
 // The L3 server-side guard refuses `save_lesson` / `save_to_dataset(dataset=
 // "self_improvement", ...)` calls that lack `userRequested:true` — to enforce
-// the propose-then-confirm rule. But the wiki ALSO has legitimate internal
-// writers (the consolidate orchestrator, the recall-touch instrumentation in
-// searchMemoryFiltered / recallLessons) that need to mutate leaves without
-// being user-initiated. We exempt them via this tag.
+// the propose-then-confirm rule. But the wiki ALSO has a legitimate internal
+// writer (the consolidate orchestrator) that needs to mutate leaves without
+// being user-initiated. We exempt it via this tag.
 //
 // AsyncLocalStorage is the right primitive: an env-var or process-global flag
 // (a) would NOT propagate cleanly through async/await chains, (b) would race
