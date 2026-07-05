@@ -27,8 +27,10 @@ export async function recallLessons({
   includeKnowledge,
   scoreThreshold,
   maxResults,
+  sections,
 } = {}) {
   const limit = maxResults || 5;
+  const withGlance = Array.isArray(sections) && sections.includes("frontmatter");
   // Caller-supplied threshold wins; otherwise fall back to the configured
   // floor (settings.recall.scoreThreshold, default 0 = don't over-prune).
   // Before this the setting was dead config — wired into the loader, template,
@@ -78,6 +80,7 @@ export async function recallLessons({
       filters,
       scoreThreshold: threshold,
       limit,
+      withGlance,
     });
     let added = 0;
     for (const r of records) {
@@ -118,6 +121,7 @@ export async function recallLessons({
         filters: { atom_type: t, project_module: effectiveProjectModule },
         scoreThreshold: threshold,
         limit: 1,
+        withGlance,
       });
       for (const r of records.slice(0, 1)) supplementary.push({ ...r, kind: "knowledge" });
     }
@@ -140,13 +144,23 @@ export async function recallLessons({
       score: r.score,
       priority: r.priority,
       content: r.content,
+      // Glance fields ride along only when the caller asked for the frontmatter
+      // view (withGlance); otherwise they are absent and the shape is unchanged.
+      ...(r.brief !== undefined ? { brief: r.brief } : {}),
+      ...(r.type !== undefined ? { type: r.type } : {}),
+      ...(r.status !== undefined ? { status: r.status } : {}),
+      ...(r.progress !== undefined ? { progress: r.progress } : {}),
+      ...(r.tags !== undefined ? { tags: r.tags } : {}),
     })),
   };
 }
 
-// Cross-category search with optional project_module auto-injection.
-export async function searchMemory({ query, datasets, filters, scoreThreshold, maxResults } = {}) {
+// Cross-category search with optional project_module auto-injection. When
+// `sections` requests the frontmatter glance view, records carry glance fields
+// (brief/type/status/progress/tags); otherwise the record shape is unchanged.
+export async function searchMemory({ query, datasets, filters, scoreThreshold, maxResults, sections } = {}) {
   const limit = maxResults || 8;
+  const withGlance = Array.isArray(sections) && sections.includes("frontmatter");
   // Caller threshold wins; else the configured floor (settings.recall.scoreThreshold).
   const effectiveThreshold = scoreThreshold ?? recallScoreThreshold();
   // Use getCategories() not the raw CATEGORIES export — getCategories()
@@ -169,6 +183,7 @@ export async function searchMemory({ query, datasets, filters, scoreThreshold, m
         filters: effectiveFilters,
         scoreThreshold: effectiveThreshold,
         limit,
+        withGlance,
       });
       all.push(...records);
     } catch (err) {

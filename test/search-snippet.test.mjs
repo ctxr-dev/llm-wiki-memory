@@ -79,3 +79,65 @@ test("missing/empty content is tolerated", () => {
   assert.equal(out.records[0].content, "");
   assert.equal(out.records[0].truncated, undefined);
 });
+
+const glanceRec = (id, len) => ({
+  datasetId: "plans",
+  documentId: id,
+  documentName: id,
+  score: 0.8,
+  priority: "P1",
+  content: big(len),
+  brief: "A short brief here",
+  type: "plan",
+  status: "in-progress",
+  progress: { total: 8, done: 3, label: "3/8" },
+  tags: ["a", "b"],
+});
+
+test("sections=[frontmatter] drops the body and keeps the glance fields", () => {
+  const out = clampSearchResponse({ records: [glanceRec("a", 5000)] }, { sections: ["frontmatter"] });
+  const r = out.records[0];
+  assert.equal(r.content, undefined, "body dropped");
+  assert.equal(r.truncated, undefined);
+  assert.equal(r.fullChars, undefined);
+  assert.equal(r.brief, "A short brief here");
+  assert.equal(r.type, "plan");
+  assert.equal(r.status, "in-progress");
+  assert.deepEqual(r.progress, { total: 8, done: 3, label: "3/8" });
+  assert.deepEqual(r.tags, ["a", "b"]);
+  assert.equal(r.documentId, "a");
+  assert.equal(r.priority, "P1");
+});
+
+test("sections=[frontmatter,body] keeps BOTH the excerpted body and the glance fields", () => {
+  const out = clampSearchResponse({ records: [glanceRec("a", 5000)] }, { sections: ["frontmatter", "body"] });
+  const r = out.records[0];
+  assert.ok(r.content.length <= SEARCH_PER_HIT_CHARS + 4, "body still excerpted");
+  assert.equal(r.truncated, true);
+  assert.equal(r.brief, "A short brief here");
+  assert.equal(r.type, "plan");
+});
+
+test("sections=[body] behaves like the default (excerpt)", () => {
+  const out = clampSearchResponse({ records: [rec("a", 5000)] }, { sections: ["body"] });
+  assert.ok(out.records[0].content.length <= SEARCH_PER_HIT_CHARS + 4);
+  assert.equal(out.records[0].truncated, true);
+});
+
+test("frontmatter-only takes precedence over fullContent (body still dropped)", () => {
+  const out = clampSearchResponse(
+    { records: [glanceRec("a", 5000)] },
+    { sections: ["frontmatter"], fullContent: true },
+  );
+  assert.equal(out.records[0].content, undefined);
+  assert.equal(out.records[0].brief, "A short brief here");
+});
+
+test("sections omitted adds NO glance fields (byte-identical shape)", () => {
+  const out = clampSearchResponse({ records: [rec("a", 120)] });
+  const r = out.records[0];
+  assert.equal(r.brief, undefined);
+  assert.equal(r.type, undefined);
+  assert.equal(r.status, undefined);
+  assert.deepEqual(Object.keys(r).sort(), ["content", "documentId", "documentName", "score"].sort());
+});
