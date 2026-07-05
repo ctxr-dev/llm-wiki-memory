@@ -62,6 +62,7 @@ If nothing in the transcript is durable, return exactly: `{"atoms": []}`.
 - Skip generic platitudes ("we should write tests").
 - Skip session pleasantries.
 - Skip anything that would not be reusable in a future session.
+- Skip low-signal one-offs: facts true only for this exact moment, points that are obvious in hindsight, or anything a competent agent would already do without being told.
 - Do NOT emit `type: "plan"`. Plans are written by the ExitPlanMode hook on user approval, not extracted from transcripts. A plan-typed atom from this prompt would pollute the upsert-by-name `plans` slot and be silently rejected downstream.
 
 # Quality bar
@@ -73,8 +74,9 @@ Each atom must:
 4. Have at least one tag.
 5. For `self-improvement-lesson`: have `metadata.area`, `metadata.task_type`, AND `metadata.error_pattern` set.
 6. Consolidate aggressively: if multiple findings share the same topic AND the same actionable rule, emit ONE atom that captures the rule with its supporting evidence. Prefer fewer, richer atoms over many thin near-duplicates.
+7. Clear a real signal bar: a future agent would genuinely act differently for having read it. Marginal, "nice to note", or obvious items do NOT qualify.
 
-If you are unsure whether an atom meets the bar, omit it.
+Writing NOTHING is a good outcome: when a session produced nothing durable, an empty `{"atoms": []}` is strongly preferred over thin, low-signal atoms. When unsure whether an atom clears the bar, omit it.
 
 # Now extract
 

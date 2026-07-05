@@ -77,9 +77,22 @@ Do NOT invoke when:
    read them. Their `progress` and `status` frontmatter tell you where
    the work stands; their checkboxes tell you what's next.
 
-5. **Optional: recent daily atoms.** List the 3 most recent files under
-   `wiki/daily/<yyyy>/<mm>/<dd>/` for cross-session continuity. Skim,
-   don't deep-read.
+5. **Recent activity (the "🧠 Recently" reminder).** This mirrors what the
+   Claude Code SessionStart hook auto-injects; on hook-less clients you
+   produce it. Take the most recent `recall.recentActivityDays` days (default
+   3; `0` disables — check `settings.yaml`) of files under
+   `wiki/daily/<yyyy>/<mm>/<dd>/`, newest first, and for each emit ONE short,
+   dated bullet with its brief and a link — do NOT deep-read the bodies:
+
+   ```markdown
+   ## 🧠 Recently — last 3 days
+   - **2026-07-02 16:44** — <the leaf's `brief` frontmatter, or its first
+     2+-word heading> → `daily/2026/07/02/daily-….md`
+   ```
+
+   Read only each leaf's `brief` field (fall back to its first heading /
+   first sentence if absent). Keep the whole block small — a handful of
+   bullets, links not bodies.
 
 6. **Summarise for the user.** Compose a short markdown block (≤ 200
    words) covering:

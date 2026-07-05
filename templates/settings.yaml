@@ -112,6 +112,11 @@ recall:
   # Relevance stays dominant: a hit more than this far below the band leader keeps
   # its cosine rank; only near-equally-relevant hits are ordered P0 > P1 > P2.
   priorityBand: 0.05
+  # SessionStart "🧠 Recently" reminder: how many recent days of daily notes to
+  # surface as brief + link. 0 disables the reminder.
+  recentActivityDays: 3
+  # SessionStart plan list: max plans to surface (unfinished preferred). 0 hides plans.
+  planContextMax: 2
 
 compile:
   # Knowledge slot (the destination compile promotes daily atoms to).

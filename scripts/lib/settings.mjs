@@ -285,6 +285,11 @@ function buildSettings({ configPath, cmdProbe } = {}) {
     // P0/P1 orders above an equally-relevant P2). Relevance stays dominant: a
     // hit more than this far below the band leader keeps its cosine rank.
     priorityBand: 0.05,
+    // SessionStart "Recently" reminder: how many recent days of daily notes to
+    // surface (as brief + link). 0 disables the reminder.
+    recentActivityDays: 3,
+    // SessionStart plan list: max plans to surface, unfinished preferred. 0 hides plans.
+    planContextMax: 2,
   };
   const compile = {
     slot: "knowledge",
@@ -468,6 +473,8 @@ function buildSettings({ configPath, cmdProbe } = {}) {
 
   recall.scoreThreshold = coerceFloat01(recall.scoreThreshold, 0);
   recall.priorityBand = coerceFloat01(recall.priorityBand, 0.05);
+  recall.recentActivityDays = coerceNonNeg(recall.recentActivityDays, 3);
+  recall.planContextMax = coerceNonNeg(recall.planContextMax, 2);
 
   if (typeof compile.slot !== "string") compile.slot = "knowledge";
   compile.searchLimit = coercePos(compile.searchLimit, 5);
@@ -600,6 +607,8 @@ export function embedModel() { return settings().embed.model; }
 
 export function recallScoreThreshold() { return settings().recall.scoreThreshold; }
 export function recallPriorityBand() { return settings().recall.priorityBand; }
+export function recallRecentActivityDays() { return settings().recall.recentActivityDays; }
+export function recallPlanContextMax() { return settings().recall.planContextMax; }
 
 export function compileSlot() { return settings().compile.slot; }
 export function compileSearchLimit() { return settings().compile.searchLimit; }

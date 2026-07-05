@@ -24,6 +24,7 @@ import {
   cosine,
 } from "./embed.mjs";
 import { slugify, dailyDatePath, truncateAtWordBoundary } from "./slug.mjs";
+import { buildBrief } from "./brief.mjs";
 import { inferFacets } from "./facets.mjs";
 import { priorityForAtomType, normalisePriority, priorityRank } from "./datasets.mjs";
 import { pruneEmptyAncestors } from "./fs-prune.mjs";
@@ -405,6 +406,8 @@ function renderLeaf({ id, title, tags, body, memoryMeta }) {
     parents: ["index.md"],
     covers: buildCovers({ title, tags, atomType: memoryMeta.atom_type, body }),
   };
+  const brief = buildBrief({ body, memoryMeta });
+  if (brief) frontmatter.brief = brief;
   if (Array.isArray(tags) && tags.length) frontmatter.tags = tags;
   frontmatter.source = { origin: "inline", hash: `sha256:${contentHash(body)}` };
   frontmatter.updated = new Date().toISOString().slice(0, 10);
@@ -1332,7 +1335,7 @@ export function rerankWithinBands(sortedDesc, band) {
   return out;
 }
 
-export async function searchMemoryFiltered({ query, datasetId, limit = 5, filters, scoreThreshold } = {}) {
+export async function searchMemoryFiltered({ query, datasetId, limit = 5, filters, scoreThreshold, withGlance = false } = {}) {
   ensureLayoutLoaded();
   const cats = datasetId ? [slotToCategory(datasetId)] : CATEGORIES.filter((c) => c !== "daily");
   const candidates = [];
@@ -1351,6 +1354,9 @@ export async function searchMemoryFiltered({ query, datasetId, limit = 5, filter
         // Lazy-default legacy leaves that predate the priority field by the
         // deterministic rubric (never P0), so ranking has a value without a write.
         priority: normalisePriority(mem.priority) || priorityForAtomType(mem.atom_type),
+        // Kept only to build the opt-in glance view; never emitted directly.
+        data: withGlance ? data : undefined,
+        mem: withGlance ? mem : undefined,
       });
     }
   }
@@ -1374,16 +1380,38 @@ export async function searchMemoryFiltered({ query, datasetId, limit = 5, filter
   const ranked = rerankWithinBands(eligible, recallPriorityBand());
   const records = ranked
     .slice(0, limit)
-    .map((r) => ({
-      datasetId: r.datasetId,
-      documentId: r.id,
-      documentName: r.documentName,
-      score: r.score,
-      priority: r.priority,
-      content: r.text,
-    }));
+    .map((r) => {
+      const base = {
+        datasetId: r.datasetId,
+        documentId: r.id,
+        documentName: r.documentName,
+        score: r.score,
+        priority: r.priority,
+        content: r.text,
+      };
+      return withGlance ? { ...base, ...glanceFields(r.data, r.mem, r.text) } : base;
+    });
 
   return { records };
+}
+
+// The compact "glance" fields for a leaf, used only when a caller opts in via
+// `withGlance` (the `sections:["frontmatter"]` read path). `brief` prefers the
+// stored frontmatter value and falls back to computing it on the fly for older
+// leaves that predate the field. `status`/`progress` are top-level plan fields
+// (absent on non-plan atoms). Never returns the raw internal frontmatter.
+function glanceFields(data = {}, mem = {}, body = "") {
+  const out = { brief: data.brief || buildBrief({ body, memoryMeta: mem }) };
+  if (mem.atom_type) out.type = mem.atom_type;
+  if (data.status) out.status = data.status;
+  if (data.progress) out.progress = data.progress;
+  const tags = Array.isArray(data.tags)
+    ? data.tags
+    : mem.tags
+      ? String(mem.tags).split(",").map((t) => t.trim()).filter(Boolean)
+      : [];
+  if (tags.length) out.tags = tags;
+  return out;
 }
 
 export function listDatasets() {

@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { MEMORY_DIR, MEMORY_DATA_DIR, COMPILE_STATE_PATH, envValue, wikiRoot } from "../lib/env.mjs";
 import { buildSessionStartContext } from "../lib/discipline.mjs";
 import { isReentrant, reentryEnv } from "../lib/reentry.mjs";
-import { buildWorkContextSection } from "../lib/work-context.mjs";
+import { buildWorkContextSection, buildRecentActivitySection } from "../lib/work-context.mjs";
 import { migrate as migrateSettings } from "../migrate-settings.mjs";
 
 // Self-heal a "live upgrade": an operator who git-pulls a new src/ and just
@@ -105,6 +105,18 @@ try {
   );
 }
 
+// Append the "🧠 Recently" reminder (last N days of daily notes as brief + link).
+// Gated by recall.recentActivityDays (default 3, 0 disables); best-effort so any
+// failure produces an empty string and the pipeline ships without it.
+let recentActivitySection = "";
+try {
+  recentActivitySection = buildRecentActivitySection({ wikiRoot: wikiRoot() });
+} catch (err) {
+  console.error(
+    `session-start.mjs: recent-activity skipped: ${err instanceof Error ? err.message : err}`,
+  );
+}
+
 // Self-healing surface — DETERMINISTIC, MINIMAL.
 //
 // When the most recent cron attempt failed AND the next tick hasn't
@@ -170,7 +182,8 @@ console.log(
   JSON.stringify({
     hookSpecificOutput: {
       hookEventName: "SessionStart",
-      additionalContext: disciplineContext + workContext + cronHealthSection + monitoringSection,
+      additionalContext:
+        disciplineContext + workContext + recentActivitySection + cronHealthSection + monitoringSection,
     },
   }),
 );

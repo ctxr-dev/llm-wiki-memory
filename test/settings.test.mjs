@@ -597,6 +597,23 @@ test("wiki.autoCommit defaults true, honours explicit false, fails safe on null"
   });
 });
 
+test("recall.recentActivityDays / planContextMax default, honour values, fail safe on garbage", () => {
+  clearEnv();
+  assert.equal(settings().recall.recentActivityDays, 3);
+  assert.equal(settings().recall.planContextMax, 2);
+  withYaml(`recall:\n  recentActivityDays: 5\n  planContextMax: 1\n`, () => {
+    assert.equal(settings().recall.recentActivityDays, 5);
+    assert.equal(settings().recall.planContextMax, 1);
+  });
+  withYaml(`recall:\n  recentActivityDays: 0\n  planContextMax: 0\n`, () => {
+    assert.equal(settings().recall.recentActivityDays, 0, "0 is honoured (disables the reminder)");
+    assert.equal(settings().recall.planContextMax, 0);
+  });
+  withYaml(`recall:\n  recentActivityDays: nope\n`, () => {
+    assert.equal(settings().recall.recentActivityDays, 3, "garbage falls back to the default");
+  });
+});
+
 // ─── BREAKING contract: table-driven over EVERY removed env var ───────────
 
 test("BREAKING: every removed MEMORY_* env var is a no-op (table-driven over the full set)", async () => {

@@ -15,9 +15,18 @@ export const SEARCH_TOTAL_BUDGET = 16000;
 
 export function clampSearchResponse(
   result,
-  { maxChars, fullContent, perHitDefault = SEARCH_PER_HIT_CHARS } = {},
+  { maxChars, fullContent, sections, perHitDefault = SEARCH_PER_HIT_CHARS } = {},
 ) {
-  if (fullContent || !result || !Array.isArray(result.records)) return result;
+  if (!result || !Array.isArray(result.records)) return result;
+  // Frontmatter-only view (sections=["frontmatter"]): the glance fields already
+  // rode along on each record; drop the body entirely and skip excerpting. This
+  // is the light session-start path. When "body" is also requested (or sections
+  // is omitted) we fall through to the normal body-excerpt logic below.
+  if (Array.isArray(sections) && sections.includes("frontmatter") && !sections.includes("body")) {
+    const records = result.records.map(({ content, truncated, fullChars, ...rest }) => rest);
+    return { ...result, records };
+  }
+  if (fullContent) return result;
   const perHit = Number.isInteger(maxChars) && maxChars > 0 ? maxChars : perHitDefault;
   // Spend the total body budget in PRIORITY order (P0 > P1 > P2; original order
   // within a tier) so that when it runs out the LOWEST-priority bodies are the
