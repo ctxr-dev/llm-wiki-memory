@@ -128,3 +128,21 @@ export function runScript(relPath, args = [], { stdin, env = {} } = {}) {
     encoding: "utf8",
   });
 }
+
+// Bind an MCP SDK Client so every callTool carries the `scopes` argument that
+// Phase C step 5c made mandatory on every tool, UNLESS the caller already set
+// `scopes` (including an empty `scopes: []`, used to exercise the hard-fail).
+// Tests scope to their own workspace dir, which resolves to the brain, so tool
+// results are identical to the pre-scopes contract — this keeps each existing
+// call site unchanged instead of threading `scopes` through dozens of them.
+// Mutates and returns the client.
+export function scopeClient(client, scopes) {
+  const call = client.callTool.bind(client);
+  client.callTool = (params, ...rest) => {
+    const args = params && typeof params === "object" ? params.arguments : undefined;
+    const hasScopes = args && typeof args === "object" && "scopes" in args;
+    const nextArgs = hasScopes ? args : { ...(args ?? {}), scopes };
+    return call({ ...params, arguments: nextArgs }, ...rest);
+  };
+  return client;
+}

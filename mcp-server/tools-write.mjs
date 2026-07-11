@@ -12,6 +12,7 @@ import {
   auditGatedL3,
   guardScarcePriority,
 } from "./mcp-write-gate.mjs";
+import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
 
 /** @typedef {import("@modelcontextprotocol/sdk/server/mcp.js").McpServer} McpServer */
 
@@ -22,7 +23,7 @@ function registerWriteTools(server) {
     {
       title: "Save a self-improvement lesson (write-gated)",
       description:
-        "Persist a self-improvement lesson into the self_improvement category. WRITE-GATED: propose to the user in chat first, and only call AFTER explicit yes in this turn — passing `userRequested:true`. The server refuses without that flag. metadata.area, task_type, and error_pattern are required; project_module is stamped to the workspace automatically. Same title overwrites in place.",
+        "Persist a self-improvement lesson into the self_improvement category. WRITE-GATED: propose to the user in chat first, and only call AFTER explicit yes in this turn — passing `userRequested:true`. The server refuses without that flag. metadata.area, task_type, and error_pattern are required; project_module is stamped to the workspace automatically. Same title overwrites in place. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.",
       inputSchema: {
         title: z.string().trim().min(1).max(180),
         body: z.string().trim().min(1).max(10_000),
@@ -53,28 +54,41 @@ function registerWriteTools(server) {
           }),
         tags: z.array(z.string().trim().min(1)).optional(),
         evidence: z.string().trim().max(500).optional(),
+        scopes: ScopesSchema,
       },
     },
-    async ({ title, body, userRequested, metadata, tags, evidence }) => {
-      try {
-        if (writeGateSelfImprovementEnabled() && userRequested !== true && !isSystemMaintenance()) {
-          auditGatedL3({ tool: "save_lesson", status: "refused", userRequested, title, metadata });
-          return refuseWriteGate("save_lesson");
+    async (args) =>
+      withToolScopes(args, async () => {
+        const { title, body, userRequested, metadata, tags, evidence } = args;
+        try {
+          if (
+            writeGateSelfImprovementEnabled() &&
+            userRequested !== true &&
+            !isSystemMaintenance()
+          ) {
+            auditGatedL3({
+              tool: "save_lesson",
+              status: "refused",
+              userRequested,
+              title,
+              metadata,
+            });
+            return refuseWriteGate("save_lesson");
+          }
+          const result = /** @type {import("../scripts/lib/types.mjs").WriteResult} */ (
+            withWikiCommit({ op: "mcp-save-lesson", actor: "mcp" }, () =>
+              getImpl().saveLesson({ title, body, metadata, tags, evidence }),
+            )
+          );
+          auditGatedL3({ tool: "save_lesson", status: "accepted", userRequested, title, metadata });
+          return jsonResponse({
+            ok: !!result.created,
+            .../** @type {Record<string, unknown>} */ (result),
+          });
+        } catch (error) {
+          return errorResponse(error);
         }
-        const result = /** @type {import("../scripts/lib/types.mjs").WriteResult} */ (
-          withWikiCommit({ op: "mcp-save-lesson", actor: "mcp" }, () =>
-            getImpl().saveLesson({ title, body, metadata, tags, evidence }),
-          )
-        );
-        auditGatedL3({ tool: "save_lesson", status: "accepted", userRequested, title, metadata });
-        return jsonResponse({
-          ok: !!result.created,
-          .../** @type {Record<string, unknown>} */ (result),
-        });
-      } catch (error) {
-        return errorResponse(error);
-      }
-    },
+      }),
   );
 
   server.registerTool(
@@ -82,7 +96,7 @@ function registerWriteTools(server) {
     {
       title: "Upsert a document into a named category",
       description:
-        'Write `text` as a wiki leaf with the given exact `name`, replacing any existing leaf in the category that has the same name. Use for plans, investigations, and knowledge artefacts. `dataset` is a category name (knowledge, plans, investigations, self_improvement, or any extra category declared in <wiki>/.layout/layout.yaml). Optional `metadata` applies filterable frontmatter. `path` is a relative directory under the wiki root (e.g. "issues/JIRA/DEV/129/95/7") that overrides facet-derived placement so the leaf is written verbatim at <path>/<name> (casing preserved). `path` is REQUIRED for any category with a `topology:` block in .layout/layout.yaml (e.g. tracker issues): consult the layout, pick the file_kind for your intent (plan vs knowledge), and compute the path from its required facets. A missing or topology-mismatched `path` for such a category is REFUSED. For default facet categories `path` is optional (placement is facet-derived). WRITE-GATED for dataset="self_improvement" only: pass `userRequested:true` after the user explicitly asks (propose-then-confirm); other datasets are not gated.',
+        'Write `text` as a wiki leaf with the given exact `name`, replacing any existing leaf in the category that has the same name. Use for plans, investigations, and knowledge artefacts. `dataset` is a category name (knowledge, plans, investigations, self_improvement, or any extra category declared in <wiki>/.layout/layout.yaml). Optional `metadata` applies filterable frontmatter. `path` is a relative directory under the wiki root (e.g. "issues/JIRA/DEV/129/95/7") that overrides facet-derived placement so the leaf is written verbatim at <path>/<name> (casing preserved). `path` is REQUIRED for any category with a `topology:` block in .layout/layout.yaml (e.g. tracker issues): consult the layout, pick the file_kind for your intent (plan vs knowledge), and compute the path from its required facets. A missing or topology-mismatched `path` for such a category is REFUSED. For default facet categories `path` is optional (placement is facet-derived). WRITE-GATED for dataset="self_improvement" only: pass `userRequested:true` after the user explicitly asks (propose-then-confirm); other datasets are not gated. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.',
       inputSchema: {
         dataset: z.string().trim().min(1),
         name: z.string().trim().min(1).max(180),
@@ -92,60 +106,63 @@ function registerWriteTools(server) {
         userRequested: z.boolean().optional(),
         metadata: MetadataSchema.optional(),
         path: z.string().trim().min(1).max(500).optional(),
+        scopes: ScopesSchema,
       },
     },
-    async ({ dataset, name, text, userRequested, metadata, path }) => {
-      try {
-        if (
-          targetsGatedCategory(dataset, path) &&
-          writeGateSelfImprovementEnabled() &&
-          userRequested !== true &&
-          !isSystemMaintenance()
-        ) {
-          auditGatedL3({
-            tool: "save_to_dataset",
-            status: "refused",
-            userRequested,
-            title: name,
-            metadata,
-          });
-          return refuseWriteGate(
-            dataset === "self_improvement"
-              ? 'save_to_dataset(dataset="self_improvement")'
-              : `save_to_dataset(path="${path}" lands in self_improvement)`,
+    async (args) =>
+      withToolScopes(args, async () => {
+        const { dataset, name, text, userRequested, metadata, path } = args;
+        try {
+          if (
+            targetsGatedCategory(dataset, path) &&
+            writeGateSelfImprovementEnabled() &&
+            userRequested !== true &&
+            !isSystemMaintenance()
+          ) {
+            auditGatedL3({
+              tool: "save_to_dataset",
+              status: "refused",
+              userRequested,
+              title: name,
+              metadata,
+            });
+            return refuseWriteGate(
+              dataset === "self_improvement"
+                ? 'save_to_dataset(dataset="self_improvement")'
+                : `save_to_dataset(path="${path}" lands in self_improvement)`,
+            );
+          }
+          await assertTopologyPathValid({ dataset, name, path });
+          const { metadata: md, note: priorityNote } = guardScarcePriority(metadata, userRequested);
+          const result = /** @type {import("../scripts/lib/types.mjs").WriteResult} */ (
+            withWikiCommit({ op: "mcp-save", actor: "mcp" }, () =>
+              getImpl().saveDocument({
+                name,
+                text,
+                datasetId: dataset,
+                metadata: md,
+                placementOverride: path,
+              }),
+            )
           );
-        }
-        await assertTopologyPathValid({ dataset, name, path });
-        const { metadata: md, note: priorityNote } = guardScarcePriority(metadata, userRequested);
-        const result = /** @type {import("../scripts/lib/types.mjs").WriteResult} */ (
-          withWikiCommit({ op: "mcp-save", actor: "mcp" }, () =>
-            getImpl().saveDocument({
-              name,
-              text,
-              datasetId: dataset,
+          if (targetsGatedCategory(dataset, path)) {
+            auditGatedL3({
+              tool: "save_to_dataset",
+              status: "accepted",
+              userRequested,
+              title: name,
               metadata: md,
-              placementOverride: path,
-            }),
-          )
-        );
-        if (targetsGatedCategory(dataset, path)) {
-          auditGatedL3({
-            tool: "save_to_dataset",
-            status: "accepted",
-            userRequested,
-            title: name,
-            metadata: md,
+            });
+          }
+          return jsonResponse({
+            ok: !!result.created,
+            .../** @type {Record<string, unknown>} */ (result),
+            ...(priorityNote ? { priorityNote } : {}),
           });
+        } catch (error) {
+          return errorResponse(error);
         }
-        return jsonResponse({
-          ok: !!result.created,
-          .../** @type {Record<string, unknown>} */ (result),
-          ...(priorityNote ? { priorityNote } : {}),
-        });
-      } catch (error) {
-        return errorResponse(error);
-      }
-    },
+      }),
   );
 
   server.registerTool(
@@ -153,7 +170,7 @@ function registerWriteTools(server) {
     {
       title: "Write project memory",
       description:
-        "Create a new wiki leaf from concise memory text. Optionally supersede an existing leaf by passing its documentId (the old leaf is archived, or deleted with supersedesAction='delete'). `path` is a relative directory under the wiki root that overrides facet-derived placement so the leaf is written verbatim at <path>/<name> (casing preserved). `path` is REQUIRED for any category with a `topology:` block in .layout/layout.yaml (e.g. tracker issues) and must match that topology for the leaf file_kind; it is optional for default facet categories. A missing or topology-mismatched path for a topology category is REFUSED. WRITE-GATED for datasetId=\"self_improvement\" only — pass `userRequested:true` (server refuses without it). Other categories are not gated.",
+        "Create a new wiki leaf from concise memory text. Optionally supersede an existing leaf by passing its documentId (the old leaf is archived, or deleted with supersedesAction='delete'). `path` is a relative directory under the wiki root that overrides facet-derived placement so the leaf is written verbatim at <path>/<name> (casing preserved). `path` is REQUIRED for any category with a `topology:` block in .layout/layout.yaml (e.g. tracker issues) and must match that topology for the leaf file_kind; it is optional for default facet categories. A missing or topology-mismatched path for a topology category is REFUSED. WRITE-GATED for datasetId=\"self_improvement\" only — pass `userRequested:true` (server refuses without it). Other categories are not gated. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.",
       inputSchema: {
         name: z.string().trim().min(1).max(180),
         text: z.string().trim().min(20).max(200_000),
@@ -163,72 +180,75 @@ function registerWriteTools(server) {
         supersedesAction: z.enum(["disable", "delete"]).optional(),
         metadata: MetadataSchema.optional(),
         path: z.string().trim().min(1).max(500).optional(),
+        scopes: ScopesSchema,
       },
     },
-    async ({
-      name,
-      text,
-      datasetId,
-      userRequested,
-      supersedes,
-      supersedesAction,
-      metadata,
-      path,
-    }) => {
-      try {
-        // Same L3 gate as save_to_dataset: self_improvement writes require an
-        // explicit user-attestation flag. Closes the bypass available to
-        // clients that don't fire the Claude-Code-only L2 hook AND the
-        // gate-via-path bypass (path="self_improvement/..." with non-gated
-        // datasetId).
-        if (
-          targetsGatedCategory(datasetId, path) &&
-          writeGateSelfImprovementEnabled() &&
-          userRequested !== true &&
-          !isSystemMaintenance()
-        ) {
-          auditGatedL3({
-            tool: "write_memory",
-            status: "refused",
-            userRequested,
-            title: name,
-            metadata,
-          });
-          return refuseWriteGate(
-            datasetId === "self_improvement"
-              ? 'write_memory(datasetId="self_improvement")'
-              : `write_memory(path="${path}" lands in self_improvement)`,
+    async (args) =>
+      withToolScopes(args, async () => {
+        const {
+          name,
+          text,
+          datasetId,
+          userRequested,
+          supersedes,
+          supersedesAction,
+          metadata,
+          path,
+        } = args;
+        try {
+          // Same L3 gate as save_to_dataset: self_improvement writes require an
+          // explicit user-attestation flag. Closes the bypass available to
+          // clients that don't fire the Claude-Code-only L2 hook AND the
+          // gate-via-path bypass (path="self_improvement/..." with non-gated
+          // datasetId).
+          if (
+            targetsGatedCategory(datasetId, path) &&
+            writeGateSelfImprovementEnabled() &&
+            userRequested !== true &&
+            !isSystemMaintenance()
+          ) {
+            auditGatedL3({
+              tool: "write_memory",
+              status: "refused",
+              userRequested,
+              title: name,
+              metadata,
+            });
+            return refuseWriteGate(
+              datasetId === "self_improvement"
+                ? 'write_memory(datasetId="self_improvement")'
+                : `write_memory(path="${path}" lands in self_improvement)`,
+            );
+          }
+          await assertTopologyPathValid({ dataset: datasetId, name, path });
+          const { metadata: md, note: priorityNote } = guardScarcePriority(metadata, userRequested);
+          const result = /** @type {import("../scripts/lib/types.mjs").WriteResult} */ (
+            withWikiCommit({ op: "mcp-write-memory", actor: "mcp" }, () =>
+              getImpl().writeMemory({
+                name,
+                text,
+                datasetId,
+                supersedes,
+                supersedesAction,
+                metadata: md,
+                placementOverride: path,
+              }),
+            )
           );
-        }
-        await assertTopologyPathValid({ dataset: datasetId, name, path });
-        const { metadata: md, note: priorityNote } = guardScarcePriority(metadata, userRequested);
-        const result = /** @type {import("../scripts/lib/types.mjs").WriteResult} */ (
-          withWikiCommit({ op: "mcp-write-memory", actor: "mcp" }, () =>
-            getImpl().writeMemory({
-              name,
-              text,
-              datasetId,
-              supersedes,
-              supersedesAction,
+          if (targetsGatedCategory(datasetId, path)) {
+            auditGatedL3({
+              tool: "write_memory",
+              status: "accepted",
+              userRequested,
+              title: name,
               metadata: md,
-              placementOverride: path,
-            }),
-          )
-        );
-        if (targetsGatedCategory(datasetId, path)) {
-          auditGatedL3({
-            tool: "write_memory",
-            status: "accepted",
-            userRequested,
-            title: name,
-            metadata: md,
-          });
+            });
+          }
+          return jsonResponse({ ...result, ...(priorityNote ? { priorityNote } : {}) });
+        } catch (error) {
+          return errorResponse(error);
         }
-        return jsonResponse({ ...result, ...(priorityNote ? { priorityNote } : {}) });
-      } catch (error) {
-        return errorResponse(error);
-      }
-    },
+      }),
   );
 }
 

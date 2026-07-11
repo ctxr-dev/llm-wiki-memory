@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { setupWorkspace, cleanup, SRC, runScript } from "./harness.mjs";
+import { setupWorkspace, cleanup, SRC, runScript, scopeClient } from "./harness.mjs";
 
 const CLI = path.join(SRC, "scripts", "cli.mjs");
 const BOOTSTRAP = path.join(SRC, "bootstrap.sh");
@@ -113,6 +113,7 @@ before(async () => {
     cwd: SRC,
   });
   await client.connect(transport);
+  scopeClient(client, [mcpDataDir]);
 });
 
 after(async () => {

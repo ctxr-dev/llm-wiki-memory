@@ -10,7 +10,11 @@ import {
 } from "../lib/env.mjs";
 import { buildSessionStartContext } from "../lib/discipline.mjs";
 import { isReentrant, reentryEnv } from "../lib/reentry.mjs";
-import { buildWorkContextSection, buildRecentActivitySection } from "../lib/work-context.mjs";
+import {
+  buildScopeSeedSection,
+  buildWorkContextSection,
+  buildRecentActivitySection,
+} from "../lib/work-context.mjs";
 import { withBrainContextSafe } from "../lib/wiki-context.mjs";
 import { migrate as migrateSettings } from "../migrate-settings.mjs";
 
@@ -99,6 +103,19 @@ const disciplineContext = buildSessionStartContext({
   serverName: memoryServerName,
   compileTriggered,
 });
+
+// Seed the REQUIRED `scopes` argument that C5c made mandatory on every memory
+// tool: ONE short line naming the directories the agent should pass, computed
+// from cwd + git so a freshly restarted server stays usable. Best-effort — any
+// failure produces an empty string and the rest of the pipeline still ships.
+let scopeSeedSection = "";
+try {
+  scopeSeedSection = buildScopeSeedSection({ cwd: process.cwd() });
+} catch (err) {
+  console.error(
+    `session-start.mjs: scope-seed skipped: ${err instanceof Error ? err.message : err}`,
+  );
+}
 
 // Append the work-context section (active branch → semantic wiki search →
 // top hits + plan progress). Best-effort — any failure produces an empty
@@ -204,6 +221,7 @@ console.log(
       hookEventName: "SessionStart",
       additionalContext:
         disciplineContext +
+        scopeSeedSection +
         workContext +
         recentActivitySection +
         cronHealthSection +

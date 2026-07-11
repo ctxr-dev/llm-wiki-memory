@@ -58,6 +58,62 @@ test("SessionStart hook output carries the shared discipline", () => {
   );
 });
 
+test("SessionStart hook seeds the required `scopes` value within budget", () => {
+  const r = runScript("scripts/hooks/session-start.mjs", [], {
+    stdin: "{}",
+    env: { CLAUDE_INVOKED_BY: "memory_compile" }, // suppress real compile spawn
+  });
+  assert.equal(r.status, 0, `hook exit 0: ${r.stderr}`);
+  const ctx = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+  const idx = ctx.indexOf("Memory scopes for this session");
+  assert.notEqual(idx, -1, "scopes-seed line present in SessionStart context");
+  // The seed is ONE line; the next injected section (if any) begins after a
+  // blank line, so the first paragraph after idx is the seed itself. Reuse the
+  // per-section budget guard the other injected sections use.
+  const seedLine = ctx.slice(idx).split("\n\n")[0];
+  assert.match(seedLine, /REQUIRED/, "states the arg is required");
+  assert.match(seedLine, /scopes/, "names the scopes argument");
+  assert.ok(seedLine.length < 1024, `scopes-seed line under 1KB (got ${seedLine.length})`);
+});
+
+test("INSTRUCTIONS encodes the required-scopes discipline (rule 12)", () => {
+  assert.match(INSTRUCTIONS, /SCOPES ARE REQUIRED ON EVERY TOOL/);
+  assert.match(INSTRUCTIONS, /required `scopes: string\[\]`/);
+  assert.match(INSTRUCTIONS, /NEVER optional/);
+});
+
+test("scopes discipline is mirrored on the template rule + skill surfaces", () => {
+  const rule = fs.readFileSync(path.join(SRC, "templates/rules/tool-scopes.md"), "utf8");
+  assert.match(rule, /scopes/, "tool-scopes rule names the argument");
+  assert.match(rule, /never optional/i, "rule states scopes is never optional");
+  const skill = fs.readFileSync(path.join(SRC, "templates/skills/scope-seeding.md"), "utf8");
+  assert.match(skill, /name: scope-seeding/, "scope-seeding skill has its frontmatter name");
+  assert.match(skill, /rev-parse --show-toplevel/, "skill computes scopes from cwd + git");
+  assert.match(skill, /provider-agnostic/i, "skill documents the provider-agnostic constraint");
+});
+
+test("every MCP tool description carries the required-scopes clause (all three surfaces move together)", () => {
+  const files = [
+    "tools-config",
+    "tools-search",
+    "tools-write",
+    "tools-documents",
+    "tools-maintenance",
+  ];
+  let total = 0;
+  for (const f of files) {
+    const raw = fs.readFileSync(path.join(SRC, `mcp-server/${f}.mjs`), "utf8");
+    total += (raw.match(/REQUIRES `scopes`/g) || []).length;
+  }
+  assert.equal(total, 18, `all 18 tool descriptions carry the scopes clause (got ${total})`);
+  const readme = fs.readFileSync(path.join(SRC, "README.md"), "utf8");
+  assert.match(
+    readme,
+    /Every tool takes a required `scopes`/,
+    "README documents the scopes requirement",
+  );
+});
+
 test("merge-marker.mjs is idempotent (one block after two runs)", () => {
   const f = path.join(dataDir, "AGENTS_test.md");
   fs.writeFileSync(f, "# Existing\n\nsome content\n");

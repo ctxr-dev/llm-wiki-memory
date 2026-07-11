@@ -4,12 +4,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { setupWorkspace, cleanup, SRC } from "./harness.mjs";
+import { setupWorkspace, cleanup, SRC, scopeClient } from "./harness.mjs";
 
 const { dataDir } = setupWorkspace();
 
 let client;
 let transport;
+// The pre-scopes callTool handle, captured before scopeClient injects `scopes`,
+// so the hard-fail test can send a call with NO `scopes` at all.
+let callToolRaw;
 
 before(async () => {
   client = new Client({ name: "lwm-test", version: "0.0.0" }, { capabilities: {} });
@@ -20,6 +23,8 @@ before(async () => {
     cwd: SRC,
   });
   await client.connect(transport);
+  callToolRaw = client.callTool.bind(client);
+  scopeClient(client, [dataDir]);
 });
 
 after(async () => {
@@ -235,4 +240,32 @@ test("search_memory excerpts oversized hit bodies at the MCP boundary; fullConte
   const fullHit = full.records.find((r) => r.documentName === "knowledge-huge-body.md");
   assert.ok(fullHit.content.length > 1000, "fullContent returns the whole body");
   assert.equal(fullHit.truncated, undefined, "no truncation flag when full");
+});
+
+test("HARD FAIL: a tool call with missing or empty `scopes` is schema-rejected", async () => {
+  // Phase C 5c contract: `scopes` is a REQUIRED, non-empty array on every tool.
+  // The zod field shape (min(1) array, NOT .optional()) makes the SDK emit
+  // required + minItems:1, so both a MISSING and an EMPTY `scopes` fail the
+  // server-side input-schema validation before any handler runs. This SDK
+  // surfaces that failure as a resolved `{ isError: true }` envelope (not a
+  // thrown promise), same as the write-gate schema tests. We use the pre-scopes
+  // raw handle so the harness's scopeClient does not backfill scopes.
+
+  // (a) scopes entirely absent -> input-validation error.
+  const missing = await callToolRaw({ name: "search_memory", arguments: { query: "anything" } });
+  assert.equal(missing.isError, true, "missing scopes must be rejected");
+  assert.match(missing.content[0].text, /scopes|Invalid arguments|Input validation/i);
+
+  // (b) scopes present but empty -> input-validation error (min(1) on the array).
+  const empty = await callToolRaw({
+    name: "search_memory",
+    arguments: { query: "anything", scopes: [] },
+  });
+  assert.equal(empty.isError, true, "empty scopes must be rejected");
+  assert.match(empty.content[0].text, /scopes|Invalid arguments|Input validation/i);
+
+  // Control: the SAME query with a valid scope is accepted (proves the failure
+  // above is the scopes contract, not an unrelated error).
+  const ok = await client.callTool({ name: "search_memory", arguments: { query: "anything" } });
+  assert.notEqual(ok.isError, true, "a scoped search_memory call succeeds");
 });

@@ -84,6 +84,47 @@ export function detectActiveContext(cwd = process.cwd()) {
   };
 }
 
+// Compute the default `scopes` value for a session: the current working
+// directory, plus its git repo root when inside a repo and distinct from cwd.
+// Order-stable (cwd first) and deduplicated. Provider-agnostic: derived from
+// `process.cwd()` + git only, never a client-specific env var (the
+// dev-principles cross-client rule). An empty array when no cwd is available,
+// so the caller seeds nothing rather than a bogus scope.
+/**
+ * @param {string} [cwd]
+ * @returns {string[]}
+ */
+export function computeSessionScopes(cwd = process.cwd()) {
+  if (typeof cwd !== "string" || cwd.length === 0) return [];
+  /** @type {string[]} */
+  const scopes = [cwd];
+  const repoRoot = git(["rev-parse", "--show-toplevel"], cwd);
+  if (repoRoot && !scopes.includes(repoRoot)) scopes.push(repoRoot);
+  return scopes;
+}
+
+// One concise SessionStart line that SEEDS the required `scopes` argument (C5c
+// made it mandatory on every memory tool), so a freshly restarted server stays
+// usable: the agent reads this line and passes the named directories. Returns
+// an empty string when no scope can be computed (no cwd) so the caller
+// concatenates it unconditionally with the other SessionStart sections.
+/**
+ * @param {Object} [args]
+ * @param {string} [args.cwd]
+ * @returns {string}
+ */
+export function buildScopeSeedSection({ cwd = process.cwd() } = {}) {
+  const scopes = computeSessionScopes(cwd);
+  if (scopes.length === 0) return "";
+  const list = scopes.map((s) => `\`${s}\``).join(", ");
+  return (
+    `\n\nMemory scopes for this session: [${list}]. ` +
+    "Pass these as the REQUIRED `scopes` array to every memory tool " +
+    "(the directories you are working in; the engine walks each up to your home wiki). " +
+    "`scopes` is never optional."
+  );
+}
+
 // Read a plan file (or any wiki leaf) and return its frontmatter status
 // + progress label. Defensive: returns null if anything fails. We don't
 // recompute progress from the body here — the plan-frontmatter hook is

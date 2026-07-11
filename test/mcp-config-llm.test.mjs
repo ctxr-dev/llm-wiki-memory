@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { setupWorkspace, cleanup, SRC } from "./harness.mjs";
+import { setupWorkspace, cleanup, SRC, scopeClient } from "./harness.mjs";
 import { health } from "../scripts/lib/llm.mjs";
 
 const { dataDir } = setupWorkspace();
@@ -34,6 +34,7 @@ before(async () => {
     cwd: SRC,
   });
   await client.connect(transport);
+  scopeClient(client, [dataDir]);
 });
 
 after(async () => {

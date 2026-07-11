@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { setupWorkspace, cleanup, SRC } from "./harness.mjs";
+import { setupWorkspace, cleanup, SRC, scopeClient } from "./harness.mjs";
 
 const ISSUES_TOPOLOGY = `
   - path: issues
@@ -19,6 +19,8 @@ const ISSUES_TOPOLOGY = `
     consolidate: none
     topology:
       strategy: caller_path
+      helper:
+        module: ./issues-helper.mjs
       file_kinds:
         knowledge:
           required_facets: [tracker, prefix, number]
@@ -166,6 +168,7 @@ before(async () => {
     cwd: SRC,
   });
   await client.connect(transport);
+  scopeClient(client, [wsB.dataDir]);
 });
 after(async () => {
   try {

@@ -10,9 +10,16 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
   detectActiveContext,
+  computeSessionScopes,
+  buildScopeSeedSection,
   buildWorkContextSection,
   buildRecentActivitySection,
 } from "../scripts/lib/work-context.mjs";
+
+function gitToplevel(dir) {
+  const r = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: dir, encoding: "utf8" });
+  return r.status === 0 ? r.stdout.trim() : null;
+}
 
 function writeDaily(wikiRoot, y, mo, d, hhmmss, ms, brief, body = "some body text") {
   const dir = path.join(wikiRoot, "daily", y, mo, d);
@@ -64,6 +71,48 @@ test("detectActiveContext: works on a branch with no Jira-style key (semantic-on
   const r = detectActiveContext(repo);
   assert.ok(r);
   assert.equal(r.branch, "fix-hermes-timeout");
+});
+
+test("computeSessionScopes: returns just the cwd outside a git repo", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ss-nogit-"));
+  assert.deepEqual(computeSessionScopes(dir), [dir]);
+});
+
+test("computeSessionScopes: adds the repo root (cwd first) when cwd is a subdir", () => {
+  const repo = initRepo("main");
+  const sub = path.join(repo, "pkg", "inner");
+  fs.mkdirSync(sub, { recursive: true });
+  const scopes = computeSessionScopes(sub);
+  assert.equal(scopes[0], sub, "cwd is first, verbatim");
+  assert.equal(scopes.length, 2, "the git repo root is appended");
+  assert.notEqual(scopes[1], sub, "second entry is the repo root, distinct from cwd");
+});
+
+test("computeSessionScopes: dedups when cwd already IS the repo root", () => {
+  const repo = initRepo("main");
+  const root = gitToplevel(repo);
+  assert.ok(root, "repo has a resolvable toplevel");
+  assert.deepEqual(computeSessionScopes(root), [root], "no duplicate root entry");
+});
+
+test("computeSessionScopes: returns [] when there is no cwd (empty string)", () => {
+  assert.deepEqual(computeSessionScopes(""), []);
+});
+
+test("buildScopeSeedSection: one line naming the cwd + the REQUIRED scopes arg, within budget", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ss-seed-"));
+  const section = buildScopeSeedSection({ cwd: dir });
+  assert.match(section, /Memory scopes for this session/);
+  assert.ok(section.includes(dir), "names the computed scope (the cwd)");
+  assert.match(section, /REQUIRED/, "states the arg is required");
+  assert.match(section, /scopes/, "names the scopes argument");
+  assert.ok(section.length < 1024, `scopes-seed section under 1KB (got ${section.length})`);
+});
+
+test("buildScopeSeedSection: empty string when no scope can be computed (no cwd)", () => {
+  // This is the path the SessionStart hook relies on: an uncomputable scope
+  // must yield "" so the other injected sections still ship and the hook exits 0.
+  assert.equal(buildScopeSeedSection({ cwd: "" }), "");
 });
 
 test("buildWorkContextSection: returns empty when not in a feature branch", async () => {
