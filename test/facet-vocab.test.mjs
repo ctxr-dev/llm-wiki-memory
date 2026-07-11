@@ -6,11 +6,8 @@ const { dataDir } = setupWorkspace();
 after(() => cleanup(dataDir));
 
 const store = await import("../scripts/lib/wiki-store.mjs");
-const {
-  collectFacetVocab,
-  renderVocabVars,
-  __resetFacetVocabForTest,
-} = await import("../scripts/lib/facet-vocab.mjs");
+const { collectFacetVocab, renderVocabVars, __resetFacetVocabForTest } =
+  await import("../scripts/lib/facet-vocab.mjs");
 
 function seed(name, area, errorPattern) {
   store.saveDocument({
@@ -44,7 +41,11 @@ test("collector tallies areas by leaf count and groups error patterns", () => {
   const vocab = collectFacetVocab();
   assert.equal(vocab.areas[0], "auth", "most-populated area ranks first");
   assert.ok(vocab.areas.includes("billing"));
-  assert.equal(vocab.errorPatternsByArea.auth[0], "missing-token-refresh", "most-frequent pattern first");
+  assert.equal(
+    vocab.errorPatternsByArea.auth[0],
+    "missing-token-refresh",
+    "most-frequent pattern first",
+  );
   assert.ok(vocab.errorPatternsByArea.auth.includes("stale-session-cache"));
   assert.equal(vocab.errorPatternsByArea.billing, undefined, "no patterns -> no key");
 });
@@ -96,7 +97,10 @@ test("compile prompt renders vocab vars (no literal placeholders)", async () => 
   __resetFacetVocabForTest();
   const { __loadPromptForTest } = await import("../scripts/compile.mjs");
   const prompt = __loadPromptForTest();
-  assert.ok(!prompt.includes("{{KNOWN_AREAS}}") && !prompt.includes("{{"), "all placeholders substituted");
+  assert.ok(
+    !prompt.includes("{{KNOWN_AREAS}}") && !prompt.includes("{{"),
+    "all placeholders substituted",
+  );
   assert.match(prompt, /auth/);
   assert.match(prompt, /REUSE an existing slug/);
 });

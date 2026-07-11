@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { setupWorkspace, cleanup } from "./harness.mjs";
 
-const { dataDir, wiki } = setupWorkspace();
+const { dataDir } = setupWorkspace();
 after(() => cleanup(dataDir));
 
 // Lexical embed backend + LLM_WIKI_FIXED_TIMESTAMP are already set by the
@@ -14,7 +14,8 @@ process.env.MEMORY_LLM_PROVIDER = "mock";
 
 const store = await import("../scripts/lib/wiki-store.mjs");
 const { consolidateMemory } = await import("../scripts/consolidate.mjs");
-const { __setSettingsForTest, __clearSettingsForTest } = await import("../scripts/lib/settings.mjs");
+const { __setSettingsForTest, __clearSettingsForTest } =
+  await import("../scripts/lib/settings.mjs");
 
 const STATE_FILE = path.join(dataDir, "state", ".consolidate.json");
 
@@ -61,11 +62,6 @@ function seedSelfImprovementLeaf({ name, text, metadata }) {
   });
   if (!r.ok) throw new Error(`seed failed for ${name}: ${JSON.stringify(r)}`);
   return r.created.document.id;
-}
-
-function activeIds(category) {
-  const { documents } = store.listDocuments({ datasetId: category, enabled: true });
-  return documents.map((d) => d.id).sort();
 }
 
 function readLeaf(documentId) {
@@ -447,5 +443,9 @@ test("3B refresh: MEMORY_CONSOLIDATE_REFRESH_MAX_PER_RUN=2 caps to 2 of 4 stale 
   const refreshReport = r.passes["llm-semantic-refresh"];
   const processed =
     refreshReport.touched + refreshReport.refreshed + refreshReport.archived + refreshReport.errors;
-  assert.equal(processed, 2, `cap honoured: exactly 2 processed (got ${processed}); report=${JSON.stringify(refreshReport)}`);
+  assert.equal(
+    processed,
+    2,
+    `cap honoured: exactly 2 processed (got ${processed}); report=${JSON.stringify(refreshReport)}`,
+  );
 });

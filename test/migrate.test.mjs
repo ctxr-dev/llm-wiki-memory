@@ -35,10 +35,21 @@ test("migrate: legacy project_module -> area, stamps workspace, relocates, defau
     text: "# Frontend cards derived badges\n\nCards derive badges from data, not hardcoded values.\nWhy: avoid identical values.",
     datasetId: "self_improvement",
     submodule: "frontend",
-    extra: { atom_type: "self-improvement-lesson", task_type: "implementation", error_pattern: "hardcoded-badge" },
+    extra: {
+      atom_type: "self-improvement-lesson",
+      task_type: "implementation",
+      error_pattern: "hardcoded-badge",
+    },
   });
-  const pre = store.readDocument({ documentId: lesson.created.document.id, datasetId: "self_improvement" });
-  assert.equal(pre.metadata.project_module, "frontend", "seeded legacy project_module = sub-module");
+  const pre = store.readDocument({
+    documentId: lesson.created.document.id,
+    datasetId: "self_improvement",
+  });
+  assert.equal(
+    pre.metadata.project_module,
+    "frontend",
+    "seeded legacy project_module = sub-module",
+  );
   assert.ok(!pre.metadata.area, "no area yet (legacy shape)");
 
   const res = migrate({});
@@ -49,7 +60,10 @@ test("migrate: legacy project_module -> area, stamps workspace, relocates, defau
   const found = store
     .listDocuments({ datasetId: "self_improvement", enabled: "true" })
     .documents.find((d) => d.name === "lesson-cards-2026-05-25-120000000.md");
-  assert.ok(found && /^self_improvement\/frontend\/implementation\//.test(found.id), `relocated under area facet: ${found?.id}`);
+  assert.ok(
+    found && /^self_improvement\/frontend\/implementation\//.test(found.id),
+    `relocated under area facet: ${found?.id}`,
+  );
   const post = store.readDocument({ documentId: found.id, datasetId: "self_improvement" });
   assert.equal(post.metadata.project_module, "testproj", "project_module stamped to the workspace");
   assert.equal(post.metadata.area, "frontend", "area = the former sub-module");
@@ -78,7 +92,10 @@ test("migrate: pre-split leaf with NO project_module gets the workspace stamped"
   const abs = join(wiki, id);
   // The writer now always stamps BOTH project_module (workspace) and a valid
   // area (facet inference), so reproduce the pre-split shape by stripping both.
-  writeFileSync(abs, readFileSync(abs, "utf8").replace(/\n[ \t]*(project_module|area):[^\n]*/g, ""));
+  writeFileSync(
+    abs,
+    readFileSync(abs, "utf8").replace(/\n[ \t]*(project_module|area):[^\n]*/g, ""),
+  );
   const pre = store.readDocument({ documentId: id, datasetId: "knowledge" });
   assert.ok(!pre.metadata.project_module, "leaf now has no project_module (pre-split shape)");
   assert.ok(!pre.metadata.area, "leaf now has no area (pre-split shape)");
@@ -91,7 +108,11 @@ test("migrate: pre-split leaf with NO project_module gets the workspace stamped"
     .documents.find((d) => d.name === "unscoped-note-2026-05-25-130000000.md");
   assert.ok(found, "leaf still present after migrate");
   const post = store.readDocument({ documentId: found.id, datasetId: "knowledge" });
-  assert.equal(post.metadata.project_module, "testproj", "workspace stamped so the default scope matches");
+  assert.equal(
+    post.metadata.project_module,
+    "testproj",
+    "workspace stamped so the default scope matches",
+  );
   assert.ok(!post.metadata.area, "area stays empty -> the unscoped facet");
 
   // Idempotent: the now-stamped leaf is not re-selected.
@@ -121,6 +142,10 @@ test("migrate: a deliberate cross-project leaf (override + area) is left untouch
     .documents.find((d) => d.name === "crossproj-note-2026-05-25-140000000.md");
   assert.ok(found, "cross-project leaf still present");
   const post = store.readDocument({ documentId: found.id, datasetId: "knowledge" });
-  assert.equal(post.metadata.project_module, "otherproj", "cross-project scope preserved, not restamped");
+  assert.equal(
+    post.metadata.project_module,
+    "otherproj",
+    "cross-project scope preserved, not restamped",
+  );
   assert.equal(post.metadata.area, "infra", "area preserved");
 });

@@ -8,11 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {
-  loadTopology,
-  pathFor,
-  _resetCacheForTests,
-} from "../scripts/lib/topology-runtime.mjs";
+import { loadTopology, pathFor, _resetCacheForTests } from "../scripts/lib/topology-runtime.mjs";
 import { pruneEmptyAncestors } from "../scripts/lib/plan-sync.mjs";
 
 function tmpWiki(yaml) {
@@ -21,10 +17,6 @@ function tmpWiki(yaml) {
   fs.writeFileSync(path.join(dir, ".layout", "layout.yaml"), yaml);
   return dir;
 }
-
-// ---------------------------------------------------------------------------
-// pathFor: round-trip enforcement
-// ---------------------------------------------------------------------------
 
 test("pathFor: round-trip check passes for a self-consistent topology", async () => {
   const wiki = tmpWiki(`
@@ -105,8 +97,7 @@ layout:
   //   backtrack: [^/]+="DEV-122648-mirror", "-1-and-2" needs "-(\d+)-..." → number=1, slug="and-2"
   // So the parsed number=1, NOT 122648. Round-trip check catches this.
   assert.throws(
-    () =>
-      pathFor(topo, "plan", { prefix: "DEV", number: 122648, slug: "mirror-1-and-2" }),
+    () => pathFor(topo, "plan", { prefix: "DEV", number: 122648, slug: "mirror-1-and-2" }),
     /round-trip/,
   );
 });
@@ -157,18 +148,9 @@ layout:
   _resetCacheForTests();
   const topo = await loadTopology(wiki);
   // With the check OFF the same call returns the path.
-  const p = pathFor(
-    topo,
-    "knowledge",
-    { prefix: "DEV", number: 42 },
-    { skipRoundTripCheck: true },
-  );
+  const p = pathFor(topo, "knowledge", { prefix: "DEV", number: 42 }, { skipRoundTripCheck: true });
   assert.equal(p, "issues/DEV/leaf.md");
 });
-
-// ---------------------------------------------------------------------------
-// pruneEmptyAncestors
-// ---------------------------------------------------------------------------
 
 test("pruneEmptyAncestors: removes a chain of dirs containing only auto-generated index.md", () => {
   const wiki = fs.mkdtempSync(path.join(os.tmpdir(), "prune-"));

@@ -50,8 +50,10 @@ test("templates/rules/memory-write-gate.md exists and contains the propose-then-
   const p = path.join(SRC, "templates/rules/memory-write-gate.md");
   assert.ok(fs.existsSync(p), "memory-write-gate.md exists");
   const raw = fs.readFileSync(p, "utf8");
-  assert.ok(raw.includes("write-gated") || raw.includes("WRITE-GATED") || raw.includes("write-gate"),
-    "memory-write-gate.md mentions the write-gate concept");
+  assert.ok(
+    raw.includes("write-gated") || raw.includes("WRITE-GATED") || raw.includes("write-gate"),
+    "memory-write-gate.md mentions the write-gate concept",
+  );
   assert.ok(/propose/i.test(raw), "memory-write-gate.md mentions propose");
   assert.ok(raw.includes("userRequested"), "memory-write-gate.md mentions userRequested");
   assert.ok(

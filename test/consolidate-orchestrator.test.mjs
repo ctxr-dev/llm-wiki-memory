@@ -44,7 +44,8 @@ test("working set: only self_improvement+knowledge leaves enter the per-leaf loo
   // wrongly admitted to the per-leaf loop, dedupe-by-sha256 would archive one
   // leaf from each pair. They MUST NOT — only self_improvement + knowledge
   // are refinement categories, so plans/investigations stay fully active.
-  const planDupBody = "# Plan dup\n\nIdentical body across both plan leaves so sha256 would fire IF plans entered the working set.";
+  const planDupBody =
+    "# Plan dup\n\nIdentical body across both plan leaves so sha256 would fire IF plans entered the working set.";
   seedLeaf({
     name: "ws-plan-dup-a.md",
     text: planDupBody,
@@ -57,7 +58,8 @@ test("working set: only self_improvement+knowledge leaves enter the per-leaf loo
     datasetId: "plans",
     metadata: { atom_type: "plan", project_module: "wstest", area: "infra" },
   });
-  const invDupBody = "# Inv dup\n\nIdentical body across both investigation leaves so sha256 would fire IF investigations entered the working set.";
+  const invDupBody =
+    "# Inv dup\n\nIdentical body across both investigation leaves so sha256 would fire IF investigations entered the working set.";
   seedLeaf({
     name: "ws-inv-dup-a.md",
     text: invDupBody,
@@ -71,8 +73,14 @@ test("working set: only self_improvement+knowledge leaves enter the per-leaf loo
     metadata: { atom_type: "investigation", project_module: "wstest", area: "infra" },
   });
 
-  const activePlansBefore = store.listDocuments({ datasetId: "plans", enabled: true }).documents.map((d) => d.id).sort();
-  const activeInvBefore = store.listDocuments({ datasetId: "investigations", enabled: true }).documents.map((d) => d.id).sort();
+  const activePlansBefore = store
+    .listDocuments({ datasetId: "plans", enabled: true })
+    .documents.map((d) => d.id)
+    .sort();
+  const activeInvBefore = store
+    .listDocuments({ datasetId: "investigations", enabled: true })
+    .documents.map((d) => d.id)
+    .sort();
   assert.equal(activePlansBefore.length, 2, "two plans leaves seeded");
   assert.equal(activeInvBefore.length, 2, "two investigations leaves seeded");
 
@@ -89,12 +97,30 @@ test("working set: only self_improvement+knowledge leaves enter the per-leaf loo
   // Positive ids assertion: every plans/investigations leaf remains active
   // and unchanged. If those categories had wrongly entered the per-leaf loop,
   // the seeded duplicate pairs would have had a loser disabled here.
-  const activePlansAfter = store.listDocuments({ datasetId: "plans", enabled: true }).documents.map((d) => d.id).sort();
-  const activeInvAfter = store.listDocuments({ datasetId: "investigations", enabled: true }).documents.map((d) => d.id).sort();
-  assert.deepEqual(activePlansAfter, activePlansBefore, "plans leaves untouched — plans is not in the working set");
-  assert.deepEqual(activeInvAfter, activeInvBefore, "investigations leaves untouched — investigations is not in the working set");
+  const activePlansAfter = store
+    .listDocuments({ datasetId: "plans", enabled: true })
+    .documents.map((d) => d.id)
+    .sort();
+  const activeInvAfter = store
+    .listDocuments({ datasetId: "investigations", enabled: true })
+    .documents.map((d) => d.id)
+    .sort();
+  assert.deepEqual(
+    activePlansAfter,
+    activePlansBefore,
+    "plans leaves untouched — plans is not in the working set",
+  );
+  assert.deepEqual(
+    activeInvAfter,
+    activeInvBefore,
+    "investigations leaves untouched — investigations is not in the working set",
+  );
   const disabled = store.listDocuments({ enabled: false }).documents;
-  assert.equal(disabled.length, 0, "no leaves were disabled (no dupes in self_improvement+knowledge)");
+  assert.equal(
+    disabled.length,
+    0,
+    "no leaves were disabled (no dupes in self_improvement+knowledge)",
+  );
   assert.equal(r.totals.archived, 0, "report agrees: zero archives");
   assert.equal(r.totals.flagged, 0, "report agrees: zero pairs flagged");
 });
@@ -150,7 +176,8 @@ test("frozen-clock determinism: two dry-runs over same state produce identical a
   // zero and `assert.deepEqual({zeros}, {zeros})` would be vacuously true.
   // Different `error_pattern`s ensure dedupe-by-lesson-key does NOT also
   // match this pair — sha256 owns the dedupe credit here.
-  const dupBody = "# Det dup\n\nIdentical body across det-dup-a and det-dup-b so sha256 dedupe fires deterministically.";
+  const dupBody =
+    "# Det dup\n\nIdentical body across det-dup-a and det-dup-b so sha256 dedupe fires deterministically.";
   seedLeaf({
     name: "det-dup-a.md",
     text: dupBody,
@@ -196,10 +223,17 @@ test("frozen-clock determinism: two dry-runs over same state produce identical a
   assert.equal(r2.ok, true);
 
   // Sanity: the assertion below is NOT vacuous — sha256 actually fired.
-  assert.ok(r1.totals.flagged > 0, "dedupe-by-sha256 flagged the seeded duplicate pair (not vacuous)");
+  assert.ok(
+    r1.totals.flagged > 0,
+    "dedupe-by-sha256 flagged the seeded duplicate pair (not vacuous)",
+  );
   assert.ok(r1.totals.archived > 0, "dedupe-by-sha256 marked a loser for archive (not vacuous)");
   assert.equal(r1.passes["dedupe-by-sha256"].flagged, 1, "exactly one pair flagged by sha256");
-  assert.equal(r1.passes["dedupe-by-sha256"].archived, 1, "exactly one loser would be archived by sha256");
+  assert.equal(
+    r1.passes["dedupe-by-sha256"].archived,
+    1,
+    "exactly one loser would be archived by sha256",
+  );
 
   const projection = (r) => ({
     archived: r.totals.archived,

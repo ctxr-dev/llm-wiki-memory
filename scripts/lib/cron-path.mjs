@@ -39,9 +39,15 @@ export const CURATED_CLI_DIRS = Object.freeze([
 // binary that launched us (npm-shim CLIs need `node` resolvable), then the
 // curated dirs. Deduped keeping first occurrence; `~` entries dropped when
 // home is unknown (a literal `~` on PATH is never resolved by spawn).
+/**
+ * @param {{ envPath?: string, home?: string, execPath?: string }} [args]
+ * @returns {string}
+ */
 export function buildCronPath({ envPath = "", home = "", execPath = "" } = {}) {
+  /** @type {string[]} */
   const segments = [];
   const seen = new Set();
+  /** @param {string} dir */
   const push = (dir) => {
     if (!dir) return;
     if (seen.has(dir)) return;
@@ -64,6 +70,10 @@ export function buildCronPath({ envPath = "", home = "", execPath = "" } = {}) {
 // Spawn-env wrapper for llm.mjs: same merge, sourced from the child env
 // (falling back to the process env) so an interactive session is a no-op
 // dedup and a minimal cron env gains the curated dirs.
+/**
+ * @param {Record<string, string | undefined> | undefined} env
+ * @returns {Record<string, string | undefined> | undefined}
+ */
 export function augmentSpawnEnv(env) {
   if (!env) return env;
   return {

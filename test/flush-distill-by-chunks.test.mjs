@@ -82,10 +82,22 @@ test("writeFailedDistillStash: persists owner-only stash with full body + audit"
 test("listFailedDistillStashes + findStashForSession resolve newest stash by id", () => {
   const sessA = "unit-listing-a";
   const sessB = "unit-listing-b";
-  const a1 = flush.writeFailedDistillStash({ source: makeSource("a1"), errors: [], sessionId: sessA });
+  const a1 = flush.writeFailedDistillStash({
+    source: makeSource("a1"),
+    errors: [],
+    sessionId: sessA,
+  });
   // ensure timestamp ordering by waiting a millisecond (Date.now() rolls forward fast enough)
-  const b1 = flush.writeFailedDistillStash({ source: makeSource("b1"), errors: [], sessionId: sessB });
-  const a2 = flush.writeFailedDistillStash({ source: makeSource("a2"), errors: [], sessionId: sessA });
+  const b1 = flush.writeFailedDistillStash({
+    source: makeSource("b1"),
+    errors: [],
+    sessionId: sessB,
+  });
+  const a2 = flush.writeFailedDistillStash({
+    source: makeSource("a2"),
+    errors: [],
+    sessionId: sessA,
+  });
   const all = flush.listFailedDistillStashes();
   assert.ok(all.includes(a1));
   assert.ok(all.includes(a2));
@@ -115,10 +127,18 @@ test("redistillFromStash: synthesised stash gets re-distilled, leaf overwrites w
   assert.ok(result.audit.redistilled_from, "should record redistilled_from timestamp");
 
   // Stash should be deleted on success.
-  assert.equal(fs.existsSync(stashPath), false, "stash should be removed after successful redistill");
+  assert.equal(
+    fs.existsSync(stashPath),
+    false,
+    "stash should be removed after successful redistill",
+  );
 
   // Leaf is now in the daily slot with the canned atom.
-  const docs = store.listDocuments({ prefix: "daily-", enabled: "true", datasetId: "daily" }).documents;
+  const docs = store.listDocuments({
+    prefix: "daily-",
+    enabled: "true",
+    datasetId: "daily",
+  }).documents;
   let leafText = "";
   for (const d of docs) {
     const { text } = store.readDocument({ documentId: d.id, datasetId: "daily" });
@@ -128,9 +148,15 @@ test("redistillFromStash: synthesised stash gets re-distilled, leaf overwrites w
     }
   }
   assert.ok(leafText.length > 0, "redistilled leaf should be in the daily slot");
-  assert.ok(/redistilled_from:/.test(leafText), "leaf frontmatter should carry redistilled_from breadcrumb");
+  assert.ok(
+    /redistilled_from:/.test(leafText),
+    "leaf frontmatter should carry redistilled_from breadcrumb",
+  );
   assert.ok(/redistill_attempts: 1/.test(leafText), "leaf should record redistill_attempts: 1");
-  assert.ok(/original_outcome: distillation-failed/.test(leafText), "leaf should record original_outcome");
+  assert.ok(
+    /original_outcome: distillation-failed/.test(leafText),
+    "leaf should record original_outcome",
+  );
   assert.ok(/lesson-from-mock/.test(leafText), "leaf should contain the redistilled atom");
 });
 
@@ -205,12 +231,24 @@ test("distillByChunks: bounded-parallelism pool processes every chunk exactly on
     chunkCount,
     "succeeded + failed must partition the chunk set exactly",
   );
-  assert.equal(audit.chunks_succeeded, chunkCount - 1, "all but the one failing chunk should succeed");
-  assert.deepEqual(audit.failed_chunks, [failChunkIndex], "exactly the targeted chunk should fail, once");
+  assert.equal(
+    audit.chunks_succeeded,
+    chunkCount - 1,
+    "all but the one failing chunk should succeed",
+  );
+  assert.deepEqual(
+    audit.failed_chunks,
+    [failChunkIndex],
+    "exactly the targeted chunk should fail, once",
+  );
 
   // The surviving good chunks' atoms reach the written leaf.
   assert.ok(result.written, "a leaf should be written when some chunks succeed");
-  const docs = store.listDocuments({ prefix: "daily-", enabled: "true", datasetId: "daily" }).documents;
+  const docs = store.listDocuments({
+    prefix: "daily-",
+    enabled: "true",
+    datasetId: "daily",
+  }).documents;
   let leafText = "";
   for (const d of docs) {
     const { text } = store.readDocument({ documentId: d.id, datasetId: "daily" });
@@ -220,9 +258,18 @@ test("distillByChunks: bounded-parallelism pool processes every chunk exactly on
     }
   }
   assert.ok(leafText.length > 0, "redistilled leaf should be in the daily slot");
-  assert.ok(/lesson-from-mock/.test(leafText), "surviving atoms from the good chunks should be present");
-  assert.ok(new RegExp(`chunks_succeeded: ${chunkCount - 1}`).test(leafText), "leaf audit should record the succeeded count");
-  assert.ok(new RegExp(`failed_chunks: \\[${failChunkIndex}\\]`).test(leafText), "leaf audit should record the single failed chunk");
+  assert.ok(
+    /lesson-from-mock/.test(leafText),
+    "surviving atoms from the good chunks should be present",
+  );
+  assert.ok(
+    new RegExp(`chunks_succeeded: ${chunkCount - 1}`).test(leafText),
+    "leaf audit should record the succeeded count",
+  );
+  assert.ok(
+    new RegExp(`failed_chunks: \\[${failChunkIndex}\\]`).test(leafText),
+    "leaf audit should record the single failed chunk",
+  );
 });
 
 test("redistillFromStash: distill failure preserves stash with incremented attempt counter", async (t) => {

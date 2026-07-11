@@ -18,10 +18,43 @@
 // Exit codes: 0 = all ok, 2 = at least one failure.
 
 import fs from "node:fs";
-import path from "node:path";
 import matter from "gray-matter";
 import { saveDocument, normalizeLeafNamePreservingCase } from "./lib/wiki-store.mjs";
 
+/** @typedef {import("./lib/types.mjs").WriteResult} WriteResult */
+
+/**
+ * A single non-skip row of the Phase-D dry-run manifest consumed here.
+ * @typedef {Object} ManifestEntry
+ * @property {string} classification - a CLASS_TO_DATASET key (or "skip", filtered out).
+ * @property {string} target - wiki-relative target path (with a leading "wiki/").
+ * @property {string} source - source file path, optionally suffixed with "#<heading>".
+ * @property {string} [area]
+ * @property {string} [issue_key]
+ */
+
+/**
+ * The plan-only outcome returned by migrateEntry / reported when --dry-run.
+ * @typedef {Object} DryRunResult
+ * @property {true} dryRun
+ * @property {string} datasetId
+ * @property {string} dir
+ * @property {string} name
+ * @property {Record<string, unknown>} metadata
+ * @property {number} bodyBytes
+ * @property {boolean} [ok]
+ */
+
+/**
+ * Per-entry record accumulated by migrateManifest and passed to onEntry.
+ * @typedef {Object} EntryResult
+ * @property {ManifestEntry} entry
+ * @property {DryRunResult | WriteResult} [result]
+ * @property {string} [error]
+ * @property {boolean} ok
+ */
+
+/** @type {Record<string, string>} */
 const CLASS_TO_DATASET = {
   knowledge: "knowledge",
   "issue-knowledge": "knowledge",
@@ -38,6 +71,11 @@ const LIFECYCLE_SEGMENTS = new Set(["pending", "in-progress", "done", "archived"
 // section ends at the next `## ` or EOF. Throws on a missing heading
 // so the caller can record a per-entry failure rather than silently
 // migrating a wrong slice.
+/**
+ * @param {string} filePath
+ * @param {string} heading
+ * @returns {{ body: string, data: Record<string, unknown> }}
+ */
 function extractSection(filePath, heading) {
   const raw = fs.readFileSync(filePath, "utf8");
   const fm = matter(raw);
@@ -63,6 +101,10 @@ function extractSection(filePath, heading) {
   return { body: lines.slice(startIdx, endIdx).join("\n").trim(), data: fm.data };
 }
 
+/**
+ * @param {string} source
+ * @returns {{ body: string, data: Record<string, unknown> }}
+ */
 function readSource(source) {
   const hashIdx = source.indexOf("#");
   if (hashIdx >= 0) {
@@ -73,6 +115,12 @@ function readSource(source) {
   return { body: fm.content.trim(), data: fm.data || {} };
 }
 
+/**
+ * @param {ManifestEntry} entry
+ * @param {Record<string, unknown>} fmData
+ * @param {string} targetRelToWiki
+ * @returns {Record<string, unknown>}
+ */
 function deriveMetadata(entry, fmData, targetRelToWiki) {
   // targetRelToWiki is the path relative to the wiki root, e.g.
   //   "knowledge/meta/rule/bot-review-verification.md"
@@ -119,6 +167,10 @@ function deriveMetadata(entry, fmData, targetRelToWiki) {
   return md;
 }
 
+/**
+ * @param {ManifestEntry} entry
+ * @returns {{ dir: string, filename: string, targetRel: string }}
+ */
 function planTarget(entry) {
   // Strip the leading "wiki/" prefix; saveDocument's placementOverride is
   // wiki-relative. Returns { dir, filename }.
@@ -139,6 +191,11 @@ function planTarget(entry) {
   };
 }
 
+/**
+ * @param {ManifestEntry} entry
+ * @param {{ dryRun?: boolean }} [options]
+ * @returns {Promise<DryRunResult | WriteResult>}
+ */
 export async function migrateEntry(entry, { dryRun = false } = {}) {
   const datasetId = CLASS_TO_DATASET[entry.classification];
   if (!datasetId) {
@@ -151,23 +208,35 @@ export async function migrateEntry(entry, { dryRun = false } = {}) {
   if (dryRun) {
     return { dryRun: true, datasetId, dir, name: filename, metadata, bodyBytes: body.length };
   }
-  return saveDocument({
-    name: filename,
-    text: body,
-    datasetId,
-    metadata,
-    placementOverride: dir,
-  });
+  return /** @type {WriteResult} */ (
+    saveDocument({
+      name: filename,
+      text: body,
+      datasetId,
+      metadata,
+      placementOverride: dir,
+    })
+  );
 }
 
+/**
+ * @param {string} manifestPath
+ * @param {{ dryRun?: boolean, onEntry?: (result: EntryResult) => void }} [options]
+ * @returns {Promise<{ total: number, ok: number, fail: number, results: EntryResult[] }>}
+ */
 export async function migrateManifest(manifestPath, { dryRun = false, onEntry } = {}) {
-  const m = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  const m = /** @type {{ entries: ManifestEntry[] }} */ (
+    JSON.parse(fs.readFileSync(manifestPath, "utf8"))
+  );
   const entries = m.entries.filter((e) => e.classification !== "skip");
+  /** @type {EntryResult[]} */
   const results = [];
+  /** @type {Map<string, string>} */
   const seenTargets = new Map(); // "dir/filename" -> source (collision guard)
   let ok = 0;
   let fail = 0;
   for (const e of entries) {
+    /** @type {EntryResult} */
     let entryResult;
     try {
       // Two non-skip entries that compute the SAME target leaf would silently
@@ -178,9 +247,7 @@ export async function migrateManifest(manifestPath, { dryRun = false, onEntry } 
       const { dir, filename } = planTarget(e);
       const key = `${dir}/${normalizeLeafNamePreservingCase(filename).name}`;
       if (seenTargets.has(key)) {
-        throw new Error(
-          `target collision: '${key}' already claimed by '${seenTargets.get(key)}'`,
-        );
+        throw new Error(`target collision: '${key}' already claimed by '${seenTargets.get(key)}'`);
       }
       seenTargets.set(key, e.source);
 
@@ -190,7 +257,7 @@ export async function migrateManifest(manifestPath, { dryRun = false, onEntry } 
       if (success) ok++;
       else fail++;
     } catch (err) {
-      entryResult = { entry: e, error: err.message, ok: false };
+      entryResult = { entry: e, error: /** @type {Error} */ (err).message, ok: false };
       fail++;
     }
     results.push(entryResult);
@@ -211,11 +278,15 @@ async function main() {
     dryRun,
     onEntry: ({ entry, result, error, ok }) => {
       const tag = ok ? "OK  " : "FAIL";
-      const why = ok ? "" : ` — ${error || (result && result.reason) || "unknown"}`;
+      const why = ok
+        ? ""
+        : ` — ${error || (result && /** @type {{ reason?: string }} */ (result).reason) || "unknown"}`;
       process.stdout.write(`${tag} ${entry.classification.padEnd(18)} ${entry.target}${why}\n`);
     },
   });
-  process.stdout.write(`\n${summary.ok}/${summary.total} ok, ${summary.fail} failed${dryRun ? " (dry-run)" : ""}\n`);
+  process.stdout.write(
+    `\n${summary.ok}/${summary.total} ok, ${summary.fail} failed${dryRun ? " (dry-run)" : ""}\n`,
+  );
   process.exit(summary.fail === 0 ? 0 : 2);
 }
 

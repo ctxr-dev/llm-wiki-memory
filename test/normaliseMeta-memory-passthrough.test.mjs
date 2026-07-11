@@ -40,7 +40,10 @@ test("normaliseMeta: stale=1 (truthy number) -> DROPPED (only real boolean accep
 });
 
 test("normaliseMeta: supersedes_id valid relative path -> passed through", () => {
-  const out = normaliseMeta({ atom_type: "decision", supersedes_id: "knowledge/billing/old-decision.md" });
+  const out = normaliseMeta({
+    atom_type: "decision",
+    supersedes_id: "knowledge/billing/old-decision.md",
+  });
   assert.equal(out.supersedes_id, "knowledge/billing/old-decision.md");
 });
 
@@ -71,7 +74,10 @@ test("normaliseMeta: consolidated_at empty string -> dropped", () => {
 });
 
 test("normaliseMeta: consolidated_at trimmed", () => {
-  const out = normaliseMeta({ atom_type: "decision", consolidated_at: "  2026-06-01T00:00:00.000Z  " });
+  const out = normaliseMeta({
+    atom_type: "decision",
+    consolidated_at: "  2026-06-01T00:00:00.000Z  ",
+  });
   assert.equal(out.consolidated_at, "2026-06-01T00:00:00.000Z");
 });
 
@@ -87,7 +93,10 @@ test("normaliseMeta: last_refreshed_at empty string -> dropped", () => {
 });
 
 test("normaliseMeta: last_refreshed_at trimmed", () => {
-  const out = normaliseMeta({ atom_type: "decision", last_refreshed_at: "  2026-05-30T08:15:00.000Z  " });
+  const out = normaliseMeta({
+    atom_type: "decision",
+    last_refreshed_at: "  2026-05-30T08:15:00.000Z  ",
+  });
   assert.equal(out.last_refreshed_at, "2026-05-30T08:15:00.000Z");
 });
 
@@ -103,7 +112,10 @@ test("normaliseMeta: consolidate_truncated_at empty string -> dropped", () => {
 });
 
 test("normaliseMeta: consolidate_truncated_at trimmed", () => {
-  const out = normaliseMeta({ atom_type: "decision", consolidate_truncated_at: "  2026-05-15T20:00:00.000Z  " });
+  const out = normaliseMeta({
+    atom_type: "decision",
+    consolidate_truncated_at: "  2026-05-15T20:00:00.000Z  ",
+  });
   assert.equal(out.consolidate_truncated_at, "2026-05-15T20:00:00.000Z");
 });
 

@@ -36,10 +36,6 @@ function initRepo(branch) {
   return dir;
 }
 
-// ---------------------------------------------------------------------------
-// detectActiveContext
-// ---------------------------------------------------------------------------
-
 test("detectActiveContext: returns null outside a git repo", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wc-no-git-"));
   assert.equal(detectActiveContext(dir), null);
@@ -69,10 +65,6 @@ test("detectActiveContext: works on a branch with no Jira-style key (semantic-on
   assert.ok(r);
   assert.equal(r.branch, "fix-hermes-timeout");
 });
-
-// ---------------------------------------------------------------------------
-// buildWorkContextSection
-// ---------------------------------------------------------------------------
 
 test("buildWorkContextSection: returns empty when not in a feature branch", async () => {
   const repo = initRepo("main");
@@ -110,7 +102,7 @@ test("buildWorkContextSection: composes a markdown section from top hits", async
   spawnSync("git", ["checkout", "-q", "-b", "feature/DEV-129957-investigate"], {
     cwd: repo,
   });
-  const fakeSearch = async ({ query, maxResults }) => {
+  const fakeSearch = async ({ query }) => {
     assert.equal(query, "feature/DEV-129957-investigate", "branch is the verbatim query");
     return {
       records: [
@@ -171,16 +163,14 @@ test("buildWorkContextSection: tracker-agnostic — works with plain branch name
     cwd: repo,
     searchMemory: async ({ query }) => {
       assert.equal(query, "fix-hermes-cassandra-timeout");
-      return { records: [{ documentId: "knowledge/scala/concept/cats-effect-resource.md", score: 0.55 }] };
+      return {
+        records: [{ documentId: "knowledge/scala/concept/cats-effect-resource.md", score: 0.55 }],
+      };
     },
   });
   assert.match(section, /fix-hermes-cassandra-timeout/);
   assert.match(section, /cats-effect-resource\.md/);
 });
-
-// ---------------------------------------------------------------------------
-// buildWorkContextSection — plan list capping (Wish 1)
-// ---------------------------------------------------------------------------
 
 test("buildWorkContextSection: caps plans to planContextMax and prefers in-progress", async () => {
   const repo = initRepo("main");
@@ -188,7 +178,10 @@ test("buildWorkContextSection: caps plans to planContextMax and prefers in-progr
   const wikiRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wc-plans-"));
   const mkPlan = (rel, status) => {
     fs.mkdirSync(path.join(wikiRoot, path.dirname(rel)), { recursive: true });
-    fs.writeFileSync(path.join(wikiRoot, rel), `---\nstatus: ${status}\nprogress:\n  label: "1/3"\n---\n\nbody\n`);
+    fs.writeFileSync(
+      path.join(wikiRoot, rel),
+      `---\nstatus: ${status}\nprogress:\n  label: "1/3"\n---\n\nbody\n`,
+    );
   };
   mkPlan("plans/a.plan.md", "done");
   mkPlan("plans/b.plan.md", "done");
@@ -230,10 +223,6 @@ test("buildWorkContextSection: non-plan hits are never dropped by the plan cap",
   assert.match(section, /top 3\)/, "all non-plan hits counted in the header");
 });
 
-// ---------------------------------------------------------------------------
-// buildRecentActivitySection — the "🧠 Recently" reminder (Wish 2)
-// ---------------------------------------------------------------------------
-
 test("buildRecentActivitySection: empty when disabled (days=0)", () => {
   assert.equal(buildRecentActivitySection({ wikiRoot: "/nope", days: 0 }), "");
 });
@@ -245,13 +234,28 @@ test("buildRecentActivitySection: empty when there are no daily notes", () => {
 
 test("buildRecentActivitySection: 🧠 header (nbsp gap) + dated bullet + clickable link + stored brief", () => {
   const wikiRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wc-wiki-daily-"));
-  const rel = writeDaily(wikiRoot, "2026", "07", "02", "164400", "000", "Cassandra timeout root cause");
+  const rel = writeDaily(
+    wikiRoot,
+    "2026",
+    "07",
+    "02",
+    "164400",
+    "000",
+    "Cassandra timeout root cause",
+  );
   const section = buildRecentActivitySection({ wikiRoot, days: 3 });
   assert.match(section, /## 🧠  Recently — last 3 days/);
-  assert.ok(section.includes("🧠 "), "non-breaking gap between emoji and text (survives markdown collapse)");
+  assert.ok(
+    section.includes("🧠 "),
+    "non-breaking gap between emoji and text (survives markdown collapse)",
+  );
   assert.match(section, /2026-07-02 16:44/);
   assert.match(section, /Cassandra timeout root cause/);
-  assert.match(section, /\]\(file:\/\/.*daily.*\.md\)/, "renders a clickable absolute file:// link");
+  assert.match(
+    section,
+    /\]\(file:\/\/.*daily.*\.md\)/,
+    "renders a clickable absolute file:// link",
+  );
   assert.ok(section.includes(rel), "the link target includes the daily note path");
 });
 
@@ -281,7 +285,15 @@ test("buildRecentActivitySection: falls back to computed brief when none is stor
 test("buildRecentActivitySection: stays under the ~1KB context budget", () => {
   const wikiRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wc-wiki-budget-"));
   for (let i = 0; i < 10; i += 1) {
-    writeDaily(wikiRoot, "2026", "07", String(10 + i).padStart(2, "0"), "100000", "000", "X".repeat(300));
+    writeDaily(
+      wikiRoot,
+      "2026",
+      "07",
+      String(10 + i).padStart(2, "0"),
+      "100000",
+      "000",
+      "X".repeat(300),
+    );
   }
   const section = buildRecentActivitySection({ wikiRoot, days: 10 });
   assert.ok(section.length <= 1000, `section length ${section.length} must be <= 1000`);
@@ -324,7 +336,15 @@ test("buildRecentActivitySection: omitting days uses the configured setting (def
 test("buildRecentActivitySection: over-cap notes are trimmed silently (no '…and N more' clutter)", () => {
   const wikiRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wc-wiki-more-"));
   for (let i = 0; i < 9; i += 1) {
-    writeDaily(wikiRoot, "2026", "07", String(10 + i).padStart(2, "0"), "120000", "000", `Concise note ${i}`);
+    writeDaily(
+      wikiRoot,
+      "2026",
+      "07",
+      String(10 + i).padStart(2, "0"),
+      "120000",
+      "000",
+      `Concise note ${i}`,
+    );
   }
   const section = buildRecentActivitySection({ wikiRoot, days: 9 });
   assert.ok(!/and \d+ more/.test(section), "no dropped-count line");

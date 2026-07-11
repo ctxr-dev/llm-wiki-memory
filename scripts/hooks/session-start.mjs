@@ -1,7 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { MEMORY_DIR, MEMORY_DATA_DIR, COMPILE_STATE_PATH, envValue, wikiRoot } from "../lib/env.mjs";
+import {
+  MEMORY_DIR,
+  MEMORY_DATA_DIR,
+  COMPILE_STATE_PATH,
+  envValue,
+  wikiRoot,
+} from "../lib/env.mjs";
 import { buildSessionStartContext } from "../lib/discipline.mjs";
 import { isReentrant, reentryEnv } from "../lib/reentry.mjs";
 import { buildWorkContextSection, buildRecentActivitySection } from "../lib/work-context.mjs";
@@ -22,13 +28,16 @@ function maybeMigrateSettings() {
     // Buffer the migrator's log lines; only surface them if a migration
     // actually ran. The common already-migrated / fresh-install paths must
     // stay silent so they don't print on every single session start.
+    /** @type {string[]} */
     const buffered = [];
     const result = migrateSettings(MEMORY_DATA_DIR, { log: (m) => buffered.push(m) });
     if (result && result.migrated) {
       for (const line of buffered) process.stderr.write(line + "\n");
     }
   } catch (err) {
-    console.error(`session-start.mjs: settings self-heal skipped: ${err instanceof Error ? err.message : err}`);
+    console.error(
+      `session-start.mjs: settings self-heal skipped: ${err instanceof Error ? err.message : err}`,
+    );
   }
 }
 
@@ -78,7 +87,9 @@ const compileTriggered = (() => {
   try {
     return maybeTriggerCompile();
   } catch (err) {
-    console.error(`session-start.mjs: compile trigger skipped: ${err instanceof Error ? err.message : err}`);
+    console.error(
+      `session-start.mjs: compile trigger skipped: ${err instanceof Error ? err.message : err}`,
+    );
     return false;
   }
 })();
@@ -94,11 +105,12 @@ const disciplineContext = buildSessionStartContext({
 let workContext = "";
 try {
   const { searchMemory } = await import("../lib/recall.mjs");
-  workContext = await buildWorkContextSection({
+  const workContextArgs = {
     cwd: process.cwd(),
     searchMemory,
     wikiRoot: wikiRoot(),
-  });
+  };
+  workContext = await buildWorkContextSection(workContextArgs);
 } catch (err) {
   console.error(
     `session-start.mjs: work-context skipped: ${err instanceof Error ? err.message : err}`,
@@ -138,11 +150,12 @@ try {
     // Entity-level escalations point at a skeleton issue report the agent may
     // deepen ONLY on explicit user yes; run-level failures keep the original
     // wording. Either way: one short summary line, never the logs themselves.
-    const detail = open > 0
-      ? `\n\n${open} consolidation escalation(s) are open (the same entities kept failing across cron runs); the newest skeleton report is at the path in the summary above, with links to the full sharded run logs. ` +
-        "Tell the user and ASK before investigating — don't open the report or the full logs on your own. "
-      : "\n\nThe hourly cron's last attempt errored and the next tick hasn't cleared it yet. " +
-        "Tell the user and ASK before investigating — don't pull the full log on your own. ";
+    const detail =
+      open > 0
+        ? `\n\n${open} consolidation escalation(s) are open (the same entities kept failing across cron runs); the newest skeleton report is at the path in the summary above, with links to the full sharded run logs. ` +
+          "Tell the user and ASK before investigating — don't open the report or the full logs on your own. "
+        : "\n\nThe hourly cron's last attempt errored and the next tick hasn't cleared it yet. " +
+          "Tell the user and ASK before investigating — don't pull the full log on your own. ";
     cronHealthSection =
       "\n\n## Memory cron health: UNRESOLVED FAILURE\n\n" +
       h.summary +
@@ -183,7 +196,11 @@ console.log(
     hookSpecificOutput: {
       hookEventName: "SessionStart",
       additionalContext:
-        disciplineContext + workContext + recentActivitySection + cronHealthSection + monitoringSection,
+        disciplineContext +
+        workContext +
+        recentActivitySection +
+        cronHealthSection +
+        monitoringSection,
     },
   }),
 );

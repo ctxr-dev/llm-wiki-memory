@@ -18,13 +18,18 @@ process.env.MEMORY_LLM_PROVIDER = "mock";
 
 const store = await import("../scripts/lib/wiki-store.mjs");
 const { consolidateMemory } = await import("../scripts/consolidate.mjs");
-const { __setSettingsForTest, __clearSettingsForTest } = await import("../scripts/lib/settings.mjs");
+const { __setSettingsForTest, __clearSettingsForTest } =
+  await import("../scripts/lib/settings.mjs");
 const { __resetMockCallIndex } = await import("../scripts/lib/llm.mjs");
 
 const STATE_FILE = path.join(dataDir, "state", ".consolidate.json");
 
 function clearState() {
-  try { fs.rmSync(STATE_FILE, { force: true }); } catch { /* best effort */ }
+  try {
+    fs.rmSync(STATE_FILE, { force: true });
+  } catch {
+    /* best effort */
+  }
 }
 
 function resetEnv() {
@@ -39,7 +44,11 @@ function purgeActiveLeaves() {
   for (const cat of ["self_improvement", "knowledge"]) {
     const { documents } = store.listDocuments({ datasetId: cat });
     for (const d of documents) {
-      try { store.deleteDocument({ documentId: d.id }); } catch { /* best effort */ }
+      try {
+        store.deleteDocument({ documentId: d.id });
+      } catch {
+        /* best effort */
+      }
     }
   }
 }
@@ -49,7 +58,12 @@ function seed(name, text, errorPattern) {
     name,
     text,
     datasetId: "self_improvement",
-    metadata: { project_module: "billing", task_type: "refactor", area: "billing", error_pattern: errorPattern },
+    metadata: {
+      project_module: "billing",
+      task_type: "refactor",
+      area: "billing",
+      error_pattern: errorPattern,
+    },
   });
   if (!r.ok) throw new Error(`seed failed: ${JSON.stringify(r)}`);
   return r.created.document.id;
@@ -61,9 +75,12 @@ function readLeaf(documentId) {
 
 // Mostly-overlapping bodies: high lexical cosine but reliably below the
 // 0.995 lexical threshold, landing in a [0.8, 0.995) band.
-const BODY_X = "# Retry budget rule\n\nGive every outbound call a retry budget. Why: cascading retries amplify outages across services. How to apply: cap retries at two and add jitter between attempts. Budget exhaustion must surface as an error metric.";
-const BODY_Y = "# Retry budget rule\n\nGive every outbound call a retry budget. Why: cascading retries amplify outages across services. How to apply: cap retries at two and add jitter between attempts. Exhausted budgets should page the on-call.";
-const BODY_SAME = "# Idempotency keys\n\nUse idempotency keys on all mutating endpoints. Why: replays must be safe. How to apply: hash request identity into the key.";
+const BODY_X =
+  "# Retry budget rule\n\nGive every outbound call a retry budget. Why: cascading retries amplify outages across services. How to apply: cap retries at two and add jitter between attempts. Budget exhaustion must surface as an error metric.";
+const BODY_Y =
+  "# Retry budget rule\n\nGive every outbound call a retry budget. Why: cascading retries amplify outages across services. How to apply: cap retries at two and add jitter between attempts. Exhausted budgets should page the on-call.";
+const BODY_SAME =
+  "# Idempotency keys\n\nUse idempotency keys on all mutating endpoints. Why: replays must be safe. How to apply: hash request identity into the key.";
 
 // MERGE_SCHEMA requires keeper_id/loser_id; pickKeeper resolves equal
 // `updated` dates by lex-ascending documentId, so the sorted pair is the
@@ -92,7 +109,9 @@ const FLAGGED_BAND = (r) => {
 };
 
 test("default-off: sub-threshold near-dups are invisible without cosineBandFloor", async () => {
-  purgeActiveLeaves(); clearState(); resetEnv();
+  purgeActiveLeaves();
+  clearState();
+  resetEnv();
   process.env.MEMORY_LLM_MOCK_RESPONSE = MERGE_RESPONSE;
   const a = seed("lesson-band-off-a-2026-06-01-000000000.md", BODY_X, "band-off-a");
   const b = seed("lesson-band-off-b-2026-06-01-000000000.md", BODY_Y, "band-off-b");
@@ -108,7 +127,9 @@ test("default-off: sub-threshold near-dups are invisible without cosineBandFloor
 });
 
 test("band merge: in-band pair is LLM-adjudicated; merge rewrites keeper and archives loser", async () => {
-  purgeActiveLeaves(); clearState(); resetEnv();
+  purgeActiveLeaves();
+  clearState();
+  resetEnv();
   __setSettingsForTest({ consolidate: { cosineBandFloor: 0.8 } });
   const a = seed("lesson-band-merge-a-2026-06-01-000000000.md", BODY_X, "band-merge-a");
   const b = seed("lesson-band-merge-b-2026-06-01-000000000.md", BODY_Y, "band-merge-b");
@@ -119,7 +140,10 @@ test("band merge: in-band pair is LLM-adjudicated; merge rewrites keeper and arc
     passes: ["dedupe-by-cosine", "llm-merge-near-duplicates"],
   });
   assert.equal(r.ok, true);
-  assert.ok(FLAGGED_BAND(r).length >= 1, `band flag recorded: ${JSON.stringify(r.passes["dedupe-by-cosine"]?.entities)}`);
+  assert.ok(
+    FLAGGED_BAND(r).length >= 1,
+    `band flag recorded: ${JSON.stringify(r.passes["dedupe-by-cosine"]?.entities)}`,
+  );
   const leaves = [readLeaf(a), readLeaf(b)];
   const active = leaves.filter((l) => l.active);
   const archived = leaves.filter((l) => !l.active);
@@ -130,7 +154,9 @@ test("band merge: in-band pair is LLM-adjudicated; merge rewrites keeper and arc
 });
 
 test("band + LLM dies: pair is SKIPPED (both active), never blind-archived", async () => {
-  purgeActiveLeaves(); clearState(); resetEnv();
+  purgeActiveLeaves();
+  clearState();
+  resetEnv();
   __setSettingsForTest({ consolidate: { cosineBandFloor: 0.8 } });
   process.env.MEMORY_LLM_MOCK_RESPONSE = MERGE_RESPONSE;
   process.env.MEMORY_LLM_MOCK_FAIL_INDICES = "0,1,2,3,4,5,6,7";
@@ -147,7 +173,9 @@ test("band + LLM dies: pair is SKIPPED (both active), never blind-archived", asy
 });
 
 test(">=threshold + LLM dies: deterministic fallback-archive is UNCHANGED", async () => {
-  purgeActiveLeaves(); clearState(); resetEnv();
+  purgeActiveLeaves();
+  clearState();
+  resetEnv();
   __setSettingsForTest({ consolidate: { cosineBandFloor: 0.8 } });
   process.env.MEMORY_LLM_MOCK_RESPONSE = MERGE_RESPONSE;
   process.env.MEMORY_LLM_MOCK_FAIL_INDICES = "0,1,2,3,4,5,6,7";
@@ -160,11 +188,17 @@ test(">=threshold + LLM dies: deterministic fallback-archive is UNCHANGED", asyn
   });
   assert.equal(r.ok, true);
   const actives = [readLeaf(a), readLeaf(b)].filter((l) => l.active);
-  assert.equal(actives.length, 1, "identical pair still collapses deterministically on LLM failure");
+  assert.equal(
+    actives.length,
+    1,
+    "identical pair still collapses deterministically on LLM failure",
+  );
 });
 
 test("no-LLM run: band pairs are never flagged; >=threshold pairs still archive", async () => {
-  purgeActiveLeaves(); clearState(); resetEnv();
+  purgeActiveLeaves();
+  clearState();
+  resetEnv();
   __setSettingsForTest({ consolidate: { cosineBandFloor: 0.8 } });
   // Poison trip-wire: if anything consults the mock in a no-LLM run, the
   // response would be consumed — assert it is not.
@@ -188,7 +222,9 @@ test("no-LLM run: band pairs are never flagged; >=threshold pairs still archive"
 });
 
 test("dry-run with band: decisions reported, nothing written", async () => {
-  purgeActiveLeaves(); clearState(); resetEnv();
+  purgeActiveLeaves();
+  clearState();
+  resetEnv();
   __setSettingsForTest({ consolidate: { cosineBandFloor: 0.8 } });
   process.env.MEMORY_LLM_MOCK_RESPONSE = MERGE_RESPONSE;
   const a = seed("lesson-band-dry-a-2026-06-01-000000000.md", BODY_X, "band-dry-a");

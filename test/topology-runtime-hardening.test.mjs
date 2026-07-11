@@ -23,8 +23,6 @@ function tmpWiki(layoutYaml) {
   return dir;
 }
 
-// ---- validateFacets defensive checks ----
-
 test("validateFacets rejects facets that aren't a plain object (null)", async () => {
   const wiki = tmpWiki(`
 layout:
@@ -220,8 +218,6 @@ layout:
   assert.ok(r.errors.some((e) => e.includes("must be >= 1")));
 });
 
-// ---- pathFor / parsePath edge cases ----
-
 test("pathFor rejects unknown kindName via validateFacets", async () => {
   const wiki = tmpWiki(`
 layout:
@@ -264,8 +260,6 @@ layout:
   assert.equal(parsePath(topo, "issues/\0nul.md"), null);
 });
 
-// ---- Sandbox / compiler error surface ----
-
 test("pathFor: async compiler returns a Promise — clear error message", async () => {
   const wiki = tmpWiki(`
 layout:
@@ -304,10 +298,7 @@ layout:
 `);
   _resetCacheForTests();
   const topo = await loadTopology(wiki);
-  assert.throws(
-    () => pathFor(topo, "knowledge", { x: "a" }),
-    /generator\/iterator/i,
-  );
+  assert.throws(() => pathFor(topo, "knowledge", { x: "a" }), /generator\/iterator/i);
 });
 
 test("pathFor: compiler returning a non-string (number) is rejected", async () => {
@@ -326,13 +317,8 @@ layout:
 `);
   _resetCacheForTests();
   const topo = await loadTopology(wiki);
-  assert.throws(
-    () => pathFor(topo, "knowledge", { x: "a" }),
-    /returned number, expected string/,
-  );
+  assert.throws(() => pathFor(topo, "knowledge", { x: "a" }), /returned number, expected string/);
 });
-
-// ---- YAML structural malformation ----
 
 test("loadTopology rejects YAML where topology.file_kinds is missing", async () => {
   const wiki = tmpWiki(`
@@ -345,10 +331,7 @@ layout:
         x: { type: string }
 `);
   _resetCacheForTests();
-  await assert.rejects(
-    () => loadTopology(wiki),
-    /no file_kinds/,
-  );
+  await assert.rejects(() => loadTopology(wiki), /no file_kinds/);
 });
 
 test("loadTopology rejects YAML where topology block is missing entirely", async () => {
@@ -358,13 +341,8 @@ layout:
     placement_facets: []
 `);
   _resetCacheForTests();
-  await assert.rejects(
-    () => loadTopology(wiki),
-    /no \.topology declaration/,
-  );
+  await assert.rejects(() => loadTopology(wiki), /no \.topology declaration/);
 });
-
-// ---- Multi-kind parsePath fall-through ----
 
 test("parsePath returns first-match for paths that could match two file_kinds", async () => {
   // Both knowledge and plan use templates that COULD share a prefix; the

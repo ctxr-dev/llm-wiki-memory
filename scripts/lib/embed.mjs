@@ -20,17 +20,43 @@ import { writeFileAtomic } from "./atomic-write.mjs";
 // recompute on next search. The default value (DEFAULT_EMBED_MODEL) is imported from
 // settings.mjs so the fallback model name lives in exactly one place.
 
+/** @typedef {import("@xenova/transformers").FeatureExtractionPipeline} FeatureExtractionPipeline */
+
+/**
+ * @typedef {Object} EmbedCacheEntry
+ * @property {string} hash
+ * @property {number[]} vector
+ */
+
+/**
+ * @typedef {Object} EmbedCache
+ * @property {string} [model]
+ * @property {Record<string, EmbedCacheEntry>} entries
+ */
+
+/** @type {Promise<FeatureExtractionPipeline> | null} */
 let _extractorPromise = null;
+/** @type {string | null} */
 let _backend = null; // "transformers" | "lexical"
 
 function configuredBackend() {
   return (embedBackend() || "").toLowerCase();
 }
 
+/**
+ * @param {string} text
+ * @returns {string}
+ */
 export function contentHash(text) {
-  return crypto.createHash("sha256").update(String(text || "")).digest("hex");
+  return crypto
+    .createHash("sha256")
+    .update(String(text || ""))
+    .digest("hex");
 }
 
+/**
+ * @returns {Promise<FeatureExtractionPipeline>}
+ */
 async function getExtractor() {
   if (_extractorPromise) return _extractorPromise;
   _extractorPromise = (async () => {
@@ -52,6 +78,10 @@ async function getExtractor() {
 // vector. Not semantic, but stable and dependency-free; used only when the
 // transformer backend is unavailable.
 const LEXICAL_DIM = 256;
+/**
+ * @param {string} text
+ * @returns {number[]}
+ */
 function lexicalVector(text) {
   const vec = new Array(LEXICAL_DIM).fill(0);
   const tokens = String(text || "")
@@ -66,6 +96,10 @@ function lexicalVector(text) {
   return l2normalize(vec);
 }
 
+/**
+ * @param {number[]} vec
+ * @returns {number[]}
+ */
 function l2normalize(vec) {
   let norm = 0;
   for (const v of vec) norm += v * v;
@@ -73,6 +107,11 @@ function l2normalize(vec) {
   return vec.map((v) => v / norm);
 }
 
+/**
+ * @param {number[]} a
+ * @param {number[]} b
+ * @returns {number}
+ */
 export function cosine(a, b) {
   if (!a || !b || a.length !== b.length) return 0;
   let dot = 0;
@@ -88,6 +127,10 @@ export function cosine(a, b) {
 }
 
 // Embed a single string. Resolves the backend once and sticks with it.
+/**
+ * @param {string} text
+ * @returns {Promise<number[]>}
+ */
 export async function embed(text) {
   const forced = configuredBackend();
   if (forced === "lexical") {
@@ -117,8 +160,12 @@ export function activeBackend() {
   return _backend || configuredBackend() || "transformers";
 }
 
-// ---- embedding cache (keyed by leaf id + content hash) ----
+// embedding cache keyed by leaf id + content hash
 
+/**
+ * @param {string} cachePath
+ * @returns {EmbedCache}
+ */
 export function loadCache(cachePath) {
   const currentModel = embedModel() || DEFAULT_EMBED_MODEL;
   try {
@@ -132,6 +179,11 @@ export function loadCache(cachePath) {
   return { model: currentModel, entries: {} };
 }
 
+/**
+ * @param {string} cachePath
+ * @param {EmbedCache} cache
+ * @returns {void}
+ */
 export function saveCache(cachePath, cache) {
   // This is the ONLY persistence path for the recall vector store, and it is
   // written off-lock by BOTH the long-running MCP server (every search +
@@ -148,6 +200,12 @@ export function saveCache(cachePath, cache) {
 
 // Return the embedding for `id`, recomputing only when the content hash
 // changed. Mutates `cache` in memory; caller persists.
+/**
+ * @param {EmbedCache} cache
+ * @param {string} id
+ * @param {string} text
+ * @returns {Promise<number[]>}
+ */
 export async function cachedEmbedding(cache, id, text) {
   const hash = contentHash(text);
   const existing = cache.entries[id];
@@ -159,22 +217,11 @@ export async function cachedEmbedding(cache, id, text) {
   return vector;
 }
 
+/**
+ * @param {EmbedCache} cache
+ * @param {string} id
+ * @returns {void}
+ */
 export function removeFromCache(cache, id) {
   if (cache.entries[id]) delete cache.entries[id];
-}
-
-// Rank candidates ({id, text}) against a query. Returns [{id, score}] sorted
-// desc. Uses (and updates) the on-disk cache so repeated ranks recompute only
-// changed leaves.
-export async function rank({ query, candidates, cachePath }) {
-  const cache = cachePath ? loadCache(cachePath) : { entries: {} };
-  const queryVec = await embed(query);
-  const scored = [];
-  for (const c of candidates) {
-    const vec = await cachedEmbedding(cache, c.id, c.text);
-    scored.push({ id: c.id, score: cosine(queryVec, vec) });
-  }
-  if (cachePath) saveCache(cachePath, cache);
-  scored.sort((a, b) => b.score - a.score);
-  return scored;
 }

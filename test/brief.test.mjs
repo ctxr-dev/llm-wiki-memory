@@ -19,10 +19,7 @@ test("skips separator-only headings", () => {
 
 test("falls back to the first prose sentence when no heading qualifies", () => {
   const body = "# One\n\nThe nightly job stalled because a pool was never released.\n\nmore";
-  assert.equal(
-    buildBrief({ body }),
-    "The nightly job stalled because a pool was never released.",
-  );
+  assert.equal(buildBrief({ body }), "The nightly job stalled because a pool was never released.");
 });
 
 test("first-sentence fallback skips '- key: value' metadata lines", () => {

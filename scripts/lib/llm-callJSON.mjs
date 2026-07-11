@@ -21,11 +21,47 @@
 import fs from "node:fs";
 import { callLLMWithRetry, LLMOutputInvalid } from "./llm.mjs";
 
+/**
+ * The `{{KEY}}` interpolation payload.
+ * @typedef {Record<string, unknown>} InterpolateVars
+ */
+
+/**
+ * A zod-like error carrying the issue list callJSON renders. Modelled locally
+ * so this module does not depend on zod's exported types.
+ * @typedef {Object} ZodErrorLike
+ * @property {Array<{ path?: Array<string | number>, message?: string }>} [issues]
+ * @property {Array<{ path?: Array<string | number>, message?: string }>} [errors]
+ * @property {string} [message]
+ */
+
+/**
+ * The subset of a zod schema callJSON uses. `safeParse` returns a discriminated
+ * `success` union matching zod's contract.
+ * @typedef {{ safeParse: (data: unknown) => ({ success: true, data: unknown } | { success: false, error: ZodErrorLike }) }} SchemaLike
+ */
+
+/**
+ * @typedef {Object} CallJSONArgs
+ * @property {string} [promptPath]
+ * @property {string} [systemPrompt]
+ * @property {string} [userPrompt]
+ * @property {InterpolateVars} [vars]
+ * @property {number} [maxTokens]
+ * @property {number} [maxRetries]
+ * @property {SchemaLike} [schema]
+ */
+
 // Interpolate `{{KEY}}` placeholders in `template` from `vars`. Unknown keys
 // stay as-is (intentional: lets a prompt template carry literal `{{...}}`
 // when needed). Non-string values are JSON-stringified so a complex `vars`
 // payload (object / array) renders as JSON in the prompt — matches what
 // callers usually want and what the prompts already document.
+/**
+ * @param {string | undefined} template
+ * @param {InterpolateVars | null | undefined} vars
+ * @returns {string}
+ */
 export function interpolate(template, vars) {
   if (!vars || typeof vars !== "object") return String(template ?? "");
   return String(template ?? "").replace(/\{\{([A-Z0-9_]+)\}\}/g, (m, key) => {
@@ -45,6 +81,11 @@ export function interpolate(template, vars) {
 // Load a prompt file from `promptPath`, then interpolate `vars`. Throws if
 // the file is missing — a prompt typo or a missing template file should fail
 // loudly at startup, not silently degrade to an empty system prompt.
+/**
+ * @param {string} promptPath
+ * @param {InterpolateVars | null | undefined} vars
+ * @returns {string}
+ */
 export function loadPromptFile(promptPath, vars) {
   const raw = fs.readFileSync(promptPath, "utf8");
   return interpolate(raw, vars);
@@ -72,6 +113,10 @@ export function loadPromptFile(promptPath, vars) {
 //
 // Returns the parsed JSON (post-schema if `schema` was provided). Throws
 // LLMOutputInvalid after exhausting retries.
+/**
+ * @param {CallJSONArgs} args
+ * @returns {Promise<unknown>}
+ */
 export async function callJSON({
   promptPath,
   systemPrompt,
@@ -111,6 +156,10 @@ export async function callJSON({
   throw lastErr;
 }
 
+/**
+ * @param {ZodErrorLike} zerr
+ * @returns {string}
+ */
 function formatZodIssues(zerr) {
   try {
     return (zerr.issues || zerr.errors || [])

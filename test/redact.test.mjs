@@ -107,7 +107,8 @@ const CASES = [
   },
   {
     name: "PEM private key block",
-    input: "-----BEGIN RSA PRIVATE KEY-----\nMIIBversecretkeymaterial\n-----END RSA PRIVATE KEY-----",
+    input:
+      "-----BEGIN RSA PRIVATE KEY-----\nMIIBversecretkeymaterial\n-----END RSA PRIVATE KEY-----",
     secret: "MIIBversecretkeymaterial",
     sentinel: "[REDACTED-PRIVATE-KEY]",
   },
@@ -226,7 +227,10 @@ test("redact: mongodb+srv URL userinfo redacted", () => {
 test("redact: DB URL password containing '@' is redacted in full (last-@ anchoring)", () => {
   const out = redact("postgres://admin:p@ssw0rd@db.example.com:5432/mydb");
   assert.ok(out.includes("db.example.com:5432/mydb"), "routing preserved");
-  assert.ok(out.includes("[REDACTED]:[REDACTED]@db.example.com"), "userinfo replaced up to the LAST @");
+  assert.ok(
+    out.includes("[REDACTED]:[REDACTED]@db.example.com"),
+    "userinfo replaced up to the LAST @",
+  );
   assert.equal(out.includes("ssw0rd"), false, "no password fragment may leak past the first @");
   assert.equal(out.includes("admin"), false, "username must be gone");
 });

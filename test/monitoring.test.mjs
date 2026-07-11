@@ -63,7 +63,10 @@ test("missing title is refused", () => {
 
 test("monitoringHealth counts open and zeroes after resolveCapture (delta-based)", () => {
   const before = mon.monitoringHealth();
-  const r = mon.writeMonitoringCapture({ title: "health probe", now: new Date("2026-06-11T12:02:00.000Z") });
+  const r = mon.writeMonitoringCapture({
+    title: "health probe",
+    now: new Date("2026-06-11T12:02:00.000Z"),
+  });
   const mid = mon.monitoringHealth();
   assert.equal(mid.open, before.open + 1, "open incremented by one");
   assert.equal(mid.healthy, false);

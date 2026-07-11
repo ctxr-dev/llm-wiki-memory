@@ -6,7 +6,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   compileInlineFunction,
   callForwardCompiler,
@@ -16,8 +15,6 @@ import {
   loadCompilerFile,
   PathCompilerError,
 } from "../scripts/lib/path-compiler.mjs";
-
-// ---- Sandbox escape attempts ----
 
 test("sandbox: Function constructor escape via .constructor.constructor is blocked", () => {
   // The classic vm-sandbox escape: any function literal's
@@ -37,10 +34,7 @@ test("sandbox: Function constructor escape via .constructor.constructor is block
   const fn = compileInlineFunction(src);
   const r = callForwardCompiler(fn, {});
   assert.equal(r.ok, true, JSON.stringify(r));
-  assert.ok(
-    r.path.startsWith("blocked:"),
-    `Function constructor must throw; got: ${r.path}`,
-  );
+  assert.ok(r.path.startsWith("blocked:"), `Function constructor must throw; got: ${r.path}`);
 });
 
 test("sandbox: prototype-chain pollution does NOT leak across compileInlineFunction calls", () => {
@@ -100,8 +94,6 @@ test("sandbox: eval / new Function from strings is disabled by codeGeneration.st
   );
 });
 
-// ---- Async / generator / non-string return clarity ----
-
 test("callForwardCompiler: Promise return yields a Promise-specific error", () => {
   const fn = compileInlineFunction(`(_) => Promise.resolve("x")`);
   const r = callForwardCompiler(fn, {});
@@ -117,12 +109,7 @@ test("callForwardCompiler: generator return yields a generator-specific error", 
 });
 
 test("callForwardCompiler: returning undefined / null / NaN / Symbol — clear error", () => {
-  const cases = [
-    `(_) => undefined`,
-    `(_) => null`,
-    `(_) => NaN`,
-    `(_) => Symbol("x")`,
-  ];
+  const cases = [`(_) => undefined`, `(_) => null`, `(_) => NaN`, `(_) => Symbol("x")`];
   for (const src of cases) {
     const fn = compileInlineFunction(src);
     const r = callForwardCompiler(fn, {});
@@ -148,8 +135,6 @@ test("callParseCompiler: returning false is rejected as non-object", () => {
   assert.equal(r.ok, false);
   assert.match(r.error, /expected object/);
 });
-
-// ---- Inline shape detection ----
 
 test("compileInlineFunction: comments before function declaration", () => {
   const src = `
@@ -187,17 +172,9 @@ test("compileInlineFunction: const path_template = (...) => ... NOT recognised (
 });
 
 test("compileInlineFunction: source that doesn't define a function — descriptive error", () => {
-  assert.throws(
-    () => compileInlineFunction(`const x = 42;`),
-    PathCompilerError,
-  );
-  assert.throws(
-    () => compileInlineFunction(`const x = 42;`),
-    /did not evaluate to a function/,
-  );
+  assert.throws(() => compileInlineFunction(`const x = 42;`), PathCompilerError);
+  assert.throws(() => compileInlineFunction(`const x = 42;`), /did not evaluate to a function/);
 });
-
-// ---- substituteTemplate / findUnresolvedPlaceholders ----
 
 test("substituteTemplate: template with NO placeholders returns input unchanged", () => {
   assert.equal(substituteTemplate("plain/path.md", {}), "plain/path.md");
@@ -209,10 +186,7 @@ test("substituteTemplate: open-brace literals are NOT recognised as placeholders
 });
 
 test("substituteTemplate: missing variable throws a precise PathCompilerError", () => {
-  assert.throws(
-    () => substituteTemplate("{a}-{b}", { a: "x" }),
-    PathCompilerError,
-  );
+  assert.throws(() => substituteTemplate("{a}-{b}", { a: "x" }), PathCompilerError);
   assert.throws(
     () => substituteTemplate("{a}-{b}", { a: "x" }),
     /template variable \{b\} not provided/,
@@ -234,13 +208,8 @@ test("findUnresolvedPlaceholders: ignores JSON-shaped braces", () => {
   assert.deepEqual(findUnresolvedPlaceholders('{"foo":"bar"}'), []);
 });
 
-// ---- loadCompilerFile (sibling .mjs) ----
-
 test("loadCompilerFile: non-existent path returns PathCompilerError, not a raw fs error", async () => {
-  await assert.rejects(
-    () => loadCompilerFile("/does/not/exist.mjs"),
-    PathCompilerError,
-  );
+  await assert.rejects(() => loadCompilerFile("/does/not/exist.mjs"), PathCompilerError);
 });
 
 test("loadCompilerFile: module with no recognisable export — PathCompilerError lists what was tried", async () => {

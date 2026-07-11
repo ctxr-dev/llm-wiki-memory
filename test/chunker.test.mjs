@@ -117,15 +117,17 @@ test("chunkTranscript: literal '### User' inside indented content (transcript fe
   // `### User` in there appears as `    ### User`. The chunker's regex is
   // anchored on line-start `^### ...` so it must NOT match the indented
   // string.
-  const body =
-    `### User\n\n${"a".repeat(3_000)}\n\n    ### User\n\n${"b".repeat(3_000)}\n\n### Assistant\n\n${"c".repeat(3_000)}`;
+  const body = `### User\n\n${"a".repeat(3_000)}\n\n    ### User\n\n${"b".repeat(3_000)}\n\n### Assistant\n\n${"c".repeat(3_000)}`;
   const chunks = chunkTranscript(body, { chunkSize: 4_000 });
   // 4K cap, only 2 real headers: User at 0, Assistant somewhere mid-body.
   // The indented "    ### User" must not act as a boundary.
   for (const chunk of chunks) {
     const trimmedHead = chunk.text.replace(/^\s+/, "").slice(0, 8);
     if (chunk.index > 0) {
-      assert.ok(trimmedHead.startsWith("### "), `non-first chunk should start with a header, got: ${chunk.text.slice(0, 40)}`);
+      assert.ok(
+        trimmedHead.startsWith("### "),
+        `non-first chunk should start with a header, got: ${chunk.text.slice(0, 40)}`,
+      );
     }
   }
   assert.equal(chunks.map((c) => c.text).join(""), body);

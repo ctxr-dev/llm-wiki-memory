@@ -6,12 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {
-  validateLayoutText,
-  validateLayoutFile,
-} from "../scripts/lib/layout-validator.mjs";
-
-// ---- Schema strictness ----
+import { validateLayoutText, validateLayoutFile } from "../scripts/lib/layout-validator.mjs";
 
 test("rejects FacetInputSchema typo (unrecognised key) with line:col", () => {
   const text = `
@@ -32,7 +27,11 @@ layout:
   assert.equal(r.ok, false);
   // The strict() check on FacetInputSchema flags `mininum` as unrecognised.
   assert.ok(
-    r.errors.some((e) => e.message.toLowerCase().includes("unrecognized") || e.message.toLowerCase().includes("mininum")),
+    r.errors.some(
+      (e) =>
+        e.message.toLowerCase().includes("unrecognized") ||
+        e.message.toLowerCase().includes("mininum"),
+    ),
     JSON.stringify(r.errors, null, 2),
   );
 });
@@ -190,8 +189,6 @@ layout:
   assert.ok(r.errors.some((e) => e.path.includes("strategy")));
 });
 
-// ---- I/O edge cases ----
-
 test("validateLayoutFile reports a sensible error when target is a directory", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lvf-dir-"));
   const r = validateLayoutFile(dir);
@@ -215,8 +212,6 @@ test("validateLayoutFile reports a broken symlink as missing (descriptive)", () 
   // ENOENT — caught by the read-time try/catch as "cannot read".
   assert.ok(r.errors.some((e) => /cannot read|not found/.test(e.message)));
 });
-
-// ---- YAML parse / structural surfaces ----
 
 test("validateLayoutText: empty YAML body produces a single clear error", () => {
   const r = validateLayoutText("");
@@ -244,8 +239,6 @@ layout:
   assert.ok(e.line >= 2, `expected entry line; got ${e.line}`);
 });
 
-// ---- Error reporting fidelity ----
-
 test("multi-error YAML: every issue reported with its own line:col", () => {
   const text = `
 layout:
@@ -262,7 +255,10 @@ layout:
   assert.equal(r.ok, false);
   // We expect: bad strategy, empty helper.module, empty required_facets,
   // and empty path_template. Each should be its own error entry.
-  assert.ok(r.errors.length >= 3, `got ${r.errors.length} errors: ${JSON.stringify(r.errors, null, 2)}`);
+  assert.ok(
+    r.errors.length >= 3,
+    `got ${r.errors.length} errors: ${JSON.stringify(r.errors, null, 2)}`,
+  );
   // All errors must include a line number > 0.
   for (const e of r.errors) {
     assert.ok(e.line > 0, `error missing line: ${JSON.stringify(e)}`);

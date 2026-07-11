@@ -33,7 +33,9 @@ test("health(): a .env-configured provider does NOT short-circuit a settings cha
   delete process.env.MEMORY_LLM_PROVIDER;
   // The .env file says claude, but a settings override re-heads the chain to
   // anthropic. health() must report the chain head the dispatcher uses.
-  settings.__setSettingsOverride({ providers: { chain: ["anthropic", "claude"], anthropic: { models: ["m1"] } } });
+  settings.__setSettingsOverride({
+    providers: { chain: ["anthropic", "claude"], anthropic: { models: ["m1"] } },
+  });
   try {
     const r = await health();
     assert.equal(
@@ -48,7 +50,9 @@ test("health(): a .env-configured provider does NOT short-circuit a settings cha
 
 test("health(): an explicit process.env provider still overrides the chain head", async () => {
   process.env.MEMORY_LLM_PROVIDER = "codex";
-  settings.__setSettingsOverride({ providers: { chain: ["anthropic"], anthropic: { models: ["m1"] } } });
+  settings.__setSettingsOverride({
+    providers: { chain: ["anthropic"], anthropic: { models: ["m1"] } },
+  });
   try {
     const r = await health();
     assert.equal(r.provider, "codex", "an explicit process.env provider wins over the chain head");

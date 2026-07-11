@@ -24,8 +24,10 @@ fs.mkdirSync(path.join(TMP, "settings"), { recursive: true });
 // null (no file), and the next readFileSync(AUDIT) hits ENOENT: a real flake.
 fs.writeFileSync(path.join(TMP, "settings", "settings.yaml"), "embed:\n  backend: lexical\n");
 
-const { recordGatedWrite, readAudit, consentBasis } = await import("../scripts/lib/save-gate-audit.mjs");
-const { __setSettingsForTest, __clearSettingsForTest } = await import("../scripts/lib/settings.mjs");
+const { recordGatedWrite, readAudit, consentBasis } =
+  await import("../scripts/lib/save-gate-audit.mjs");
+const { __setSettingsForTest, __clearSettingsForTest } =
+  await import("../scripts/lib/settings.mjs");
 
 const AUDIT = path.join(TMP, "audit.log");
 
@@ -124,19 +126,38 @@ test("a forged JSONL record marker in a free-text field cannot inject a second r
   // A title that tries to break out of its JSON string and forge an 'accepted'
   // record. JSON.stringify escapes the quote/brace/newline, so it stays one line
   // and one record (dev-principles render->parse round-trip requirement).
-  const evil = 'evil"}\n{"layer":"L3","tool":"save_lesson","status":"accepted","consent":"user-flag"';
-  recordGatedWrite({ layer: "L3", tool: "save_lesson", status: "refused", title: evil }, { path: AUDIT });
+  const evil =
+    'evil"}\n{"layer":"L3","tool":"save_lesson","status":"accepted","consent":"user-flag"';
+  recordGatedWrite(
+    { layer: "L3", tool: "save_lesson", status: "refused", title: evil },
+    { path: AUDIT },
+  );
   const got = readAudit({ path: AUDIT });
   assert.equal(got.length, 1, "exactly one record — the forged marker did NOT create a second");
-  assert.equal(got[0].status, "refused", "the real record's fields are intact (no injected 'accepted')");
-  assert.equal(got[0].title, evil.replace(/\n/g, " "), "the payload round-trips verbatim into the single title (newline collapsed)");
+  assert.equal(
+    got[0].status,
+    "refused",
+    "the real record's fields are intact (no injected 'accepted')",
+  );
+  assert.equal(
+    got[0].title,
+    evil.replace(/\n/g, " "),
+    "the payload round-trips verbatim into the single title (newline collapsed)",
+  );
   // The on-disk file is physically one line (the brace/quote payload did not split it).
-  assert.equal(fs.readFileSync(AUDIT, "utf8").trim().split("\n").length, 1, "one physical line on disk");
+  assert.equal(
+    fs.readFileSync(AUDIT, "utf8").trim().split("\n").length,
+    1,
+    "one physical line on disk",
+  );
 });
 
 test("newline in a free-text field collapses to one JSONL line", () => {
   reset();
-  recordGatedWrite({ layer: "L3", tool: "save_lesson", title: "line one\nline two" }, { path: AUDIT });
+  recordGatedWrite(
+    { layer: "L3", tool: "save_lesson", title: "line one\nline two" },
+    { path: AUDIT },
+  );
   const lines = fs.readFileSync(AUDIT, "utf8").split("\n").filter(Boolean);
   assert.equal(lines.length, 1, "one record is exactly one physical line");
   assert.equal(readAudit({ path: AUDIT })[0].title, "line one line two");
@@ -145,7 +166,10 @@ test("newline in a free-text field collapses to one JSONL line", () => {
 test("append accretes — a second record does not clobber the first", () => {
   reset();
   recordGatedWrite({ layer: "L3", tool: "save_lesson", title: "first" }, { path: AUDIT });
-  recordGatedWrite({ layer: "L2", tool: "pretooluse", status: "ask", title: "second" }, { path: AUDIT });
+  recordGatedWrite(
+    { layer: "L2", tool: "pretooluse", status: "ask", title: "second" },
+    { path: AUDIT },
+  );
   const got = readAudit({ path: AUDIT });
   assert.equal(got.length, 2);
   assert.equal(got[0].title, "first");
@@ -159,7 +183,11 @@ test("front-truncates to auditKeep (oldest dropped, newest kept)", () => {
   }
   const got = readAudit({ path: AUDIT });
   assert.equal(got.length, 3, "only auditKeep records survive");
-  assert.deepEqual(got.map((r) => r.title), ["r2", "r3", "r4"], "the newest 3 are kept");
+  assert.deepEqual(
+    got.map((r) => r.title),
+    ["r2", "r3", "r4"],
+    "the newest 3 are kept",
+  );
 });
 
 test("recordGatedWrite NEVER throws on an unwritable path; returns null; failure is isolated", () => {
@@ -173,7 +201,10 @@ test("recordGatedWrite NEVER throws on an unwritable path; returns null; failure
   }, "an append failure must be swallowed, never thrown into the gate/compile path");
   assert.equal(rec, null, "a failed write returns null");
   // The failure is isolated: a sibling healthy write still lands.
-  const ok = recordGatedWrite({ layer: "L3", tool: "save_lesson", title: "healthy" }, { path: AUDIT });
+  const ok = recordGatedWrite(
+    { layer: "L3", tool: "save_lesson", title: "healthy" },
+    { path: AUDIT },
+  );
   assert.ok(ok && ok.title === "healthy", "a separate write is unaffected");
 });
 
@@ -189,17 +220,31 @@ test("L2 trigger is redacted BEFORE truncation (a secret near the cap can't leak
     { path: AUDIT },
   );
   const onDisk = fs.readFileSync(AUDIT, "utf8");
-  assert.ok(!onDisk.includes("ghp_Q"), "no raw fragment of the token survives — redaction ran on the full phrase first");
+  assert.ok(
+    !onDisk.includes("ghp_Q"),
+    "no raw fragment of the token survives — redaction ran on the full phrase first",
+  );
   assert.ok(!onDisk.includes("QQ"), "no run of the token payload survives");
-  assert.ok((readAudit({ path: AUDIT })[0].trigger || "").length <= 200, "trigger is still capped to 200");
+  assert.ok(
+    (readAudit({ path: AUDIT })[0].trigger || "").length <= 200,
+    "trigger is still capped to 200",
+  );
 });
 
 test("consentBasis derives the gate's consent label for every branch", () => {
   assert.equal(consentBasis(true, false), "user-flag");
-  assert.equal(consentBasis(true, true), "user-flag", "an explicit user flag wins over the maintenance frame");
+  assert.equal(
+    consentBasis(true, true),
+    "user-flag",
+    "an explicit user flag wins over the maintenance frame",
+  );
   assert.equal(consentBasis(false, true), "system-maintenance");
   assert.equal(consentBasis(false, false), "gate-disabled");
-  assert.equal(consentBasis(undefined, false), "gate-disabled", "absent flag + no maintenance -> gate-disabled");
+  assert.equal(
+    consentBasis(undefined, false),
+    "gate-disabled",
+    "absent flag + no maintenance -> gate-disabled",
+  );
 });
 
 test("free-text fields are uniformly omitted when empty/null and capped when oversized", () => {
@@ -207,7 +252,14 @@ test("free-text fields are uniformly omitted when empty/null and capped when ove
   // Empty/null fields are omitted (not persisted as ""), consistently across all
   // free-text fields (title included, matching area/error_pattern).
   recordGatedWrite(
-    { layer: "L3", tool: "save_lesson", status: "refused", title: "", area: null, error_pattern: "" },
+    {
+      layer: "L3",
+      tool: "save_lesson",
+      status: "refused",
+      title: "",
+      area: null,
+      error_pattern: "",
+    },
     { path: AUDIT },
   );
   const r1 = readAudit({ path: AUDIT })[0];
@@ -259,7 +311,9 @@ test("readAudit tolerates a torn/partial line without throwing", () => {
   recordGatedWrite({ layer: "L3", tool: "save_lesson", title: "good" }, { path: AUDIT });
   fs.appendFileSync(AUDIT, '{"ts":"2026-06-12T00:00:00Z","title":"to'); // crash-truncated line, no newline
   let got;
-  assert.doesNotThrow(() => { got = readAudit({ path: AUDIT }); });
+  assert.doesNotThrow(() => {
+    got = readAudit({ path: AUDIT });
+  });
   assert.equal(got.length, 1, "only the parseable record is returned");
   assert.equal(got[0].title, "good");
 });
@@ -270,7 +324,10 @@ test("readAudit limit returns the newest N", () => {
     recordGatedWrite({ layer: "L3", tool: "save_lesson", title: `n${i}` }, { path: AUDIT });
   }
   const got = readAudit({ path: AUDIT, limit: 2 });
-  assert.deepEqual(got.map((r) => r.title), ["n4", "n5"]);
+  assert.deepEqual(
+    got.map((r) => r.title),
+    ["n4", "n5"],
+  );
 });
 
 test("cli gate-audit reads the default ledger and honours --limit", () => {
@@ -288,7 +345,10 @@ test("cli gate-audit reads the default ledger and honours --limit", () => {
   assert.equal(recs.length, 3);
   assert.equal(recs[recs.length - 1].title, "cli2");
 
-  const one = spawnSync("node", [CLI, "gate-audit", "--limit", "1"], { encoding: "utf8", env: process.env });
+  const one = spawnSync("node", [CLI, "gate-audit", "--limit", "1"], {
+    encoding: "utf8",
+    env: process.env,
+  });
   assert.equal(one.status, 0, one.stderr);
   const recs1 = JSON.parse(one.stdout);
   assert.equal(recs1.length, 1);

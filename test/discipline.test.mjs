@@ -1,7 +1,6 @@
-import { test, after, before } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -14,7 +13,13 @@ after(() => cleanup(dataDir));
 const { INSTRUCTIONS, buildSessionStartContext } = await import("../scripts/lib/discipline.mjs");
 
 test("INSTRUCTIONS names the core discipline tools", () => {
-  for (const needle of ["recall_lessons", "save_lesson", "save_to_dataset", "search_memory", "UNTRUSTED"]) {
+  for (const needle of [
+    "recall_lessons",
+    "save_lesson",
+    "save_to_dataset",
+    "search_memory",
+    "UNTRUSTED",
+  ]) {
     assert.ok(INSTRUCTIONS.includes(needle), `instructions mention ${needle}`);
   }
 });
@@ -47,17 +52,24 @@ test("SessionStart hook output carries the shared discipline", () => {
   assert.equal(r.status, 0, `hook exit 0: ${r.stderr}`);
   const out = JSON.parse(r.stdout);
   const ctx = out.hookSpecificOutput.additionalContext;
-  assert.ok(ctx.includes("recall_lessons") && ctx.includes("save_lesson"), "discipline present in SessionStart context");
+  assert.ok(
+    ctx.includes("recall_lessons") && ctx.includes("save_lesson"),
+    "discipline present in SessionStart context",
+  );
 });
 
 test("merge-marker.mjs is idempotent (one block after two runs)", () => {
   const f = path.join(dataDir, "AGENTS_test.md");
   fs.writeFileSync(f, "# Existing\n\nsome content\n");
   const run = () =>
-    spawnSync(process.execPath, [path.join(SRC, "scripts/merge-marker.mjs"), f, "<!-- B -->", "<!-- E -->", "-"], {
-      input: "pointer body v__N__",
-      encoding: "utf8",
-    });
+    spawnSync(
+      process.execPath,
+      [path.join(SRC, "scripts/merge-marker.mjs"), f, "<!-- B -->", "<!-- E -->", "-"],
+      {
+        input: "pointer body v__N__",
+        encoding: "utf8",
+      },
+    );
   run();
   const second = spawnSync(
     process.execPath,
@@ -83,7 +95,10 @@ test("MCP server surfaces INSTRUCTIONS to the client on initialize", async () =>
   await client.connect(transport);
   try {
     const instr = client.getInstructions();
-    assert.ok(instr && instr.includes("recall_lessons") && instr.includes("save_lesson"), "server instructions delivered on connect");
+    assert.ok(
+      instr && instr.includes("recall_lessons") && instr.includes("save_lesson"),
+      "server instructions delivered on connect",
+    );
   } finally {
     await client.close();
   }
@@ -93,22 +108,40 @@ test("MCP server surfaces INSTRUCTIONS to the client on initialize", async () =>
 
 test("bootstrap bakes a PATH into BOTH schedulers (plist EnvironmentVariables + cron wrapper)", () => {
   const bootstrap = fs.readFileSync(path.join(SRC, "bootstrap.sh"), "utf8");
-  assert.match(bootstrap, /<key>PATH<\/key>\s*\n\s*<string>\$cron_path_x<\/string>/, "launchd plist heredoc carries the hybrid PATH");
-  assert.match(bootstrap, /^export PATH="\$cron_path"$/m, "Linux cron wrapper heredoc exports the hybrid PATH");
-  assert.match(bootstrap, /cron-path\.mjs/, "PATH comes from the shared node helper (single source of truth)");
+  assert.match(
+    bootstrap,
+    /<key>PATH<\/key>\s*\n\s*<string>\$cron_path_x<\/string>/,
+    "launchd plist heredoc carries the hybrid PATH",
+  );
+  assert.match(
+    bootstrap,
+    /^export PATH="\$cron_path"$/m,
+    "Linux cron wrapper heredoc exports the hybrid PATH",
+  );
+  assert.match(
+    bootstrap,
+    /cron-path\.mjs/,
+    "PATH comes from the shared node helper (single source of truth)",
+  );
 });
 
 test("no || true swallows the compile exit code on the cron path", () => {
   const cronJob = fs.readFileSync(path.join(SRC, "scripts", "cron-job.mjs"), "utf8");
   assert.ok(!/compile.*\|\|\s*true/.test(cronJob), "cron-job must observe compile's exit code");
   const bootstrap = fs.readFileSync(path.join(SRC, "bootstrap.sh"), "utf8");
-  assert.ok(!/cli\.mjs["']?\s+compile.*\|\|\s*true/.test(bootstrap), "bootstrap must not swallow a compile exit");
+  assert.ok(
+    !/cli\.mjs["']?\s+compile.*\|\|\s*true/.test(bootstrap),
+    "bootstrap must not swallow a compile exit",
+  );
 });
 
 test("curated cron-path dirs are filesystem paths only (no provider/model name literals)", async () => {
   const { CURATED_CLI_DIRS } = await import("../scripts/lib/cron-path.mjs");
   for (const dir of CURATED_CLI_DIRS) {
     assert.ok(/^(~\/|\/)/.test(dir), `${dir} is a path`);
-    assert.ok(!/claude|codex|cursor|gpt|anthropic|openai/i.test(dir), `${dir} carries no provider name`);
+    assert.ok(
+      !/claude|codex|cursor|gpt|anthropic|openai/i.test(dir),
+      `${dir} carries no provider name`,
+    );
   }
 });

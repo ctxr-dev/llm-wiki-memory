@@ -28,26 +28,46 @@ function facetCategories() {
   return getCategories().filter((c) => c !== "daily" && !categoryHasTopology(c));
 }
 
+/**
+ * @param {string} wiki
+ * @param {string} abs
+ * @returns {string}
+ */
 function relPosix(wiki, abs) {
   return path.relative(wiki, abs).split(path.sep).join("/");
 }
 
+/**
+ * @param {string} dirAbs
+ * @param {string[]} [out]
+ * @returns {string[]}
+ */
 function walkLeaves(dirAbs, out = []) {
   if (!fs.existsSync(dirAbs)) return out;
   for (const entry of fs.readdirSync(dirAbs, { withFileTypes: true })) {
     if (entry.name.startsWith(".")) continue;
     const abs = path.join(dirAbs, entry.name);
     if (entry.isDirectory()) walkLeaves(abs, out);
-    else if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "index.md") out.push(abs);
+    else if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "index.md")
+      out.push(abs);
   }
   return out;
 }
 
+/**
+ * @param {string} abs
+ * @returns {{ ok: boolean, meta: Record<string, unknown>, body: string, focus: string }}
+ */
 function leafOf(abs) {
   try {
     const parsed = matter(fs.readFileSync(abs, "utf8"));
     const data = parsed.data || {};
-    return { ok: true, meta: data.memory && typeof data.memory === "object" ? data.memory : {}, body: parsed.content || "", focus: data.focus || "" };
+    return {
+      ok: true,
+      meta: data.memory && typeof data.memory === "object" ? data.memory : {},
+      body: parsed.content || "",
+      focus: data.focus || "",
+    };
   } catch {
     return { ok: false, meta: {}, body: "", focus: "" };
   }
@@ -56,8 +76,23 @@ function leafOf(abs) {
 // Find offenders cheaply (no LLM). Unparseable leaves are reported separately,
 // not treated as offenders: re-identifying them would be a wasted LLM call and
 // updateDocMetadata would only fail on them anyway (gray-matter can't parse).
+/**
+ * A leaf whose placement facets are out of the valid set and need re-identifying.
+ * @typedef {Object} Offender
+ * @property {string} category
+ * @property {string} abs
+ * @property {string} id
+ * @property {string[]} issues
+ */
+
+/**
+ * @param {string} wiki
+ * @returns {{ offenders: Offender[], unparseable: string[] }}
+ */
 function findOffenders(wiki) {
+  /** @type {Offender[]} */
   const offenders = [];
+  /** @type {string[]} */
   const unparseable = [];
   for (const cat of facetCategories()) {
     for (const abs of walkLeaves(path.join(wiki, cat))) {
@@ -76,13 +111,19 @@ function findOffenders(wiki) {
 // Remove directories under the facet categories that no longer hold any leaf
 // (only an index.md, or empty). Deletes the stale index.md too; parents are
 // re-indexed by the caller. Bottom-up so nested empties collapse.
+/**
+ * @param {string} wiki
+ * @returns {string[]}
+ */
 function pruneEmptyDirs(wiki) {
+  /** @type {string[]} */
   const pruned = [];
   for (const cat of facetCategories()) {
     const catAbs = path.join(wiki, cat);
     if (!fs.existsSync(catAbs)) continue;
+    /** @type {string[]} */
     const dirs = [];
-    const collect = (d) => {
+    const collect = (/** @type {string} */ d) => {
       for (const e of fs.readdirSync(d, { withFileTypes: true })) {
         if (e.isDirectory() && !e.name.startsWith(".")) {
           const abs = path.join(d, e.name);
@@ -115,17 +156,37 @@ export async function reidentifyFacets({ dryRun = false, check = false } = {}) {
   const { offenders, unparseable } = findOffenders(wiki);
 
   if (check) {
-    return { ok: offenders.length === 0, mode: "check", offenderCount: offenders.length, offenders: offenders.map((o) => ({ id: o.id, issues: o.issues })), unparseable };
+    return {
+      ok: offenders.length === 0,
+      mode: "check",
+      offenderCount: offenders.length,
+      offenders: offenders.map((o) => ({ id: o.id, issues: o.issues })),
+      unparseable,
+    };
   }
   if (dryRun) {
-    return { ok: true, mode: "dry-run", offenderCount: offenders.length, offenders: offenders.map((o) => ({ id: o.id, issues: o.issues })), unparseable };
+    return {
+      ok: true,
+      mode: "dry-run",
+      offenderCount: offenders.length,
+      offenders: offenders.map((o) => ({ id: o.id, issues: o.issues })),
+      unparseable,
+    };
   }
 
   const applied = [];
   const skipped = [];
   for (const o of offenders) {
     const { meta, body, focus } = leafOf(o.abs);
-    const patch = await classifyFacetsLLM({ category: o.category, meta, title: focus, text: body, tags: meta.tags });
+    const patch = await classifyFacetsLLM(
+      /** @type {Parameters<typeof classifyFacetsLLM>[0]} */ ({
+        category: o.category,
+        meta,
+        title: focus,
+        text: body,
+        tags: meta.tags,
+      }),
+    );
     // updateDocMetadata relocates the leaf and refreshes the OLD + NEW ancestor
     // indexes itself, so moves need no extra index work here. Guard it: a single
     // malformed leaf (e.g. unparseable frontmatter) must not abort the whole run.
@@ -157,7 +218,8 @@ export async function reidentifyFacets({ dryRun = false, check = false } = {}) {
       /* best effort; validate will surface anything left */
     }
   }
-  const validation = applied.length || pruned.length ? validate(wiki) : { ok: true, errors: 0, warnings: 0 };
+  const validation =
+    applied.length || pruned.length ? validate(wiki) : { ok: true, errors: 0, warnings: 0 };
 
   return {
     ok: validation.ok && skipped.length === 0,
@@ -181,7 +243,10 @@ const invokedAsCli = (() => {
 })();
 
 if (invokedAsCli) {
-  const res = await reidentifyFacets({ dryRun: process.argv.includes("--dry-run"), check: process.argv.includes("--check") });
+  const res = await reidentifyFacets({
+    dryRun: process.argv.includes("--dry-run"),
+    check: process.argv.includes("--check"),
+  });
   process.stdout.write(`${JSON.stringify(res, null, 2)}\n`);
   if (res.mode === "check" && !res.ok) process.exit(3);
   if (res.mode === "reidentify" && !res.ok) process.exit(2);

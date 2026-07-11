@@ -134,7 +134,11 @@ test("staleness-flag: self_improvement leaf 7mo old with no last_recalled_at -> 
   assert.equal(r.ok, true);
 
   const fm = readFm(absFor(documentId));
-  assert.equal(fm.data.memory.stale, true, `flipped to stale (got ${JSON.stringify(fm.data.memory.stale)})`);
+  assert.equal(
+    fm.data.memory.stale,
+    true,
+    `flipped to stale (got ${JSON.stringify(fm.data.memory.stale)})`,
+  );
 });
 
 test("staleness-flag: self_improvement leaf with recent `updated` + stale:true -> unflips", async () => {
@@ -347,7 +351,7 @@ test("compress-archived: already-truncated leaf is a no-op", async () => {
 
 test("compress-archived: active leaf with a big body is NEVER touched", async () => {
   const bigBody = "# active big\n\n" + "c".repeat(5000);
-  const { documentId, absPath } = seedKnowledge({
+  const { absPath } = seedKnowledge({
     name: uniqName("k-compress-active"),
     body: bigBody,
     metadata: { atom_type: "reference" },

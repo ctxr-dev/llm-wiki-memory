@@ -30,7 +30,12 @@ test("integration: withGlance exposes the glance view; the default record shape 
   });
   const query = "glance integration unique wwxx heading body prose";
 
-  const glance = await store.searchMemoryFiltered({ query, datasetId: "knowledge", limit: 5, withGlance: true });
+  const glance = await store.searchMemoryFiltered({
+    query,
+    datasetId: "knowledge",
+    limit: 5,
+    withGlance: true,
+  });
   const g = glance.records.find((r) => /glanceleaf/i.test(r.documentName));
   assert.ok(g, "found the leaf with withGlance");
   assert.match(g.brief, /Glance integration unique wwxx heading/);
@@ -41,7 +46,10 @@ test("integration: withGlance exposes the glance view; the default record shape 
   assert.ok(p, "found the leaf without withGlance");
   assert.equal(p.brief, undefined, "default record carries no brief (byte-identical shape)");
   assert.equal(p.type, undefined, "default record carries no type");
-  assert.ok(typeof p.content === "string" && p.content.length > 0, "default record still carries the body");
+  assert.ok(
+    typeof p.content === "string" && p.content.length > 0,
+    "default record still carries the body",
+  );
 });
 
 test("integration: an adversarial heading cannot inject a forged frontmatter key (render→parse round-trip)", () => {
@@ -54,6 +62,10 @@ test("integration: an adversarial heading cannot inject a forged frontmatter key
   const parsed = matter(fs.readFileSync(path.join(wiki, w.created.document.id), "utf8"));
   assert.equal(typeof parsed.data.brief, "string", "brief present as a scalar");
   assert.ok(!String(parsed.data.brief).includes("\n"), "brief is a single line");
-  assert.equal(parsed.data.malicious, undefined, "no forged 'malicious' key leaked into frontmatter");
+  assert.equal(
+    parsed.data.malicious,
+    undefined,
+    "no forged 'malicious' key leaked into frontmatter",
+  );
   assert.notEqual(parsed.data.id, "forged-id", "the real leaf id was not overwritten by injection");
 });

@@ -9,15 +9,35 @@ const { placementTargetsCategory } = await import("../scripts/lib/gate-target.mj
 
 test("placementTargetsCategory: first path segment matches the category", () => {
   assert.equal(placementTargetsCategory("self_improvement/area/x", "self_improvement"), true);
-  assert.equal(placementTargetsCategory("/self_improvement/area", "self_improvement"), true, "leading slash stripped");
-  assert.equal(placementTargetsCategory("self_improvement\\area", "self_improvement"), true, "backslash separator");
-  assert.equal(placementTargetsCategory("///self_improvement", "self_improvement"), true, "multiple leading slashes");
-  assert.equal(placementTargetsCategory("issues/JIRA/DEV/1", "issues"), true, "works for any category");
+  assert.equal(
+    placementTargetsCategory("/self_improvement/area", "self_improvement"),
+    true,
+    "leading slash stripped",
+  );
+  assert.equal(
+    placementTargetsCategory("self_improvement\\area", "self_improvement"),
+    true,
+    "backslash separator",
+  );
+  assert.equal(
+    placementTargetsCategory("///self_improvement", "self_improvement"),
+    true,
+    "multiple leading slashes",
+  );
+  assert.equal(
+    placementTargetsCategory("issues/JIRA/DEV/1", "issues"),
+    true,
+    "works for any category",
+  );
 });
 
 test("placementTargetsCategory: non-matching / empty / non-string -> false", () => {
   assert.equal(placementTargetsCategory("knowledge/x", "self_improvement"), false);
-  assert.equal(placementTargetsCategory("self_improvementX/x", "self_improvement"), false, "no partial-segment match");
+  assert.equal(
+    placementTargetsCategory("self_improvementX/x", "self_improvement"),
+    false,
+    "no partial-segment match",
+  );
   assert.equal(placementTargetsCategory("", "self_improvement"), false);
   assert.equal(placementTargetsCategory("   ", "self_improvement"), false);
   assert.equal(placementTargetsCategory(undefined, "self_improvement"), false);

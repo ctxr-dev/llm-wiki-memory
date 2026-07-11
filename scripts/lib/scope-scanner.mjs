@@ -1,0 +1,195 @@
+// Deterministic scope scanner for the federated (layered) wiki.
+//
+// Given a set of scope directories (e.g. the agent's cwd plus any extra roots),
+// this walks each one UPWARD toward the user's home directory, collecting every
+// wiki mount it finds on the way. A mount is a directory `<dir>` that holds a
+// `<dir>/.llm-wiki-memory/wiki/.layout/layout.yaml`. The result is an ordered
+// stack of level descriptors (shallowest first, the brain at depth 0) that a
+// later resolver enriches with parsed layouts and embedding-cache paths.
+//
+// It NEVER throws: this feeds a capture hook that must exit 0. A missing or
+// unreadable scope, or a permission wall part-way up a walk, is caught and the
+// scan returns whatever it has already collected plus the brain.
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { MEMORY_DATA_DIR, defaultProjectModule } from "./env.mjs";
+
+const MOUNT_DIRNAME = ".llm-wiki-memory";
+const WIKI_DIRNAME = "wiki";
+
+/**
+ * One discovered level of the federated wiki stack. A subset of
+ * {@link import("./wiki-context.mjs").WikiLevel}: the scanner emits placement
+ * facts only (no parsed `layout`); the resolver enriches this later.
+ *
+ * @typedef {Object} ScopeLevel
+ * @property {string} mountDir absolute path to the directory that holds the `.llm-wiki-memory` mount
+ * @property {string} root absolute path to the wiki tree (`<mountDir>/.llm-wiki-memory/wiki`, matching `wikiRoot()`)
+ * @property {"repo" | "wiki"} ownership `wiki` for the brain mount, `repo` for any other discovered mount
+ * @property {string} projectModule module identifier: the `mountDir` basename (the env default for the brain)
+ * @property {number} depth 0-based position from the shallowest level (the brain is always 0)
+ */
+
+/**
+ * @param {string} p
+ * @returns {string} the fully symlink-resolved path, or `p` unchanged if it cannot be resolved
+ */
+function realpathOr(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+/**
+ * @param {string} dir
+ * @returns {string}
+ */
+function layoutPathFor(dir) {
+  return path.join(dir, MOUNT_DIRNAME, WIKI_DIRNAME, ".layout", "layout.yaml");
+}
+
+/**
+ * @param {string} dir
+ * @returns {string}
+ */
+function wikiRootFor(dir) {
+  return path.join(dir, MOUNT_DIRNAME, WIKI_DIRNAME);
+}
+
+/**
+ * `dir` is within the home subtree when it is home itself or a descendant.
+ * @param {string} dir
+ * @param {string} homeReal
+ * @returns {boolean}
+ */
+function withinHome(dir, homeReal) {
+  return dir === homeReal || dir.startsWith(homeReal + path.sep);
+}
+
+/**
+ * A permission wall (rather than a plain "no mount here") stops a walk.
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+function isAccessError(err) {
+  const code = err && typeof err === "object" ? /** @type {{ code?: string }} */ (err).code : "";
+  return code === "EACCES" || code === "EPERM";
+}
+
+/**
+ * @param {string} dir
+ * @returns {boolean}
+ */
+function hasMount(dir) {
+  return fs.statSync(layoutPathFor(dir)).isFile();
+}
+
+/**
+ * Walk a single scope upward, collecting mounts into `out` (keyed by resolved
+ * root so a shared ancestor is collected once across scopes). The brain's own
+ * root is skipped — it is added separately with `wiki` ownership.
+ *
+ * @param {string} scope
+ * @param {string} homeReal
+ * @param {string} brainRootKey
+ * @param {Map<string, ScopeLevel>} out
+ */
+function walkScope(scope, homeReal, brainRootKey, out) {
+  let dir;
+  try {
+    dir = fs.realpathSync(scope);
+  } catch {
+    return;
+  }
+  while (withinHome(dir, homeReal)) {
+    let mounted = false;
+    try {
+      mounted = hasMount(dir);
+    } catch (err) {
+      // ENOENT / ENOTDIR: no mount at this level, keep climbing. EACCES / EPERM:
+      // a permission wall we cannot see past, so stop this scope's walk.
+      if (isAccessError(err)) break;
+    }
+    if (mounted) {
+      const root = wikiRootFor(dir);
+      const key = realpathOr(root);
+      if (key !== brainRootKey && !out.has(key)) {
+        out.set(key, {
+          mountDir: dir,
+          root,
+          ownership: "repo",
+          projectModule: path.basename(dir),
+          depth: 0,
+        });
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+}
+
+/**
+ * @param {string} p
+ * @returns {number} count of non-empty path segments
+ */
+function segmentCount(p) {
+  return p.split(path.sep).filter(Boolean).length;
+}
+
+/**
+ * Shallowest first (fewer path segments), ties broken by path for stability.
+ * @param {ScopeLevel} a
+ * @param {ScopeLevel} b
+ * @returns {number}
+ */
+function byDepthThenPath(a, b) {
+  const bySegments = segmentCount(a.mountDir) - segmentCount(b.mountDir);
+  if (bySegments !== 0) return bySegments;
+  if (a.mountDir < b.mountDir) return -1;
+  if (a.mountDir > b.mountDir) return 1;
+  return 0;
+}
+
+/**
+ * Scan the given scope directories for federated-wiki mounts.
+ *
+ * @param {string[]} [scopes] directories to scope from (walked upward toward home)
+ * @param {{ home?: string, brainDataDir?: string }} [opts]
+ *   `home` bounds each walk (default `os.homedir()`); `brainDataDir` locates the
+ *   private wiki (default `MEMORY_DATA_DIR`). Injectable so tests can build fake
+ *   trees under a temp directory.
+ * @returns {ScopeLevel[]} the ordered stack, brain at depth 0, deepest repo last
+ */
+export function scanScopes(scopes, { home = os.homedir(), brainDataDir = MEMORY_DATA_DIR } = {}) {
+  const brainMountDir = path.dirname(brainDataDir);
+  const brainRoot = path.join(brainDataDir, WIKI_DIRNAME);
+  const brainRootKey = realpathOr(brainRoot);
+  /** @type {ScopeLevel} */
+  const brain = {
+    mountDir: brainMountDir,
+    root: brainRoot,
+    ownership: "wiki",
+    projectModule: defaultProjectModule() || path.basename(brainMountDir),
+    depth: 0,
+  };
+
+  /** @type {Map<string, ScopeLevel>} */
+  const repos = new Map();
+  const homeReal = home ? realpathOr(home) : "";
+  if (homeReal && Array.isArray(scopes)) {
+    for (const scope of scopes) {
+      if (typeof scope === "string" && scope) walkScope(scope, homeReal, brainRootKey, repos);
+    }
+  }
+
+  const ordered = [brain, ...[...repos.values()].sort(byDepthThenPath)];
+  ordered.forEach((level, index) => {
+    level.depth = index;
+  });
+  return ordered;
+}

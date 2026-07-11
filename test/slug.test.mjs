@@ -69,7 +69,8 @@ test("truncate: never splits a surrogate pair at the cut", () => {
 });
 
 test("truncate: preferSentence cuts after a sentence end inside the window", () => {
-  const s = "First sentence ends here. Second sentence is much longer and will be cut somewhere in the middle";
+  const s =
+    "First sentence ends here. Second sentence is much longer and will be cut somewhere in the middle";
   const out = truncateAtWordBoundary(s, 60, { preferSentence: true });
   assert.equal(out, "First sentence ends here.");
 });

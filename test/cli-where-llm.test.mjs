@@ -32,7 +32,11 @@ test("`where` output includes an llm block with mock provider available", () => 
   const parsed = runWhere();
   assert.ok(parsed.llm, "result.llm exists");
   assert.equal(parsed.llm.provider, "mock", "provider is mock");
-  assert.equal(parsed.llm.available, true, "mock provider is available when MEMORY_LLM_MOCK_RESPONSE is set");
+  assert.equal(
+    parsed.llm.available,
+    true,
+    "mock provider is available when MEMORY_LLM_MOCK_RESPONSE is set",
+  );
 });
 
 test("`where` output preserves the existing top-level fields", () => {
@@ -48,5 +52,9 @@ test("`where` output preserves the existing top-level fields", () => {
 test("`where` reports mock provider as unavailable when no MEMORY_LLM_MOCK_RESPONSE is set", () => {
   const parsed = runWhere({ MEMORY_LLM_MOCK_RESPONSE: "" });
   assert.equal(parsed.llm.provider, "mock");
-  assert.equal(parsed.llm.available, false, "mock provider is unavailable without a canned response");
+  assert.equal(
+    parsed.llm.available,
+    false,
+    "mock provider is unavailable without a canned response",
+  );
 });

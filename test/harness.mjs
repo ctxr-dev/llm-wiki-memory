@@ -54,11 +54,18 @@ function installSignalCleanup() {
   signalHandlersInstalled = true;
   const handler = () => {
     for (const dir of TRACKED_DATA_DIRS) {
-      try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
     }
   };
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
-    process.on(sig, () => { handler(); process.exit(130); });
+    process.on(sig, () => {
+      handler();
+      process.exit(130);
+    });
   }
   process.on("exit", handler);
 }

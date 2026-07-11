@@ -147,7 +147,9 @@ layout:
         prefix: { type: string }
         number: { type: integer, minimum: 1 }
 `);
-  const good = spawnSync(process.execPath, [cli, "validate-topology", goodWiki], { encoding: "utf8" });
+  const good = spawnSync(process.execPath, [cli, "validate-topology", goodWiki], {
+    encoding: "utf8",
+  });
   assert.equal(good.status, 0, `good: ${good.stdout}${good.stderr}`);
   assert.match(good.stdout, /passed/);
 
@@ -164,7 +166,9 @@ layout:
         prefix: { type: string }
         number: { type: integer, minimum: 1 }
 `);
-  const bad = spawnSync(process.execPath, [cli, "validate-topology", badWiki], { encoding: "utf8" });
+  const bad = spawnSync(process.execPath, [cli, "validate-topology", badWiki], {
+    encoding: "utf8",
+  });
   assert.equal(bad.status, 2, `bad should exit 2: ${bad.stdout}${bad.stderr}`);
 });
 

@@ -6,8 +6,16 @@
 //
 // A path's category is its FIRST segment after stripping leading slashes and
 // splitting on both slash kinds (the same form the wiki placement override uses).
+/**
+ * @param {unknown} placementOverride
+ * @param {string} category
+ * @returns {boolean}
+ */
 export function placementTargetsCategory(placementOverride, category) {
   if (typeof placementOverride !== "string" || !placementOverride.trim()) return false;
-  const segs = placementOverride.replace(/^\/+/, "").split(/[\\/]+/).filter(Boolean);
+  const segs = placementOverride
+    .replace(/^\/+/, "")
+    .split(/[\\/]+/)
+    .filter(Boolean);
   return segs[0] === category;
 }

@@ -10,7 +10,8 @@ after(() => cleanup(dataDir));
 
 const { consolidateMemory } = await import("../scripts/consolidate.mjs");
 const { runCronJob, cronHealth } = await import("../scripts/cron-job.mjs");
-const { __setSettingsForTest, __clearSettingsForTest } = await import("../scripts/lib/settings.mjs");
+const { __setSettingsForTest, __clearSettingsForTest } =
+  await import("../scripts/lib/settings.mjs");
 after(() => __clearSettingsForTest());
 
 // Every category must declare `consolidate:` or the orchestrator refuses to run

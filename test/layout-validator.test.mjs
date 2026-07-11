@@ -1,6 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateLayoutText, validateLayoutFile } from "../scripts/lib/layout-validator.mjs";
@@ -32,7 +31,9 @@ layout: []
 `.trim();
   const result = validateLayoutText(text);
   assert.equal(result.ok, false);
-  assert.ok(result.errors.some((e) => e.path.startsWith("layout") && e.message.includes("at least one")));
+  assert.ok(
+    result.errors.some((e) => e.path.startsWith("layout") && e.message.includes("at least one")),
+  );
 });
 
 test("validator pins error to the right line for a missing required field", () => {
@@ -62,7 +63,11 @@ layout:
   assert.equal(result.ok, false);
   // The strict() schema flags unrecognised keys.
   assert.ok(
-    result.errors.some((e) => e.message.toLowerCase().includes("unrecognized") || e.message.toLowerCase().includes("unknown")),
+    result.errors.some(
+      (e) =>
+        e.message.toLowerCase().includes("unrecognized") ||
+        e.message.toLowerCase().includes("unknown"),
+    ),
     `expected an unrecognised-key error; got ${JSON.stringify(result.errors)}`,
   );
 });

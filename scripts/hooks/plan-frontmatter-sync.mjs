@@ -17,8 +17,16 @@ import path from "node:path";
 import { wikiRoot } from "../lib/env.mjs";
 import { syncPlanFile, syncAllPlans } from "../lib/plan-sync.mjs";
 
+/** @typedef {import("../lib/plan-sync.mjs").PlanSyncResult} PlanSyncResult */
+
+/**
+ * @typedef {Object} PlanSyncHookInput
+ * @property {{ file_path?: string }} [tool_input]
+ */
+
 const MODE = process.argv[2] || "post-tool-use"; // "post-tool-use" | "session-end"
 
+/** @returns {unknown} */
 function readStdin() {
   try {
     const data = fs.readFileSync(0, "utf8");
@@ -28,20 +36,19 @@ function readStdin() {
   }
 }
 
+/** @param {string} line */
 function logEntry(line) {
   const root = wikiRoot();
   const logDir = path.join(root, ".work");
   try {
     fs.mkdirSync(logDir, { recursive: true });
-    fs.appendFileSync(
-      path.join(logDir, "plan-sync.log"),
-      `${new Date().toISOString()} ${line}\n`,
-    );
+    fs.appendFileSync(path.join(logDir, "plan-sync.log"), `${new Date().toISOString()} ${line}\n`);
   } catch {
     // best-effort
   }
 }
 
+/** @param {PlanSyncHookInput} input */
 async function runPostToolUse(input) {
   const filePath = input?.tool_input?.file_path;
   if (!filePath || typeof filePath !== "string") {
@@ -60,15 +67,13 @@ async function runPostToolUse(input) {
 
 async function runSessionEnd() {
   const results = await syncAllPlans(wikiRoot());
-  const moved = results.filter((r) => r.moved).length;
-  const changed = results.filter((r) => r.frontmatter_changed).length;
-  logEntry(
-    `session-end: scanned=${results.length} frontmatter_changed=${changed} moved=${moved}`,
-  );
+  const moved = results.filter((/** @type {PlanSyncResult} */ r) => r.moved).length;
+  const changed = results.filter((/** @type {PlanSyncResult} */ r) => r.frontmatter_changed).length;
+  logEntry(`session-end: scanned=${results.length} frontmatter_changed=${changed} moved=${moved}`);
   return results;
 }
 
-const input = readStdin();
+const input = /** @type {PlanSyncHookInput} */ (readStdin());
 try {
   if (MODE === "session-end") {
     await runSessionEnd();
@@ -76,7 +81,7 @@ try {
     await runPostToolUse(input);
   }
 } catch (err) {
-  logEntry(`fatal: ${err && err.message ? err.message : String(err)}`);
+  logEntry(`fatal: ${err instanceof Error && err.message ? err.message : String(err)}`);
 }
 // Claude Code expects a JSON envelope on stdout for tool-use hooks; an
 // empty object is "do nothing, don't interrupt the model".

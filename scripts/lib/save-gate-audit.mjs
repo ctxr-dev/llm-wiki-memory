@@ -30,13 +30,53 @@ import { redact } from "./redact.mjs";
 import { writeFileAtomic } from "./atomic-write.mjs";
 import { writeGateAuditTrailEnabled, writeGateAuditKeep } from "./settings.mjs";
 
+/**
+ * @typedef {Object} GateAuditFields
+ * @property {string} [layer]
+ * @property {string} [tool]
+ * @property {string} [status]
+ * @property {string} [target]
+ * @property {string} [consent]
+ * @property {string} [action]
+ * @property {unknown} [title]
+ * @property {unknown} [area]
+ * @property {unknown} [error_pattern]
+ * @property {unknown} [priority]
+ * @property {boolean} [userRequested]
+ * @property {unknown} [trigger]
+ * @property {Date} [now]
+ */
+
+/**
+ * @typedef {Object} GateAuditRecord
+ * @property {string} ts
+ * @property {string} [layer]
+ * @property {string} [tool]
+ * @property {string} [status]
+ * @property {string} [target]
+ * @property {string} [consent]
+ * @property {string} [action]
+ * @property {string} [title]
+ * @property {string} [area]
+ * @property {string} [error_pattern]
+ * @property {string} [priority]
+ * @property {boolean} [userRequested]
+ * @property {string} [trigger]
+ */
+
 // Redact a free-text value, then collapse newline runs to a single space for
 // readability of the raw log. The one-record-one-line JSONL invariant itself is
 // guaranteed by JSON.stringify (it escapes any embedded control char, so a record
 // never splits); this collapse is a cosmetic normalisation of the redacted value,
 // not the guarantee.
+/**
+ * @param {unknown} s
+ * @returns {string}
+ */
 function rd(s) {
-  return redact(String(s ?? "")).replace(/\s*\n\s*/g, " ").trim();
+  return redact(String(s ?? ""))
+    .replace(/\s*\n\s*/g, " ")
+    .trim();
 }
 
 // Persisted-length caps, applied AFTER redaction (see field()/buildRecord) so a
@@ -50,6 +90,11 @@ const FIELD_MAX = 500;
 // Redact a free-text field, cap its length, and return null when it is
 // absent/empty so the caller omits it (one uniform rule for title / area /
 // error_pattern / trigger, instead of three slightly different inline guards).
+/**
+ * @param {unknown} value
+ * @param {number} max
+ * @returns {string | null}
+ */
 function field(value, max) {
   if (value === undefined || value === null) return null;
   const s = rd(value);
@@ -59,6 +104,11 @@ function field(value, max) {
 // The consent basis the L3 gate recorded for an ACCEPTED self_improvement write,
 // derived from the SAME inputs the gate used. Exported so it is unit-testable;
 // the server's auditGatedL3 calls it.
+/**
+ * @param {boolean} [userRequested]
+ * @param {unknown} [isMaintenance]
+ * @returns {string}
+ */
 export function consentBasis(userRequested, isMaintenance) {
   if (userRequested === true) return "user-flag";
   if (isMaintenance) return "system-maintenance";
@@ -67,6 +117,10 @@ export function consentBasis(userRequested, isMaintenance) {
 
 // Build the canonical record. Only known fields are emitted (no raw bodies), and
 // every free-text field is redacted. `now` is injectable for deterministic tests.
+/**
+ * @param {GateAuditFields} [fields]
+ * @returns {GateAuditRecord}
+ */
 function buildRecord(fields = {}) {
   const {
     layer, // "L2" | "L3" | "compile"
@@ -83,6 +137,7 @@ function buildRecord(fields = {}) {
     trigger, // the matched user phrase (L2), redacted
     now = new Date(),
   } = fields;
+  /** @type {GateAuditRecord} */
   const rec = { ts: now.toISOString() };
   if (layer) rec.layer = layer;
   if (tool) rec.tool = tool;
@@ -105,6 +160,11 @@ function buildRecord(fields = {}) {
 
 // Append ONE gate decision to the ledger. No-op when auditing is disabled.
 // Returns the record written (for tests) or null when skipped/failed.
+/**
+ * @param {GateAuditFields} [fields]
+ * @param {{ path?: string }} [opts]
+ * @returns {GateAuditRecord | null}
+ */
 export function recordGatedWrite(fields = {}, { path: auditPath = SAVE_GATE_AUDIT_PATH } = {}) {
   try {
     if (!writeGateAuditTrailEnabled()) return null;
@@ -121,7 +181,9 @@ export function recordGatedWrite(fields = {}, { path: auditPath = SAVE_GATE_AUDI
     fs.mkdirSync(path.dirname(auditPath), { recursive: true });
     fs.appendFileSync(auditPath, JSON.stringify(rec) + "\n");
   } catch (err) {
-    process.stderr.write(`[save-gate-audit] failed to append audit log: ${err?.message || err}\n`);
+    process.stderr.write(
+      `[save-gate-audit] failed to append audit log: ${/** @type {string} */ (/** @type {Error} */ (err)?.message || err)}\n`,
+    );
     return null;
   }
   // Front-truncate to the configured cap (best-effort; a rewrite via atomic write).
@@ -144,6 +206,10 @@ export function recordGatedWrite(fields = {}, { path: auditPath = SAVE_GATE_AUDI
 
 // Read the most recent `limit` audit records (newest last). Corrupt lines are
 // skipped, never thrown. Returns [] when the ledger does not exist yet.
+/**
+ * @param {{ limit?: number, path?: string }} [opts]
+ * @returns {GateAuditRecord[]}
+ */
 export function readAudit({ limit = 50, path: auditPath = SAVE_GATE_AUDIT_PATH } = {}) {
   let raw;
   try {
@@ -151,6 +217,7 @@ export function readAudit({ limit = 50, path: auditPath = SAVE_GATE_AUDIT_PATH }
   } catch {
     return [];
   }
+  /** @type {GateAuditRecord[]} */
   const recs = [];
   for (const line of raw.split("\n")) {
     const t = line.trim();

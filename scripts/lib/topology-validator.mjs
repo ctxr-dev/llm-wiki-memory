@@ -14,10 +14,36 @@
 
 import { loadTopology, pathFor } from "./topology-runtime.mjs";
 
+/** @typedef {import("./topology-loader.mjs").Facets} Facets */
+/** @typedef {import("./topology-loader.mjs").FacetInputSpec} FacetInputSpec */
+/** @typedef {import("./topology-loader.mjs").CompiledFileKind} CompiledFileKind */
+
+/**
+ * @typedef {Object} PerKindResult
+ * @property {string} kind
+ * @property {boolean} ok
+ * @property {string | null} error
+ * @property {string | null} samplePath
+ * @property {Facets} sampleFacets
+ */
+
+/**
+ * @typedef {Object} TopologyValidationResult
+ * @property {boolean} ok
+ * @property {PerKindResult[]} perKind
+ * @property {string} [error]
+ */
+
 // Pick a sample value for a facet based on its facet_inputs spec. If the
 // caller passes overrides, those win. The goal is "any valid value that
 // the topology will accept" — we're testing the path-compute logic, not
 // the value semantics.
+/**
+ * @param {string} name
+ * @param {FacetInputSpec | undefined} spec
+ * @param {Record<string, unknown> | undefined} overrides
+ * @returns {unknown}
+ */
 function sampleForFacet(name, spec, overrides) {
   if (overrides && Object.prototype.hasOwnProperty.call(overrides, name)) {
     return overrides[name];
@@ -64,7 +90,14 @@ function sampleForFacet(name, spec, overrides) {
 //   3. facet_inputs spec (examples / type defaults / pattern)
 // Optional facets that have enums also get the first enum value so the
 // resulting path is deterministic.
+/**
+ * @param {CompiledFileKind} kind
+ * @param {Record<string, FacetInputSpec>} facetInputs
+ * @param {Record<string, unknown> | undefined} overrides
+ * @returns {Facets}
+ */
 function sampleFacetsFor(kind, facetInputs, overrides) {
+  /** @type {Facets} */
   const out = {};
   const enums = kind.enums || {};
   const ov = overrides || {};
@@ -84,6 +117,11 @@ function sampleFacetsFor(kind, facetInputs, overrides) {
   return out;
 }
 
+/**
+ * @param {string} wikiRoot
+ * @param {{ categoryPath?: string, overrides?: Record<string, Record<string, unknown>> }} [opts]
+ * @returns {Promise<TopologyValidationResult>}
+ */
 export async function validateTopologyAgainstSamples(
   wikiRoot,
   { categoryPath = "issues", overrides = {} } = {},
@@ -95,7 +133,7 @@ export async function validateTopologyAgainstSamples(
     return {
       ok: false,
       perKind: [],
-      error: `loadTopology failed: ${err.message}`,
+      error: `loadTopology failed: ${/** @type {Error} */ (err).message}`,
     };
   }
 
@@ -109,7 +147,7 @@ export async function validateTopologyAgainstSamples(
       samplePath = pathFor(topology, kindName, sampleFacets);
     } catch (err) {
       ok = false;
-      error = err.message;
+      error = /** @type {Error} */ (err).message;
     }
     perKind.push({ kind: kindName, ok, error, samplePath, sampleFacets });
   }
@@ -120,6 +158,10 @@ export async function validateTopologyAgainstSamples(
 }
 
 // Pretty-print for CLI output.
+/**
+ * @param {TopologyValidationResult} result
+ * @returns {string}
+ */
 export function formatValidationReport(result) {
   if (result.error) {
     return `topology validation failed: ${result.error}\n`;

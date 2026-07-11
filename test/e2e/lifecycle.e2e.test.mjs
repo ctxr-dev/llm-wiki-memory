@@ -18,7 +18,10 @@ const { embedCachePath } = await import("../../scripts/lib/env.mjs");
 function writeTranscript(name, turns) {
   const file = path.join(dataDir, name);
   const lines = turns.map((t) =>
-    JSON.stringify({ type: t.role, message: { role: t.role, content: [{ type: "text", text: t.text }] } }),
+    JSON.stringify({
+      type: t.role,
+      message: { role: t.role, content: [{ type: "text", text: t.text }] },
+    }),
   );
   fs.writeFileSync(file, `${lines.join("\n")}\n`);
   return file;
@@ -49,7 +52,10 @@ function runFlush(transcriptPath, atoms, sessionId = "e2e") {
 
 function runCompile() {
   return runScript("scripts/compile.mjs", [], {
-    env: { MEMORY_LLM_PROVIDER: "mock", MEMORY_LLM_MOCK_RESPONSE: JSON.stringify({ action: "create", reason: "e2e" }) },
+    env: {
+      MEMORY_LLM_PROVIDER: "mock",
+      MEMORY_LLM_MOCK_RESPONSE: JSON.stringify({ action: "create", reason: "e2e" }),
+    },
   });
 }
 
@@ -68,7 +74,11 @@ function logTail() {
 
 // The daily's session id lives in the header body, not the filename.
 function findDailyForSession(sid) {
-  const docs = store.listDocuments({ prefix: "daily-", enabled: "true", datasetId: "daily" }).documents;
+  const docs = store.listDocuments({
+    prefix: "daily-",
+    enabled: "true",
+    datasetId: "daily",
+  }).documents;
   for (const d of docs) {
     const { text } = store.readDocument({ documentId: d.id, datasetId: "daily" });
     if (text.includes(`session_id: ${sid}`)) return { id: d.id, text };
@@ -78,7 +88,9 @@ function findDailyForSession(sid) {
 
 // Session ids used here are simple, so this mirrors flush.mjs:flushLockPath.
 function flushLockPathFor(sid) {
-  const safe = String(sid || "manual").replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80);
+  const safe = String(sid || "manual")
+    .replace(/[^A-Za-z0-9_.-]/g, "_")
+    .slice(0, 80);
   return path.join(dataDir, "state", `.flush-${safe}.lock`);
 }
 
@@ -105,7 +117,12 @@ const LESSON_ATOM = {
   title: "Always await async db calls",
   body: "Always await async database calls before reading the result set.",
   tags: ["async", "database"],
-  metadata: { project_module: "testproj", language: "typescript", task_type: "implementation", error_pattern: "missing-await-async" },
+  metadata: {
+    project_module: "testproj",
+    language: "typescript",
+    task_type: "implementation",
+    error_pattern: "missing-await-async",
+  },
 };
 const DECISION_ATOM = {
   type: "decision",
@@ -133,7 +150,11 @@ test("2. daily capture: flush extracts atoms into nested daily leaf", async () =
   // its session lock (which means ensureIndexes has finished too).
   const hit = await waitForDailyOfSession("s1");
   assert.ok(hit, `worker wrote a daily for s1; flush.log:\n${logTail()}`);
-  const dailies = store.listDocuments({ prefix: "daily-", enabled: "true", datasetId: "daily" }).documents;
+  const dailies = store.listDocuments({
+    prefix: "daily-",
+    enabled: "true",
+    datasetId: "daily",
+  }).documents;
   assert.equal(dailies.length, 1, "one daily leaf");
   assert.match(dailies[0].id, /^daily\/\d{4}\/\d{2}\/\d{2}\/daily-/, "nested by date");
   assert.equal(cli.validate(wiki).ok, true, "validate clean after capture");
@@ -143,7 +164,11 @@ test("3. save_lesson lands in self_improvement (frontmatter filterable)", () => 
   const r = recall.saveLesson({
     title: "Resolve PR threads in the same push",
     body: "Resolve addressed review threads in the same push, never defer.",
-    metadata: { project_module: "testproj", task_type: "review", error_pattern: "deferred-thread-resolve" },
+    metadata: {
+      project_module: "testproj",
+      task_type: "review",
+      error_pattern: "deferred-thread-resolve",
+    },
     tags: ["pr", "review"],
   });
   assert.ok(r.created);
@@ -151,11 +176,33 @@ test("3. save_lesson lands in self_improvement (frontmatter filterable)", () => 
 });
 
 test("4. save_to_dataset upserts knowledge/plans/investigations", () => {
-  store.saveDocument({ name: "knowledge-fact.md", text: "# Fact\n\nThe build uses Node 20.", datasetId: "knowledge", metadata: { atom_type: "project-lore", project_module: "testproj" } });
-  store.saveDocument({ name: "investigation-latency.md", text: "# Latency probe\n\nP99 spikes after deploy.", datasetId: "investigations", metadata: { atom_type: "investigation", project_module: "testproj" } });
-  store.saveDocument({ name: "plan-x.md", text: "# Plan X\n\nv1", datasetId: "plans", metadata: { atom_type: "plan" } });
-  store.saveDocument({ name: "plan-x.md", text: "# Plan X\n\nv2", datasetId: "plans", metadata: { atom_type: "plan" } });
-  const plans = store.listDocuments({ datasetId: "plans", enabled: "true" }).documents.filter((d) => d.name === "plan-x.md");
+  store.saveDocument({
+    name: "knowledge-fact.md",
+    text: "# Fact\n\nThe build uses Node 20.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "project-lore", project_module: "testproj" },
+  });
+  store.saveDocument({
+    name: "investigation-latency.md",
+    text: "# Latency probe\n\nP99 spikes after deploy.",
+    datasetId: "investigations",
+    metadata: { atom_type: "investigation", project_module: "testproj" },
+  });
+  store.saveDocument({
+    name: "plan-x.md",
+    text: "# Plan X\n\nv1",
+    datasetId: "plans",
+    metadata: { atom_type: "plan" },
+  });
+  store.saveDocument({
+    name: "plan-x.md",
+    text: "# Plan X\n\nv2",
+    datasetId: "plans",
+    metadata: { atom_type: "plan" },
+  });
+  const plans = store
+    .listDocuments({ datasetId: "plans", enabled: "true" })
+    .documents.filter((d) => d.name === "plan-x.md");
   assert.equal(plans.length, 1, "upsert by name: no duplicate plan");
   assert.equal(cli.validate(wiki).ok, true);
 });
@@ -167,11 +214,16 @@ test("4b. ExitPlanMode hook captures an approved plan into plans/", () => {
   });
   const r = runScript("scripts/hooks/exit-plan-mode.mjs", [], { stdin: hookInput });
   assert.equal(r.status, 0, `exit-plan-mode exit 0: ${r.stderr}`);
-  const plans = store.listDocuments({ datasetId: "plans", enabled: "true" }).documents.map((d) => d.name);
+  const plans = store
+    .listDocuments({ datasetId: "plans", enabled: "true" })
+    .documents.map((d) => d.name);
   // Per .claude/rules/plans-lifecycle.md the captured plan leaf name is
   // `<slug>.plan.md` (compound extension preserved by normalizeLeafName);
   // the legacy `plan-<slug>.md` prefix is no longer produced.
-  assert.ok(plans.includes("ship-the-widget.plan.md"), `captured plan present: ${plans.join(", ")}`);
+  assert.ok(
+    plans.includes("ship-the-widget.plan.md"),
+    `captured plan present: ${plans.join(", ")}`,
+  );
   assert.equal(cli.validate(wiki).ok, true);
 });
 
@@ -179,13 +231,27 @@ test("5. compile promotes daily atoms into knowledge + self_improvement, archive
   const r = runCompile();
   assert.equal(r.status, 0, `compile exit 0: ${r.stderr}`);
 
-  const knowledge = store.listDocuments({ datasetId: "knowledge", enabled: "true" }).documents.map((d) => d.name);
-  assert.ok(knowledge.some((n) => n.startsWith("knowledge-")), `promoted knowledge present: ${knowledge.join(", ")}`);
+  const knowledge = store
+    .listDocuments({ datasetId: "knowledge", enabled: "true" })
+    .documents.map((d) => d.name);
+  assert.ok(
+    knowledge.some((n) => n.startsWith("knowledge-")),
+    `promoted knowledge present: ${knowledge.join(", ")}`,
+  );
 
-  const lessons = store.listDocuments({ datasetId: "self_improvement", enabled: "true" }).documents.map((d) => d.name);
-  assert.ok(lessons.some((n) => n.startsWith("lesson-")), "promoted lesson present");
+  const lessons = store
+    .listDocuments({ datasetId: "self_improvement", enabled: "true" })
+    .documents.map((d) => d.name);
+  assert.ok(
+    lessons.some((n) => n.startsWith("lesson-")),
+    "promoted lesson present",
+  );
 
-  const activeDailies = store.listDocuments({ prefix: "daily-", enabled: "true", datasetId: "daily" }).documents;
+  const activeDailies = store.listDocuments({
+    prefix: "daily-",
+    enabled: "true",
+    datasetId: "daily",
+  }).documents;
   assert.equal(activeDailies.length, 0, "source daily archived after promotion");
   assert.equal(cli.validate(wiki).ok, true);
 
@@ -195,10 +261,15 @@ test("5. compile promotes daily atoms into knowledge + self_improvement, archive
   // the promoted lesson above should have produced a compile-distilled record.
   const auditLog = path.join(dataDir, "state", ".save-gate-audit.log");
   const auditRecs = fs.existsSync(auditLog)
-    ? fs.readFileSync(auditLog, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l))
+    ? fs
+        .readFileSync(auditLog, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((l) => JSON.parse(l))
     : [];
   const compileLesson = auditRecs.find(
-    (a) => a.layer === "compile" && a.consent === "compile-distilled" && a.target === "self_improvement",
+    (a) =>
+      a.layer === "compile" && a.consent === "compile-distilled" && a.target === "self_improvement",
   );
   assert.ok(compileLesson, `compile promotion is audited: ${JSON.stringify(auditRecs)}`);
   assert.equal(compileLesson.status, "accepted");
@@ -213,23 +284,36 @@ test("5b. dedup: a second daily lesson with the same error_pattern force-updates
   assert.equal(runFlush(t, [LESSON_ATOM], "s2").status, 0);
   // Wait for the detached worker to land the s2 daily before compiling, else
   // compile would run against an empty daily slot.
-  assert.ok(await waitForDailyOfSession("s2"), `s2 daily present before compile; flush.log:\n${logTail()}`);
+  assert.ok(
+    await waitForDailyOfSession("s2"),
+    `s2 daily present before compile; flush.log:\n${logTail()}`,
+  );
   assert.equal(runCompile().status, 0);
 
   const activeLessons = [];
-  for (const d of store.listDocuments({ datasetId: "self_improvement", enabled: "true" }).documents) {
+  for (const d of store.listDocuments({ datasetId: "self_improvement", enabled: "true" })
+    .documents) {
     const { metadata } = store.readDocument({ documentId: d.id, datasetId: "self_improvement" });
     if (metadata.error_pattern === "missing-await-async") activeLessons.push(d.id);
   }
-  assert.equal(activeLessons.length, 1, "exactly one active lesson per error_pattern (old archived)");
+  assert.equal(
+    activeLessons.length,
+    1,
+    "exactly one active lesson per error_pattern (old archived)",
+  );
   assert.equal(cli.validate(wiki).ok, true);
 
   // The force-update is also audited with action:"update" (the compile UPDATE
   // branch of auditCompileLessonPromotion, distinct from test 5's create path).
   const auditLog = path.join(dataDir, "state", ".save-gate-audit.log");
-  const updateRec = (fs.existsSync(auditLog)
-    ? fs.readFileSync(auditLog, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l))
-    : []
+  const updateRec = (
+    fs.existsSync(auditLog)
+      ? fs
+          .readFileSync(auditLog, "utf8")
+          .split("\n")
+          .filter(Boolean)
+          .map((l) => JSON.parse(l))
+      : []
   ).find((a) => a.layer === "compile" && a.action === "update");
   assert.ok(updateRec, "compile records an action:update on a force-update");
   assert.equal(updateRec.consent, "compile-distilled");
@@ -262,7 +346,9 @@ test("7. tree stays valid as a category grows (skill nesting/index-rebuild)", ()
     cli.run(["fix", wiki]);
   }
   assert.equal(cli.validate(wiki).ok, true, "validate clean after growth");
-  const count = store.listDocuments({ datasetId: "knowledge", enabled: "true" }).documents.filter((d) => d.name.startsWith("knowledge-bulk-")).length;
+  const count = store
+    .listDocuments({ datasetId: "knowledge", enabled: "true" })
+    .documents.filter((d) => d.name.startsWith("knowledge-bulk-")).length;
   assert.equal(count, 30, "all 30 bulk leaves remain reachable");
 });
 

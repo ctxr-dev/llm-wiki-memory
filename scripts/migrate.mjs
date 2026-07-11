@@ -1,7 +1,12 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { wikiRoot, defaultProjectModule } from "./lib/env.mjs";
-import { listDocuments, readDocument, updateDocMetadata, categoryHasTopology } from "./lib/wiki-store.mjs";
+import {
+  listDocuments,
+  readDocument,
+  updateDocMetadata,
+  categoryHasTopology,
+} from "./lib/wiki-store.mjs";
 import { indexRebuildAll, validate } from "./lib/wiki-cli.mjs";
 
 // One-shot upgrade for wikis built before the project_module/area split:
@@ -24,7 +29,9 @@ export function migrate({ dryRun = false, check = false } = {}) {
   // migrate always targets the env-configured wiki. Bind it once for the calls
   // that take an explicit path, so scan + rebuild + validate cannot diverge.
   const wiki = wikiRoot();
-  const workspace = String(defaultProjectModule() || "").trim().toLowerCase();
+  const workspace = String(defaultProjectModule() || "")
+    .trim()
+    .toLowerCase();
   const { documents } = listDocuments({});
   const candidates = [];
   for (const doc of documents) {
@@ -38,7 +45,9 @@ export function migrate({ dryRun = false, check = false } = {}) {
     } catch {
       continue;
     }
-    const pm = String(meta.project_module || "").trim().toLowerCase();
+    const pm = String(meta.project_module || "")
+      .trim()
+      .toLowerCase();
     const hasArea = Boolean(String(meta.area || "").trim());
     // Migrate a leaf only in a pre-split shape: project_module is not the workspace
     // AND it has no `area` yet. Two legacy shapes match: (a) a sub-module value in
@@ -56,22 +65,38 @@ export function migrate({ dryRun = false, check = false } = {}) {
       candidates.push({
         id: doc.id,
         datasetId: doc.datasetId,
-        area: String(meta.area || meta.project_module || "").trim().toLowerCase(),
+        area: String(meta.area || meta.project_module || "")
+          .trim()
+          .toLowerCase(),
       });
     }
   }
 
   if (check) {
-    return { ok: candidates.length === 0, mode: "check", pending: candidates.length, sample: candidates.slice(0, 10).map((c) => c.id) };
+    return {
+      ok: candidates.length === 0,
+      mode: "check",
+      pending: candidates.length,
+      sample: candidates.slice(0, 10).map((c) => c.id),
+    };
   }
   if (dryRun) {
-    return { ok: true, mode: "dry-run", pending: candidates.length, changes: candidates.map((c) => ({ id: c.id, area: c.area })) };
+    return {
+      ok: true,
+      mode: "dry-run",
+      pending: candidates.length,
+      changes: candidates.map((c) => ({ id: c.id, area: c.area })),
+    };
   }
 
   let migrated = 0;
   let relocated = 0;
   for (const c of candidates) {
-    const res = updateDocMetadata({ datasetId: c.datasetId, documentId: c.id, metadata: { area: c.area } });
+    const res = updateDocMetadata({
+      datasetId: c.datasetId,
+      documentId: c.id,
+      metadata: { area: c.area },
+    });
     if (res && res.ok) {
       migrated += 1;
       if (res.relocated) relocated += 1;
@@ -100,7 +125,10 @@ const invokedAsCli = (() => {
 })();
 
 if (invokedAsCli) {
-  const res = migrate({ dryRun: process.argv.includes("--dry-run"), check: process.argv.includes("--check") });
+  const res = migrate({
+    dryRun: process.argv.includes("--dry-run"),
+    check: process.argv.includes("--check"),
+  });
   process.stdout.write(`${JSON.stringify(res, null, 2)}\n`);
   if (res.mode === "check" && !res.ok) process.exit(3);
   if (res.mode === "migrate" && !res.ok) process.exit(2);

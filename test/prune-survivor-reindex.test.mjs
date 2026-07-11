@@ -62,7 +62,11 @@ test("moveDocument out of a subdir rebuilds the survivor index (no stale ref)", 
   assert.ok(!fs.existsSync(path.join(wiki, "Notes/SubMove")), "emptied source subdir pruned");
   // The structural ref to the pruned child dir is gone (a stale leaf `focus`
   // string carrying the old path is a separate moveDocument cosmetic, not a ref).
-  assert.doesNotMatch(idxOf("Notes/index.md"), /SubMove\/index\.md/, "survivor index drops the pruned child ref");
+  assert.doesNotMatch(
+    idxOf("Notes/index.md"),
+    /SubMove\/index\.md/,
+    "survivor index drops the pruned child ref",
+  );
   assert.equal(doctor(wiki).summary.brokenRefs, 0, "no broken refs after move");
 });
 
@@ -72,10 +76,18 @@ test("deleteDocument that empties a subdir rebuilds AND commits the survivor", (
   const res = store.deleteDocument({ documentId: id });
   assert.equal(res.ok, true, JSON.stringify(res));
   assert.ok(!fs.existsSync(path.join(wiki, "Notes/Gone")), "emptied subdir pruned");
-  assert.doesNotMatch(idxOf("Notes/index.md"), /Gone\/index\.md/, "survivor index drops the pruned child ref");
+  assert.doesNotMatch(
+    idxOf("Notes/index.md"),
+    /Gone\/index\.md/,
+    "survivor index drops the pruned child ref",
+  );
   assert.equal(doctor(wiki).summary.brokenRefs, 0, "no broken refs after delete");
   // The rebuild must be COMMITTED, not left dangling in the working tree.
-  assert.doesNotMatch(git("show", "HEAD:Notes/index.md").stdout, /Gone\/index\.md/, "survivor rebuild is in HEAD");
+  assert.doesNotMatch(
+    git("show", "HEAD:Notes/index.md").stdout,
+    /Gone\/index\.md/,
+    "survivor rebuild is in HEAD",
+  );
   assert.equal(
     git("status", "--porcelain", "Notes/index.md").stdout.trim(),
     "",
@@ -91,7 +103,11 @@ test("saveDocument facet relocation (re-save with a changed area) rebuilds the o
     metadata: { atom_type: "reference", area: "gamma" },
   });
   assert.ok(a.ok, JSON.stringify(a));
-  assert.match(a.created.document.id, /knowledge\/gamma\//, `seeded under gamma; got ${a.created.document.id}`);
+  assert.match(
+    a.created.document.id,
+    /knowledge\/gamma\//,
+    `seeded under gamma; got ${a.created.document.id}`,
+  );
   const b = store.saveDocument({
     name: "Sd.md",
     text: "# Sd\n\nbody marker Sd, long enough to pass content checks.",
@@ -109,12 +125,24 @@ test("CLI doctor --fix repairs out-of-band drift AND commits the repair", () => 
   // leaving Notes/index.md with a stale child ref no relocate path revisits.
   seed("Stray.md", "Notes/Orphan"); // auto-committed (git live)
   fs.rmSync(path.join(wiki, "Notes/Orphan"), { recursive: true, force: true });
-  assert.match(idxOf("Notes/index.md"), /Orphan\/index\.md/, "stale ref present after out-of-band rm");
+  assert.match(
+    idxOf("Notes/index.md"),
+    /Orphan\/index\.md/,
+    "stale ref present after out-of-band rm",
+  );
   const r = runScript("scripts/cli.mjs", ["doctor", "--fix"]);
   assert.equal(r.status, 0, `doctor --fix cleared → exit 0; got ${r.status}: ${r.stderr}`);
-  assert.doesNotMatch(idxOf("Notes/index.md"), /Orphan\/index\.md/, "repaired index drops the stale child");
+  assert.doesNotMatch(
+    idxOf("Notes/index.md"),
+    /Orphan\/index\.md/,
+    "repaired index drops the stale child",
+  );
   // The repair is COMMITTED, not left dangling in the working tree.
-  assert.doesNotMatch(git("show", "HEAD:Notes/index.md").stdout, /Orphan\/index\.md/, "repair is in HEAD");
+  assert.doesNotMatch(
+    git("show", "HEAD:Notes/index.md").stdout,
+    /Orphan\/index\.md/,
+    "repair is in HEAD",
+  );
   assert.equal(
     git("status", "--porcelain", "Notes/index.md").stdout.trim(),
     "",

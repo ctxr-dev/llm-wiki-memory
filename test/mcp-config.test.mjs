@@ -85,7 +85,10 @@ test("the relative server path actually resolves to the real mcp-server entry", 
   // REL_PATH is workspace-root-relative (./.llm-wiki-memory/src/...); SRC is
   // <workspace>/.llm-wiki-memory/src, so strip that prefix to map onto disk.
   const tail = REL_PATH.replace("./.llm-wiki-memory/src/", "");
-  assert.ok(fs.existsSync(path.join(SRC, tail)), `relative path must point at a real file: ${tail}`);
+  assert.ok(
+    fs.existsSync(path.join(SRC, tail)),
+    `relative path must point at a real file: ${tail}`,
+  );
 });
 
 test("shipped default + install template declare the subject axis", () => {
@@ -93,6 +96,10 @@ test("shipped default + install template declare the subject axis", () => {
     const raw = fs.readFileSync(path.join(SRC, rel), "utf8");
     assert.match(raw, /vocabularies:/, `${rel}: must declare vocabularies`);
     assert.match(raw, /subject_domains:/, `${rel}: must declare subject_domains`);
-    assert.match(raw, /subject:\s*\{\s*kind:\s*path/, `${rel}: knowledge must use a kind:path subject facet`);
+    assert.match(
+      raw,
+      /subject:\s*\{\s*kind:\s*path/,
+      `${rel}: knowledge must use a kind:path subject facet`,
+    );
   }
 });

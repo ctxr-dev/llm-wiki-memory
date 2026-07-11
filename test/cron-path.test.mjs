@@ -3,11 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import {
-  CURATED_CLI_DIRS,
-  buildCronPath,
-  augmentSpawnEnv,
-} from "../scripts/lib/cron-path.mjs";
+import { CURATED_CLI_DIRS, buildCronPath, augmentSpawnEnv } from "../scripts/lib/cron-path.mjs";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const HELPER = path.join(SRC, "scripts", "lib", "cron-path.mjs");

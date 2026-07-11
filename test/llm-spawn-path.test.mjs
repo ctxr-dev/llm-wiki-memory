@@ -77,11 +77,12 @@ test("negative control: a CLI outside every curated dir still ENOENTs under the 
   writeStub(elsewhere);
   withMinimalEnv(t, path.join(TMP_HOME, "empty-home"));
   await assert.rejects(
-    () => callLLMChain({
-      systemPrompt: "s",
-      userPrompt: "u",
-      configOverride: chainConfig(["cursor"]),
-    }),
+    () =>
+      callLLMChain({
+        systemPrompt: "s",
+        userPrompt: "u",
+        configOverride: chainConfig(["cursor"]),
+      }),
     LLMProviderUnavailable,
   );
 });

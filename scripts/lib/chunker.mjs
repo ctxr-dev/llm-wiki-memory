@@ -17,11 +17,21 @@
 const HEADER_LINE_RE = /^### (User|Assistant|summary|system)\b/m;
 const MIN_CHUNK_FLOOR = 4_000;
 
+/**
+ * An ordered chunk of a split body.
+ * @typedef {{ index: number, text: string, start: number, end: number }} Chunk
+ */
+
 // Compute a chunk size given the body length and a target number of chunks.
 // Rounding up so a 100K body with target_K=5 yields 5 chunks of ~20K each
 // rather than 6 chunks of <20K. The floor ensures we don't over-fragment a
 // short body (e.g. an 8K body with target_K=5 would otherwise produce 1.6K
 // chunks; the floor forces a single chunk).
+/**
+ * @param {number} bodyLength
+ * @param {number} targetK
+ * @returns {number}
+ */
 export function computeChunkSize(bodyLength, targetK) {
   const safeLen = Number.isFinite(bodyLength) && bodyLength > 0 ? Math.floor(bodyLength) : 0;
   const safeK = Number.isFinite(targetK) && targetK >= 1 ? Math.floor(targetK) : 1;
@@ -35,20 +45,32 @@ export function computeChunkSize(bodyLength, targetK) {
 // start via the multiline flag, so a literal `### User` inside a fenced code
 // block does NOT match unless it begins its own line — which is consistent
 // with how transcriptToMarkdown ALWAYS prefixes headers with a newline.
+/**
+ * @param {string} body
+ * @param {number} from
+ * @returns {number}
+ */
 function findNextHeaderAt(body, from) {
   if (from >= body.length) return -1;
   const slice = body.slice(from);
   const m = slice.match(HEADER_LINE_RE);
   if (!m) return -1;
-  return from + m.index;
+  return from + /** @type {number} */ (m.index);
 }
 
 // Enumerate every line-start header position in `body` strictly after
 // `afterPos`. Used by the header-first cut search.
+/**
+ * @param {string} body
+ * @param {number} afterPos
+ * @returns {number[]}
+ */
 function listHeaderPositionsAfter(body, afterPos) {
+  /** @type {number[]} */
   const out = [];
   for (const m of body.matchAll(/(^|\n)(### (?:User|Assistant|summary|system)\b)/g)) {
-    const headerStart = m[1] === "" ? m.index : m.index + 1;
+    const mIndex = /** @type {number} */ (m.index);
+    const headerStart = m[1] === "" ? mIndex : mIndex + 1;
     if (headerStart > afterPos) out.push(headerStart);
   }
   return out;
@@ -58,7 +80,13 @@ function listHeaderPositionsAfter(body, afterPos) {
 // `afterPos`. Used as a fallback for non-transcript bodies (e.g. a daily
 // raw fallback that contains a compacted summary in numbered-bullet shape,
 // with no `### User` / `### Assistant` headers at all).
+/**
+ * @param {string} body
+ * @param {number} afterPos
+ * @returns {number[]}
+ */
 function listParagraphPositionsAfter(body, afterPos) {
+  /** @type {number[]} */
   const out = [];
   let from = afterPos;
   while (from < body.length) {
@@ -77,13 +105,21 @@ function listParagraphPositionsAfter(body, afterPos) {
 // Prefer the LATEST candidate at or before targetEnd (keeps the chunk ≤
 // chunkSize); fall back to the EARLIEST candidate after targetEnd when no
 // position is reachable in the prior window.
+/**
+ * @param {number[]} positions
+ * @param {number} targetEnd
+ * @returns {number}
+ */
 function pickClosestCut(positions, targetEnd) {
   if (positions.length === 0) return -1;
   let beforeOrAt = -1;
   let firstAfter = -1;
   for (const p of positions) {
     if (p <= targetEnd) beforeOrAt = p;
-    else { firstAfter = p; break; }
+    else {
+      firstAfter = p;
+      break;
+    }
   }
   if (beforeOrAt !== -1) return beforeOrAt;
   return firstAfter;
@@ -94,6 +130,11 @@ function pickClosestCut(positions, targetEnd) {
 // encodes as U+FFFD — silent content corruption. Shifting the cut forward by
 // one keeps the pair in the left chunk. Header/paragraph cuts always land
 // after a newline, so only the HARD cut paths need this.
+/**
+ * @param {string} body
+ * @param {number} pos
+ * @returns {number}
+ */
 function surrogateSafe(body, pos) {
   if (pos > 0 && pos < body.length) {
     const hi = body.charCodeAt(pos - 1);
@@ -111,6 +152,12 @@ function surrogateSafe(body, pos) {
 // Returns -1 only when even a hard cut at targetEnd would not advance the
 // cursor (i.e. cursor >= body.length); the caller treats that as EOF and
 // emits the final chunk.
+/**
+ * @param {string} body
+ * @param {number} cursor
+ * @param {number} targetEnd
+ * @returns {number}
+ */
 function findBestCut(body, cursor, targetEnd) {
   const headerCut = pickClosestCut(listHeaderPositionsAfter(body, cursor), targetEnd);
   if (headerCut !== -1) return headerCut;
@@ -127,6 +174,11 @@ function findBestCut(body, cursor, targetEnd) {
 // Find the nearest paragraph break (`\n\n`) AT OR BEFORE `from`. Returns -1
 // when none exists in the leading slice. Used when no turn header is reachable
 // before the next chunk's target end, to at least avoid splitting mid-line.
+/**
+ * @param {string} body
+ * @param {number} from
+ * @returns {number}
+ */
 function findPrevParagraphBreak(body, from) {
   const slice = body.slice(0, from);
   const idx = slice.lastIndexOf("\n\n");
@@ -138,20 +190,34 @@ function findPrevParagraphBreak(body, from) {
 // equals `body` (no characters dropped, no overlap). Single-chunk returns
 // `[{ index: 0, text: body, start: 0, end: body.length }]` (callers can
 // fast-path on chunks.length === 1).
+/**
+ * @param {unknown} body
+ * @param {{ chunkSize?: number }} [opts]
+ * @returns {Chunk[]}
+ */
 export function chunkTranscript(body, { chunkSize } = {}) {
   const text = typeof body === "string" ? body : "";
   if (!text) return [];
-  const size = Number.isFinite(chunkSize) && chunkSize > 0 ? Math.floor(chunkSize) : MIN_CHUNK_FLOOR;
+  const size =
+    Number.isFinite(chunkSize) && /** @type {number} */ (chunkSize) > 0
+      ? Math.floor(/** @type {number} */ (chunkSize))
+      : MIN_CHUNK_FLOOR;
   if (text.length <= size) {
     return [{ index: 0, text, start: 0, end: text.length }];
   }
 
+  /** @type {Chunk[]} */
   const chunks = [];
   let cursor = 0;
   while (cursor < text.length) {
     const targetEnd = cursor + size;
     if (targetEnd >= text.length) {
-      chunks.push({ index: chunks.length, text: text.slice(cursor), start: cursor, end: text.length });
+      chunks.push({
+        index: chunks.length,
+        text: text.slice(cursor),
+        start: cursor,
+        end: text.length,
+      });
       cursor = text.length;
       break;
     }
@@ -161,7 +227,12 @@ export function chunkTranscript(body, { chunkSize } = {}) {
     let cut = findBestCut(text, cursor, targetEnd);
     if (cut === -1) {
       // No more headers — emit the remainder as a final chunk and stop.
-      chunks.push({ index: chunks.length, text: text.slice(cursor), start: cursor, end: text.length });
+      chunks.push({
+        index: chunks.length,
+        text: text.slice(cursor),
+        start: cursor,
+        end: text.length,
+      });
       cursor = text.length;
       break;
     }
@@ -180,10 +251,15 @@ export function chunkTranscript(body, { chunkSize } = {}) {
 // Convenience: build chunks from a source body using the configured target
 // K. Pure derivative of computeChunkSize + chunkTranscript; exposed so
 // callers don't have to thread both calls.
+/**
+ * @param {unknown} body
+ * @param {{ targetK?: number }} [opts]
+ * @returns {Chunk[]}
+ */
 export function chunkSource(body, { targetK } = {}) {
   const text = typeof body === "string" ? body : "";
   if (!text) return [];
-  const size = computeChunkSize(text.length, targetK);
+  const size = computeChunkSize(text.length, /** @type {number} */ (targetK));
   return chunkTranscript(text, { chunkSize: size });
 }
 

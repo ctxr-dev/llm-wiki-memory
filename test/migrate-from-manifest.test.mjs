@@ -46,7 +46,11 @@ test("readSource extracts a `#heading` H2 section", async () => {
   const src = path.join(dir, "bundle.md");
   fs.writeFileSync(src, "# Doc\n\n## Section A\n\nalpha body\n\n## Section B\n\nbeta body\n");
   const r = await migrateEntry(
-    { source: `${src}#Section B`, classification: "lesson", target: "wiki/self_improvement/meta/process/b.md" },
+    {
+      source: `${src}#Section B`,
+      classification: "lesson",
+      target: "wiki/self_improvement/meta/process/b.md",
+    },
     { dryRun: true },
   );
   // dry-run returns bodyBytes for the SLICED section only (beta, not alpha).
@@ -71,7 +75,11 @@ test("migrateManifest (dry-run): skips are excluded from the total", async () =>
 test("guard: missing source file -> per-entry failure", async () => {
   const dir = tmpdir();
   const manifest = writeManifest(dir, [
-    { source: path.join(dir, "nope.md"), classification: "knowledge", target: "wiki/knowledge/a/concept/x.md" },
+    {
+      source: path.join(dir, "nope.md"),
+      classification: "knowledge",
+      target: "wiki/knowledge/a/concept/x.md",
+    },
   ]);
   const s = await migrateManifest(manifest, { dryRun: true });
   assert.equal(s.fail, 1);
@@ -83,7 +91,11 @@ test("guard: absent `#heading` -> per-entry failure", async () => {
   const src = path.join(dir, "b.md");
   fs.writeFileSync(src, "# Doc\n\n## Only Section\n\nbody\n");
   const manifest = writeManifest(dir, [
-    { source: `${src}#Missing Heading`, classification: "lesson", target: "wiki/self_improvement/m/process/x.md" },
+    {
+      source: `${src}#Missing Heading`,
+      classification: "lesson",
+      target: "wiki/self_improvement/m/process/x.md",
+    },
   ]);
   const s = await migrateManifest(manifest, { dryRun: true });
   assert.equal(s.fail, 1);

@@ -9,7 +9,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { setupWorkspace, cleanup, SRC, runScript } from "./harness.mjs";
+import { setupWorkspace, cleanup, runScript } from "./harness.mjs";
 
 const { dataDir } = setupWorkspace();
 after(() => cleanup(dataDir));
@@ -109,7 +109,12 @@ test("cron-health: a SUCCESS after a failure restores healthy:true", () => {
 test("readAttempts: returns the most-recent N entries", () => {
   wipeLog();
   for (let i = 0; i < 30; i++) {
-    appendRawEntry({ ts: `2026-06-02T${String(i % 24).padStart(2, "0")}:00:00Z`, kind: "cron-job", ok: true, n: i });
+    appendRawEntry({
+      ts: `2026-06-02T${String(i % 24).padStart(2, "0")}:00:00Z`,
+      kind: "cron-job",
+      ok: true,
+      n: i,
+    });
   }
   const r = readAttempts({ limit: 5 });
   assert.equal(r.length, 5);
@@ -166,7 +171,12 @@ test("attempts log is bounded (truncates from front when over the cap)", () => {
   // appendRawEntry + then run one real runCronJob to trigger the
   // truncate-after-append logic.
   for (let i = 0; i < 250; i++) {
-    appendRawEntry({ ts: new Date(Date.UTC(2026, 5, 1, 0, i % 60)).toISOString(), kind: "cron-job", ok: true, n: i });
+    appendRawEntry({
+      ts: new Date(Date.UTC(2026, 5, 1, 0, i % 60)).toISOString(),
+      kind: "cron-job",
+      ok: true,
+      n: i,
+    });
   }
   // Force the trim by going through the public path with one more entry.
   // (runCronJob appends one entry and then trims. We use the internal
@@ -286,13 +296,15 @@ function seedDaily() {
   return store.saveDocument({
     name: `daily-2026-06-04-20000000${dailySeed}.md`,
     text: renderDailyDocument({
-      atoms: [{
-        type: "decision",
-        title: `Escalate provider failures ${dailySeed}`,
-        body: "Escalate provider failures. Why: observability. How to apply: synthetic entities.",
-        tags: ["infra", "cron"],
-        metadata: { project_module: "testproj", task_type: "implementation" },
-      }],
+      atoms: [
+        {
+          type: "decision",
+          title: `Escalate provider failures ${dailySeed}`,
+          body: "Escalate provider failures. Why: observability. How to apply: synthetic entities.",
+          tags: ["infra", "cron"],
+          metadata: { project_module: "testproj", task_type: "implementation" },
+        },
+      ],
       source: {
         sessionId: `cron-seed-${dailySeed}`,
         cwd: "/tmp/proj",
@@ -338,8 +350,19 @@ test("cron-health: an exit-69 shaped attempt reads as UNRESOLVED FAILURE", () =>
 
 test("cron-health: a later good tick self-clears an exit-69 failure", () => {
   wipeLog();
-  appendRawEntry({ ts: "2026-06-04T13:00:00Z", kind: "cron-job", ok: false, error: "x", compile: { ok: false, exit: 69 } });
-  appendRawEntry({ ts: "2026-06-04T14:00:00Z", kind: "cron-job", ok: true, compile: { ok: true, exit: 0 } });
+  appendRawEntry({
+    ts: "2026-06-04T13:00:00Z",
+    kind: "cron-job",
+    ok: false,
+    error: "x",
+    compile: { ok: false, exit: 69 },
+  });
+  appendRawEntry({
+    ts: "2026-06-04T14:00:00Z",
+    kind: "cron-job",
+    ok: true,
+    compile: { ok: true, exit: 0 },
+  });
   const h = cronHealth();
   assert.equal(h.healthy, true);
   assert.equal(h.lastFailureAt, "2026-06-04T13:00:00Z");
@@ -407,7 +430,11 @@ test("runCronJob: a tick with no dailies and no provider stays ok (no work => no
 
 test("synthesizeProviderEntities is exported and pure (no state, no fs)", () => {
   const before = fs.existsSync(ENTITIES_PATH) ? fs.readFileSync(ENTITIES_PATH, "utf8") : null;
-  const passes = synthesizeProviderEntities({ compileExit: 69, compileOk: false, compileError: "last: x ENOENT" });
+  const passes = synthesizeProviderEntities({
+    compileExit: 69,
+    compileOk: false,
+    compileError: "last: x ENOENT",
+  });
   assert.ok(passes["compile-promote"]);
   const after = fs.existsSync(ENTITIES_PATH) ? fs.readFileSync(ENTITIES_PATH, "utf8") : null;
   assert.equal(before, after);

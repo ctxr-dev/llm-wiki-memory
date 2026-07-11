@@ -8,9 +8,8 @@ const { dataDir, wiki } = setupWorkspace();
 after(() => cleanup(dataDir));
 
 const store = await import("../scripts/lib/wiki-store.mjs");
-const { doctor, findBrokenIndexRefs, findStrayLeaves, findUnlistedChildren } = await import(
-  "../scripts/lib/doctor.mjs"
-);
+const { doctor, findBrokenIndexRefs, findStrayLeaves, findUnlistedChildren } =
+  await import("../scripts/lib/doctor.mjs");
 
 // Add a flat curated (consolidate:none) category + a topology category, so we
 // can exercise both the curated heuristics AND the topology-skip.
@@ -54,7 +53,10 @@ test("curatedCategories = flat consolidate:none only (facet + topology excluded)
   const r = doctor(wiki);
   assert.deepEqual(r.scanned.curatedCategories, ["Notes"], "only Notes is curated");
   assert.ok(!r.scanned.curatedCategories.includes("tickets"), "topology excluded from curated");
-  assert.ok(!r.scanned.curatedCategories.includes("knowledge"), "facet category excluded from curated");
+  assert.ok(
+    !r.scanned.curatedCategories.includes("knowledge"),
+    "facet category excluded from curated",
+  );
   assert.equal(r.ok, true, `clean → ok; got ${JSON.stringify(r.summary)}`);
 });
 
@@ -80,7 +82,10 @@ test("no-frontmatter stray flagged in curated zone; topology leaf NOT flagged", 
   w("Notes/Raw.md", "just raw text, no frontmatter\n"); // restore-artifact signature
   w("tickets/raw-ticket.md", "raw ticket, no frontmatter\n"); // topology → must be skipped
   const strays = findStrayLeaves(wiki);
-  assert.ok(strays.some((s) => s.stray === "Notes/Raw.md"), "curated stray flagged");
+  assert.ok(
+    strays.some((s) => s.stray === "Notes/Raw.md"),
+    "curated stray flagged",
+  );
   assert.ok(
     !strays.some((s) => s.stray.startsWith("tickets/")),
     `topology leaf must NOT be flagged; got ${JSON.stringify(strays)}`,
@@ -115,7 +120,9 @@ test("doctor --fix rebuilds broken-ref parents and clears them", () => {
   w("Notes/Real.md", FM("Real"));
   w(
     "Notes/index.md",
-    INDEX("| [Real.md](Real.md) | primary | Real |\n| [Sub/index.md](Sub/index.md) | index | Sub |"),
+    INDEX(
+      "| [Real.md](Real.md) | primary | Real |\n| [Sub/index.md](Sub/index.md) | index | Sub |",
+    ),
   );
   assert.equal(doctor(wiki).ok, false, "phantom Sub/index.md flagged before fix");
   const r = doctor(wiki, { fix: true });
@@ -134,7 +141,9 @@ test("plain doctor (no --fix) never mutates an index.md", () => {
   w("Notes/Real.md", FM("Real"));
   w(
     "Notes/index.md",
-    INDEX("| [Real.md](Real.md) | primary | Real |\n| [Sub/index.md](Sub/index.md) | index | Sub |"),
+    INDEX(
+      "| [Real.md](Real.md) | primary | Real |\n| [Sub/index.md](Sub/index.md) | index | Sub |",
+    ),
   );
   const before = fs.readFileSync(path.join(wiki, "Notes/index.md"), "utf8");
   const r = doctor(wiki); // default: read-only
@@ -167,9 +176,15 @@ test("CLI: doctor --fix exits 0 after clearing; idempotent re-run stays 0", () =
   w("Notes/Real.md", FM("Real"));
   w(
     "Notes/index.md",
-    INDEX("| [Real.md](Real.md) | primary | Real |\n| [Sub/index.md](Sub/index.md) | index | Sub |"),
+    INDEX(
+      "| [Real.md](Real.md) | primary | Real |\n| [Sub/index.md](Sub/index.md) | index | Sub |",
+    ),
   );
   assert.equal(runScript("scripts/cli.mjs", ["doctor"]).status, 3, "broken → exit 3");
   assert.equal(runScript("scripts/cli.mjs", ["doctor", "--fix"]).status, 0, "fix clears → exit 0");
-  assert.equal(runScript("scripts/cli.mjs", ["doctor", "--fix"]).status, 0, "idempotent re-run → exit 0");
+  assert.equal(
+    runScript("scripts/cli.mjs", ["doctor", "--fix"]).status,
+    0,
+    "idempotent re-run → exit 0",
+  );
 });

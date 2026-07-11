@@ -22,7 +22,11 @@ test("saveDocument nests a knowledge leaf by its subject path", () => {
     name: "kamon-gauge-note.md",
     text: "# Kamon gauge\n\nnote body about the gauge sampler.",
     datasetId: "knowledge",
-    metadata: { atom_type: "pattern-gotcha", project_module: "scala-toolkit", subject: ["observability", "kamon"] },
+    metadata: {
+      atom_type: "pattern-gotcha",
+      project_module: "scala-toolkit",
+      subject: ["observability", "kamon"],
+    },
   });
   assert.match(
     res.created.document.id,
@@ -57,7 +61,10 @@ test("a sideways subject change relocates the leaf and prunes the old subject su
     metadata: { subject: ["languages", "scala"] },
   });
   assert.ok(upd.relocated, `relocation reported: ${JSON.stringify(upd)}`);
-  assert.match(upd.relocated.to, /^knowledge\/scala-toolkit\/pattern-gotcha\/languages\/scala\/kamon-gauge-note\.md$/);
+  assert.match(
+    upd.relocated.to,
+    /^knowledge\/scala-toolkit\/pattern-gotcha\/languages\/scala\/kamon-gauge-note\.md$/,
+  );
 
   // leaf moved
   assert.ok(!fs.existsSync(abs(startRel)), "old leaf removed");
@@ -65,12 +72,25 @@ test("a sideways subject change relocates the leaf and prunes the old subject su
   // the relocate path must REWRITE frontmatter subject to the new value, else a
   // later recompute would relocate it back.
   const movedRaw = fs.readFileSync(abs(upd.relocated.to), "utf8");
-  assert.match(movedRaw, /subject:\s*\n\s*-\s*languages\s*\n\s*-\s*scala/, "frontmatter subject rewritten");
+  assert.match(
+    movedRaw,
+    /subject:\s*\n\s*-\s*languages\s*\n\s*-\s*scala/,
+    "frontmatter subject rewritten",
+  );
   assert.ok(!/observability/.test(movedRaw), "old subject removed from frontmatter");
   // old subject subtree fully pruned (no orphan dirs holding only index.md)
-  assert.ok(!fs.existsSync(abs("knowledge/scala-toolkit/pattern-gotcha/observability/kamon")), "kamon dir pruned");
-  assert.ok(!fs.existsSync(abs("knowledge/scala-toolkit/pattern-gotcha/observability")), "observability dir pruned");
+  assert.ok(
+    !fs.existsSync(abs("knowledge/scala-toolkit/pattern-gotcha/observability/kamon")),
+    "kamon dir pruned",
+  );
+  assert.ok(
+    !fs.existsSync(abs("knowledge/scala-toolkit/pattern-gotcha/observability")),
+    "observability dir pruned",
+  );
   // shared ancestor with the anchor leaf survives
-  assert.ok(fs.existsSync(abs("knowledge/scala-toolkit/pattern-gotcha")), "shared ancestor kept (anchor present)");
+  assert.ok(
+    fs.existsSync(abs("knowledge/scala-toolkit/pattern-gotcha")),
+    "shared ancestor kept (anchor present)",
+  );
   assert.equal(cli.validate(wiki).ok, true, "validate clean after sideways relocation + prune");
 });

@@ -28,7 +28,8 @@ fs.writeFileSync(
 );
 store._resetLayoutCacheForTests();
 
-const body = (id) => `# ${id}\n\nUnique body marker ${id} for lexical search; long enough to pass checks.`;
+const body = (id) =>
+  `# ${id}\n\nUnique body marker ${id} for lexical search; long enough to pass checks.`;
 function seedNote(name, dir = "Notes") {
   const r = store.saveDocument({
     name,
@@ -95,7 +96,10 @@ test("facet category is refused (relocate via metadata, not a free path)", () =>
     datasetId: "knowledge",
     metadata: { atom_type: "reference", area: "billing" },
   });
-  const res = store.moveDocument({ fromPath: k.created.document.id, toPath: "knowledge/elsewhere/Fact.md" });
+  const res = store.moveDocument({
+    fromPath: k.created.document.id,
+    toPath: "knowledge/elsewhere/Fact.md",
+  });
   assert.equal(res.ok, false);
   assert.match(res.reason, /facet/);
 });

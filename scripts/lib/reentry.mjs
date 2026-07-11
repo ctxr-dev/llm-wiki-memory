@@ -22,6 +22,11 @@ export function isReentrant(env = process.env) {
   });
 }
 
+/**
+ * @param {string} tag
+ * @param {NodeJS.ProcessEnv} [baseEnv]
+ * @returns {NodeJS.ProcessEnv}
+ */
 export function reentryEnv(tag, baseEnv = process.env) {
   const env = { ...baseEnv };
   for (const name of REENTRY_VARS) env[name] = tag;

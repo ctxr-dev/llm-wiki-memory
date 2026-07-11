@@ -57,7 +57,11 @@ test("recall appends supplementary knowledge cross-refs", async () => {
     name: "knowledge-stale-cache-2026-05-22-120000000.md",
     text: "# Stale cache after migrate\n\nInvalidate the cache after a schema migration.",
     datasetId: "knowledge",
-    metadata: { atom_type: "bug-root-cause", project_module: "testproj", error_pattern: "stale-cache" },
+    metadata: {
+      atom_type: "bug-root-cause",
+      project_module: "testproj",
+      error_pattern: "stale-cache",
+    },
   });
   assert.ok(k.created);
 
@@ -80,9 +84,16 @@ test("sub-module lessons are recalled by DEFAULT (project_module=workspace) + ar
   assert.ok(r.created, "lesson created");
 
   // project_module is stamped to the workspace; the sub-module lives in `area`.
-  const doc = store.readDocument({ documentId: r.created.document.id, datasetId: "self_improvement" });
+  const doc = store.readDocument({
+    documentId: r.created.document.id,
+    datasetId: "self_improvement",
+  });
   assert.equal(doc.metadata.area, "frontend", "area = sub-module");
-  assert.equal(doc.metadata.project_module, "testproj", "project_module = workspace, not the sub-module");
+  assert.equal(
+    doc.metadata.project_module,
+    "testproj",
+    "project_module = workspace, not the sub-module",
+  );
 
   // THE FIX: default recall (no project_module, no area) finds the sub-module-tagged
   // lesson. Previously the workspace-vs-submodule mismatch returned 0 hits.

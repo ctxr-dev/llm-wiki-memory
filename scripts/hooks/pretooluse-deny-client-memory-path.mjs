@@ -22,6 +22,7 @@ import path from "node:path";
 
 const WATCHED_TOOLS = new Set(["Write", "Edit", "NotebookEdit"]);
 
+/** @param {string} reason */
 function deny(reason) {
   process.stdout.write(
     JSON.stringify({
@@ -39,6 +40,7 @@ function untouched() {
   process.exit(0);
 }
 
+/** @param {unknown} p */
 function expandHome(p) {
   if (typeof p !== "string" || !p) return "";
   if (p === "~") return os.homedir();
@@ -103,8 +105,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  process.stderr.write(
-    `deny-client-memory-path hook error: ${err?.message || String(err)}\n`,
-  );
+  process.stderr.write(`deny-client-memory-path hook error: ${err?.message || String(err)}\n`);
   process.exit(0); // fail-open on internal errors; never block unrelated edits
 });

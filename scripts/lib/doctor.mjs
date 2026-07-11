@@ -17,99 +17,51 @@
 // index-rebuild-one (disk-authoritative), then re-scans — the surgical repair
 // for stale parent->pruned-child refs. strays/orphans/unlisted are still only
 // reported (different damage classes).
+//
+// The read-only scan primitives (directory walks, frontmatter probes, index-ref
+// extraction) and the layout-derived category selectors live in doctor-scan.mjs.
 import fs from "node:fs";
 import path from "node:path";
 import { wikiRoot } from "./env.mjs";
-import {
-  getCategories,
-  getConsolidateLayout,
-  categoryHasTopology,
-  getPlacementFacets,
-} from "./wiki-store.mjs";
 import { indexRebuildOne } from "./wiki-cli.mjs";
 import { recordWikiChange } from "./wiki-commit.mjs";
+import {
+  isHidden,
+  brokenRefCategories,
+  curatedCategories,
+  indexFilesUnder,
+  leavesUnder,
+  hasFrontmatter,
+  rel,
+  refsFromIndex,
+} from "./doctor-scan.mjs";
 
-function isHidden(name) {
-  return name.startsWith(".");
-}
-
-// Categories whose index.md trees are worth a broken-ref scan: every declared
-// category except topology ones (their nesting is validated by the compiler).
-function brokenRefCategories() {
-  return getCategories().filter((c) => !categoryHasTopology(c));
-}
-
-// The curated human zone, where the one-index-per-folder + stamped-frontmatter
-// conventions hold: explicitly `consolidate: none`, NOT facet-managed (a flat /
-// path-nested human taxonomy), not topology, not the date-nested `daily`. This
-// excludes facet machine categories (knowledge / self_improvement / plans …)
-// even when they happen to be `consolidate: none`.
-function curatedCategories() {
-  return getConsolidateLayout().excluded.filter(
-    (c) =>
-      !categoryHasTopology(c) &&
-      c !== "daily" &&
-      getPlacementFacets(c).length === 0,
-  );
-}
-
-function indexFilesUnder(absDir, out = []) {
-  let ents;
-  try {
-    ents = fs.readdirSync(absDir, { withFileTypes: true });
-  } catch {
-    return out;
-  }
-  for (const e of ents) {
-    if (isHidden(e.name)) continue;
-    const p = path.join(absDir, e.name);
-    if (e.isDirectory()) indexFilesUnder(p, out);
-    else if (e.name === "index.md") out.push(p);
-  }
-  return out;
-}
-
-function leavesUnder(absDir, out = []) {
-  let ents;
-  try {
-    ents = fs.readdirSync(absDir, { withFileTypes: true });
-  } catch {
-    return out;
-  }
-  for (const e of ents) {
-    if (isHidden(e.name)) continue;
-    const p = path.join(absDir, e.name);
-    if (e.isDirectory()) leavesUnder(p, out);
-    else if (e.name.endsWith(".md") && e.name !== "index.md") out.push(p);
-  }
-  return out;
-}
-
-function hasFrontmatter(absFile) {
-  try {
-    return fs.readFileSync(absFile, "utf8").startsWith("---");
-  } catch {
-    return false;
-  }
-}
-
-function rel(wiki, abs) {
-  return path.relative(wiki, abs).split(path.sep).join("/");
-}
-
-// Every leaf reference an index.md makes: frontmatter `children:` list, the
-// `entries[].file` values, and inline markdown `](....md)` links.
-function refsFromIndex(raw) {
-  const refs = new Set();
-  const fm = raw.split(/^---$/m)[1] || "";
-  for (const m of fm.matchAll(/^\s*-\s*"?([^"\n]+\.md)"?\s*$/gm)) refs.add(m[1].trim());
-  for (const m of fm.matchAll(/\bfile:\s*"?([^"\n]+\.md)"?/g)) refs.add(m[1].trim());
-  for (const m of raw.matchAll(/\]\(([^)]+?\.md)\)/g)) refs.add(decodeURIComponent(m[1].trim()));
-  return [...refs];
-}
+/**
+ * @typedef {{ index: string, broken: string[] }} BrokenRefEntry
+ * @typedef {{ index: string, unlisted: Array<{ name: string, why: string }> }} UnlistedEntry
+ * @typedef {{ stray: string, reason: string }} StrayEntry
+ * @typedef {{ orphan: string }} OrphanEntry
+ * @typedef {{ index: string, fixed: string[] }} FixedEntry
+ * @typedef {{
+ *   ok: boolean,
+ *   wiki: string,
+ *   scanned: { brokenRefCategories: string[], curatedCategories: string[] },
+ *   brokenRefs: BrokenRefEntry[],
+ *   unlisted: UnlistedEntry[],
+ *   strays: StrayEntry[],
+ *   orphans: OrphanEntry[],
+ *   summary: { brokenRefs: number, unlisted: number, strays: number, orphans: number },
+ *   fixed?: FixedEntry[]
+ * }} DoctorReport
+ */
 
 // index.md links a ref that doesn't exist on disk -> Obsidian phantom-file source.
+/**
+ * @param {string} [wiki]
+ * @returns {BrokenRefEntry[]}
+ */
 export function findBrokenIndexRefs(wiki = wikiRoot()) {
+  /** @type {BrokenRefEntry[]} */
   const found = [];
   for (const cat of brokenRefCategories()) {
     for (const idx of indexFilesUnder(path.join(wiki, cat))) {
@@ -130,9 +82,15 @@ export function findBrokenIndexRefs(wiki = wikiRoot()) {
 }
 
 // A real child (leaf or sub-index) not listed in its folder's index.md.
+/**
+ * @param {string} [wiki]
+ * @returns {UnlistedEntry[]}
+ */
 export function findUnlistedChildren(wiki = wikiRoot()) {
+  /** @type {UnlistedEntry[]} */
   const found = [];
   // Global basename frequency across the curated zone, to flag dup-basename collisions.
+  /** @type {Record<string, number>} */
   const freq = Object.create(null);
   for (const cat of curatedCategories()) {
     for (const leaf of leavesUnder(path.join(wiki, cat))) {
@@ -149,10 +107,12 @@ export function findUnlistedChildren(wiki = wikiRoot()) {
       } catch {
         continue;
       }
+      /** @type {Set<string>} */
       const listed = new Set();
       for (const m of raw.matchAll(/\]\(([^)]+?\.md)\)/g)) {
         listed.add(decodeURIComponent(m[1]).replace(/^\.\//, ""));
       }
+      /** @type {string[]} */
       const actual = [];
       for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
         if (isHidden(e.name) || e.name === "index.md") continue;
@@ -179,7 +139,12 @@ export function findUnlistedChildren(wiki = wikiRoot()) {
 
 // Raw leaves (no YAML frontmatter) in the curated zone — the signature of a
 // cloud-sync restore artifact or a hand-dropped file the engine never stamped.
+/**
+ * @param {string} [wiki]
+ * @returns {StrayEntry[]}
+ */
 export function findStrayLeaves(wiki = wikiRoot()) {
+  /** @type {StrayEntry[]} */
   const found = [];
   for (const cat of curatedCategories()) {
     for (const leaf of leavesUnder(path.join(wiki, cat))) {
@@ -190,7 +155,12 @@ export function findStrayLeaves(wiki = wikiRoot()) {
 }
 
 // A curated leaf that no index.md anywhere references (the inverse of a broken ref).
-export function findOrphanLeaves(wiki = wikiRoot()) {
+/**
+ * @param {string} [wiki]
+ * @returns {OrphanEntry[]}
+ */
+function findOrphanLeaves(wiki = wikiRoot()) {
+  /** @type {Set<string>} */
   const referenced = new Set();
   for (const cat of curatedCategories()) {
     for (const idx of indexFilesUnder(path.join(wiki, cat))) {
@@ -207,6 +177,7 @@ export function findOrphanLeaves(wiki = wikiRoot()) {
       }
     }
   }
+  /** @type {OrphanEntry[]} */
   const found = [];
   for (const cat of curatedCategories()) {
     for (const leaf of leavesUnder(path.join(wiki, cat))) {
@@ -220,9 +191,15 @@ export function findOrphanLeaves(wiki = wikiRoot()) {
 // `fix` is set, in which case it rebuilds every broken-ref parent and re-scans;
 // the returned `brokenRefs` then reflects the POST-fix state and `fixed` lists
 // the refs that were cleared.
+/**
+ * @param {string} [wiki]
+ * @param {{ fix?: boolean }} [opts]
+ * @returns {DoctorReport}
+ */
 export function doctor(wiki = wikiRoot(), { fix = false } = {}) {
   const w = path.resolve(wiki);
   let brokenRefs = findBrokenIndexRefs(w);
+  /** @type {FixedEntry[] | undefined} */
   let fixed;
   if (fix && brokenRefs.length) {
     const before = brokenRefs;
@@ -231,20 +208,29 @@ export function doctor(wiki = wikiRoot(), { fix = false } = {}) {
         indexRebuildOne(path.dirname(path.resolve(w, entry.index)), w);
         // Commit the repair when run inside a wiki-commit frame (cli doctor
         // --fix wraps one); a no-op outside a git wiki.
-        recordWikiChange({ action: "reindexed", leafRelPath: entry.index, reason: "doctor --fix reindex" });
+        recordWikiChange(
+          /** @type {Parameters<typeof recordWikiChange>[0]} */ ({
+            action: "reindexed",
+            leafRelPath: entry.index,
+            reason: "doctor --fix reindex",
+          }),
+        );
       } catch {
         /* best-effort; the re-scan reports whatever remains broken */
       }
     }
     const after = findBrokenIndexRefs(w);
+    /** @type {Map<string, Set<string>>} */
     const remainingByIndex = new Map(after.map((e) => [e.index, new Set(e.broken)]));
-    fixed = before
-      .map((e) => {
-        const remaining = remainingByIndex.get(e.index) || new Set();
-        const cleared = e.broken.filter((r) => !remaining.has(r));
-        return cleared.length ? { index: e.index, fixed: cleared } : null;
-      })
-      .filter(Boolean);
+    fixed = /** @type {FixedEntry[]} */ (
+      before
+        .map((e) => {
+          const remaining = remainingByIndex.get(e.index) || new Set();
+          const cleared = e.broken.filter((r) => !remaining.has(r));
+          return cleared.length ? { index: e.index, fixed: cleared } : null;
+        })
+        .filter(Boolean)
+    );
     brokenRefs = after;
   }
   const unlisted = findUnlistedChildren(w);
@@ -257,6 +243,7 @@ export function doctor(wiki = wikiRoot(), { fix = false } = {}) {
     orphans: orphans.length,
   };
   const ok = Object.values(summary).every((n) => n === 0);
+  /** @type {DoctorReport} */
   const report = {
     ok,
     wiki: w,

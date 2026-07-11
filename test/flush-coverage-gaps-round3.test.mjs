@@ -37,14 +37,21 @@ process.env.MEMORY_LLM_MOCK_RESPONSE = MOCK_RESPONSE;
 
 const flush = await import("../scripts/hooks/flush.mjs");
 const llm = await import("../scripts/lib/llm.mjs");
-const store = await import("../scripts/lib/wiki-store.mjs");
 const { chunkTranscript } = await import("../scripts/lib/chunker.mjs");
-const { __setSettingsForTest, __clearSettingsForTest } = await import("../scripts/lib/settings.mjs");
+const { __setSettingsForTest, __clearSettingsForTest } =
+  await import("../scripts/lib/settings.mjs");
 
 const CLI = path.join(SRC, "scripts/cli.mjs");
 
 function makeSource(sessionId, body) {
-  return { sessionId, cwd: dataDir, hookEvent: "PostCompact", body, turnCount: 4, capturedAtMs: Date.now() - 1_000 };
+  return {
+    sessionId,
+    cwd: dataDir,
+    hookEvent: "PostCompact",
+    body,
+    turnCount: 4,
+    capturedAtMs: Date.now() - 1_000,
+  };
 }
 
 function makeTranscript(turnCount, charsPerTurn) {
@@ -136,7 +143,10 @@ test("partial-failure with NO surviving atoms still stashes the failed chunks (n
   // deleted — otherwise the failed chunk context is lost.
   await flush.redistillFromStash(seedStash);
 
-  assert.ok(fs.existsSync(seedStash), `stash must be preserved when chunks still fail; found ${flush.listFailedDistillStashes().length} stashes`);
+  assert.ok(
+    fs.existsSync(seedStash),
+    `stash must be preserved when chunks still fail; found ${flush.listFailedDistillStashes().length} stashes`,
+  );
   const stashJson = JSON.parse(fs.readFileSync(seedStash, "utf8"));
   assert.equal(stashJson.source.sessionId, sessionId);
   assert.ok(stashJson.source.body.length > 0);
@@ -157,7 +167,10 @@ test("cli redistill --leaf falls through to redistillFromLeaf when no stash exis
   const recoverableBody =
     "### User\n\nWhat is X?\n\n### Assistant\n\nX is the thing that does Y.\n\n" +
     "### User\n\nGive an example.\n\n### Assistant\n\nFor instance, Z.";
-  const indented = recoverableBody.split("\n").map((l) => `    ${l}`).join("\n");
+  const indented = recoverableBody
+    .split("\n")
+    .map((l) => `    ${l}`)
+    .join("\n");
   const leafPath = path.join(dataDir, "leaf-fallback-cli.md");
   fs.writeFileSync(
     leafPath,
@@ -197,7 +210,10 @@ test("cli redistill --leaf falls through to redistillFromLeaf when no stash exis
   assert.equal(parsed.ok, true);
   assert.equal(parsed.redistilled, 1);
   // The leaf-fallback path produces results keyed by `leaf`, not `stash`.
-  assert.ok(parsed.results[0].leaf, `expected results[0].leaf, got ${JSON.stringify(parsed.results[0])}`);
+  assert.ok(
+    parsed.results[0].leaf,
+    `expected results[0].leaf, got ${JSON.stringify(parsed.results[0])}`,
+  );
   assert.equal(parsed.results[0].audit.original_outcome, "distillation-failed");
   assert.equal(parsed.results[0].audit.recovered_from_leaf, path.basename(leafPath));
 });
@@ -206,7 +222,10 @@ test("cli redistill --leaf falls through to redistillFromLeaf when no stash exis
 
 test("extractSourceFromLeaf: leaf missing session_id returns null", () => {
   const p = path.join(dataDir, "leaf-no-session.md");
-  fs.writeFileSync(p, "# header\n\nno session\n\n<!-- BEGIN UNTRUSTED MEMORY BODY -->\n    body\n<!-- END UNTRUSTED MEMORY BODY -->\n");
+  fs.writeFileSync(
+    p,
+    "# header\n\nno session\n\n<!-- BEGIN UNTRUSTED MEMORY BODY -->\n    body\n<!-- END UNTRUSTED MEMORY BODY -->\n",
+  );
   assert.equal(flush.extractSourceFromLeaf(p), null);
 });
 
@@ -285,7 +304,10 @@ test("fence round-trip: a forged END marker in the body cannot truncate the reco
   const src = flush.extractSourceFromLeaf(p);
   assert.ok(src, "source recovered");
   assert.ok(src.body.includes("POISON-AFTER-MARKER-A"), "content after the forged marker survived");
-  assert.ok(src.body.includes("POISON-AFTER-MARKER-B"), "ALL content after the forged marker survived (no truncation)");
+  assert.ok(
+    src.body.includes("POISON-AFTER-MARKER-B"),
+    "ALL content after the forged marker survived (no truncation)",
+  );
 });
 
 test("extractSourceFromLeaf: a secret in a (pre-redaction / hand-edited) leaf body is re-redacted on recovery", () => {
@@ -307,13 +329,18 @@ test("extractSourceFromLeaf: a secret in a (pre-redaction / hand-edited) leaf bo
   const src = flush.extractSourceFromLeaf(p);
   assert.ok(src);
   assert.ok(src.body.includes("ghp_[REDACTED]"), "secret replaced by sentinel");
-  assert.equal(src.body.includes("ghp_0123456789abcdefghijABCD"), false, "raw secret must NOT survive recovery");
+  assert.equal(
+    src.body.includes("ghp_0123456789abcdefghijABCD"),
+    false,
+    "raw secret must NOT survive recovery",
+  );
 });
 
 // ─── 4. Chunker CRLF + exact-boundary edges ───────────────────────────────
 
 test("chunkTranscript: CRLF line endings still split at turn headers", () => {
-  const body = "### User\r\n\r\nfirst question text\r\n\r\n### Assistant\r\n\r\nfirst answer\r\n\r\n### User\r\n\r\nsecond question";
+  const body =
+    "### User\r\n\r\nfirst question text\r\n\r\n### Assistant\r\n\r\nfirst answer\r\n\r\n### User\r\n\r\nsecond question";
   const chunks = chunkTranscript(body, { chunkSize: 30 });
   // Reassembly is lossless regardless of line endings.
   assert.equal(chunks.map((c) => c.text).join(""), body);
@@ -389,8 +416,16 @@ test("harness sweep: a stale lwm-* SYMLINK is not followed (target preserved)", 
     // skip on freshness, and delete via the link path — so the assertions
     // below would flip. Without aging the target the test was vacuously green
     // (a follow-sweep would skip the fresh target).
-    try { fs.lutimesSync(linkPath, old, old); } catch { /* best effort */ }
-    try { fs.utimesSync(target, old, old); } catch { /* best effort */ }
+    try {
+      fs.lutimesSync(linkPath, old, old);
+    } catch {
+      /* best effort */
+    }
+    try {
+      fs.utimesSync(target, old, old);
+    } catch {
+      /* best effort */
+    }
     // Re-trigger the sweep by re-importing the harness in a fresh module
     // graph (query-string cache-buster forces the side-effecting sweep).
     await import(`./harness.mjs?sweep=${Date.now()}`);
@@ -399,11 +434,21 @@ test("harness sweep: a stale lwm-* SYMLINK is not followed (target preserved)", 
     // deleted), and the target + its sentinel are never touched. A regression
     // from lstatSync to statSync would delete the link (rmSync on the followed
     // path), failing the first assertion.
-    assert.ok(fs.existsSync(linkPath), "an aged lwm-* SYMLINK must be SKIPPED, not deleted (lstat sees it's a link)");
+    assert.ok(
+      fs.existsSync(linkPath),
+      "an aged lwm-* SYMLINK must be SKIPPED, not deleted (lstat sees it's a link)",
+    );
     assert.ok(fs.existsSync(target), "the symlink target dir must survive untouched");
-    assert.ok(fs.existsSync(sentinel), "the sentinel inside the target must NEVER be touched by the sweep");
+    assert.ok(
+      fs.existsSync(sentinel),
+      "the sentinel inside the target must NEVER be touched by the sweep",
+    );
   } finally {
-    try { fs.unlinkSync(linkPath); } catch { /* best effort */ }
+    try {
+      fs.unlinkSync(linkPath);
+    } catch {
+      /* best effort */
+    }
     fs.rmSync(target, { recursive: true, force: true });
   }
 });

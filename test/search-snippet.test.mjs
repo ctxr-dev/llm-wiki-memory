@@ -17,7 +17,10 @@ const rec = (id, len, score = 0.9) => ({
 test("per-hit cap clips an oversized body and annotates it", () => {
   const out = clampSearchResponse({ records: [rec("a", 5000)] });
   const r = out.records[0];
-  assert.ok(r.content.length <= SEARCH_PER_HIT_CHARS + 4, `clipped near cap, got ${r.content.length}`);
+  assert.ok(
+    r.content.length <= SEARCH_PER_HIT_CHARS + 4,
+    `clipped near cap, got ${r.content.length}`,
+  );
   assert.equal(r.truncated, true);
   assert.equal(r.fullChars, 5000);
   assert.equal(out.truncated, true);
@@ -40,14 +43,22 @@ test("small bodies pass through untouched, no truncated flag", () => {
 });
 
 test("total budget drops bodies of the lowest-ranked tail but keeps the hits", () => {
-  const records = Array.from({ length: 60 }, (_, i) => rec(`h${i}`, SEARCH_PER_HIT_CHARS - 1, 1 - i / 100));
+  const records = Array.from({ length: 60 }, (_, i) =>
+    rec(`h${i}`, SEARCH_PER_HIT_CHARS - 1, 1 - i / 100),
+  );
   const out = clampSearchResponse({ records });
   assert.equal(out.records.length, 60, "every hit retained (name+score), even when body dropped");
   const totalChars = out.records.reduce((s, r) => s + r.content.length, 0);
-  assert.ok(totalChars <= SEARCH_TOTAL_BUDGET + SEARCH_PER_HIT_CHARS, `within budget, got ${totalChars}`);
+  assert.ok(
+    totalChars <= SEARCH_TOTAL_BUDGET + SEARCH_PER_HIT_CHARS,
+    `within budget, got ${totalChars}`,
+  );
   const dropped = out.records.filter((r) => r.content === "" && r.truncated);
   assert.ok(dropped.length > 0, "tail bodies dropped once budget spent");
-  assert.ok(dropped.every((r) => r.documentId && typeof r.score === "number"), "dropped hits keep identity");
+  assert.ok(
+    dropped.every((r) => r.documentId && typeof r.score === "number"),
+    "dropped hits keep identity",
+  );
 });
 
 test("fullContent:true opts out entirely", () => {
@@ -58,7 +69,10 @@ test("fullContent:true opts out entirely", () => {
 
 test("maxChars tunes the per-hit width", () => {
   const out = clampSearchResponse({ records: [rec("a", 5000)] }, { maxChars: 150 });
-  assert.ok(out.records[0].content.length <= 154, `respects maxChars, got ${out.records[0].content.length}`);
+  assert.ok(
+    out.records[0].content.length <= 154,
+    `respects maxChars, got ${out.records[0].content.length}`,
+  );
 });
 
 test("perHitDefault override (recall uses a wider window)", () => {
@@ -95,7 +109,10 @@ const glanceRec = (id, len) => ({
 });
 
 test("sections=[frontmatter] drops the body and keeps the glance fields", () => {
-  const out = clampSearchResponse({ records: [glanceRec("a", 5000)] }, { sections: ["frontmatter"] });
+  const out = clampSearchResponse(
+    { records: [glanceRec("a", 5000)] },
+    { sections: ["frontmatter"] },
+  );
   const r = out.records[0];
   assert.equal(r.content, undefined, "body dropped");
   assert.equal(r.truncated, undefined);
@@ -110,7 +127,10 @@ test("sections=[frontmatter] drops the body and keeps the glance fields", () => 
 });
 
 test("sections=[frontmatter,body] keeps BOTH the excerpted body and the glance fields", () => {
-  const out = clampSearchResponse({ records: [glanceRec("a", 5000)] }, { sections: ["frontmatter", "body"] });
+  const out = clampSearchResponse(
+    { records: [glanceRec("a", 5000)] },
+    { sections: ["frontmatter", "body"] },
+  );
   const r = out.records[0];
   assert.ok(r.content.length <= SEARCH_PER_HIT_CHARS + 4, "body still excerpted");
   assert.equal(r.truncated, true);
@@ -139,5 +159,8 @@ test("sections omitted adds NO glance fields (byte-identical shape)", () => {
   assert.equal(r.brief, undefined);
   assert.equal(r.type, undefined);
   assert.equal(r.status, undefined);
-  assert.deepEqual(Object.keys(r).sort(), ["content", "documentId", "documentName", "score"].sort());
+  assert.deepEqual(
+    Object.keys(r).sort(),
+    ["content", "documentId", "documentName", "score"].sort(),
+  );
 });

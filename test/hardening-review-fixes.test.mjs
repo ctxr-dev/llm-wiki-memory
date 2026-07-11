@@ -24,12 +24,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { setupWorkspace, cleanup, SRC } from "./harness.mjs";
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(SRC, "scripts", "cli.mjs");
 
 // ─── Shared workspace ──────────────────────────────────────────────────────
@@ -54,7 +52,8 @@ function clearConsolidateState() {
   }
 }
 
-const { __setSettingsForTest, __clearSettingsForTest } = await import("../scripts/lib/settings.mjs");
+const { __setSettingsForTest, __clearSettingsForTest } =
+  await import("../scripts/lib/settings.mjs");
 
 function resetEnv() {
   delete process.env.MEMORY_LLM_MOCK_RESPONSE;
@@ -184,10 +183,7 @@ function makeGateWorkspace() {
     ...process.env,
     MEMORY_DATA_DIR: gateDir,
     MEMORY_DEFAULT_PROJECT_MODULE: "testproj",
-    LLM_WIKI_SKILL_CLI: path.join(
-      SRC,
-      "node_modules/@ctxr/skill-llm-wiki/scripts/cli.mjs",
-    ),
+    LLM_WIKI_SKILL_CLI: path.join(SRC, "node_modules/@ctxr/skill-llm-wiki/scripts/cli.mjs"),
     LLM_WIKI_FIXED_TIMESTAMP: "1700000000",
     LLM_WIKI_NO_PROMPT: "1",
   };
@@ -218,13 +214,11 @@ async function connectMcp(envForChild) {
 
 let wmGate;
 let wmClient;
-let wmTransport;
 
 before(async () => {
   wmGate = makeGateWorkspace();
   const conn = await connectMcp(wmGate.env);
   wmClient = conn.client;
-  wmTransport = conn.transport;
 });
 
 after(async () => {
@@ -283,7 +277,11 @@ test("(3b) write_memory(self_improvement) WITH userRequested:true -> ok:true", a
     },
   });
   const payload = parseToolResult(res);
-  assert.equal(payload.ok, true, `write_memory with userRequested:true should succeed: ${JSON.stringify(payload)}`);
+  assert.equal(
+    payload.ok,
+    true,
+    `write_memory with userRequested:true should succeed: ${JSON.stringify(payload)}`,
+  );
 });
 
 test("(3c) write_memory(knowledge) WITHOUT userRequested -> success (not gated)", async () => {
@@ -297,7 +295,11 @@ test("(3c) write_memory(knowledge) WITHOUT userRequested -> success (not gated)"
     },
   });
   const payload = parseToolResult(res);
-  assert.equal(payload.ok, true, `knowledge write_memory should succeed: ${JSON.stringify(payload)}`);
+  assert.equal(
+    payload.ok,
+    true,
+    `knowledge write_memory should succeed: ${JSON.stringify(payload)}`,
+  );
 });
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -310,7 +312,7 @@ test("(4) consolidate installs SIGTERM/SIGINT/SIGHUP/exit lock-release handlers"
   resetEnv();
 
   // Snapshot listener counts BEFORE the run.
-  const before = {
+  const _before = {
     SIGTERM: process.listenerCount("SIGTERM"),
     SIGINT: process.listenerCount("SIGINT"),
     SIGHUP: process.listenerCount("SIGHUP"),
@@ -408,10 +410,7 @@ test("(5) prune-embeddings throttle: recent state -> skipped; backdated -> runs"
   // Backdate the state to 10 days ago so the throttle window is well past
   // the 7-day interval.
   const tenDaysAgo = new Date(Date.now() - 10 * 86_400_000).toISOString();
-  fs.writeFileSync(
-    env.GC_STATE_PATH,
-    JSON.stringify({ last_run_utc: tenDaysAgo, removed: 0 }),
-  );
+  fs.writeFileSync(env.GC_STATE_PATH, JSON.stringify({ last_run_utc: tenDaysAgo, removed: 0 }));
 
   // Seed an orphan into the embed cache so a sweep has something to remove
   // (gives the report a non-zero touched count we can assert positively on).
@@ -479,7 +478,10 @@ test("(5b) saveCache uses a unique temp (no fixed .tmp collision) and writes val
   // No fixed-name leftover, and the persisted file round-trips.
   assert.equal(fs.existsSync(`${cachePath}.tmp`), false, "no fixed .tmp leftover");
   const reloaded = embed.loadCache(cachePath);
-  assert.ok(reloaded.entries["knowledge/x/atomic-savecache-probe.md"], "entry persisted + parseable");
+  assert.ok(
+    reloaded.entries["knowledge/x/atomic-savecache-probe.md"],
+    "entry persisted + parseable",
+  );
 });
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -607,11 +609,19 @@ test("(7) consolidate archives losers but never deletes files from disk", async 
 
   // Both the keeper and the loser must still be listable — one as enabled,
   // one as enabled:false.
-  const activeIds = store.listDocuments({ datasetId: "self_improvement", enabled: true }).documents.map((d) => d.id);
-  const inactiveIds = store.listDocuments({ datasetId: "self_improvement", enabled: false }).documents.map((d) => d.id);
+  const activeIds = store
+    .listDocuments({ datasetId: "self_improvement", enabled: true })
+    .documents.map((d) => d.id);
+  const inactiveIds = store
+    .listDocuments({ datasetId: "self_improvement", enabled: false })
+    .documents.map((d) => d.id);
   const seededActiveCount = activeIds.filter((i) => /lesson-no-delete-/.test(i)).length;
   const seededInactiveCount = inactiveIds.filter((i) => /lesson-no-delete-/.test(i)).length;
-  assert.equal(seededActiveCount + seededInactiveCount, 2, "both leaves still discoverable on disk");
+  assert.equal(
+    seededActiveCount + seededInactiveCount,
+    2,
+    "both leaves still discoverable on disk",
+  );
   assert.equal(seededInactiveCount, 1, "exactly one loser archived");
 });
 

@@ -12,8 +12,15 @@ import { slugify } from "./slug.mjs";
 
 const MAX_SIG_LEN = 80;
 
+/**
+ * @param {unknown} rawError
+ * @param {{ pass?: string, kind?: string }} [options]
+ * @returns {string}
+ */
 export function normalizeErrorSignature(rawError, { pass = "", kind = "" } = {}) {
-  let s = redact(String(rawError?.message || rawError || "unknown-error"));
+  /** @type {{ message?: string } | null} */
+  const errObj = rawError && typeof rawError === "object" ? rawError : null;
+  let s = redact(String(errObj?.message || rawError || "unknown-error"));
   s = s.toLowerCase().replace(/\s+/g, " ").trim();
   // Strip volatile tokens, most-specific first so partial eats can't leave
   // fragments behind (a path stripped after its .md id would split in two).

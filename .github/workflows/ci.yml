@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck (tsc --checkJs --strict, zero any)
+        run: npm run typecheck
+      - name: Lint (eslint, zero warnings)
+        run: npx eslint . --max-warnings 0
+      - name: Format check (prettier)
+        run: npm run format:check
+      - name: Dead code (knip)
+        run: npm run deadcode
+      - name: Max 300 lines per module
+        run: |
+          over=$(find scripts mcp-server -name '*.mjs' -exec wc -l {} + \
+            | awk '$2 != "total" && $1 > 300 { print $1 "  " $2 }')
+          if [ -n "$over" ]; then
+            echo "Files over 300 lines:"; echo "$over"; exit 1
+          fi
+      - name: No decorative comment banners/dividers
+        run: |
+          hits=$(grep -rnE '^[[:space:]]*//[[:space:]]*[-=*]{3,}|^[[:space:]]*/\*[[:space:]]*[-=*]{3,}' \
+            scripts mcp-server --include='*.mjs' || true)
+          if [ -n "$hits" ]; then
+            echo "Decorative comment banners/dividers found (strip to plain WHY comments):"
+            echo "$hits"; exit 1
+          fi
+      - name: Test suite
+        run: npm test

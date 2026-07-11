@@ -120,7 +120,10 @@ test("health: anthropic without key is unavailable, reason mentions ANTHROPIC_AP
   const h = await health();
   assert.equal(h.provider, "anthropic");
   assert.equal(h.available, false);
-  assert.ok(h.reason.includes("ANTHROPIC_API_KEY"), `expected reason to mention ANTHROPIC_API_KEY, got: ${h.reason}`);
+  assert.ok(
+    h.reason.includes("ANTHROPIC_API_KEY"),
+    `expected reason to mention ANTHROPIC_API_KEY, got: ${h.reason}`,
+  );
 });
 
 test("health: openai with OPENAI_API_KEY uses public baseUrl and is available", async (t) => {
@@ -151,7 +154,10 @@ test("health: openai-compatible local endpoint without key is available", async 
   const h = await health();
   assert.equal(h.provider, "openai-compatible");
   assert.equal(h.available, true);
-  assert.ok(h.baseUrl.includes("localhost"), `expected baseUrl to include "localhost", got: ${h.baseUrl}`);
+  assert.ok(
+    h.baseUrl.includes("localhost"),
+    `expected baseUrl to include "localhost", got: ${h.baseUrl}`,
+  );
 });
 
 test("health: openai-compatible non-local endpoint without key is unavailable", async (t) => {

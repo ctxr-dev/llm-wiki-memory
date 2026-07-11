@@ -26,7 +26,7 @@ process.env.MEMORY_LLM_MOCK_RESPONSE = MOCK_RESPONSE;
 
 const flush = await import("../scripts/hooks/flush.mjs");
 const llm = await import("../scripts/lib/llm.mjs");
-const { chunkTranscript, computeChunkSize, chunkSource, __testing } = await import("../scripts/lib/chunker.mjs");
+const { chunkTranscript, computeChunkSize, __testing } = await import("../scripts/lib/chunker.mjs");
 
 const STATE_DIR = path.join(dataDir, "state");
 const LONE_SURROGATE_RE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
@@ -42,15 +42,17 @@ function makeSource(body, sessionId) {
   };
 }
 
-// ---- chunker: boundary safety ----
-
 test("hard cut never splits a UTF-16 surrogate pair (lossless reassembly, no lone surrogates)", () => {
   const body = "🙂".repeat(3_000); // 6000 UTF-16 units, no headers, no paragraph breaks
   const chunks = chunkTranscript(body, { chunkSize: 4_001 }); // odd size: lands mid-pair without the guard
   assert.ok(chunks.length >= 2, "body actually chunked");
   for (const c of chunks) {
     assert.ok(c.text.length > 0, "no empty chunk");
-    assert.equal(LONE_SURROGATE_RE.test(c.text), false, `chunk ${c.index} carries a lone surrogate`);
+    assert.equal(
+      LONE_SURROGATE_RE.test(c.text),
+      false,
+      `chunk ${c.index} carries a lone surrogate`,
+    );
   }
   assert.equal(chunks.map((c) => c.text).join(""), body, "reassembly is lossless");
 });
@@ -91,7 +93,14 @@ test("header at position 0 only: chunking advances, no empty chunk, lossless", (
 });
 
 test("only column-0 headers match; any leading space disarms the header anchor", () => {
-  for (const [indent, expectMatch] of [["", true], [" ", false], ["  ", false], ["   ", false], ["    ", false], ["     ", false]]) {
+  for (const [indent, expectMatch] of [
+    ["", true],
+    [" ", false],
+    ["  ", false],
+    ["   ", false],
+    ["    ", false],
+    ["     ", false],
+  ]) {
     const body = `intro line\n${indent}### User\nrest`;
     const pos = __testing.findNextHeaderAt(body, 0);
     if (expectMatch) assert.notEqual(pos, -1, `indent ${JSON.stringify(indent)} should match`);
@@ -108,14 +117,20 @@ test("a column-0 '### User' inside a code fence DOES match (chunker is fence-una
   assert.notEqual(__testing.findNextHeaderAt(body, 0), -1);
 });
 
-// ---- stash recovery corners ----
-
 test("multiple stashes for one session: findStashForSession picks the newest by timestamp", () => {
   const sessionId = "newest-wins-session";
   const src = makeSource("some failed body", sessionId);
-  const first = flush.writeFailedDistillStash({ source: src, errors: [{ index: 0, error: "boom" }], sessionId });
+  const first = flush.writeFailedDistillStash({
+    source: src,
+    errors: [{ index: 0, error: "boom" }],
+    sessionId,
+  });
   // Force a later millisecond timestamp on the second stash.
-  const later = flush.writeFailedDistillStash({ source: src, errors: [{ index: 0, error: "boom-2" }], sessionId });
+  const later = flush.writeFailedDistillStash({
+    source: src,
+    errors: [{ index: 0, error: "boom-2" }],
+    sessionId,
+  });
   assert.ok(first && later && first !== later, "two distinct stash files");
   const tsOf = (p) => Number.parseInt(path.basename(p).split("-").at(-2), 10);
   const expected = tsOf(later) >= tsOf(first) ? later : first;
@@ -187,7 +202,11 @@ test("failed redistill increments the stash attempt counter on every retry (audi
       await assert.rejects(() => flush.redistillFromStash(stash, { tag: "edge-stacking" }));
       const json = JSON.parse(fs.readFileSync(stash, "utf8"));
       assert.equal(json.redistill_attempts, expected, `attempt counter incremented to ${expected}`);
-      assert.equal(json.source.body, "body that keeps failing", "source body preserved verbatim across retries");
+      assert.equal(
+        json.source.body,
+        "body that keeps failing",
+        "source body preserved verbatim across retries",
+      );
       assert.ok(json.last_error, "last_error recorded");
     }
   } finally {
@@ -210,7 +229,10 @@ test("cli redistill --all quarantines a corrupt stash and still processes the va
 
   llm.__resetMockCallIndex();
   const r = runScript("scripts/cli.mjs", ["redistill", "--all"]);
-  assert.ok(fs.existsSync(`${corrupt}.corrupt`), `corrupt stash quarantined (stdout: ${r.stdout} stderr: ${r.stderr})`);
+  assert.ok(
+    fs.existsSync(`${corrupt}.corrupt`),
+    `corrupt stash quarantined (stdout: ${r.stdout} stderr: ${r.stderr})`,
+  );
   assert.equal(fs.existsSync(corrupt), false, "corrupt original renamed away");
   assert.equal(fs.existsSync(valid), false, "valid stash processed and cleared by the sweep");
 });

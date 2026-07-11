@@ -53,10 +53,7 @@ test("adding a custom category to layout.yaml makes it a valid datasetId", () =>
     "issues/dev-1.md",
     `flat placement under a YAML-declared category; got ${res.created.document.id}`,
   );
-  assert.ok(
-    store.getCategories().includes("issues"),
-    "issues is now in CATEGORIES",
-  );
+  assert.ok(store.getCategories().includes("issues"), "issues is now in CATEGORIES");
 
   // Restore the layout YAML so other tests are not affected by this in-process
   // mutation (the harness data dir is shared across this file's tests).

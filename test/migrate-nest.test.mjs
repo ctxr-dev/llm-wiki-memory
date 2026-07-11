@@ -26,9 +26,24 @@ function seedFlat({ name, text, datasetId, metadata }) {
 
 test("migrate-nest moves flat leaves into their facet folders and validates", async () => {
   const seeds = [
-    seedFlat({ name: "knowledge-a-2026-05-25-100000000.md", text: "# A\n\nfact A about billing.\nWhy: x.", datasetId: "knowledge", metadata: { atom_type: "decision", project_module: "billing" } }),
-    seedFlat({ name: "lesson-b-2026-05-25-110000000.md", text: "# B\n\nlesson B.\nWhy: y.", datasetId: "self_improvement", metadata: { project_module: "billing", task_type: "refactor", error_pattern: "ep" } }),
-    seedFlat({ name: "knowledge-c-2026-05-25-120000000.md", text: "# C\n\nfact C, no module.\nWhy: z.", datasetId: "knowledge", metadata: { atom_type: "reference" } }),
+    seedFlat({
+      name: "knowledge-a-2026-05-25-100000000.md",
+      text: "# A\n\nfact A about billing.\nWhy: x.",
+      datasetId: "knowledge",
+      metadata: { atom_type: "decision", project_module: "billing" },
+    }),
+    seedFlat({
+      name: "lesson-b-2026-05-25-110000000.md",
+      text: "# B\n\nlesson B.\nWhy: y.",
+      datasetId: "self_improvement",
+      metadata: { project_module: "billing", task_type: "refactor", error_pattern: "ep" },
+    }),
+    seedFlat({
+      name: "knowledge-c-2026-05-25-120000000.md",
+      text: "# C\n\nfact C, no module.\nWhy: z.",
+      datasetId: "knowledge",
+      metadata: { atom_type: "reference" },
+    }),
   ];
   for (const s of seeds) assert.ok(fs.existsSync(abs(s.flatRel)), `seeded flat: ${s.flatRel}`);
 
@@ -40,11 +55,17 @@ test("migrate-nest moves flat leaves into their facet folders and validates", as
     assert.ok(fs.existsSync(abs(s.nestedRel)), `re-nested at facet path: ${s.nestedRel}`);
     assert.ok(!fs.existsSync(abs(s.flatRel)), `flat copy removed: ${s.flatRel}`);
     const folderIndex = path.join(path.dirname(abs(s.nestedRel)), "index.md");
-    assert.ok(fs.existsSync(folderIndex), `per-folder index built: ${path.relative(wiki, folderIndex)}`);
+    assert.ok(
+      fs.existsSync(folderIndex),
+      `per-folder index built: ${path.relative(wiki, folderIndex)}`,
+    );
   }
   // expected facet destinations
   assert.ok(seeds[0].nestedRel.startsWith("knowledge/billing/decision/"), seeds[0].nestedRel);
-  assert.ok(seeds[1].nestedRel.startsWith("self_improvement/billing/refactor/"), seeds[1].nestedRel);
+  assert.ok(
+    seeds[1].nestedRel.startsWith("self_improvement/billing/refactor/"),
+    seeds[1].nestedRel,
+  );
   assert.ok(seeds[2].nestedRel.startsWith("knowledge/workspace/reference/"), seeds[2].nestedRel);
   assert.equal(cli.validate(wiki).ok, true);
 });
@@ -64,7 +85,12 @@ test("migrate-nest is idempotent, search still works, and --check flags flat lea
   });
   assert.ok(found.records.length >= 1, "re-nested leaf is still found by folder-agnostic search");
 
-  seedFlat({ name: "knowledge-d-2026-05-25-130000000.md", text: "# D\n\nfact D.\nWhy: w.", datasetId: "knowledge", metadata: { atom_type: "reference", project_module: "billing" } });
+  seedFlat({
+    name: "knowledge-d-2026-05-25-130000000.md",
+    text: "# D\n\nfact D.\nWhy: w.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "reference", project_module: "billing" },
+  });
   const chk2 = await migrateNest({ wiki, check: true });
   assert.equal(chk2.ok, false, "a freshly introduced flat leaf is detected");
   assert.equal(chk2.flatCount, 1);
@@ -90,7 +116,10 @@ test("migrate-nest refuses to clobber an existing destination (no data loss)", a
 
   const res = await migrateNest({ wiki });
   assert.equal(res.ok, false, "a destination collision makes the run not-ok");
-  assert.ok(res.conflicts.some((c) => c.from === flatRel), `collision recorded: ${JSON.stringify(res.conflicts)}`);
+  assert.ok(
+    res.conflicts.some((c) => c.from === flatRel),
+    `collision recorded: ${JSON.stringify(res.conflicts)}`,
+  );
   assert.ok(fs.existsSync(flatAbs), "flat source left in place, not deleted");
   assert.equal(fs.readFileSync(nestedAbs, "utf8"), before, "existing nested leaf not overwritten");
 
@@ -107,7 +136,10 @@ function installIssuesTopology() {
   const layoutPath = abs(".layout/layout.yaml");
   const cur = fs.readFileSync(layoutPath, "utf8");
   if (cur.includes("path: issues")) return;
-  fs.writeFileSync(layoutPath, cur + `
+  fs.writeFileSync(
+    layoutPath,
+    cur +
+      `
   - path: issues
     placement_facets: []
     consolidate: none
@@ -150,7 +182,8 @@ function installIssuesTopology() {
         number: { type: integer, minimum: 1 }
         lifecycle: { type: string }
         slug: { type: string, pattern: "^[A-Za-z0-9-]+$" }
-`);
+`,
+  );
   resetLayoutCache();
 }
 
@@ -164,29 +197,51 @@ function writeFlatIssue(name, body) {
 test("migrate-nest derives tracker facets and computes topology dests (dry-run)", async () => {
   installIssuesTopology();
   // plan with mixed checkboxes → in-progress; bucket 555/0/0 (units/tens zero)
-  writeFlatIssue("DEV-555000-fix-thing.plan.md",
-    "---\nstatus: pending\n---\n# Fix thing\n\n- [x] a\n- [ ] b\n");
+  writeFlatIssue(
+    "DEV-555000-fix-thing.plan.md",
+    "---\nstatus: pending\n---\n# Fix thing\n\n- [x] a\n- [ ] b\n",
+  );
   // knowledge kind (no lifecycle segment)
   writeFlatIssue("DEV-555000.md", "---\n---\n# DEV-555000\n\nlink + decision.\n");
   // multi-hyphen slug + -vN
-  writeFlatIssue("DEV-129957-v2-code-review-fixes.plan.md",
-    "---\nstatus: in-progress\n---\n# v2\n\n- [ ] x\n");
+  writeFlatIssue(
+    "DEV-129957-v2-code-review-fixes.plan.md",
+    "---\nstatus: in-progress\n---\n# v2\n\n- [ ] x\n",
+  );
   // unparseable: not a tracker key → must be recorded unresolved, never moved
   writeFlatIssue("just-a-note.md", "---\n---\n# note\n\nnot a tracker leaf.\n");
 
   const res = await migrateNest({ wiki, dryRun: true });
   const to = (from) => res.moves.find((m) => m.from === from)?.to;
-  assert.equal(to("issues/DEV-555000-fix-thing.plan.md"),
-    "issues/JIRA/DEV/555/0/0/in-progress/DEV-555000-fix-thing.plan.md");
-  assert.equal(to("issues/DEV-555000.md"),
-    "issues/JIRA/DEV/555/0/0/DEV-555000.md", "knowledge kind: no lifecycle segment");
-  assert.equal(to("issues/DEV-129957-v2-code-review-fixes.plan.md"),
-    "issues/JIRA/DEV/129/95/7/in-progress/DEV-129957-v2-code-review-fixes.plan.md");
-  assert.ok(res.unresolved.includes("issues/just-a-note.md"), "unparseable flat recorded unresolved");
-  assert.ok(!res.moves.some((m) => m.from === "issues/just-a-note.md"), "unparseable never queued for move");
+  assert.equal(
+    to("issues/DEV-555000-fix-thing.plan.md"),
+    "issues/JIRA/DEV/555/0/0/in-progress/DEV-555000-fix-thing.plan.md",
+  );
+  assert.equal(
+    to("issues/DEV-555000.md"),
+    "issues/JIRA/DEV/555/0/0/DEV-555000.md",
+    "knowledge kind: no lifecycle segment",
+  );
+  assert.equal(
+    to("issues/DEV-129957-v2-code-review-fixes.plan.md"),
+    "issues/JIRA/DEV/129/95/7/in-progress/DEV-129957-v2-code-review-fixes.plan.md",
+  );
+  assert.ok(
+    res.unresolved.includes("issues/just-a-note.md"),
+    "unparseable flat recorded unresolved",
+  );
+  assert.ok(
+    !res.moves.some((m) => m.from === "issues/just-a-note.md"),
+    "unparseable never queued for move",
+  );
 
   // cleanup the flats so other tests aren't perturbed
-  for (const n of ["DEV-555000-fix-thing.plan.md", "DEV-555000.md", "DEV-129957-v2-code-review-fixes.plan.md", "just-a-note.md"]) {
+  for (const n of [
+    "DEV-555000-fix-thing.plan.md",
+    "DEV-555000.md",
+    "DEV-129957-v2-code-review-fixes.plan.md",
+    "just-a-note.md",
+  ]) {
     fs.rmSync(abs(`issues/${n}`), { force: true });
   }
 });
@@ -194,11 +249,16 @@ test("migrate-nest derives tracker facets and computes topology dests (dry-run)"
 test("migrate-nest lifecycle: stored 'done' wins over an unchecked checklist", async () => {
   installIssuesTopology();
   // 0 checked boxes → inferLifecycle=pending, but memory.status=done → done wins
-  writeFlatIssue("DEV-700001-finished.plan.md",
-    "---\nstatus: pending\nmemory:\n  status: done\n---\n# Finished\n\n- [ ] leftover unchecked box\n");
+  writeFlatIssue(
+    "DEV-700001-finished.plan.md",
+    "---\nstatus: pending\nmemory:\n  status: done\n---\n# Finished\n\n- [ ] leftover unchecked box\n",
+  );
   const res = await migrateNest({ wiki, dryRun: true });
-  assert.equal(res.moves.find((m) => m.from === "issues/DEV-700001-finished.plan.md")?.to,
-    "issues/JIRA/DEV/700/0/1/done/DEV-700001-finished.plan.md", "more-advanced stored status wins");
+  assert.equal(
+    res.moves.find((m) => m.from === "issues/DEV-700001-finished.plan.md")?.to,
+    "issues/JIRA/DEV/700/0/1/done/DEV-700001-finished.plan.md",
+    "more-advanced stored status wins",
+  );
   fs.rmSync(abs("issues/DEV-700001-finished.plan.md"), { force: true });
 });
 
@@ -206,12 +266,17 @@ test("migrate-nest: zero-padded issue number relocates to the NORMALISED round-t
   installIssuesTopology();
   // pathFor normalises DEV-007 -> DEV-7; the dest basename must use the
   // normalised name so the landed path round-trips through from_path.
-  writeFlatIssue("DEV-007-padded.plan.md",
-    "---\nstatus: in-progress\n---\n# padded\n\n- [x] a\n- [ ] b\n");
+  writeFlatIssue(
+    "DEV-007-padded.plan.md",
+    "---\nstatus: in-progress\n---\n# padded\n\n- [x] a\n- [ ] b\n",
+  );
   const res = await migrateNest({ wiki, dryRun: true });
   const to = res.moves.find((m) => m.from === "issues/DEV-007-padded.plan.md")?.to;
-  assert.equal(to, "issues/JIRA/DEV/0/0/7/in-progress/DEV-7-padded.plan.md",
-    "dest uses the topology-normalised basename, not the padded original");
+  assert.equal(
+    to,
+    "issues/JIRA/DEV/0/0/7/in-progress/DEV-7-padded.plan.md",
+    "dest uses the topology-normalised basename, not the padded original",
+  );
   fs.rmSync(abs("issues/DEV-007-padded.plan.md"), { force: true });
 });
 
@@ -226,23 +291,39 @@ test("migrate-nest --check does NOT throw on an unparseable topology flat", asyn
 
 test("migrate-nest: a knowledge flat with a trailing segment is REFUSED, not silently collapsed", async () => {
   installIssuesTopology();
-  writeFlatIssue("DEV-660003-extra.md", "---\n---\n# extra\n\nknowledge with a stray slug segment.\n");
+  writeFlatIssue(
+    "DEV-660003-extra.md",
+    "---\n---\n# extra\n\nknowledge with a stray slug segment.\n",
+  );
   const res = await migrateNest({ wiki, dryRun: true });
-  assert.ok(res.unresolved.includes("issues/DEV-660003-extra.md"), "trailing-segment knowledge recorded unresolved");
-  assert.ok(!res.moves.some((m) => m.from === "issues/DEV-660003-extra.md"), "never silently relocated");
+  assert.ok(
+    res.unresolved.includes("issues/DEV-660003-extra.md"),
+    "trailing-segment knowledge recorded unresolved",
+  );
+  assert.ok(
+    !res.moves.some((m) => m.from === "issues/DEV-660003-extra.md"),
+    "never silently relocated",
+  );
   fs.rmSync(abs("issues/DEV-660003-extra.md"), { force: true });
 });
 
 test("migrate-nest live-run relocates a tracker plan into the topology tree", async () => {
   installIssuesTopology();
-  writeFlatIssue("DEV-880002-live-move.plan.md",
-    "---\nstatus: in-progress\n---\n# Live move\n\n- [x] done step\n- [ ] next step\n");
+  writeFlatIssue(
+    "DEV-880002-live-move.plan.md",
+    "---\nstatus: in-progress\n---\n# Live move\n\n- [x] done step\n- [ ] next step\n",
+  );
   const res = await migrateNest({ wiki });
   const dest = "issues/JIRA/DEV/880/0/2/in-progress/DEV-880002-live-move.plan.md";
-  assert.ok(res.moves.some((m) => m.to === dest), `relocated: ${JSON.stringify(res.moves)}`);
+  assert.ok(
+    res.moves.some((m) => m.to === dest),
+    `relocated: ${JSON.stringify(res.moves)}`,
+  );
   assert.ok(fs.existsSync(abs(dest)), "file at topology path");
   assert.ok(!fs.existsSync(abs("issues/DEV-880002-live-move.plan.md")), "flat copy gone");
   // layout NOT clobbered by the run (seedContractIfAbsent, not refresh)
-  assert.ok(fs.readFileSync(abs(".layout/layout.yaml"), "utf8").includes("path: issues"),
-    "topology layout survived the run");
+  assert.ok(
+    fs.readFileSync(abs(".layout/layout.yaml"), "utf8").includes("path: issues"),
+    "topology layout survived the run",
+  );
 });

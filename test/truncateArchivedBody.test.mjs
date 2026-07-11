@@ -48,8 +48,7 @@ function absFor(documentId) {
 let leafCounter = 0;
 function makeArchivedLeaf({ body, name } = {}) {
   leafCounter += 1;
-  const leafName =
-    name || `knowledge-trunc-fixture-${leafCounter}-2026-05-22-120000000.md`;
+  const leafName = name || `knowledge-trunc-fixture-${leafCounter}-2026-05-22-120000000.md`;
   const res = store.writeMemory({
     name: leafName,
     text: body ?? "# Fixture\n\nseed body content for truncate tests.",
@@ -90,10 +89,7 @@ test("truncateArchivedBody: refuses when memory.status is not 'archived'", () =>
   assert.match(result.reason, /not archived/);
 
   const onDisk = readFm(absFor(documentId));
-  assert.ok(
-    !onDisk.data.memory.consolidate_truncated_at,
-    "active leaf was not stamped",
-  );
+  assert.ok(!onDisk.data.memory.consolidate_truncated_at, "active leaf was not stamped");
   assert.equal(
     onDisk.content.trim(),
     ("# Active\n\n" + "x".repeat(5000)).trim(),
@@ -157,10 +153,7 @@ test("truncateArchivedBody: no-op when body length is at or below the threshold"
   assert.equal(afterBytes, beforeBytes, "no rewrite happened");
 
   const fmAfter = readFm(absPath);
-  assert.ok(
-    !fmAfter.data.memory.consolidate_truncated_at,
-    "no stamp written when below threshold",
-  );
+  assert.ok(!fmAfter.data.memory.consolidate_truncated_at, "no stamp written when below threshold");
   assert.equal(fmAfter.data.source.hash, originalHash, "hash preserved verbatim");
 });
 
@@ -178,11 +171,7 @@ test("truncateArchivedBody: also no-ops when body length exactly equals max", ()
   });
 
   assert.equal(result.ok, true);
-  assert.equal(
-    result.skipped,
-    "below-threshold",
-    "equal-to-max path uses the same skip branch",
-  );
+  assert.equal(result.skipped, "below-threshold", "equal-to-max path uses the same skip branch");
 
   const fmAfter = readFm(absPath);
   assert.ok(!fmAfter.data.memory.consolidate_truncated_at);
@@ -346,5 +335,8 @@ test("truncateArchivedBody: drops trailing whitespace from the truncated head be
 
   const fm = readFm(absPath);
   const head = fm.content.replace(FOOTER_RE, "");
-  assert.ok(!/\s+$/.test(head), `head has no trailing whitespace: ${JSON.stringify(head.slice(-10))}`);
+  assert.ok(
+    !/\s+$/.test(head),
+    `head has no trailing whitespace: ${JSON.stringify(head.slice(-10))}`,
+  );
 });

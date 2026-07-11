@@ -69,10 +69,16 @@ test("health(): with MEMORY_LLM_PROVIDER unset, provider comes from settings.pro
   clearLlmEnv();
   const s = await import("../scripts/lib/settings.mjs");
   // Force a YAML-style chain headed by anthropic, no env provider override.
-  s.__setSettingsOverride({ providers: { chain: ["anthropic", "claude"], anthropic: { models: ["m1"] } } });
+  s.__setSettingsOverride({
+    providers: { chain: ["anthropic", "claude"], anthropic: { models: ["m1"] } },
+  });
   try {
     const r = await health();
-    assert.equal(r.provider, "anthropic", "health must probe the resolved chain head, not default to claude");
+    assert.equal(
+      r.provider,
+      "anthropic",
+      "health must probe the resolved chain head, not default to claude",
+    );
   } finally {
     s.__clearSettingsOverride();
   }
@@ -132,10 +138,17 @@ test("health(): anthropic provider with no ANTHROPIC_API_KEY reports available:f
   const r = await health();
   assert.equal(r.provider, "anthropic");
   assert.equal(r.available, false);
-  assert.match(r.reason, /ANTHROPIC_API_KEY/, `reason should mention ANTHROPIC_API_KEY, got: ${r.reason}`);
+  assert.match(
+    r.reason,
+    /ANTHROPIC_API_KEY/,
+    `reason should mention ANTHROPIC_API_KEY, got: ${r.reason}`,
+  );
   // `model` is now either a string (env override set) or null (chain-driven
   // selection at call-time). Both are valid; assert the field is present.
-  assert.ok(r.model === null || typeof r.model === "string", `model should be null or string, got: ${typeof r.model}`);
+  assert.ok(
+    r.model === null || typeof r.model === "string",
+    `model should be null or string, got: ${typeof r.model}`,
+  );
 });
 
 test("health(): anthropic provider with ANTHROPIC_API_KEY set reports available:true", async () => {
@@ -156,7 +169,10 @@ test("health(): openai provider includes baseUrl + model fields", async () => {
   assert.equal(r.provider, "openai");
   assert.equal(typeof r.baseUrl, "string");
   // `model` is string when env override set, null otherwise (chain-driven).
-  assert.ok(r.model === null || typeof r.model === "string", `model should be null or string, got: ${typeof r.model}`);
+  assert.ok(
+    r.model === null || typeof r.model === "string",
+    `model should be null or string, got: ${typeof r.model}`,
+  );
   assert.equal(r.available, true);
 });
 
@@ -166,6 +182,10 @@ test("health(): openai-compatible at a local endpoint is available even without 
   process.env.MEMORY_LLM_BASE_URL = "http://localhost:11434/v1";
   const r = await health();
   assert.equal(r.provider, "openai-compatible");
-  assert.equal(r.available, true, `local endpoint should be available without a key, got ${JSON.stringify(r)}`);
+  assert.equal(
+    r.available,
+    true,
+    `local endpoint should be available without a key, got ${JSON.stringify(r)}`,
+  );
   assert.equal(r.baseUrl, "http://localhost:11434/v1");
 });

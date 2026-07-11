@@ -25,7 +25,11 @@ const ISSUES_DIR = path.join(dataDir, "issues");
 const ISSUES_INDEX = path.join(dataDir, "state", ".issues-index.json");
 const LOGS_DIR = path.join(dataDir, "state", "logs");
 
-function failureReport(id, excerpt, { pass = "llm-merge-near-duplicates", kind = "dedup-pair" } = {}) {
+function failureReport(
+  id,
+  excerpt,
+  { pass = "llm-merge-near-duplicates", kind = "dedup-pair" } = {},
+) {
   return {
     passes: {
       [pass]: {
@@ -49,11 +53,15 @@ function successReport(id, { pass = "llm-merge-near-duplicates", kind = "dedup-p
   };
 }
 
-// ---- error signatures ----
-
 test("normalizeErrorSignature strips volatile tokens to a stable slug", () => {
-  const a = normalizeErrorSignature("merge-write failed: EACCES /tmp/x/knowledge/auth/leaf-123.md at 2026-06-04T10:00:00Z", { pass: "p", kind: "k" });
-  const b = normalizeErrorSignature("merge-write failed: EACCES /var/y/knowledge/db/other-999.md at 2026-06-05T22:11:33Z", { pass: "p", kind: "k" });
+  const a = normalizeErrorSignature(
+    "merge-write failed: EACCES /tmp/x/knowledge/auth/leaf-123.md at 2026-06-04T10:00:00Z",
+    { pass: "p", kind: "k" },
+  );
+  const b = normalizeErrorSignature(
+    "merge-write failed: EACCES /var/y/knowledge/db/other-999.md at 2026-06-05T22:11:33Z",
+    { pass: "p", kind: "k" },
+  );
   assert.equal(a, b, "ids/paths/timestamps must not split one bug into two signatures");
   assert.match(a, /eacces/, "the error class survives normalization");
 });
@@ -75,13 +83,19 @@ test("normalizeErrorSignature redacts secrets before slugging", () => {
   assert.ok(sig.includes("redacted"), "the redaction sentinel survives into the slug");
 });
 
-// ---- entity state lifecycle ----
-
 test("entity state: failures increment a capped history; success deletes; absence leaves untouched", () => {
   const state = { version: 1, entities: {} };
-  const opts = { ts: "2026-06-04T10:00:00.000Z", logPath: "state/logs/2026/06/cron-1.json", escalateAfter: 3 };
+  const opts = {
+    ts: "2026-06-04T10:00:00.000Z",
+    logPath: "state/logs/2026/06/cron-1.json",
+    escalateAfter: 3,
+  };
   for (let i = 0; i < 7; i++) {
-    cron.updateEntityState(state, failureReport("pair:a.md|b.md", "merge-write failed: EACCES"), opts);
+    cron.updateEntityState(
+      state,
+      failureReport("pair:a.md|b.md", "merge-write failed: EACCES"),
+      opts,
+    );
   }
   const ent = state.entities["pair:a.md|b.md"];
   assert.equal(ent.consecutiveFailures, 7);
@@ -103,12 +117,28 @@ test("entity state: a failure recorded in the same run beats a success entry", (
     passes: {
       "llm-merge-near-duplicates": {
         entities: [{ id: "pair:x.md|y.md", kind: "dedup-pair", action: "flag", ok: true }],
-        failures: [{ id: "pair:x.md|y.md", kind: "dedup-pair", action: "archive", ok: false, excerpt: "archive failed: EPERM" }],
+        failures: [
+          {
+            id: "pair:x.md|y.md",
+            kind: "dedup-pair",
+            action: "archive",
+            ok: false,
+            excerpt: "archive failed: EPERM",
+          },
+        ],
       },
     },
   };
-  cron.updateEntityState(state, report, { ts: "2026-06-04T10:00:00.000Z", logPath: "l", escalateAfter: 3 });
-  assert.equal(state.entities["pair:x.md|y.md"]?.consecutiveFailures, 1, "flag success must not mask the archive failure");
+  cron.updateEntityState(state, report, {
+    ts: "2026-06-04T10:00:00.000Z",
+    logPath: "l",
+    escalateAfter: 3,
+  });
+  assert.equal(
+    state.entities["pair:x.md|y.md"]?.consecutiveFailures,
+    1,
+    "flag success must not mask the archive failure",
+  );
 });
 
 test("entity state: corrupt file tolerated (rebuilt empty, no throw)", () => {
@@ -119,29 +149,58 @@ test("entity state: corrupt file tolerated (rebuilt empty, no throw)", () => {
   fs.rmSync(ENTITIES_PATH, { force: true });
 });
 
-// ---- escalation rules ----
-
 test("escalation fires after N consecutive pending failures, not before", () => {
   const state = { version: 1, entities: {} };
-  const opts = { ts: "2026-06-04T10:00:00.000Z", logPath: "state/logs/2026/06/cron-2.json", escalateAfter: 3 };
-  cron.updateEntityState(state, failureReport("pair:p.md|q.md", "merge failed: LLMOutputInvalid schema"), opts);
-  cron.updateEntityState(state, failureReport("pair:p.md|q.md", "merge failed: LLMOutputInvalid schema"), opts);
+  const opts = {
+    ts: "2026-06-04T10:00:00.000Z",
+    logPath: "state/logs/2026/06/cron-2.json",
+    escalateAfter: 3,
+  };
+  cron.updateEntityState(
+    state,
+    failureReport("pair:p.md|q.md", "merge failed: LLMOutputInvalid schema"),
+    opts,
+  );
+  cron.updateEntityState(
+    state,
+    failureReport("pair:p.md|q.md", "merge failed: LLMOutputInvalid schema"),
+    opts,
+  );
   assert.equal(cron.evaluateEscalations(state, { escalateAfter: 3 }).length, 0, "2 < N: silent");
-  cron.updateEntityState(state, failureReport("pair:p.md|q.md", "merge failed: LLMOutputInvalid schema"), opts);
+  cron.updateEntityState(
+    state,
+    failureReport("pair:p.md|q.md", "merge failed: LLMOutputInvalid schema"),
+    opts,
+  );
   const esc = cron.evaluateEscalations(state, { escalateAfter: 3 });
   assert.equal(esc.length, 1);
   assert.equal(esc[0].reason, "pending-consecutive");
   assert.equal(esc[0].attempts, 3);
   // Resolution before the next threshold clears everything.
   cron.updateEntityState(state, successReport("pair:p.md|q.md"), opts);
-  assert.equal(cron.evaluateEscalations(state, { escalateAfter: 3 }).length, 0, "resolved → silent");
+  assert.equal(
+    cron.evaluateEscalations(state, { escalateAfter: 3 }).length,
+    0,
+    "resolved → silent",
+  );
 });
 
 test("one signature across >=3 distinct entities escalates as recurring-bug even below N", () => {
   const state = { version: 1, entities: {} };
-  const opts = { ts: "2026-06-04T10:00:00.000Z", logPath: "state/logs/2026/06/cron-3.json", escalateAfter: 3 };
+  const opts = {
+    ts: "2026-06-04T10:00:00.000Z",
+    logPath: "state/logs/2026/06/cron-3.json",
+    escalateAfter: 3,
+  };
   for (const leaf of ["leaf:one.md", "leaf:two.md", "leaf:three.md"]) {
-    cron.updateEntityState(state, failureReport(leaf, "refresh failed: TypeError cannot read x", { pass: "llm-semantic-refresh", kind: "leaf" }), opts);
+    cron.updateEntityState(
+      state,
+      failureReport(leaf, "refresh failed: TypeError cannot read x", {
+        pass: "llm-semantic-refresh",
+        kind: "leaf",
+      }),
+      opts,
+    );
   }
   const esc = cron.evaluateEscalations(state, { escalateAfter: 3 });
   assert.equal(esc.length, 1);
@@ -149,14 +208,24 @@ test("one signature across >=3 distinct entities escalates as recurring-bug even
   assert.equal(esc[0].entityCount, 3);
 });
 
-// ---- issue reports ----
-
 test("issue lifecycle: skeleton v1 under yyyy/mm/dd, occurrences append, resolve flips in place, recurrence becomes v2", () => {
   const now = new Date("2026-06-04T12:00:00.000Z");
   const state = { version: 1, entities: {} };
-  const opts = { ts: now.toISOString(), logPath: "state/logs/2026/06/cron-4.json", escalateAfter: 2 };
-  cron.updateEntityState(state, failureReport("pair:k.md|l.md", "archive failed: EROFS read-only filesystem"), opts);
-  cron.updateEntityState(state, failureReport("pair:k.md|l.md", "archive failed: EROFS read-only filesystem"), opts);
+  const opts = {
+    ts: now.toISOString(),
+    logPath: "state/logs/2026/06/cron-4.json",
+    escalateAfter: 2,
+  };
+  cron.updateEntityState(
+    state,
+    failureReport("pair:k.md|l.md", "archive failed: EROFS read-only filesystem"),
+    opts,
+  );
+  cron.updateEntityState(
+    state,
+    failureReport("pair:k.md|l.md", "archive failed: EROFS read-only filesystem"),
+    opts,
+  );
   const esc = cron.evaluateEscalations(state, { escalateAfter: 2 });
   assert.equal(esc.length, 1);
   const sig = esc[0].signature;
@@ -176,7 +245,11 @@ test("issue lifecycle: skeleton v1 under yyyy/mm/dd, occurrences append, resolve
   // Second occurrence appends to the SAME open episode (no new file).
   cron.writeIssueReports(esc, state, now);
   body = fs.readFileSync(v1, "utf8");
-  assert.equal(body.match(/^- 2026-06-04T12:00:00\.000Z — attempts=/gm)?.length, 2, "occurrence appended");
+  assert.equal(
+    body.match(/^- 2026-06-04T12:00:00\.000Z — attempts=/gm)?.length,
+    2,
+    "occurrence appended",
+  );
   assert.equal(fs.existsSync(path.join(ISSUES_DIR, dailyDatePath(now), `${sig}.2.md`)), false);
 
   // Resolution: entity gone → status flips in place; file kept.
@@ -188,9 +261,21 @@ test("issue lifecycle: skeleton v1 under yyyy/mm/dd, occurrences append, resolve
 
   // Recurrence after resolution → version 2 under the (new) day.
   const later = new Date("2026-07-01T09:00:00.000Z");
-  const opts2 = { ts: later.toISOString(), logPath: "state/logs/2026/07/cron-5.json", escalateAfter: 2 };
-  cron.updateEntityState(state, failureReport("pair:k.md|l.md", "archive failed: EROFS read-only filesystem"), opts2);
-  cron.updateEntityState(state, failureReport("pair:k.md|l.md", "archive failed: EROFS read-only filesystem"), opts2);
+  const opts2 = {
+    ts: later.toISOString(),
+    logPath: "state/logs/2026/07/cron-5.json",
+    escalateAfter: 2,
+  };
+  cron.updateEntityState(
+    state,
+    failureReport("pair:k.md|l.md", "archive failed: EROFS read-only filesystem"),
+    opts2,
+  );
+  cron.updateEntityState(
+    state,
+    failureReport("pair:k.md|l.md", "archive failed: EROFS read-only filesystem"),
+    opts2,
+  );
   const esc2 = cron.evaluateEscalations(state, { escalateAfter: 2 });
   cron.writeIssueReports(esc2, state, later);
   const v2 = path.join(ISSUES_DIR, dailyDatePath(later), `${sig}.2.md`);
@@ -207,8 +292,20 @@ test("issue reports never carry secrets: the whole document is redacted", () => 
   const now = new Date("2026-06-04T13:00:00.000Z");
   const state = { version: 1, entities: {} };
   const secret = "sk-" + "z".repeat(24);
-  const opts = { ts: now.toISOString(), logPath: "state/logs/2026/06/cron-6.json", escalateAfter: 1 };
-  cron.updateEntityState(state, failureReport("leaf:secret.md", `provider rejected token ${secret} for db postgres://svc:hunter2pass@db.host/x`, { pass: "llm-semantic-refresh", kind: "leaf" }), opts);
+  const opts = {
+    ts: now.toISOString(),
+    logPath: "state/logs/2026/06/cron-6.json",
+    escalateAfter: 1,
+  };
+  cron.updateEntityState(
+    state,
+    failureReport(
+      "leaf:secret.md",
+      `provider rejected token ${secret} for db postgres://svc:hunter2pass@db.host/x`,
+      { pass: "llm-semantic-refresh", kind: "leaf" },
+    ),
+    opts,
+  );
   const esc = cron.evaluateEscalations(state, { escalateAfter: 1 });
   cron.writeIssueReports(esc, state, now);
   const rec = cron.readIssuesIndex().signatures[esc[0].signature];
@@ -216,7 +313,11 @@ test("issue reports never carry secrets: the whole document is redacted", () => 
   assert.ok(!body.includes(secret), "API key scrubbed");
   assert.ok(!body.includes("hunter2pass"), "DB password scrubbed");
   assert.match(body, /\[REDACTED\]/);
-  cron.updateEntityState(state, successReport("leaf:secret.md", { pass: "llm-semantic-refresh", kind: "leaf" }), opts);
+  cron.updateEntityState(
+    state,
+    successReport("leaf:secret.md", { pass: "llm-semantic-refresh", kind: "leaf" }),
+    opts,
+  );
   cron.writeIssueReports([], state, now);
 });
 
@@ -224,8 +325,19 @@ test("corrupt issues index is rebuilt from the issues/ tree (dedupe + status sur
   // Self-seed: this test must not depend on reports left behind by siblings.
   const now = new Date("2026-06-04T14:00:00.000Z");
   const state = { version: 1, entities: {} };
-  const opts = { ts: now.toISOString(), logPath: "state/logs/2026/06/cron-7.json", escalateAfter: 1 };
-  cron.updateEntityState(state, failureReport("leaf:rebuild-seed.md", "seed failure: EIO io error", { pass: "llm-semantic-refresh", kind: "leaf" }), opts);
+  const opts = {
+    ts: now.toISOString(),
+    logPath: "state/logs/2026/06/cron-7.json",
+    escalateAfter: 1,
+  };
+  cron.updateEntityState(
+    state,
+    failureReport("leaf:rebuild-seed.md", "seed failure: EIO io error", {
+      pass: "llm-semantic-refresh",
+      kind: "leaf",
+    }),
+    opts,
+  );
   const esc = cron.evaluateEscalations(state, { escalateAfter: 1 });
   cron.writeIssueReports(esc, state, now);
   const sig = esc[0].signature;
@@ -235,7 +347,11 @@ test("corrupt issues index is rebuilt from the issues/ tree (dedupe + status sur
   assert.ok(rebuilt.signatures[sig], "seeded signature recovered from the frontmatter scan");
   assert.ok(rebuilt.signatures[sig].version >= 1);
 
-  cron.updateEntityState(state, successReport("leaf:rebuild-seed.md", { pass: "llm-semantic-refresh", kind: "leaf" }), opts);
+  cron.updateEntityState(
+    state,
+    successReport("leaf:rebuild-seed.md", { pass: "llm-semantic-refresh", kind: "leaf" }),
+    opts,
+  );
   cron.writeIssueReports([], state, now);
 });
 
@@ -243,13 +359,25 @@ test("cron-health + session-start surface an open escalation within budget (no f
   const now = new Date("2026-06-04T16:00:00.000Z");
   const state = { version: 1, entities: {} };
   const longMsg = `${"extremely long failure description that keeps going ".repeat(6)} EBUSY resource busy`;
-  const opts = { ts: now.toISOString(), logPath: "state/logs/2026/06/cron-8.json", escalateAfter: 1 };
-  cron.updateEntityState(state, failureReport("leaf:long-sig.md", longMsg, { pass: "llm-semantic-refresh", kind: "leaf" }), opts);
+  const opts = {
+    ts: now.toISOString(),
+    logPath: "state/logs/2026/06/cron-8.json",
+    escalateAfter: 1,
+  };
+  cron.updateEntityState(
+    state,
+    failureReport("leaf:long-sig.md", longMsg, { pass: "llm-semantic-refresh", kind: "leaf" }),
+    opts,
+  );
   const esc = cron.evaluateEscalations(state, { escalateAfter: 1 });
   cron.writeIssueReports(esc, state, now);
   try {
     const h = cron.cronHealth({ limit: 0 });
-    assert.equal(h.healthy, false, "open escalation drives healthy=false even with no failed attempt");
+    assert.equal(
+      h.healthy,
+      false,
+      "open escalation drives healthy=false even with no failed attempt",
+    );
     assert.ok(h.summary.length <= 200, `summary stays ≤200 chars (got ${h.summary.length})`);
     assert.ok(h.escalations.length >= 1);
 
@@ -263,12 +391,14 @@ test("cron-health + session-start surface an open escalation within budget (no f
     assert.match(section, /escalation/i);
     assert.ok(!section.includes("```json"), "no JSON dumps in the hook context");
   } finally {
-    cron.updateEntityState(state, successReport("leaf:long-sig.md", { pass: "llm-semantic-refresh", kind: "leaf" }), opts);
+    cron.updateEntityState(
+      state,
+      successReport("leaf:long-sig.md", { pass: "llm-semantic-refresh", kind: "leaf" }),
+      opts,
+    );
     cron.writeIssueReports([], state, now);
   }
 });
-
-// ---- sharded full logs ----
 
 test("fullLogPathFor shards by yyyy/mm with a parseable epoch filename", () => {
   const d = new Date("2026-06-04T10:20:30.000Z");
@@ -296,15 +426,31 @@ test("pruneFullLogs removes only filename-aged logs and prunes emptied shard dir
   assert.ok(fs.existsSync(fresh), "fresh log kept");
 });
 
-// ---- consolidate end-to-end: per-entity arrays on the real orchestrator ----
+// consolidate end-to-end: per-entity arrays on the real orchestrator
 
 test("consolidate surfaces per-entity arrays for a real sha256 dedup (counts unchanged)", async () => {
-  const body = "# Dup body\n\nidentical bytes in two leaves; sha256 dedup must flag and archive the pair.";
+  const body =
+    "# Dup body\n\nidentical bytes in two leaves; sha256 dedup must flag and archive the pair.";
   const meta = { area: "healing", atom_type: "pattern-gotcha", task_type: "debugging" };
-  store.saveDocument({ name: "healing-dup-a-2026-06-04-000000001.md", text: body, datasetId: "knowledge", metadata: meta });
-  store.saveDocument({ name: "healing-dup-b-2026-06-04-000000002.md", text: body, datasetId: "knowledge", metadata: meta });
+  store.saveDocument({
+    name: "healing-dup-a-2026-06-04-000000001.md",
+    text: body,
+    datasetId: "knowledge",
+    metadata: meta,
+  });
+  store.saveDocument({
+    name: "healing-dup-b-2026-06-04-000000002.md",
+    text: body,
+    datasetId: "knowledge",
+    metadata: meta,
+  });
 
-  const out = await consolidateMemory({ dryRun: false, llm: false, passes: "dedupe-by-sha256", now: new Date("2026-06-04T15:00:00.000Z") });
+  const out = await consolidateMemory({
+    dryRun: false,
+    llm: false,
+    passes: "dedupe-by-sha256",
+    now: new Date("2026-06-04T15:00:00.000Z"),
+  });
   assert.equal(out.ok, true);
   const pass = out.passes["dedupe-by-sha256"];
   assert.equal(typeof pass.flagged, "number", "counts shape intact");
@@ -315,11 +461,17 @@ test("consolidate surfaces per-entity arrays for a real sha256 dedup (counts unc
   assert.ok(archive, "archive entity recorded");
   assert.equal(pass.failures.length, 0);
   // The slim state file must stay counts-only.
-  const stateFile = JSON.parse(fs.readFileSync(path.join(dataDir, "state", ".consolidate.json"), "utf8"));
-  assert.equal(stateFile.passes["dedupe-by-sha256"].entities, undefined, ".consolidate.json strips entity arrays");
+  const stateFile = JSON.parse(
+    fs.readFileSync(path.join(dataDir, "state", ".consolidate.json"), "utf8"),
+  );
+  assert.equal(
+    stateFile.passes["dedupe-by-sha256"].entities,
+    undefined,
+    ".consolidate.json strips entity arrays",
+  );
 });
 
-// ---- synthetic provider entities (compile exit 69 / consolidate llm-skip) ----
+// synthetic provider entities (compile exit 69 / consolidate llm-skip)
 
 const ENOENT_ABORT =
   "compile.mjs: aborting (LLMProviderUnavailable): all providers exhausted (claude:(default), codex:(default), cursor:(default)); last: cursor: cursor-agent failed to start: spawn cursor-agent ENOENT";
@@ -336,7 +488,11 @@ function wipeHealingState() {
 }
 
 test("synthesizeProviderEntities: exit 69 -> compile failure pass with the abort excerpt", () => {
-  const passes = cron.synthesizeProviderEntities({ compileExit: 69, compileOk: false, compileError: ENOENT_ABORT });
+  const passes = cron.synthesizeProviderEntities({
+    compileExit: 69,
+    compileOk: false,
+    compileError: ENOENT_ABORT,
+  });
   const p = passes["compile-promote"];
   assert.ok(p, "compile-promote pass present");
   assert.equal(p.entities.length, 0);
@@ -348,7 +504,11 @@ test("synthesizeProviderEntities: exit 69 -> compile failure pass with the abort
 });
 
 test("synthesizeProviderEntities: exit 69 with empty error falls back to a stable excerpt", () => {
-  const passes = cron.synthesizeProviderEntities({ compileExit: 69, compileOk: false, compileError: "" });
+  const passes = cron.synthesizeProviderEntities({
+    compileExit: 69,
+    compileOk: false,
+    compileError: "",
+  });
   assert.match(passes["compile-promote"].failures[0].excerpt, /exit 69/);
 });
 
@@ -356,22 +516,42 @@ test("synthesizeProviderEntities: compile ok -> success entity (the resolution s
   const passes = cron.synthesizeProviderEntities({ compileExit: 0, compileOk: true });
   const p = passes["compile-promote"];
   assert.equal(p.failures.length, 0);
-  assert.deepEqual(p.entities.map((e) => e.id), [SYNTH_COMPILE_ID]);
+  assert.deepEqual(
+    p.entities.map((e) => e.id),
+    [SYNTH_COMPILE_ID],
+  );
 });
 
 test("synthesizeProviderEntities: a HARD compile failure contributes no compile pass at all", () => {
-  const passes = cron.synthesizeProviderEntities({ compileExit: 1, compileOk: false, compileError: "boom" });
-  assert.equal(passes["compile-promote"], undefined, "hard failure is not a provider signal: streak untouched");
+  const passes = cron.synthesizeProviderEntities({
+    compileExit: 1,
+    compileOk: false,
+    compileError: "boom",
+  });
+  assert.equal(
+    passes["compile-promote"],
+    undefined,
+    "hard failure is not a provider signal: streak untouched",
+  );
 });
 
 test("synthesizeProviderEntities: consolidate llm-skip -> failure; llm ran -> success; skipped/dryRun/no-llm -> nothing", () => {
-  const skip = cron.synthesizeProviderEntities({ compileOk: true, report: { llmRequested: true, llm: false } });
+  const skip = cron.synthesizeProviderEntities({
+    compileOk: true,
+    report: { llmRequested: true, llm: false },
+  });
   assert.equal(skip["consolidate-llm"].failures.length, 1);
   assert.equal(skip["consolidate-llm"].failures[0].id, SYNTH_CONSOLIDATE_ID);
 
-  const ran = cron.synthesizeProviderEntities({ compileOk: true, report: { llmRequested: true, llm: true } });
+  const ran = cron.synthesizeProviderEntities({
+    compileOk: true,
+    report: { llmRequested: true, llm: true },
+  });
   assert.equal(ran["consolidate-llm"].failures.length, 0);
-  assert.deepEqual(ran["consolidate-llm"].entities.map((e) => e.id), [SYNTH_CONSOLIDATE_ID]);
+  assert.deepEqual(
+    ran["consolidate-llm"].entities.map((e) => e.id),
+    [SYNTH_CONSOLIDATE_ID],
+  );
 
   for (const report of [
     { skipped: "not-due" },
@@ -380,7 +560,11 @@ test("synthesizeProviderEntities: consolidate llm-skip -> failure; llm ran -> su
     null,
   ]) {
     const none = cron.synthesizeProviderEntities({ compileOk: true, report });
-    assert.equal(none["consolidate-llm"], undefined, `no consolidate signal for ${JSON.stringify(report)}`);
+    assert.equal(
+      none["consolidate-llm"],
+      undefined,
+      `no consolidate signal for ${JSON.stringify(report)}`,
+    );
   }
 });
 
@@ -389,11 +573,19 @@ test("signatures: ENOENT vs timeout aborts open DIFFERENT episodes; volatile tok
   // ("last: <cause>" before the long shared prefix) precisely so the 80-char
   // signature window sees the differentiating words.
   const sigOf = (msg) => {
-    const passes = cron.synthesizeProviderEntities({ compileExit: 69, compileOk: false, compileError: msg });
+    const passes = cron.synthesizeProviderEntities({
+      compileExit: 69,
+      compileOk: false,
+      compileError: msg,
+    });
     const f = passes["compile-promote"].failures[0];
     return normalizeErrorSignature(f.excerpt, { pass: "compile-promote", kind: f.kind });
   };
-  assert.notEqual(sigOf(ENOENT_ABORT), sigOf(TIMEOUT_ABORT), "different root causes, different operator fixes");
+  assert.notEqual(
+    sigOf(ENOENT_ABORT),
+    sigOf(TIMEOUT_ABORT),
+    "different root causes, different operator fixes",
+  );
   assert.equal(
     sigOf(TIMEOUT_ABORT),
     sigOf(TIMEOUT_ABORT.replace("120000ms", "90000ms")),
@@ -401,7 +593,12 @@ test("signatures: ENOENT vs timeout aborts open DIFFERENT episodes; volatile tok
   );
   assert.equal(
     sigOf(ENOENT_ABORT),
-    sigOf(ENOENT_ABORT.replace("(claude:(default), codex:(default), cursor:(default))", "(claude:(default))")),
+    sigOf(
+      ENOENT_ABORT.replace(
+        "(claude:(default), codex:(default), cursor:(default))",
+        "(claude:(default))",
+      ),
+    ),
     "the exhausted-chain listing is suffix context and must not split the episode",
   );
 });
@@ -409,14 +606,34 @@ test("signatures: ENOENT vs timeout aborts open DIFFERENT episodes; volatile tok
 test("compile synthetic lifecycle: threshold escalation -> issue report -> recovery resolves", () => {
   wipeHealingState();
   const state = { version: 1, entities: {} };
-  const failPasses = cron.synthesizeProviderEntities({ compileExit: 69, compileOk: false, compileError: ENOENT_ABORT });
+  const failPasses = cron.synthesizeProviderEntities({
+    compileExit: 69,
+    compileOk: false,
+    compileError: ENOENT_ABORT,
+  });
 
   for (let i = 0; i < 2; i++) {
-    cron.updateEntityState(state, { passes: failPasses }, { ts: `2026-06-04T1${i}:00:00.000Z`, logPath: `state/logs/2026/06/cron-${i}.json`, escalateAfter: 3 });
+    cron.updateEntityState(
+      state,
+      { passes: failPasses },
+      {
+        ts: `2026-06-04T1${i}:00:00.000Z`,
+        logPath: `state/logs/2026/06/cron-${i}.json`,
+        escalateAfter: 3,
+      },
+    );
   }
-  assert.equal(cron.evaluateEscalations(state, { escalateAfter: 3 }).length, 0, "below threshold: silent");
+  assert.equal(
+    cron.evaluateEscalations(state, { escalateAfter: 3 }).length,
+    0,
+    "below threshold: silent",
+  );
 
-  cron.updateEntityState(state, { passes: failPasses }, { ts: "2026-06-04T12:00:00.000Z", logPath: "state/logs/2026/06/cron-2.json", escalateAfter: 3 });
+  cron.updateEntityState(
+    state,
+    { passes: failPasses },
+    { ts: "2026-06-04T12:00:00.000Z", logPath: "state/logs/2026/06/cron-2.json", escalateAfter: 3 },
+  );
   const escalations = cron.evaluateEscalations(state, { escalateAfter: 3 });
   assert.equal(escalations.length, 1);
   assert.equal(escalations[0].reason, "pending-consecutive");
@@ -430,7 +647,11 @@ test("compile synthetic lifecycle: threshold escalation -> issue report -> recov
   assert.match(fs.readFileSync(reportAbs, "utf8"), /^status: open$/m);
 
   const okPasses = cron.synthesizeProviderEntities({ compileExit: 0, compileOk: true });
-  cron.updateEntityState(state, { passes: okPasses }, { ts: "2026-06-04T13:00:00.000Z", logPath: "state/logs/2026/06/cron-3.json", escalateAfter: 3 });
+  cron.updateEntityState(
+    state,
+    { passes: okPasses },
+    { ts: "2026-06-04T13:00:00.000Z", logPath: "state/logs/2026/06/cron-3.json", escalateAfter: 3 },
+  );
   assert.equal(state.entities[SYNTH_COMPILE_ID], undefined, "success deletes the entity");
   const res2 = cron.writeIssueReports([], state, new Date("2026-06-04T13:00:01.000Z"));
   assert.equal(res2.openCount, 0, "episode resolved once the signature has no live entity");
@@ -447,7 +668,15 @@ test("both synthetic failures in one tick escalate independently with distinct s
     report: { llmRequested: true, llm: false },
   });
   for (let i = 0; i < 3; i++) {
-    cron.updateEntityState(state, { passes }, { ts: `2026-06-04T1${i}:00:00.000Z`, logPath: `state/logs/2026/06/cron-${i}.json`, escalateAfter: 3 });
+    cron.updateEntityState(
+      state,
+      { passes },
+      {
+        ts: `2026-06-04T1${i}:00:00.000Z`,
+        logPath: `state/logs/2026/06/cron-${i}.json`,
+        escalateAfter: 3,
+      },
+    );
   }
   const escalations = cron.evaluateEscalations(state, { escalateAfter: 3 });
   assert.equal(escalations.length, 2, "one episode per synthetic entity");

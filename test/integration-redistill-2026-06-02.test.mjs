@@ -1,7 +1,6 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import path from "node:path";
 import { setupWorkspace, cleanup } from "./harness.mjs";
 
 // Reproducer for the 2026-06-02 distillation-failed incident.
@@ -109,15 +108,30 @@ test("integration: 2026-06-02 reproducer — redistill recovers atoms via map-re
   assert.ok(result.audit.redistilled_from, "redistilled_from timestamp should be stamped");
   assert.equal(result.audit.redistilled_from, new Date(capturedAtMs).toISOString());
   // Map-reduce ran: chunks_total >= 2.
-  assert.ok(result.audit.chunks_total >= 2, `expected map-reduce (chunks_total >= 2), got ${result.audit.chunks_total}`);
-  assert.equal(result.audit.chunks_succeeded, result.audit.chunks_total, "every chunk should succeed against mock provider");
+  assert.ok(
+    result.audit.chunks_total >= 2,
+    `expected map-reduce (chunks_total >= 2), got ${result.audit.chunks_total}`,
+  );
+  assert.equal(
+    result.audit.chunks_succeeded,
+    result.audit.chunks_total,
+    "every chunk should succeed against mock provider",
+  );
   assert.deepEqual(result.audit.failed_chunks, []);
 
   // Stash deleted on success.
-  assert.equal(fs.existsSync(stashPath), false, "stash should be removed after a successful redistill");
+  assert.equal(
+    fs.existsSync(stashPath),
+    false,
+    "stash should be removed after a successful redistill",
+  );
 
   // Daily leaf has the recovered atom + audit fields in frontmatter.
-  const docs = store.listDocuments({ prefix: "daily-", enabled: "true", datasetId: "daily" }).documents;
+  const docs = store.listDocuments({
+    prefix: "daily-",
+    enabled: "true",
+    datasetId: "daily",
+  }).documents;
   let leafText = "";
   for (const d of docs) {
     const { text } = store.readDocument({ documentId: d.id, datasetId: "daily" });
@@ -129,9 +143,15 @@ test("integration: 2026-06-02 reproducer — redistill recovers atoms via map-re
   assert.ok(leafText.length > 0, "redistilled daily leaf should be in the store");
   assert.ok(/redistilled_from:/.test(leafText), "leaf frontmatter should record redistilled_from");
   assert.ok(/redistill_attempts: 1/.test(leafText), "leaf should record redistill_attempts: 1");
-  assert.ok(/original_outcome: distillation-failed/.test(leafText), "leaf should record original_outcome");
+  assert.ok(
+    /original_outcome: distillation-failed/.test(leafText),
+    "leaf should record original_outcome",
+  );
   assert.ok(/chunks_total: \d+/.test(leafText), "leaf should record chunks_total");
-  assert.ok(/recovered-from-2026-06-02/.test(leafText), "leaf should contain the recovered atom title");
+  assert.ok(
+    /recovered-from-2026-06-02/.test(leafText),
+    "leaf should contain the recovered atom title",
+  );
   // Atom count from the header line; the mock returns one atom per chunk and
   // the reduce step preserves them. Just assert > 0.
   const atomCountMatch = leafText.match(/^- atom_count: (\d+)$/m);

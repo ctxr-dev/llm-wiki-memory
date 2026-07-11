@@ -45,7 +45,10 @@ test("consolidate prune-empty-ancestors rebuilds the survivor (no stale ref left
   ]);
   assert.equal(r.status, 0, `consolidate ok; got ${r.status}: ${r.stderr}`);
   assert.ok(!fs.existsSync(path.join(wiki, "knowledge/zone")), "empty zone subtree pruned");
-  assert.ok(fs.existsSync(path.join(wiki, path.dirname(path.dirname(keep.created.document.id)))), "kept area untouched");
+  assert.ok(
+    fs.existsSync(path.join(wiki, path.dirname(path.dirname(keep.created.document.id)))),
+    "kept area untouched",
+  );
   // Defense-in-depth beyond doctor(): the survivor index.md itself drops `zone`.
   assert.doesNotMatch(
     fs.readFileSync(path.join(wiki, "knowledge/index.md"), "utf8"),

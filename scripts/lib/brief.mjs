@@ -1,5 +1,7 @@
 import { truncateAtWordBoundary } from "./slug.mjs";
 
+/** @typedef {import("./types.mjs").MemoryMetadata} MemoryMetadata */
+
 export const BRIEF_MAX_CHARS = 200;
 export const BRIEF_MIN_HEADING_WORDS = 3;
 
@@ -8,19 +10,42 @@ const HEADING = /^#{1,6}\s+(.+?)\s*$/gm;
 const KEY_VALUE_LINE = /^[-*]\s*\w[\w-]*\s*:/;
 const DAILY_ATOM_TITLE = /^### Atom · [^·]+· (.+?)\s*$/m;
 
+/**
+ * @param {unknown} s
+ * @param {number} [max]
+ * @returns {string}
+ */
 function oneLine(s, max = 400) {
-  return String(s || "").replace(/\s+/g, " ").trim().slice(0, max);
+  return String(s || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
 }
 
+/**
+ * @param {string} text
+ * @returns {number}
+ */
 function wordCount(text) {
-  return String(text).split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w)).length;
+  return String(text)
+    .split(/\s+/)
+    .filter((w) => /[A-Za-z0-9]/.test(w)).length;
 }
 
+/**
+ * @param {unknown} body
+ * @returns {string}
+ */
 function firstAtomTitle(body) {
   const m = String(body || "").match(DAILY_ATOM_TITLE);
   return m ? m[1].trim() : "";
 }
 
+/**
+ * @param {unknown} body
+ * @param {number} minWords
+ * @returns {string}
+ */
 function firstHeadingWithMinWords(body, minWords) {
   HEADING.lastIndex = 0;
   let m;
@@ -32,6 +57,10 @@ function firstHeadingWithMinWords(body, minWords) {
   return "";
 }
 
+/**
+ * @param {unknown} body
+ * @returns {string}
+ */
 function firstProseSentence(body) {
   for (const raw of String(body || "").split(/\r?\n/)) {
     const line = raw.trim();
@@ -47,6 +76,10 @@ function firstProseSentence(body) {
 // is itself 3 words and would otherwise satisfy the heading rule while telling the
 // reader nothing. Returns "" only when there is genuinely nothing to summarise, so
 // the caller can omit the field rather than store an empty one.
+/**
+ * @param {{ body?: unknown, memoryMeta?: MemoryMetadata | null }} [args]
+ * @returns {string}
+ */
 export function buildBrief({ body, memoryMeta } = {}) {
   const text = String(body || "");
   const atomType = (memoryMeta && memoryMeta.atom_type) || "";

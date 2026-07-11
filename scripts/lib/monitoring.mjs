@@ -18,17 +18,43 @@ import { normalizeErrorSignature } from "./error-signature.mjs";
 import { dailyDatePath } from "./slug.mjs";
 import { writeFileAtomic } from "./atomic-write.mjs";
 
-export const MONITORING_DIR = path.join(MEMORY_DATA_DIR, "monitoring");
+const MONITORING_DIR = path.join(MEMORY_DATA_DIR, "monitoring");
 
-export const SEVERITIES = ["suspicious", "likely-bug", "confirmed-bug"];
+const SEVERITIES = ["suspicious", "likely-bug", "confirmed-bug"];
 
+/**
+ * The fully-resolved capture fields `buildMarkdown` renders.
+ * @typedef {Object} CaptureFields
+ * @property {string} title
+ * @property {string} severity
+ * @property {string} signature
+ * @property {string} observedAt
+ * @property {string} [surface]
+ * @property {string} [observed]
+ * @property {string} [evidence]
+ * @property {string[]} [suspectedFiles]
+ * @property {string} [cwd]
+ * @property {string} [branch]
+ * @property {string} [related]
+ */
+
+/**
+ * @param {unknown} s
+ * @returns {string}
+ */
 function rd(s) {
   return redact(String(s ?? "")).trim();
 }
 
 // Recursively list *.md capture files under MONITORING_DIR (newest path last).
+/**
+ * @param {string} [root]
+ * @returns {string[]}
+ */
 function listCaptures(root = MONITORING_DIR) {
+  /** @type {string[]} */
   const out = [];
+  /** @param {string} dir */
   const walk = (dir) => {
     let entries;
     try {
@@ -47,6 +73,10 @@ function listCaptures(root = MONITORING_DIR) {
   return out;
 }
 
+/**
+ * @param {string} abs
+ * @returns {string | null}
+ */
 function readStatus(abs) {
   let txt;
   try {
@@ -58,11 +88,19 @@ function readStatus(abs) {
   return m ? m[1].toLowerCase() : "open"; // a capture with no status is treated as open
 }
 
+/**
+ * @param {string} abs
+ * @returns {string}
+ */
 function sigFromName(abs) {
   // <signature>-<epochMs>.md  → strip the trailing -<digits>.md
   return path.basename(abs, ".md").replace(/-\d+$/, "");
 }
 
+/**
+ * @param {CaptureFields} f
+ * @returns {string}
+ */
 function buildMarkdown(f) {
   const lines = [
     "---",
@@ -87,9 +125,8 @@ function buildMarkdown(f) {
     rd(f.evidence) || "(none captured)",
     "",
     "## Suspected area in src/",
-    (Array.isArray(f.suspectedFiles) ? f.suspectedFiles : [])
-      .map((s) => `- ${rd(s)}`)
-      .join("\n") || "(unknown)",
+    (Array.isArray(f.suspectedFiles) ? f.suspectedFiles : []).map((s) => `- ${rd(s)}`).join("\n") ||
+      "(unknown)",
     "",
     "## Related",
     rd(f.related) || "none",
@@ -99,10 +136,15 @@ function buildMarkdown(f) {
 }
 
 // Deep-redact every string value in a plain object (json sidecar).
+/**
+ * @param {unknown} value
+ * @returns {unknown}
+ */
 function redactJson(value) {
   if (typeof value === "string") return redact(value);
   if (Array.isArray(value)) return value.map(redactJson);
   if (value && typeof value === "object") {
+    /** @type {Record<string, unknown>} */
     const out = {};
     for (const [k, v] of Object.entries(value)) out[k] = redactJson(v);
     return out;
@@ -115,6 +157,22 @@ function redactJson(value) {
 // field is redacted; the signature is derived from title+evidence so it matches
 // the cron escalation vocabulary. Each observation is a NEW file (the trail
 // accretes — never an upsert). Returns { ok, path, jsonPath, signature }.
+/**
+ * @param {{
+ *   title?: string,
+ *   severity?: string,
+ *   surface?: string,
+ *   observed?: string,
+ *   evidence?: string,
+ *   suspectedFiles?: string[],
+ *   cwd?: string,
+ *   branch?: string,
+ *   related?: string,
+ *   json?: Record<string, unknown> | null,
+ *   now?: Date,
+ * }} [args]
+ * @returns {{ ok: false, error: string } | { ok: true, path: string, jsonPath: string | null, signature: string }}
+ */
 export function writeMonitoringCapture({
   title,
   severity = "confirmed-bug",
@@ -144,13 +202,32 @@ export function writeMonitoringCapture({
   const mdPath = path.join(dir, `${base}.md`);
   writeFileAtomic(
     mdPath,
-    buildMarkdown({ title: t, severity: sev, surface, observed, evidence, suspectedFiles, cwd, branch, related, signature, observedAt }),
+    buildMarkdown({
+      title: t,
+      severity: sev,
+      surface,
+      observed,
+      evidence,
+      suspectedFiles,
+      cwd,
+      branch,
+      related,
+      signature,
+      observedAt,
+    }),
   );
 
   let jsonPath = null;
   if (json && typeof json === "object") {
     jsonPath = path.join(dir, `${base}.json`);
-    const safe = redactJson({ ...json, observedAt, epochMs, signature, severity: sev, status: "open" });
+    const safe = redactJson({
+      ...json,
+      observedAt,
+      epochMs,
+      signature,
+      severity: sev,
+      status: "open",
+    });
     writeFileAtomic(jsonPath, `${JSON.stringify(safe, null, 2)}\n`);
   }
   return { ok: true, path: mdPath, jsonPath, signature };
@@ -178,8 +255,15 @@ export function monitoringHealth({ limit = 5 } = {}) {
 }
 
 // Flip a capture's status open → triaged after the user has reviewed it.
+/**
+ * @param {string} fileRelOrAbs
+ * @param {string} [status]
+ * @returns {{ ok: false, error: string } | { ok: true, path: string, status: string }}
+ */
 export function resolveCapture(fileRelOrAbs, status = "triaged") {
-  const abs = path.isAbsolute(fileRelOrAbs) ? fileRelOrAbs : path.join(MEMORY_DATA_DIR, fileRelOrAbs);
+  const abs = path.isAbsolute(fileRelOrAbs)
+    ? fileRelOrAbs
+    : path.join(MEMORY_DATA_DIR, fileRelOrAbs);
   if (!fs.existsSync(abs)) return { ok: false, error: "not-found" };
   let txt = fs.readFileSync(abs, "utf8");
   if (/^status:\s*[A-Za-z-]+\s*$/m.test(txt)) {
@@ -195,13 +279,20 @@ export function resolveCapture(fileRelOrAbs, status = "triaged") {
 // return a one-line pointer for the capture's `Related` section. Lazy-imports
 // cron-job so the capture hot path never pulls that module's graph. Best-effort:
 // any failure yields "" (the capture still writes with Related: none).
+/**
+ * @param {string} signature
+ * @returns {Promise<string>}
+ */
 export async function relatedEscalation(signature) {
   if (!signature) return "";
   try {
     const { cronHealth } = await import("../cron-job.mjs");
     const h = cronHealth({ limit: 0 });
     const hit = (h.escalations || []).find((e) => e && e.signature === signature);
-    return hit ? `matches open cron escalation ${signature} at ${hit.path || "(see cron-health)"}` : "";
+    const hitPath = hit ? /** @type {{ path?: string }} */ (hit).path : "";
+    return hit
+      ? `matches open cron escalation ${signature} at ${hitPath || "(see cron-health)"}`
+      : "";
   } catch {
     return "";
   }

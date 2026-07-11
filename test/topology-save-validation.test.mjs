@@ -8,10 +8,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { setupWorkspace, cleanup, SRC } from "./harness.mjs";
@@ -77,11 +74,12 @@ after(() => cleanup(wsA.dataDir));
 
 test("saveDocument: no-path write to a topology category throws (never flat-root)", () => {
   assert.throws(
-    () => store.saveDocument({
-      name: "DEV-1-x.plan.md",
-      text: "# x\n\nbody",
-      datasetId: "issues",
-    }),
+    () =>
+      store.saveDocument({
+        name: "DEV-1-x.plan.md",
+        text: "# x\n\nbody",
+        datasetId: "issues",
+      }),
     /topology block .* requires an explicit path/i,
   );
 });
@@ -170,7 +168,11 @@ before(async () => {
   await client.connect(transport);
 });
 after(async () => {
-  try { await client?.close(); } catch { /* ignore */ }
+  try {
+    await client?.close();
+  } catch {
+    /* ignore */
+  }
   cleanup(wsB.dataDir);
 });
 

@@ -111,7 +111,11 @@ test("a directory-fsync failure is swallowed and NEVER fails the write (Windows-
     fs.openSync = originalOpen;
   }
   assert.equal(threw, false, "a dir-fsync open failure must NOT propagate");
-  assert.equal(fs.readFileSync(target, "utf8"), "DURABLE CONTENT", "the write still landed correctly");
+  assert.equal(
+    fs.readFileSync(target, "utf8"),
+    "DURABLE CONTENT",
+    "the write still landed correctly",
+  );
   assert.deepEqual(fs.readdirSync(dir), ["durable.txt"], "no leftover temp");
 });
 

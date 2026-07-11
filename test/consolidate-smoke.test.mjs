@@ -62,7 +62,11 @@ test("lessonKey: empty error_pattern → empty sentinel", () => {
 });
 
 test("consolidateMemory: dry-run on an empty wiki returns ok with zero totals", async () => {
-  const r = await consolidateMemory({ dryRun: true, llm: false, now: new Date("2026-06-02T12:00:00Z") });
+  const r = await consolidateMemory({
+    dryRun: true,
+    llm: false,
+    now: new Date("2026-06-02T12:00:00Z"),
+  });
   assert.equal(r.ok, true);
   assert.equal(r.dryRun, true);
   assert.equal(r.workingSetSize, 0);
@@ -77,7 +81,11 @@ test("consolidateMemory: dry-run does NOT write state file", async () => {
 });
 
 test("consolidateMemory: live run on empty wiki writes state with last_run_utc", async () => {
-  const r = await consolidateMemory({ dryRun: false, llm: false, now: new Date("2026-06-02T12:00:00Z") });
+  const r = await consolidateMemory({
+    dryRun: false,
+    llm: false,
+    now: new Date("2026-06-02T12:00:00Z"),
+  });
   assert.equal(r.ok, true);
   const stateFile = path.join(dataDir, "state", ".consolidate.json");
   assert.ok(fs.existsSync(stateFile), "state file should exist after a live run");

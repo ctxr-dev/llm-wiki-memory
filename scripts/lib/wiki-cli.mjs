@@ -9,11 +9,38 @@ import { fileURLToPath } from "node:url";
 // reimplementing it. The skill owns the wiki structure; this module is the
 // only place that shells out to it.
 
-export class WikiCliError extends Error {
+/**
+ * @typedef {Object} SpawnResult
+ * @property {number | null} status
+ * @property {string} stdout
+ * @property {string} stderr
+ */
+
+/**
+ * @typedef {Object} SkillCli
+ * @property {string} cmd
+ * @property {string[]} baseArgs
+ * @property {string} how
+ */
+
+/**
+ * @typedef {Object} SpawnOpts
+ * @property {string} [cwd]
+ * @property {number} [timeoutMs]
+ */
+
+class WikiCliError extends Error {
+  /**
+   * @param {string} message
+   * @param {{ status?: number | null, stdout?: string, stderr?: string }} [details]
+   */
   constructor(message, { status, stdout, stderr } = {}) {
     super(message);
+    /** @type {number | null | undefined} */
     this.status = status;
+    /** @type {string | undefined} */
     this.stdout = stdout;
+    /** @type {string | undefined} */
     this.stderr = stderr;
   }
 }
@@ -26,8 +53,10 @@ const MAX_BUFFER = 16 * 1024 * 1024;
 //   1. LLM_WIKI_SKILL_CLI env -> explicit path to scripts/cli.mjs (dev/test).
 //   2. resolve @ctxr/skill-llm-wiki/package.json from node_modules -> cli.mjs.
 //   3. fall back to the `skill-llm-wiki` bin on PATH.
+/** @type {SkillCli | null} */
 let _resolved = null;
-export function resolveSkillCli() {
+/** @returns {SkillCli} */
+function resolveSkillCli() {
   if (_resolved) return _resolved;
 
   const explicit = process.env.LLM_WIKI_SKILL_CLI;
@@ -52,11 +81,11 @@ export function resolveSkillCli() {
   return _resolved;
 }
 
-// Reset cached resolution (tests that flip LLM_WIKI_SKILL_CLI).
-export function _resetSkillCliCache() {
-  _resolved = null;
-}
-
+/**
+ * @param {string[]} args
+ * @param {SpawnOpts} [opts]
+ * @returns {SpawnResult}
+ */
 function spawnSkill(args, { cwd, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const { cmd, baseArgs } = resolveSkillCli();
   const env = { ...process.env, LLM_WIKI_NO_PROMPT: process.env.LLM_WIKI_NO_PROMPT || "1" };
@@ -78,6 +107,11 @@ function spawnSkill(args, { cwd, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
 }
 
 // Run and require exit 0; otherwise throw with captured output.
+/**
+ * @param {string[]} args
+ * @param {SpawnOpts} [opts]
+ * @returns {SpawnResult}
+ */
 export function run(args, opts = {}) {
   const r = spawnSkill(args, opts);
   if (r.status !== 0) {
@@ -91,7 +125,12 @@ export function run(args, opts = {}) {
 
 // Run, allow non-zero, and parse the trailing JSON object from stdout.
 // heal/validate emit a JSON envelope when --json is passed.
-export function runJson(args, opts = {}) {
+/**
+ * @param {string[]} args
+ * @param {SpawnOpts} [opts]
+ * @returns {{ envelope: unknown, raw: SpawnResult }}
+ */
+function runJson(args, opts = {}) {
   const r = spawnSkill(args, opts);
   const text = (r.stdout || "").trim();
   // Prefer a full-string parse; fall back to the last {...} block.
@@ -115,47 +154,56 @@ export function where() {
   return envelope;
 }
 
-export function contract() {
-  const { envelope } = runJson(["contract", "--json"]);
-  return envelope;
-}
-
 // Build (materialize) a hosted wiki from `source` into `wiki`. The contract
 // file must already exist at <wiki>/.layout/layout.yaml.
+/**
+ * @param {{ wiki: string, source: string }} args
+ * @returns {SpawnResult}
+ */
 export function buildHosted({ wiki, source }) {
-  return run([
-    "build",
-    source,
-    "--layout-mode",
-    "hosted",
-    "--target",
-    wiki,
-  ]);
+  return run(["build", source, "--layout-mode", "hosted", "--target", wiki]);
 }
 
 // Regenerate one directory's index.md (creating it if absent). Deterministic.
+/**
+ * @param {string} dir
+ * @param {string} wiki
+ * @returns {SpawnResult}
+ */
 export function indexRebuildOne(dir, wiki) {
   return run(["index-rebuild-one", dir, wiki]);
 }
 
 // Regenerate every EXISTING index.md in the wiki. Does NOT create indexes for
 // newly-added nested dirs (use ensureIndexes for that).
+/**
+ * @param {string} wiki
+ * @returns {SpawnResult}
+ */
 export function indexRebuildAll(wiki) {
   return run(["index-rebuild", wiki]);
 }
 
 // Read-only correctness check. Returns {ok, errors, warnings, raw}.
+/**
+ * @param {string} wiki
+ * @returns {{ ok: boolean, errors: number, warnings: number, status: number | null, raw: SpawnResult }}
+ */
 export function validate(wiki) {
   const r = spawnSkill(["validate", wiki]);
   const text = `${r.stdout}\n${r.stderr}`;
   const m = text.match(/(\d+)\s+error\(s\),\s*(\d+)\s+warning\(s\)/);
-  const errors = m ? Number(m[1]) : (r.status === 0 ? 0 : -1);
+  const errors = m ? Number(m[1]) : r.status === 0 ? 0 : -1;
   const warnings = m ? Number(m[2]) : 0;
   return { ok: r.status === 0 && errors === 0, errors, warnings, status: r.status, raw: r };
 }
 
 // Classify wiki state and name the next command. Returns the heal envelope
 // ({verdict, next, diagnostics, ...}).
+/**
+ * @param {string} wiki
+ * @returns {unknown}
+ */
 export function heal(wiki) {
   const { envelope } = runJson(["heal", wiki, "--json"]);
   return envelope;
@@ -164,6 +212,11 @@ export function heal(wiki) {
 // Optimise structure via rewrite operators (the anti-flat-pile engine).
 // Plan-gated by default unless apply=true. quality is one of
 // tiered-fast|claude-first|deterministic.
+/**
+ * @param {string} wiki
+ * @param {{ quality?: string, plan?: boolean }} [opts]
+ * @returns {SpawnResult}
+ */
 export function rebuild(wiki, { quality = "deterministic", plan = false } = {}) {
   const args = ["rebuild", wiki, "--quality-mode", quality];
   if (plan) args.push("--plan");
@@ -176,8 +229,14 @@ export function rebuild(wiki, { quality = "deterministic", plan = false } = {}) 
 // child indexes. This is the documented way to grow a nested tree: the full
 // `index-rebuild` only refreshes existing indexes, it will not create new
 // ones for nested dirs.
+/**
+ * @param {string} wiki
+ * @param {string[]} leafPaths
+ * @returns {string[]}
+ */
 export function ensureIndexes(wiki, leafPaths) {
   const wikiAbs = path.resolve(wiki);
+  /** @type {Set<string>} */
   const dirs = new Set();
   for (const leaf of leafPaths) {
     let dir = path.dirname(path.resolve(leaf));

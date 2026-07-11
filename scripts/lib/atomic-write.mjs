@@ -18,9 +18,18 @@ import { randomUUID } from "node:crypto";
 // The temp name carries the pid + a random suffix so two concurrent writers
 // to the same path never collide on the temp file. On any failure the temp
 // is removed and the original is left untouched.
+/**
+ * @param {string} filePath
+ * @param {Buffer | string} data
+ * @param {{ mode?: number }} [options]
+ * @returns {void}
+ */
 export function writeFileAtomic(filePath, data, { mode = 0o644 } = {}) {
   const dir = path.dirname(filePath);
-  const tmp = path.join(dir, `.${path.basename(filePath)}.${process.pid}-${randomUUID().slice(0, 8)}.tmp`);
+  const tmp = path.join(
+    dir,
+    `.${path.basename(filePath)}.${process.pid}-${randomUUID().slice(0, 8)}.tmp`,
+  );
   let fd;
   try {
     // wx: fail if the temp somehow exists (unique name makes that a real bug).
@@ -47,13 +56,27 @@ export function writeFileAtomic(filePath, data, { mode = 0o644 } = {}) {
     // platforms (Windows) reject opening a directory for fsync.
     try {
       const dfd = fs.openSync(dir, "r");
-      try { fs.fsyncSync(dfd); } finally { fs.closeSync(dfd); }
-    } catch { /* directory fsync unsupported / not permitted — ignore */ }
+      try {
+        fs.fsyncSync(dfd);
+      } finally {
+        fs.closeSync(dfd);
+      }
+    } catch {
+      /* directory fsync unsupported / not permitted — ignore */
+    }
   } catch (err) {
     if (fd !== undefined) {
-      try { fs.closeSync(fd); } catch { /* already closed */ }
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* already closed */
+      }
     }
-    try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      /* best effort */
+    }
     throw err;
   }
 }

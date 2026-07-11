@@ -18,57 +18,44 @@
 //
 // All functions are pure (no I/O, no globals). They're tested standalone
 // before the hook orchestration wires them together.
+//
+// The issue-key extraction primitives (extractIssueKeys / extractIssueKeysByPrefix
+// / parseIssueKey) live in tracker-parse-keys.mjs; they're re-exported below so
+// this module remains the single import surface for the hook.
 
-// ---------------------------------------------------------------------------
-// Issue-key extraction (tracker-agnostic)
-// ---------------------------------------------------------------------------
+export {
+  extractIssueKeys,
+  extractIssueKeysByPrefix,
+  parseIssueKey,
+} from "./tracker-parse-keys.mjs";
 
-// Match {PREFIX}-{N} where PREFIX is 2-10 uppercase-or-digit chars (must
-// start with a letter) and N is 1-7 digits. Matches at word boundaries so
-// arbitrary strings like "DEV-129957 / OPS-44231 / ENG-7" all extract.
-// Covers Jira / Linear / and any tracker with the "{PREFIX}-{N}" key shape.
-// (GitHub's "owner/repo#N" form isn't matched here — that's a separate
-// pattern we'll add when GitHub-sync is actually wired up.)
-const ISSUE_KEY_RE = /\b([A-Z][A-Z0-9]{1,9})-(\d{1,7})\b/g;
+/**
+ * A reason tag parsed off a checkbox line (`reason:<key>:<comment>`).
+ * @typedef {Object} ChecklistReason
+ * @property {string} key - lowercased reason key.
+ * @property {string} comment - trimmed comment text.
+ */
 
-export function extractIssueKeys(text) {
-  if (!text || typeof text !== "string") return [];
-  const seen = new Set();
-  let m;
-  // Reset the regex's lastIndex defensively (it's a /g regex held in a
-  // module-level binding; concurrent extractIssueKeys calls would otherwise
-  // race on the shared lastIndex.)
-  ISSUE_KEY_RE.lastIndex = 0;
-  while ((m = ISSUE_KEY_RE.exec(text)) !== null) {
-    seen.add(`${m[1]}-${m[2]}`);
-  }
-  return [...seen].sort();
-}
+/**
+ * A single parsed checkbox record from a plan markdown body.
+ * @typedef {Object} ChecklistItem
+ * @property {number} lineIdx - zero-based source line index.
+ * @property {number} indent - leading indent length.
+ * @property {string | null} number - stable `<num>`/`<num>.<sub>` diff identity, null if unnumbered.
+ * @property {boolean} checked
+ * @property {string} label - line text with reason tags stripped.
+ * @property {ChecklistReason[]} reasons
+ * @property {string} raw - the original source line.
+ */
 
-// Convenience: extract distinct issue keys grouped by their prefix.
-export function extractIssueKeysByPrefix(text) {
-  const grouped = new Map();
-  for (const key of extractIssueKeys(text)) {
-    const [prefix] = key.split("-");
-    if (!grouped.has(prefix)) grouped.set(prefix, []);
-    grouped.get(prefix).push(key);
-  }
-  return grouped;
-}
-
-// Split an issue key into its tracker-agnostic facets. Callers that map a
-// key to a wiki path pass these into the `tracker-issue` topology's
-// `pathFor(...)` directly — no tracker-specific logic in the hook.
-export function parseIssueKey(key) {
-  if (!key || typeof key !== "string") return null;
-  const m = /^([A-Z][A-Z0-9]{1,9})-(\d{1,7})$/.exec(key);
-  if (!m) return null;
-  return { prefix: m[1], number: Number(m[2]) };
-}
-
-// ---------------------------------------------------------------------------
-// Checkbox parsing
-// ---------------------------------------------------------------------------
+/**
+ * A checkbox state flip between two plan versions (from `diffChecklists`).
+ * @typedef {Object} ChecklistFlip
+ * @property {string} id - the item identity (number, or `label:<label>`).
+ * @property {boolean} from - prior checked state.
+ * @property {boolean} to - new checked state.
+ * @property {ChecklistItem} item - the after-version item.
+ */
 
 // Match a markdown checkbox at the start of a line. Accepts ALL these
 // shapes the plan-format rule prescribes:
@@ -86,16 +73,20 @@ export function parseIssueKey(key) {
 //      diff identity, null if absent
 //   3: bracket state — " " (open) or "x"/"X" (closed)
 //   4: rest of the line (label + any reason: tags)
-const CHECKBOX_RE =
-  /^(\s*)(?:-\s+)?(?:(\d+(?:\.\d+)*)\.?\s+(?:-\s+)?)?\[([ xX])\]\s+(.*)$/;
+const CHECKBOX_RE = /^(\s*)(?:-\s+)?(?:(\d+(?:\.\d+)*)\.?\s+(?:-\s+)?)?\[([ xX])\]\s+(.*)$/;
 
 // `reason:<key>:<comment>` inline tag near a checkbox. Keys are open-ended
 // but we recognise the four conventional ones explicitly in tests; the
 // regex itself doesn't restrict the key.
 const REASON_TAG_RE = /reason:([A-Za-z_][A-Za-z0-9_-]*):(.+?)(?=\s+reason:|$)/g;
 
+/**
+ * @param {unknown} planMarkdown
+ * @returns {ChecklistItem[]}
+ */
 export function parseChecklist(planMarkdown) {
   if (!planMarkdown || typeof planMarkdown !== "string") return [];
+  /** @type {ChecklistItem[]} */
   const items = [];
   const lines = planMarkdown.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
@@ -103,6 +94,7 @@ export function parseChecklist(planMarkdown) {
     if (!m) continue;
     const [, indent, number, bracket, rest] = m;
     const checked = bracket.toLowerCase() === "x";
+    /** @type {ChecklistReason[]} */
     const reasons = [];
     REASON_TAG_RE.lastIndex = 0;
     let r;
@@ -124,29 +116,40 @@ export function parseChecklist(planMarkdown) {
   return items;
 }
 
-// ---------------------------------------------------------------------------
-// Checklist diff (between two versions of the same plan file)
-// ---------------------------------------------------------------------------
-
 // Pair items by their `number` field first (stable across reorderings), then
 // fall back to label for items without a number. Returns lists of:
 //   - flipped[]:    same identity, state changed
 //   - added[]:      identity present in `after` but not `before`
 //   - removed[]:    identity present in `before` but not `after`
 //   - reasonAdded[]: identity exists in both and a new reason tag appeared
+/**
+ * @param {ChecklistItem[] | string} before
+ * @param {ChecklistItem[] | string} after
+ * @returns {{ flipped: ChecklistFlip[], added: ChecklistItem[], removed: ChecklistItem[], reasonAdded: Array<{ id: string, reason: ChecklistReason, item: ChecklistItem }> }}
+ */
 export function diffChecklists(before, after) {
   const beforeItems = Array.isArray(before) ? before : parseChecklist(before);
   const afterItems = Array.isArray(after) ? after : parseChecklist(after);
 
+  /**
+   * @param {ChecklistItem} item
+   * @returns {string}
+   */
   function identityOf(item) {
     return item.number || `label:${item.label}`;
   }
+  /** @type {Map<string, ChecklistItem>} */
   const beforeIx = new Map(beforeItems.map((it) => [identityOf(it), it]));
+  /** @type {Map<string, ChecklistItem>} */
   const afterIx = new Map(afterItems.map((it) => [identityOf(it), it]));
 
+  /** @type {ChecklistFlip[]} */
   const flipped = [];
+  /** @type {ChecklistItem[]} */
   const added = [];
+  /** @type {ChecklistItem[]} */
   const removed = [];
+  /** @type {Array<{ id: string, reason: ChecklistReason, item: ChecklistItem }>} */
   const reasonAdded = [];
 
   for (const [id, a] of afterIx) {
@@ -172,22 +175,19 @@ export function diffChecklists(before, after) {
   return { flipped, added, removed, reasonAdded };
 }
 
-// ---------------------------------------------------------------------------
-// Lifecycle inference
-// ---------------------------------------------------------------------------
-
 // Reason-tag keys that mark an UNCHECKED item as "resolved" for the
 // lifecycle decision. `canceled` / `cancelled` / `skipped` are terminal:
 // the work was deliberately not done. `deferred` / `blocked` are still
 // OPEN (the item just isn't actionable yet) and do NOT count as resolved.
 const RESOLVING_REASON_KEYS = new Set(["canceled", "cancelled", "skipped"]);
 
+/**
+ * @param {ChecklistItem} item
+ * @returns {boolean}
+ */
 function isResolved(item) {
   if (item.checked) return true;
-  return (
-    Array.isArray(item.reasons) &&
-    item.reasons.some((r) => RESOLVING_REASON_KEYS.has(r.key))
-  );
+  return Array.isArray(item.reasons) && item.reasons.some((r) => RESOLVING_REASON_KEYS.has(r.key));
 }
 
 // Derive the lifecycle from the checklist. Reason-tag-aware:
@@ -197,6 +197,10 @@ function isResolved(item) {
 //
 // `archived` is intentionally NOT derived here — that state is set by the
 // user via an explicit `archived: true` frontmatter.
+/**
+ * @param {ChecklistItem[] | string} items
+ * @returns {import("./types.mjs").PlanStatus}
+ */
 export function inferLifecycle(items) {
   const list = Array.isArray(items) ? items : parseChecklist(items);
   if (list.length === 0) return "pending";
@@ -212,6 +216,10 @@ export function inferLifecycle(items) {
 //   resolved  — checked OR canceled/skipped (the lifecycle's notion of "settled")
 //   open      — total - resolved
 //   label     — "{done}/{total}", the user-visible shape
+/**
+ * @param {ChecklistItem[] | string} items
+ * @returns {{ total: number, done: number, resolved: number, open: number, ratio: number, label: string }}
+ */
 export function checklistProgress(items) {
   const list = Array.isArray(items) ? items : parseChecklist(items);
   const total = list.length;

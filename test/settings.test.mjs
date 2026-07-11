@@ -16,9 +16,6 @@ const {
   consolidateCosineThreshold,
   flushChunkTargetK,
   hookMaxTurns,
-  embedModel,
-  atomBodyMaxChars,
-  gcIntervalDays,
   writeGateSelfImprovementEnabled,
   writeGateClaudeHookEnabled,
   writeGateAuditTrailEnabled,
@@ -28,7 +25,6 @@ const {
   pickStrongerModel,
   isCliProvider,
   isApiProvider,
-  detectAvailableProviders,
   __testing,
 } = await import("../scripts/lib/settings.mjs");
 
@@ -110,15 +106,12 @@ test("gate: null/bare audit + per-lesson keys FAIL CLOSED to true (not Boolean(n
   // A bare `auditTrailEnabled:` / `perLessonConsent:` (null) must NOT silently
   // disable consent recording or per-lesson prompting — same fail-closed rule
   // as selfImprovementEnabled. Garbage auditKeep falls back to the default.
-  withYaml(
-    `gate:\n  auditTrailEnabled:\n  perLessonConsent:\n  auditKeep: nonsense\n`,
-    () => {
-      settings({ cmdProbe: () => false });
-      assert.equal(writeGateAuditTrailEnabled(), true, "bare auditTrailEnabled must stay ON");
-      assert.equal(writeGatePerLessonConsent(), true, "bare perLessonConsent must stay ON");
-      assert.equal(writeGateAuditKeep(), 1000, "garbage auditKeep must fall back to default");
-    },
-  );
+  withYaml(`gate:\n  auditTrailEnabled:\n  perLessonConsent:\n  auditKeep: nonsense\n`, () => {
+    settings({ cmdProbe: () => false });
+    assert.equal(writeGateAuditTrailEnabled(), true, "bare auditTrailEnabled must stay ON");
+    assert.equal(writeGatePerLessonConsent(), true, "bare perLessonConsent must stay ON");
+    assert.equal(writeGateAuditKeep(), 1000, "garbage auditKeep must fall back to default");
+  });
 });
 
 test("user YAML overrides template", () => {
@@ -140,7 +133,9 @@ test("malformed USER YAML does NOT throw — falls back to shipped defaults (sys
   // recall / cron. The loader warns to stderr and serves template defaults.
   withYaml("consolidate:\n  cosineThreshold: [oops\n", () => {
     let s;
-    assert.doesNotThrow(() => { s = settings({ cmdProbe: () => false }); }, "must not throw on a malformed user file");
+    assert.doesNotThrow(() => {
+      s = settings({ cmdProbe: () => false });
+    }, "must not throw on a malformed user file");
     // Served the shipped default, not garbage.
     assert.equal(s.consolidate.cosineThreshold, 0.97);
     assert.equal(s.flush.chunkTargetK, 5);
@@ -176,7 +171,10 @@ test("malformed shipped TEMPLATE THROWS when there is no usable user override (p
       () => settings({ configPath: missingUserPath, cmdProbe: () => false }),
       (err) => {
         assert.match(err.message, /shipped template .* failed to parse/);
-        assert.ok(err.message.includes(__testing.TEMPLATE_PATH), "names the offending template path");
+        assert.ok(
+          err.message.includes(__testing.TEMPLATE_PATH),
+          "names the offending template path",
+        );
         return true;
       },
       "a malformed shipped template must throw, not silently degrade",
@@ -225,16 +223,26 @@ test("env MEMORY_LLM_MODEL prepends to head provider's models", () => {
 test("BREAKING: process.env.MEMORY_CONSOLIDATE_COSINE_THRESHOLD has NO effect on settings", (t) => {
   clearEnv();
   process.env.MEMORY_CONSOLIDATE_COSINE_THRESHOLD = "0.5";
-  t.after(() => { delete process.env.MEMORY_CONSOLIDATE_COSINE_THRESHOLD; clearEnv(); });
+  t.after(() => {
+    delete process.env.MEMORY_CONSOLIDATE_COSINE_THRESHOLD;
+    clearEnv();
+  });
   withYaml(`consolidate:\n  cosineThreshold: 0.91\n`, () => {
-    assert.equal(consolidateCosineThreshold(), 0.91, "env var must NOT win over YAML; back-compat removed");
+    assert.equal(
+      consolidateCosineThreshold(),
+      0.91,
+      "env var must NOT win over YAML; back-compat removed",
+    );
   });
 });
 
 test("BREAKING: process.env.MEMORY_FLUSH_CHUNK_TARGET_K has NO effect", (t) => {
   clearEnv();
   process.env.MEMORY_FLUSH_CHUNK_TARGET_K = "99";
-  t.after(() => { delete process.env.MEMORY_FLUSH_CHUNK_TARGET_K; clearEnv(); });
+  t.after(() => {
+    delete process.env.MEMORY_FLUSH_CHUNK_TARGET_K;
+    clearEnv();
+  });
   withYaml(`flush:\n  chunkTargetK: 7\n`, () => {
     assert.equal(flushChunkTargetK(), 7);
   });
@@ -243,7 +251,10 @@ test("BREAKING: process.env.MEMORY_FLUSH_CHUNK_TARGET_K has NO effect", (t) => {
 test("BREAKING: process.env.MEMORY_HOOK_MAX_TURNS has NO effect", (t) => {
   clearEnv();
   process.env.MEMORY_HOOK_MAX_TURNS = "1000";
-  t.after(() => { delete process.env.MEMORY_HOOK_MAX_TURNS; clearEnv(); });
+  t.after(() => {
+    delete process.env.MEMORY_HOOK_MAX_TURNS;
+    clearEnv();
+  });
   withYaml(`hook:\n  maxTurns: 42\n`, () => {
     assert.equal(hookMaxTurns(), 42);
   });
@@ -303,12 +314,15 @@ test("settings() caches by mtime — re-call is fast and stable until file chang
 
 test("invalid numeric values in YAML fall back to structural defaults", () => {
   clearEnv();
-  withYaml(`flush:\n  chunkTargetK: -1\n  chunkParallelism: 0\n  reduceMaxChars: not-a-number\n`, () => {
-    const s = settings();
-    assert.equal(s.flush.chunkTargetK, 5);
-    assert.equal(s.flush.chunkParallelism, 1);
-    assert.equal(s.flush.reduceMaxChars, 30_000);
-  });
+  withYaml(
+    `flush:\n  chunkTargetK: -1\n  chunkParallelism: 0\n  reduceMaxChars: not-a-number\n`,
+    () => {
+      const s = settings();
+      assert.equal(s.flush.chunkTargetK, 5);
+      assert.equal(s.flush.chunkParallelism, 1);
+      assert.equal(s.flush.reduceMaxChars, 30_000);
+    },
+  );
 });
 
 // ─── Auto-detect chain ────────────────────────────────────────────────────
@@ -321,7 +335,9 @@ test("auto-detect: anthropic key present -> anthropic heads the chain", () => {
       const s = settings({ cmdProbe: () => false });
       assert.equal(s.providers.chain[0], "anthropic");
     });
-  } finally { clearEnv(); }
+  } finally {
+    clearEnv();
+  }
 });
 
 test("auto-detect: empty YAML chain + no env keys + no CLI -> empty chain", () => {
@@ -372,9 +388,15 @@ test("returned settings object is deeply frozen", () => {
   clearEnv();
   withYaml(null, () => {
     const s = settings({ cmdProbe: () => true });
-    assert.throws(() => { s.flush.chunkTargetK = 999; }, TypeError);
-    assert.throws(() => { s.providers.chain[0] = "garbage"; }, TypeError);
-    assert.throws(() => { s.providers.anthropic.models[0] = "garbage"; }, TypeError);
+    assert.throws(() => {
+      s.flush.chunkTargetK = 999;
+    }, TypeError);
+    assert.throws(() => {
+      s.providers.chain[0] = "garbage";
+    }, TypeError);
+    assert.throws(() => {
+      s.providers.anthropic.models[0] = "garbage";
+    }, TypeError);
   });
 });
 
@@ -383,7 +405,9 @@ test("settingsPath honors MEMORY_SETTINGS_PATH env when absolute", () => {
   process.env.MEMORY_SETTINGS_PATH = "/tmp/custom-settings.yaml";
   try {
     assert.equal(settingsPath(), "/tmp/custom-settings.yaml");
-  } finally { clearEnv(); }
+  } finally {
+    clearEnv();
+  }
 });
 
 test("__testing.KNOWN_PROVIDERS exposed for downstream validation", () => {
@@ -472,7 +496,11 @@ test("withSettingsOverride: a frame does not poison the cache for a later plain 
   // After the frame, with no override active, a fresh load returns the YAML
   // value — the frame build was never persisted to the cache.
   withYaml(`consolidate:\n  cosineThreshold: 0.33\n`, () => {
-    assert.equal(m.settings().consolidate.cosineThreshold, 0.33, "after frame: YAML value, no poisoning");
+    assert.equal(
+      m.settings().consolidate.cosineThreshold,
+      0.33,
+      "after frame: YAML value, no poisoning",
+    );
   });
 });
 
@@ -481,7 +509,11 @@ test("withSettingsOverride: a frame does not poison the cache for a later plain 
 test("coercion: a string cosineThreshold falls back to the default (NOT a corrupt comparison)", () => {
   clearEnv();
   withYaml(`consolidate:\n  cosineThreshold: high\n`, () => {
-    assert.equal(consolidateCosineThreshold(), 0.97, "string → structural default, not NaN/garbage");
+    assert.equal(
+      consolidateCosineThreshold(),
+      0.97,
+      "string → structural default, not NaN/garbage",
+    );
   });
 });
 
@@ -507,24 +539,40 @@ test("coercion: out-of-range float (>1) falls back; in-range survives", () => {
 
 test("coercion: clusterTopK string/zero/negative → default; positive survives", () => {
   clearEnv();
-  withYaml(`consolidate:\n  clusterTopK: lots\n`, () => assert.equal(settings().consolidate.clusterTopK, 12));
-  withYaml(`consolidate:\n  clusterTopK: 0\n`, () => assert.equal(settings().consolidate.clusterTopK, 12));
-  withYaml(`consolidate:\n  clusterTopK: -3\n`, () => assert.equal(settings().consolidate.clusterTopK, 12));
-  withYaml(`consolidate:\n  clusterTopK: 20\n`, () => assert.equal(settings().consolidate.clusterTopK, 20));
+  withYaml(`consolidate:\n  clusterTopK: lots\n`, () =>
+    assert.equal(settings().consolidate.clusterTopK, 12),
+  );
+  withYaml(`consolidate:\n  clusterTopK: 0\n`, () =>
+    assert.equal(settings().consolidate.clusterTopK, 12),
+  );
+  withYaml(`consolidate:\n  clusterTopK: -3\n`, () =>
+    assert.equal(settings().consolidate.clusterTopK, 12),
+  );
+  withYaml(`consolidate:\n  clusterTopK: 20\n`, () =>
+    assert.equal(settings().consolidate.clusterTopK, 20),
+  );
 });
 
 test("coercion: intervalDays accepts 0 (disabled) but rejects garbage", () => {
   clearEnv();
-  withYaml(`consolidate:\n  intervalDays: 0\n`, () => assert.equal(settings().consolidate.intervalDays, 0));
+  withYaml(`consolidate:\n  intervalDays: 0\n`, () =>
+    assert.equal(settings().consolidate.intervalDays, 0),
+  );
   withYaml(`gc:\n  intervalDays: 0\n`, () => assert.equal(settings().gc.intervalDays, 0));
-  withYaml(`consolidate:\n  intervalDays: weekly\n`, () => assert.equal(settings().consolidate.intervalDays, 1));
+  withYaml(`consolidate:\n  intervalDays: weekly\n`, () =>
+    assert.equal(settings().consolidate.intervalDays, 1),
+  );
 });
 
 test("coercion: a quoted-string bool does NOT become truthy at the accessor", () => {
   clearEnv();
   // YAML `"false"` is a string; without coercion Boolean("false") === true.
   withYaml(`consolidate:\n  llmPassesEnabled: "false"\n`, () => {
-    assert.equal(settings().consolidate.llmPassesEnabled, true, "non-bool → structural default (true)");
+    assert.equal(
+      settings().consolidate.llmPassesEnabled,
+      true,
+      "non-bool → structural default (true)",
+    );
   });
   withYaml(`gate:\n  selfImprovementEnabled: false\n`, () => {
     assert.equal(settings().gate.selfImprovementEnabled, false, "real YAML bool false honored");
@@ -538,12 +586,16 @@ test("write-gate fails CLOSED: a null/empty/commented selfImprovementEnabled sta
   // pre-coercion used to DISABLE the gate silently (fail-open). It must default
   // back to enabled, while an explicit `false` still disables.
   for (const yaml of [
-    `gate:\n  selfImprovementEnabled:\n`,            // bare key, no value → null
-    `gate:\n  selfImprovementEnabled: null\n`,       // explicit null
+    `gate:\n  selfImprovementEnabled:\n`, // bare key, no value → null
+    `gate:\n  selfImprovementEnabled: null\n`, // explicit null
     `gate:\n  selfImprovementEnabled: # off later\n`, // trailing comment, no value → null
   ]) {
     withYaml(yaml, () => {
-      assert.equal(settings().gate.selfImprovementEnabled, true, `must fail CLOSED (enabled) for: ${JSON.stringify(yaml)}`);
+      assert.equal(
+        settings().gate.selfImprovementEnabled,
+        true,
+        `must fail CLOSED (enabled) for: ${JSON.stringify(yaml)}`,
+      );
       assert.equal(writeGateSelfImprovementEnabled(), true, "accessor agrees the gate is enabled");
     });
   }
@@ -556,34 +608,48 @@ test("write-gate fails CLOSED: a null/empty/commented selfImprovementEnabled sta
 test("L2 hook knob fails CLOSED: null/empty claudeHookEnabled stays ENABLED; explicit false disables", () => {
   clearEnv();
   for (const yaml of [
-    `gate:\n  claudeHookEnabled:\n`,      // bare key, no value → null
+    `gate:\n  claudeHookEnabled:\n`, // bare key, no value → null
     `gate:\n  claudeHookEnabled: null\n`, // explicit null
   ]) {
     withYaml(yaml, () => {
-      assert.equal(settings().gate.claudeHookEnabled, true, `must fail CLOSED (enabled) for: ${JSON.stringify(yaml)}`);
+      assert.equal(
+        settings().gate.claudeHookEnabled,
+        true,
+        `must fail CLOSED (enabled) for: ${JSON.stringify(yaml)}`,
+      );
       assert.equal(writeGateClaudeHookEnabled(), true, "accessor agrees the hook stays enabled");
     });
   }
   withYaml(`gate:\n  claudeHookEnabled: false\n`, () => {
     assert.equal(writeGateClaudeHookEnabled(), false, "explicit false disables the L2 hook");
-    assert.equal(settings().gate.selfImprovementEnabled, true, "L3 knob unaffected by the L2 toggle");
+    assert.equal(
+      settings().gate.selfImprovementEnabled,
+      true,
+      "L3 knob unaffected by the L2 toggle",
+    );
   });
 });
 
 test("cron logging + healing knobs coerce like their consolidate siblings", () => {
   clearEnv();
-  withYaml(`consolidate:\n  attemptsKeep: 0\n  fullLogRetentionDays: -3\n  escalateAfterAttempts: "x"\n`, () => {
-    const c = settings().consolidate;
-    assert.equal(c.attemptsKeep, 50, "zero → default");
-    assert.equal(c.fullLogRetentionDays, 90, "negative → default");
-    assert.equal(c.escalateAfterAttempts, 3, "non-numeric → default");
-  });
-  withYaml(`consolidate:\n  attemptsKeep: 10\n  fullLogRetentionDays: 30\n  escalateAfterAttempts: 5\n`, () => {
-    const c = settings().consolidate;
-    assert.equal(c.attemptsKeep, 10);
-    assert.equal(c.fullLogRetentionDays, 30);
-    assert.equal(c.escalateAfterAttempts, 5);
-  });
+  withYaml(
+    `consolidate:\n  attemptsKeep: 0\n  fullLogRetentionDays: -3\n  escalateAfterAttempts: "x"\n`,
+    () => {
+      const c = settings().consolidate;
+      assert.equal(c.attemptsKeep, 50, "zero → default");
+      assert.equal(c.fullLogRetentionDays, 90, "negative → default");
+      assert.equal(c.escalateAfterAttempts, 3, "non-numeric → default");
+    },
+  );
+  withYaml(
+    `consolidate:\n  attemptsKeep: 10\n  fullLogRetentionDays: 30\n  escalateAfterAttempts: 5\n`,
+    () => {
+      const c = settings().consolidate;
+      assert.equal(c.attemptsKeep, 10);
+      assert.equal(c.fullLogRetentionDays, 30);
+      assert.equal(c.escalateAfterAttempts, 5);
+    },
+  );
 });
 
 test("wiki.autoCommit defaults true, honours explicit false, fails safe on null", () => {
@@ -623,15 +689,60 @@ test("BREAKING: every removed MEMORY_* env var is a no-op (table-driven over the
   // Map each removed env var to a settings accessor that reads its target so
   // we can assert the env value is ignored and the YAML value wins.
   const sampleByPath = {
-    "consolidate.cosineThreshold": { yaml: `consolidate:\n  cosineThreshold: 0.42\n`, read: () => settings().consolidate.cosineThreshold, expect: 0.42, env: "0.99" },
-    "consolidate.intervalDays": { yaml: `consolidate:\n  intervalDays: 3\n`, read: () => settings().consolidate.intervalDays, expect: 3, env: "9" },
-    "flush.chunkTargetK": { yaml: `flush:\n  chunkTargetK: 7\n`, read: () => settings().flush.chunkTargetK, expect: 7, env: "99" },
-    "hook.maxTurns": { yaml: `hook:\n  maxTurns: 11\n`, read: () => settings().hook.maxTurns, expect: 11, env: "999" },
-    "embed.model": { yaml: `embed:\n  model: fixture-bge\n`, read: () => settings().embed.model, expect: "fixture-bge", env: "Xenova/other" },
-    "consolidate.enabled": { yaml: `consolidate:\n  enabled: true\n`, read: () => settings().consolidate.enabled, expect: true, env: "off" },
-    "gc.intervalDays": { yaml: `gc:\n  intervalDays: 14\n`, read: () => settings().gc.intervalDays, expect: 14, env: "1" },
-    "compile.atomBodyMaxChars": { yaml: `compile:\n  atomBodyMaxChars: 555\n`, read: () => settings().compile.atomBodyMaxChars, expect: 555, env: "1" },
-    "gate.selfImprovementEnabled": { yaml: `gate:\n  selfImprovementEnabled: false\n`, read: () => settings().gate.selfImprovementEnabled, expect: false, env: "on" },
+    "consolidate.cosineThreshold": {
+      yaml: `consolidate:\n  cosineThreshold: 0.42\n`,
+      read: () => settings().consolidate.cosineThreshold,
+      expect: 0.42,
+      env: "0.99",
+    },
+    "consolidate.intervalDays": {
+      yaml: `consolidate:\n  intervalDays: 3\n`,
+      read: () => settings().consolidate.intervalDays,
+      expect: 3,
+      env: "9",
+    },
+    "flush.chunkTargetK": {
+      yaml: `flush:\n  chunkTargetK: 7\n`,
+      read: () => settings().flush.chunkTargetK,
+      expect: 7,
+      env: "99",
+    },
+    "hook.maxTurns": {
+      yaml: `hook:\n  maxTurns: 11\n`,
+      read: () => settings().hook.maxTurns,
+      expect: 11,
+      env: "999",
+    },
+    "embed.model": {
+      yaml: `embed:\n  model: fixture-bge\n`,
+      read: () => settings().embed.model,
+      expect: "fixture-bge",
+      env: "Xenova/other",
+    },
+    "consolidate.enabled": {
+      yaml: `consolidate:\n  enabled: true\n`,
+      read: () => settings().consolidate.enabled,
+      expect: true,
+      env: "off",
+    },
+    "gc.intervalDays": {
+      yaml: `gc:\n  intervalDays: 14\n`,
+      read: () => settings().gc.intervalDays,
+      expect: 14,
+      env: "1",
+    },
+    "compile.atomBodyMaxChars": {
+      yaml: `compile:\n  atomBodyMaxChars: 555\n`,
+      read: () => settings().compile.atomBodyMaxChars,
+      expect: 555,
+      env: "1",
+    },
+    "gate.selfImprovementEnabled": {
+      yaml: `gate:\n  selfImprovementEnabled: false\n`,
+      read: () => settings().gate.selfImprovementEnabled,
+      expect: false,
+      env: "on",
+    },
   };
   // Reverse-map: which env var(s) target each sampled path.
   const pathToEnv = {};
@@ -645,7 +756,11 @@ test("BREAKING: every removed MEMORY_* env var is a no-op (table-driven over the
     for (const envVar of envVars) process.env[envVar] = spec.env;
     try {
       withYaml(spec.yaml, () => {
-        assert.deepEqual(spec.read(), spec.expect, `${envVars.join("/")} must be ignored; YAML ${p} wins`);
+        assert.deepEqual(
+          spec.read(),
+          spec.expect,
+          `${envVars.join("/")} must be ignored; YAML ${p} wins`,
+        );
       });
       asserted++;
     } finally {
@@ -669,7 +784,17 @@ test("parity: every scalar structural default in buildSettings matches templates
 
   // Every scalar knob (excludes providers model-lists + chain + crossCuttingAreas,
   // which intentionally differ: code ships [], template ships the model lists).
-  const scalarSections = ["consolidate", "flush", "hook", "embed", "recall", "compile", "gc", "gate", "wiki"];
+  const scalarSections = [
+    "consolidate",
+    "flush",
+    "hook",
+    "embed",
+    "recall",
+    "compile",
+    "gc",
+    "gate",
+    "wiki",
+  ];
   for (const section of scalarSections) {
     for (const key of Object.keys(codeDefaults[section])) {
       assert.deepEqual(
@@ -716,10 +841,18 @@ test("cosineBandFloor: valid value passes, invalid/out-of-range values fail-safe
     assert.equal(settings().consolidate.cosineBandFloor, null, "absent key defaults to disabled");
   });
   withYaml("consolidate:\n  cosineThreshold: 0.92\n  cosineBandFloor: 0.95\n", () => {
-    assert.equal(settings().consolidate.cosineBandFloor, null, "floor above a lowered threshold disables");
+    assert.equal(
+      settings().consolidate.cosineBandFloor,
+      null,
+      "floor above a lowered threshold disables",
+    );
   });
   withYaml("consolidate:\n  cosineThreshold: 0.92\n  cosineBandFloor: 0.85\n", () => {
-    assert.equal(settings().consolidate.cosineBandFloor, 0.85, "floor under a lowered threshold is accepted");
+    assert.equal(
+      settings().consolidate.cosineBandFloor,
+      0.85,
+      "floor under a lowered threshold is accepted",
+    );
   });
 });
 

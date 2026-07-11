@@ -81,7 +81,14 @@ function findDuplicateIds(root) {
       seen.set(id, p);
     }
   };
-  for (const cat of ["knowledge", "self_improvement", "plans", "investigations", "daily", "issues"]) {
+  for (const cat of [
+    "knowledge",
+    "self_improvement",
+    "plans",
+    "investigations",
+    "daily",
+    "issues",
+  ]) {
     walk(path.join(root, cat));
   }
   return [...dups];
@@ -97,7 +104,10 @@ test("updateDocMetadata refuses a relocation collision instead of clobbering a d
     metadata: { atom_type: "pattern-gotcha", area: "backend", project_module: "testproj" },
   });
   const canonicalId = seed.created.document.id;
-  assert.ok(canonicalId.includes("/general/"), `seeded at canonical general/ path (got ${canonicalId})`);
+  assert.ok(
+    canonicalId.includes("/general/"),
+    `seeded at canonical general/ path (got ${canonicalId})`,
+  );
   const legacyId = canonicalId.replace("/general/", "/");
 
   // A DIFFERENT leaf that happens to share the basename (ids derive from the
@@ -108,7 +118,9 @@ test("updateDocMetadata refuses a relocation collision instead of clobbering a d
   const legacyData = matter(fs.readFileSync(legacyAbs, "utf8")).data;
   fs.writeFileSync(
     legacyAbs,
-    matter.stringify("\nLEGACY BODY — a different leaf that must not be destroyed.\n", legacyData, { lineWidth: -1 }),
+    matter.stringify("\nLEGACY BODY — a different leaf that must not be destroyed.\n", legacyData, {
+      lineWidth: -1,
+    }),
   );
 
   const canonicalBefore = fs.readFileSync(absFor(canonicalId), "utf8");
@@ -122,8 +134,16 @@ test("updateDocMetadata refuses a relocation collision instead of clobbering a d
   });
   assert.equal(r.ok, false, "refused the colliding relocation");
   assert.match(r.reason || "", /occupied by a different leaf/);
-  assert.equal(fs.readFileSync(absFor(canonicalId), "utf8"), canonicalBefore, "canonical destination leaf untouched");
-  assert.equal(fs.readFileSync(legacyAbs, "utf8"), legacyBefore, "legacy source leaf untouched (no half-applied write)");
+  assert.equal(
+    fs.readFileSync(absFor(canonicalId), "utf8"),
+    canonicalBefore,
+    "canonical destination leaf untouched",
+  );
+  assert.equal(
+    fs.readFileSync(legacyAbs, "utf8"),
+    legacyBefore,
+    "legacy source leaf untouched (no half-applied write)",
+  );
 
   // Clean up the staged duplicate so the shared wiki stays single-id for later tests.
   fs.rmSync(legacyAbs);
@@ -157,7 +177,8 @@ test("updateDocMetadata with placementOverride pins the leaf in place (no reloca
 
 test("consolidate 3A merge keeps a legacy-path keeper in place (stable id, no DUP-ID)", async () => {
   process.env.MEMORY_LLM_PROVIDER = "mock";
-  const SAME = "# Cache invalidation\n\nInvalidate caches on writes carefully to avoid stale reads.";
+  const SAME =
+    "# Cache invalidation\n\nInvalidate caches on writes carefully to avoid stale reads.";
 
   // Loser at its canonical general/ path.
   const loser = store.saveDocument({
@@ -205,10 +226,21 @@ test("consolidate 3A merge keeps a legacy-path keeper in place (stable id, no DU
   const keeperLeaf = store.readLeafForConsolidate({ documentId: keeperId });
   const loserLeaf = store.readLeafForConsolidate({ documentId: loserId });
 
-  assert.ok(keeperLeaf && keeperLeaf.active, "keeper still active at its ORIGINAL legacy documentId (not relocated)");
-  assert.match(keeperLeaf.text, /MERGED cache-invalidation guidance/, "keeper body rewritten with merged content");
+  assert.ok(
+    keeperLeaf && keeperLeaf.active,
+    "keeper still active at its ORIGINAL legacy documentId (not relocated)",
+  );
+  assert.match(
+    keeperLeaf.text,
+    /MERGED cache-invalidation guidance/,
+    "keeper body rewritten with merged content",
+  );
   assert.ok(loserLeaf && loserLeaf.active === false, "loser archived");
-  assert.equal(loserLeaf.memory.supersedes_id, keeperId, "loser supersedes_id points at the still-present keeper");
+  assert.equal(
+    loserLeaf.memory.supersedes_id,
+    keeperId,
+    "loser supersedes_id points at the still-present keeper",
+  );
   assert.deepEqual(findDuplicateIds(wiki), [], "no duplicate ids after consolidate");
   assert.equal(cli.validate(wiki).ok, true, "wiki validates clean after consolidate");
 });

@@ -79,10 +79,7 @@ test("compileInlineFunction rejects empty / non-string source", () => {
 });
 
 test("compileInlineFunction rejects source that doesn't produce a function", () => {
-  assert.throws(
-    () => compileInlineFunction(`const x = 42;`),
-    /did not evaluate to a function/,
-  );
+  assert.throws(() => compileInlineFunction(`const x = 42;`), /did not evaluate to a function/);
 });
 
 test("callForwardCompiler returns { ok: false } on runtime errors", () => {
@@ -127,8 +124,5 @@ test("substituteTemplate fills {var} placeholders from a flat object", () => {
 });
 
 test("substituteTemplate throws PathCompilerError on a missing variable", () => {
-  assert.throws(
-    () => substituteTemplate("{a}-{b}", { a: 1 }),
-    PathCompilerError,
-  );
+  assert.throws(() => substituteTemplate("{a}-{b}", { a: 1 }), PathCompilerError);
 });

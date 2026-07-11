@@ -42,7 +42,14 @@ function runCli(args, { env = {} } = {}) {
 }
 
 function makeSource(sessionId, body) {
-  return { sessionId, cwd: dataDir, hookEvent: "PostCompact", body, turnCount: 4, capturedAtMs: Date.now() - 1_000 };
+  return {
+    sessionId,
+    cwd: dataDir,
+    hookEvent: "PostCompact",
+    body,
+    turnCount: 4,
+    capturedAtMs: Date.now() - 1_000,
+  };
 }
 
 test("redistill: no args prints usage and exits 64", () => {

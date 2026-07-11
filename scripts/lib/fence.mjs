@@ -16,6 +16,10 @@
 // character is ever embedded in this file.
 const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
 
+/**
+ * @param {string} text
+ * @returns {string}
+ */
 export function defangFenceMarkers(text) {
   return String(text).replace(
     /<!--(\s*(?:BEGIN|END)\s+UNTRUSTED\b[^>]*?-->)/gi,

@@ -21,8 +21,28 @@ import { pruneEmptyAncestors } from "./fs-prune.mjs";
 import { recordWikiChange, withWikiCommit } from "./wiki-commit.mjs";
 export { pruneEmptyAncestors } from "./fs-prune.mjs";
 
+/**
+ * @typedef {Object} PlanSyncResult
+ * @property {string} file
+ * @property {boolean} frontmatter_changed
+ * @property {string | null} status
+ * @property {string | null} progress
+ * @property {{ from: string, to: string, suffix: string | null } | null} moved
+ * @property {string | null} error
+ */
+
+/**
+ * @typedef {Object} PlanSyncOpts
+ * @property {string} [wikiRoot]
+ * @property {Date} [now]
+ */
+
 // Pick a non-colliding destination by appending -v2 / -v3 / … before the
 // .plan.md extension. Hard-fails after 99 attempts (effectively never).
+/**
+ * @param {string} targetAbs
+ * @returns {{ path: string, suffix: string | null }}
+ */
 export function pickNonColliding(targetAbs) {
   if (!fs.existsSync(targetAbs)) return { path: targetAbs, suffix: null };
   const ext = ".plan.md";
@@ -53,16 +73,28 @@ export function pickNonColliding(targetAbs) {
 // Per-call result object the hook entry-script logs. Always returned
 // (never throws beyond pickNonColliding's hard-fail or fs errors on
 // write); errors are captured in result.error.
+/**
+ * @param {string} absPath
+ * @param {PlanSyncOpts} [opts]
+ * @returns {Promise<PlanSyncResult>}
+ */
 export async function syncPlanFile(absPath, opts = {}) {
   // One synced plan = one commit when called stand-alone (the PostToolUse
   // hook); inside syncAllPlans the nested frame joins the sweep's batch.
-  return withWikiCommit(
-    { op: "plan-sync", actor: "plan-sync", rootDir: opts.wikiRoot || "" },
-    () => syncPlanFileInner(absPath, opts),
+  return /** @type {Promise<PlanSyncResult>} */ (
+    withWikiCommit({ op: "plan-sync", actor: "plan-sync", rootDir: opts.wikiRoot || "" }, () =>
+      syncPlanFileInner(absPath, opts),
+    )
   );
 }
 
+/**
+ * @param {string} absPath
+ * @param {PlanSyncOpts} [opts]
+ * @returns {Promise<PlanSyncResult>}
+ */
 async function syncPlanFileInner(absPath, { wikiRoot, now } = {}) {
+  /** @type {PlanSyncResult} */
   const out = {
     file: absPath,
     frontmatter_changed: false,
@@ -86,18 +118,18 @@ async function syncPlanFileInner(absPath, { wikiRoot, now } = {}) {
   try {
     raw = fs.readFileSync(absPath, "utf8");
   } catch (err) {
-    out.error = `read failed: ${err.message}`;
+    out.error = `read failed: ${/** @type {Error} */ (err).message}`;
     return out;
   }
   let update;
   try {
     update = applyFrontmatterUpdate(raw, { now });
   } catch (err) {
-    out.error = `frontmatter update failed: ${err.message}`;
+    out.error = `frontmatter update failed: ${/** @type {Error} */ (err).message}`;
     return out;
   }
-  out.status = update.summary.status;
-  out.progress = update.summary.progress;
+  out.status = /** @type {string | null} */ (update.summary.status);
+  out.progress = /** @type {string | null} */ (update.summary.progress);
   if (update.changed) {
     writeFileAtomic(absPath, update.text);
     out.frontmatter_changed = true;
@@ -134,7 +166,7 @@ async function syncPlanFileInner(absPath, { wikiRoot, now } = {}) {
   try {
     newRel = pathFor(topo, parsed.kind, newFacets);
   } catch (err) {
-    out.error = `pathFor failed (kind=${parsed.kind}, lifecycle=${newLifecycle}): ${err.message}`;
+    out.error = `pathFor failed (kind=${parsed.kind}, lifecycle=${newLifecycle}): ${/** @type {Error} */ (err).message}`;
     return out;
   }
   const newAbs = path.join(wikiRoot, newRel);
@@ -147,7 +179,7 @@ async function syncPlanFileInner(absPath, { wikiRoot, now } = {}) {
     fs.mkdirSync(path.dirname(picked.path), { recursive: true });
     fs.renameSync(absPath, picked.path);
   } catch (err) {
-    out.error = `move failed: ${err.message}`;
+    out.error = `move failed: ${/** @type {Error} */ (err).message}`;
     return out;
   }
   out.moved = { from: absPath, to: picked.path, suffix: picked.suffix };
@@ -162,7 +194,7 @@ async function syncPlanFileInner(absPath, { wikiRoot, now } = {}) {
     ensureIndexes(wikiRoot, [absPath, picked.path]);
   } catch (err) {
     // Move succeeded; index-rebuild failure is non-fatal but logged.
-    out.error = `move ok, but ensureIndexes failed: ${err.message}`;
+    out.error = `move ok, but ensureIndexes failed: ${/** @type {Error} */ (err).message}`;
   }
 
   // Empty-dir cleanup: walk up from the OLD location and remove any
@@ -182,7 +214,7 @@ async function syncPlanFileInner(absPath, { wikiRoot, now } = {}) {
         reason: "plan-move survivor reindex",
       });
     } catch (err) {
-      out.error = `${out.error ? `${out.error}; ` : ""}survivor reindex failed: ${err.message}`;
+      out.error = `${out.error ? `${out.error}; ` : ""}survivor reindex failed: ${/** @type {Error} */ (err).message}`;
     }
   }
 
@@ -191,17 +223,31 @@ async function syncPlanFileInner(absPath, { wikiRoot, now } = {}) {
 
 // Bulk variant — used by SessionEnd to sweep every .plan.md under the
 // wiki. Returns an array of per-file result objects.
+/**
+ * @param {string} wikiRoot
+ * @param {{ now?: Date }} [opts]
+ * @returns {Promise<PlanSyncResult[]>}
+ */
 export async function syncAllPlans(wikiRoot, { now } = {}) {
   // The SessionEnd sweep = one commit covering every plan it touched.
-  return withWikiCommit(
-    { op: "plan-sync", actor: "plan-sync-sweep", rootDir: wikiRoot || "" },
-    () => syncAllPlansInner(wikiRoot, { now }),
+  return /** @type {Promise<PlanSyncResult[]>} */ (
+    withWikiCommit({ op: "plan-sync", actor: "plan-sync-sweep", rootDir: wikiRoot || "" }, () =>
+      syncAllPlansInner(wikiRoot, { now }),
+    )
   );
 }
 
+/**
+ * @param {string} wikiRoot
+ * @param {{ now?: Date }} [opts]
+ * @returns {Promise<PlanSyncResult[]>}
+ */
 async function syncAllPlansInner(wikiRoot, { now } = {}) {
+  /** @type {string[]} */
   const results = [];
-  if (!fs.existsSync(wikiRoot)) return results;
+  if (!fs.existsSync(wikiRoot))
+    return /** @type {PlanSyncResult[]} */ (/** @type {unknown} */ (results));
+  /** @param {string} dir */
   function walk(dir) {
     let entries;
     try {
@@ -222,6 +268,7 @@ async function syncAllPlansInner(wikiRoot, { now } = {}) {
   }
   walk(wikiRoot);
 
+  /** @type {PlanSyncResult[]} */
   const out = [];
   for (const p of results) {
     // syncPlanFile may have moved the file; if it no longer exists at the

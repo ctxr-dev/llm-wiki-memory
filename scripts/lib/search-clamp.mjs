@@ -10,9 +10,29 @@
 import { truncateAtWordBoundary } from "./slug.mjs";
 import { priorityRank } from "./datasets.mjs";
 
+/** @typedef {import("./types.mjs").Priority} Priority */
+
+/**
+ * A hit record this module clamps: any object exposing an optional `priority`
+ * and `content`, spread through untouched apart from body-excerpting fields.
+ * Covers both `SearchHit` and `RecallRecord`.
+ * @typedef {{ priority?: Priority, content?: unknown } & Record<string, unknown>} ClampableHit
+ */
+
+/**
+ * The envelope this module clamps: `SearchResponse` / `RecallResponse`, or any
+ * value (returned unchanged when it lacks a `records` array).
+ * @typedef {{ records?: ClampableHit[] } & Record<string, unknown>} ClampableResponse
+ */
+
 export const SEARCH_PER_HIT_CHARS = 600;
 export const SEARCH_TOTAL_BUDGET = 16000;
 
+/**
+ * @param {ClampableResponse | null | undefined} result
+ * @param {{ maxChars?: number, fullContent?: boolean, sections?: string[], perHitDefault?: number }} [opts]
+ * @returns {ClampableResponse | null | undefined}
+ */
 export function clampSearchResponse(
   result,
   { maxChars, fullContent, sections, perHitDefault = SEARCH_PER_HIT_CHARS } = {},
@@ -27,7 +47,10 @@ export function clampSearchResponse(
     return { ...result, records };
   }
   if (fullContent) return result;
-  const perHit = Number.isInteger(maxChars) && maxChars > 0 ? maxChars : perHitDefault;
+  const perHit =
+    Number.isInteger(maxChars) && /** @type {number} */ (maxChars) > 0
+      ? /** @type {number} */ (maxChars)
+      : perHitDefault;
   // Spend the total body budget in PRIORITY order (P0 > P1 > P2; original order
   // within a tier) so that when it runs out the LOWEST-priority bodies are the
   // ones emptied — a relevant hit is NEVER dropped (it keeps name/score/id), only
@@ -35,6 +58,7 @@ export function clampSearchResponse(
   const spendOrder = result.records
     .map((r, i) => ({ i, r }))
     .sort((a, b) => priorityRank(a.r.priority) - priorityRank(b.r.priority));
+  /** @type {ClampableHit[]} */
   const decided = new Array(result.records.length);
   let total = 0;
   let anyTruncated = false;
@@ -51,7 +75,11 @@ export function clampSearchResponse(
     }
     total += content.length;
     if (truncated) anyTruncated = true;
-    decided[i] = truncated ? { ...r, content, truncated: true, fullChars: full.length } : { ...r, content };
+    decided[i] = truncated
+      ? { ...r, content, truncated: true, fullChars: full.length }
+      : { ...r, content };
   }
-  return anyTruncated ? { ...result, records: decided, truncated: true } : { ...result, records: decided };
+  return anyTruncated
+    ? { ...result, records: decided, truncated: true }
+    : { ...result, records: decided };
 }

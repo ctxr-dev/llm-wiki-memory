@@ -126,7 +126,11 @@ test("content-free subject segments are dropped (no 'untitled' leak)", () => {
 test("a subject of only content-free segments collapses to the fallback", () => {
   useLayout();
   assert.equal(
-    placementDirForMeta("knowledge", { area: "x", atom_type: "concept", subject: ["", "  ", "@@@"] }),
+    placementDirForMeta("knowledge", {
+      area: "x",
+      atom_type: "concept",
+      subject: ["", "  ", "@@@"],
+    }),
     "knowledge/x/concept/general",
   );
 });
@@ -142,7 +146,11 @@ layout:
       subject: { kind: path, vocabulary: subject_domains, fallback: general }
 `);
   assert.equal(
-    placementDirForMeta("knowledge", { area: "x", atom_type: "concept", subject: ["untitled", "edge"] }),
+    placementDirForMeta("knowledge", {
+      area: "x",
+      atom_type: "concept",
+      subject: ["untitled", "edge"],
+    }),
     "knowledge/x/concept/untitled/edge",
   );
 });
@@ -250,7 +258,11 @@ test("normaliseMeta omits subject when absent (placement applies fallback)", () 
 
 test("frontmatter subject round-trips: stored array recomputes the same path", () => {
   useLayout();
-  const meta = normaliseMeta({ area: "scala-toolkit", atom_type: "concept", subject: ["observability", "kamon"] });
+  const meta = normaliseMeta({
+    area: "scala-toolkit",
+    atom_type: "concept",
+    subject: ["observability", "kamon"],
+  });
   // placementDirForMeta reads the persisted (normalised) frontmatter back.
   assert.equal(
     placementDirForMeta("knowledge", meta),
@@ -303,8 +315,6 @@ layout:
 `);
   assert.equal(validateLayoutFile(f).ok, false);
 });
-
-// --- layout validator ---
 
 test("validator accepts a well-formed subject layout", () => {
   const f = tmpLayoutFile(LAYOUT);

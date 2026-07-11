@@ -12,7 +12,8 @@ after(() => cleanup(dataDir));
 const store = await import("../scripts/lib/wiki-store.mjs");
 const embed = await import("../scripts/lib/embed.mjs");
 const env = await import("../scripts/lib/env.mjs");
-const { __setSettingsForTest, __clearSettingsForTest } = await import("../scripts/lib/settings.mjs");
+const { __setSettingsForTest, __clearSettingsForTest } =
+  await import("../scripts/lib/settings.mjs");
 
 test("pruneEmbeddingCache drops orphan ids and keeps live-leaf ids", () => {
   // A real live leaf on disk; its rel id must survive the sweep.
@@ -36,7 +37,10 @@ test("pruneEmbeddingCache drops orphan ids and keeps live-leaf ids", () => {
   const dry = store.pruneEmbeddingCache({ dryRun: true });
   assert.equal(dry.removed, 2, "dry-run counts both orphans");
   assert.equal(dry.after, dry.before, "dry-run does not shrink the cache");
-  assert.ok(embed.loadCache(cachePath).entries["knowledge/gone/reference/orphan-a.md"], "orphan still present after dry-run");
+  assert.ok(
+    embed.loadCache(cachePath).entries["knowledge/gone/reference/orphan-a.md"],
+    "orphan still present after dry-run",
+  );
 
   // Real run: orphans removed, live id kept.
   const before = embed.loadCache(cachePath);

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { acquireLock, releaseLock } from "../scripts/lib/lock.mjs";
+import { acquireLock } from "../scripts/lib/lock.mjs";
 
 // The file lock prevents two compiles / two flush workers from double-promoting
 // or double-writing. These pin the contention outcomes — especially the 0-byte
@@ -60,7 +60,11 @@ test("EMPTY + aged lockfile (crash-abandoned) → reclaimed (no livelock)", () =
   const old = new Date(Date.now() - 60_000);
   fs.utimesSync(lp, old, old);
   const r = acquireLock(lp, { label: "t" });
-  assert.equal(r.ok, true, "an abandoned 0-byte lock must be reclaimable, else it livelocks forever");
+  assert.equal(
+    r.ok,
+    true,
+    "an abandoned 0-byte lock must be reclaimable, else it livelocks forever",
+  );
   r.release();
 });
 
@@ -78,7 +82,14 @@ test("EMPTY + future-dated lockfile (clock step) → reclaimed, NOT a permanent 
 test("stale lock (dead owner pid) is reclaimed", () => {
   const lp = lockPath();
   // A non-existent pid with an old timestamp = a dead owner.
-  fs.writeFileSync(lp, JSON.stringify({ pid: 999_999, startedAt: new Date(Date.now() - 60_000).toISOString(), label: "ghost" }) + "\n");
+  fs.writeFileSync(
+    lp,
+    JSON.stringify({
+      pid: 999_999,
+      startedAt: new Date(Date.now() - 60_000).toISOString(),
+      label: "ghost",
+    }) + "\n",
+  );
   const r = acquireLock(lp, { label: "t" });
   assert.equal(r.ok, true, "stale lock from a dead pid should be reclaimed");
   r.release();

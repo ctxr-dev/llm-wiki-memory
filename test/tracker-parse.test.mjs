@@ -14,19 +14,16 @@ import {
   checklistProgress,
 } from "../scripts/lib/tracker-parse.mjs";
 
-// ---------------------------------------------------------------------------
-// extractIssueKeys
-// ---------------------------------------------------------------------------
-
 test("extractIssueKeys: finds a single key", () => {
   assert.deepEqual(extractIssueKeys("see DEV-129957 for context"), ["DEV-129957"]);
 });
 
 test("extractIssueKeys: dedupes repeated keys, sorts output", () => {
-  assert.deepEqual(
-    extractIssueKeys("DEV-1 DEV-2 DEV-1 OPS-100 DEV-2"),
-    ["DEV-1", "DEV-2", "OPS-100"],
-  );
+  assert.deepEqual(extractIssueKeys("DEV-1 DEV-2 DEV-1 OPS-100 DEV-2"), [
+    "DEV-1",
+    "DEV-2",
+    "OPS-100",
+  ]);
 });
 
 test("extractIssueKeys: handles multiple prefixes", () => {
@@ -92,10 +89,6 @@ test("parseIssueKey: returns null for malformed / non-string input", () => {
   assert.equal(parseIssueKey("dev-1"), null); // lowercase prefix rejected
   assert.equal(parseIssueKey("DEV-12345678"), null); // > 7 digits
 });
-
-// ---------------------------------------------------------------------------
-// parseChecklist
-// ---------------------------------------------------------------------------
 
 const PLAN_FIXTURE = `
 # DEV-129957 — Investigate timeout
@@ -186,10 +179,6 @@ test("parseChecklist: empty / null / non-string inputs return []", () => {
   assert.deepEqual(parseChecklist(undefined), []);
 });
 
-// ---------------------------------------------------------------------------
-// diffChecklists
-// ---------------------------------------------------------------------------
-
 test("diffChecklists: flipped → identifies state changes by number", () => {
   const before = `
 1. - [ ] A
@@ -252,10 +241,6 @@ test("diffChecklists: simultaneous flip + reasonAdded on the same item", () => {
   assert.equal(d.flipped[0].id, "1");
   assert.equal(d.reasonAdded[0].id, "1");
 });
-
-// ---------------------------------------------------------------------------
-// inferLifecycle + checklistProgress
-// ---------------------------------------------------------------------------
 
 test("inferLifecycle: all unchecked → pending", () => {
   assert.equal(inferLifecycle("1. - [ ] A\n2. - [ ] B\n"), "pending");

@@ -78,11 +78,17 @@ function nestedUserTurn(text) {
 }
 
 function nestedAssistantToolUse(name, input = {}, id = "tu_n") {
-  return { type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] } };
+  return {
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] },
+  };
 }
 
 function nestedToolResult(id) {
-  return { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: "ok" }] } };
+  return {
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: "ok" }] },
+  };
 }
 
 test("save_lesson with explicit save phrase in latest user turn -> allow", () => {
@@ -186,9 +192,7 @@ test("transcript with only tool_result-shaped user records (no text) -> ask", ()
   const { file } = makeTranscript([
     {
       role: "user",
-      content: [
-        { type: "tool_result", tool_use_id: "abc", content: "result data" },
-      ],
+      content: [{ type: "tool_result", tool_use_id: "abc", content: "result data" }],
     },
   ]);
   const res = runHook({
@@ -234,9 +238,7 @@ test("transcript with multiple user turns: older has phrase, latest doesn't -> a
 });
 
 test("transcript with user content as array of text blocks is parsed", () => {
-  const { file } = makeTranscript([
-    userTurnArray("please remember this fact"),
-  ]);
+  const { file } = makeTranscript([userTurnArray("please remember this fact")]);
   const res = runHook({
     tool_name: "mcp__llm-wiki-memory__save_lesson",
     tool_input: { title: "x", body: "y" },
@@ -274,7 +276,11 @@ test("gate.claudeHookEnabled=false -> gated tool untouched (exit 0, empty stdout
   );
   assert.equal(res.status, 0, `stderr: ${res.stderr}`);
   assert.equal(res.stdout, "", "disabled hook must behave as if not installed");
-  assert.equal(countL2(), before, "a disabled hook records NO audit line (untouched() runs before auditL2)");
+  assert.equal(
+    countL2(),
+    before,
+    "a disabled hook records NO audit line (untouched() runs before auditL2)",
+  );
 });
 
 test("gate.claudeHookEnabled=false -> even malformed stdin is untouched (no ask)", () => {
@@ -321,7 +327,11 @@ test("per-lesson ON: a COMPLETED prior gated write in the same turn -> ask (even
   // (completed) sit in the transcript after the user turn, so the next one asks.
   const { file } = makeTranscript([
     userTurn("save these lessons please"),
-    assistantToolUse("mcp__llm-wiki-memory__save_lesson", { title: "first", body: "y" }, "tu_first"),
+    assistantToolUse(
+      "mcp__llm-wiki-memory__save_lesson",
+      { title: "first", body: "y" },
+      "tu_first",
+    ),
     toolResult("tu_first"),
   ]);
   const res = runHook({
@@ -339,7 +349,11 @@ test("per-lesson ON: NESTED message.content transcript shape is parsed for count
   // write (tool_use + tool_result) must still force the 2nd write to ask.
   const { file } = makeTranscript([
     nestedUserTurn("save these lessons please"),
-    nestedAssistantToolUse("mcp__llm-wiki-memory__save_lesson", { title: "first", body: "y" }, "tu_n1"),
+    nestedAssistantToolUse(
+      "mcp__llm-wiki-memory__save_lesson",
+      { title: "first", body: "y" },
+      "tu_n1",
+    ),
     nestedToolResult("tu_n1"),
   ]);
   const res = runHook({
@@ -370,7 +384,11 @@ test("per-lesson ON: a prior gated tool_use with NO tool_result yet does NOT cou
   // prior completed write — otherwise the very first lesson would wrongly ask.
   const { file } = makeTranscript([
     userTurn("save these lessons"),
-    assistantToolUse("mcp__llm-wiki-memory__save_lesson", { title: "pending", body: "y" }, "tu_pending"),
+    assistantToolUse(
+      "mcp__llm-wiki-memory__save_lesson",
+      { title: "pending", body: "y" },
+      "tu_pending",
+    ),
   ]);
   const res = runHook({
     tool_name: "mcp__llm-wiki-memory__save_lesson",
@@ -406,7 +424,11 @@ test("per-lesson ON: a completed prior PATH-OVERRIDE write (dataset:knowledge + 
 test("per-lesson ON: a completed prior NON-self_improvement write does not consume consent -> allow", () => {
   const { file } = makeTranscript([
     userTurn("save these"),
-    assistantToolUse("mcp__llm-wiki-memory__save_to_dataset", { dataset: "knowledge", name: "k.md" }, "tu_k"),
+    assistantToolUse(
+      "mcp__llm-wiki-memory__save_to_dataset",
+      { dataset: "knowledge", name: "k.md" },
+      "tu_k",
+    ),
     toolResult("tu_k"),
   ]);
   const res = runHook({
@@ -421,7 +443,11 @@ test("per-lesson ON: a completed prior NON-self_improvement write does not consu
 test("per-lesson ON: a NEW user turn resets the count -> allow again", () => {
   const { file } = makeTranscript([
     userTurn("save these lessons"),
-    assistantToolUse("mcp__llm-wiki-memory__save_lesson", { title: "first", body: "y" }, "tu_first"),
+    assistantToolUse(
+      "mcp__llm-wiki-memory__save_lesson",
+      { title: "first", body: "y" },
+      "tu_first",
+    ),
     toolResult("tu_first"),
     userTurn("yes, save this next one too"),
   ]);
@@ -444,8 +470,18 @@ test("per-lesson ON: parallel tool_use (2 gated writes, no results) in one messa
     {
       role: "assistant",
       content: [
-        { type: "tool_use", id: "par1", name: "mcp__llm-wiki-memory__save_lesson", input: { title: "a", body: "y" } },
-        { type: "tool_use", id: "par2", name: "mcp__llm-wiki-memory__save_lesson", input: { title: "b", body: "y" } },
+        {
+          type: "tool_use",
+          id: "par1",
+          name: "mcp__llm-wiki-memory__save_lesson",
+          input: { title: "a", body: "y" },
+        },
+        {
+          type: "tool_use",
+          id: "par2",
+          name: "mcp__llm-wiki-memory__save_lesson",
+          input: { title: "b", body: "y" },
+        },
       ],
     },
     // No tool_results: both are still in flight (parallel tool use).
@@ -463,7 +499,11 @@ test("per-lesson OFF (legacy): a completed prior gated write in the turn with a 
   const settingsFile = makeSettingsYaml("gate:\n  perLessonConsent: false\n");
   const { file } = makeTranscript([
     userTurn("save these lessons please"),
-    assistantToolUse("mcp__llm-wiki-memory__save_lesson", { title: "first", body: "y" }, "tu_first"),
+    assistantToolUse(
+      "mcp__llm-wiki-memory__save_lesson",
+      { title: "first", body: "y" },
+      "tu_first",
+    ),
     toolResult("tu_first"),
   ]);
   const res = runHook(
@@ -498,7 +538,10 @@ test("L2 audit line on allow carries a REDACTED trigger (secret scrubbed on the 
     .split("\n")
     .filter(Boolean)
     .map((l) => JSON.parse(l))
-    .find((r) => r.layer === "L2" && r.status === "allow" && (r.trigger || "").includes("ghp_[REDACTED]"));
+    .find(
+      (r) =>
+        r.layer === "L2" && r.status === "allow" && (r.trigger || "").includes("ghp_[REDACTED]"),
+    );
   assert.ok(l2, "an L2 allow record with the scrubbed secret is written");
   assert.ok(l2.trigger.includes("save this as a lesson"), "the non-secret phrase is recorded");
   assert.ok(!l2.trigger.includes(token), "no raw token in the recorded trigger");
@@ -531,5 +574,9 @@ test("L2 audit records an 'ask' decision (no save phrase) via the real hook path
   });
   const after = l2Asks();
   assert.equal(after.length, before + 1, "exactly one NEW L2 ask record was appended by this call");
-  assert.equal(after[after.length - 1].trigger, undefined, "an ask record carries no trigger phrase");
+  assert.equal(
+    after[after.length - 1].trigger,
+    undefined,
+    "an ask record carries no trigger phrase",
+  );
 });

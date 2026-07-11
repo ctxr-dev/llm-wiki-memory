@@ -25,10 +25,18 @@ process.env.MEMORY_LLM_MOCK_RESPONSE = MOCK_RESPONSE;
 const llm = await import("../scripts/lib/llm.mjs");
 const flush = await import("../scripts/hooks/flush.mjs");
 const store = await import("../scripts/lib/wiki-store.mjs");
-const { __setSettingsForTest, __clearSettingsForTest } = await import("../scripts/lib/settings.mjs");
+const { __setSettingsForTest, __clearSettingsForTest } =
+  await import("../scripts/lib/settings.mjs");
 
 function makeSource(sessionId, body) {
-  return { sessionId, cwd: dataDir, hookEvent: "PostCompact", body, turnCount: 4, capturedAtMs: Date.now() - 1_000 };
+  return {
+    sessionId,
+    cwd: dataDir,
+    hookEvent: "PostCompact",
+    body,
+    turnCount: 4,
+    capturedAtMs: Date.now() - 1_000,
+  };
 }
 
 function makeTranscript(turnCount, charsPerTurn) {
@@ -104,11 +112,18 @@ test("partial-chunk-failure: failed chunk's raw text lands in the leaf body, fro
   const result = await flush.redistillFromStash(stashPath, { tag: "partial-failure" });
 
   // At least one chunk failed (the second mock call), at least one succeeded.
-  assert.ok(result.audit.failed_chunks.length >= 1, `expected ≥1 failed chunk, got ${JSON.stringify(result.audit.failed_chunks)}`);
+  assert.ok(
+    result.audit.failed_chunks.length >= 1,
+    `expected ≥1 failed chunk, got ${JSON.stringify(result.audit.failed_chunks)}`,
+  );
   assert.ok(result.audit.chunks_succeeded >= 1, `expected ≥1 succeeded chunk`);
 
   // Read the rewritten leaf and check the failed-chunk embed is present.
-  const docs = store.listDocuments({ prefix: "daily-", enabled: "true", datasetId: "daily" }).documents;
+  const docs = store.listDocuments({
+    prefix: "daily-",
+    enabled: "true",
+    datasetId: "daily",
+  }).documents;
   let leafText = "";
   for (const d of docs) {
     const { text } = store.readDocument({ documentId: d.id, datasetId: "daily" });
@@ -128,7 +143,9 @@ test("partial-chunk-failure: failed chunk's raw text lands in the leaf body, fro
 test("tree-reduce: when joined atoms exceed reduce_max_chars, the reducer recurses", async (t) => {
   // Force tree-reduce: a 200-char cap will be exceeded as soon as we
   // have more than a couple of atoms.
-  __setSettingsForTest({ flush: { chunkTargetK: 8, reduceMaxChars: 200, distillAttempts: 1, distillRetryMs: 10 } });
+  __setSettingsForTest({
+    flush: { chunkTargetK: 8, reduceMaxChars: 200, distillAttempts: 1, distillRetryMs: 10 },
+  });
   llm.__resetMockCallIndex();
   t.after(() => {
     __clearSettingsForTest();
@@ -146,7 +163,11 @@ test("tree-reduce: when joined atoms exceed reduce_max_chars, the reducer recurs
   assert.equal(result.audit.chunks_succeeded, result.audit.chunks_total);
   // Atoms survive the tree-reduce (mock always returns the canned atom; the
   // recursive merge collapses duplicates back to a small set).
-  const docs = store.listDocuments({ prefix: "daily-", enabled: "true", datasetId: "daily" }).documents;
+  const docs = store.listDocuments({
+    prefix: "daily-",
+    enabled: "true",
+    datasetId: "daily",
+  }).documents;
   let atomCount = 0;
   for (const d of docs) {
     const { text } = store.readDocument({ documentId: d.id, datasetId: "daily" });
@@ -162,7 +183,7 @@ test("tree-reduce: when joined atoms exceed reduce_max_chars, the reducer recurs
 // ─── Concurrent redistill races a live worker via the session lock ────────
 
 test("redistill lock: a held session lock blocks redistillFromStash with ESESSIONBUSY", async () => {
-  const { acquireLock, installLockReleaseHandlers } = await import("../scripts/lib/lock.mjs");
+  const { acquireLock } = await import("../scripts/lib/lock.mjs");
   const sessionId = "lock-busy-z";
   const source = makeSource(sessionId, "### User\n\nfoo\n\n### Assistant\n\nbar");
   const stashPath = flush.writeFailedDistillStash({ source, errors: [], sessionId });
@@ -211,7 +232,9 @@ test("reduce depth cap: an LLM that echoes input back unchanged still terminates
   });
   const prevResp = process.env.MEMORY_LLM_MOCK_RESPONSE;
   process.env.MEMORY_LLM_MOCK_RESPONSE = ECHOING_RESPONSE;
-  __setSettingsForTest({ flush: { chunkTargetK: 4, reduceMaxChars: 200, distillAttempts: 1, distillRetryMs: 10 } });
+  __setSettingsForTest({
+    flush: { chunkTargetK: 4, reduceMaxChars: 200, distillAttempts: 1, distillRetryMs: 10 },
+  });
   llm.__resetMockCallIndex();
   t.after(() => {
     process.env.MEMORY_LLM_MOCK_RESPONSE = prevResp;
@@ -236,7 +259,11 @@ test("reduce depth cap: an LLM that echoes input back unchanged still terminates
   assert.ok(Array.isArray(result.audit.failed_chunks));
   // Atoms preserved — depth cap / shrink check falls back to deterministic
   // dedup, never drops atoms.
-  const docs = store.listDocuments({ prefix: "daily-", enabled: "true", datasetId: "daily" }).documents;
+  const docs = store.listDocuments({
+    prefix: "daily-",
+    enabled: "true",
+    datasetId: "daily",
+  }).documents;
   let atomCount = 0;
   for (const d of docs) {
     const { text } = store.readDocument({ documentId: d.id, datasetId: "daily" });
@@ -278,9 +305,27 @@ test("reduceMerge: at REDUCE_MAX_DEPTH it returns deterministicDedup(atoms) with
   });
 
   const atoms = [
-    { type: "self-improvement-lesson", title: "alpha", body: "first", tags: [], metadata: { error_pattern: "ep-a" } },
-    { type: "self-improvement-lesson", title: "alpha", body: "duplicate of first", tags: [], metadata: { error_pattern: "ep-a" } },
-    { type: "self-improvement-lesson", title: "beta", body: "second", tags: [], metadata: { error_pattern: "ep-b" } },
+    {
+      type: "self-improvement-lesson",
+      title: "alpha",
+      body: "first",
+      tags: [],
+      metadata: { error_pattern: "ep-a" },
+    },
+    {
+      type: "self-improvement-lesson",
+      title: "alpha",
+      body: "duplicate of first",
+      tags: [],
+      metadata: { error_pattern: "ep-a" },
+    },
+    {
+      type: "self-improvement-lesson",
+      title: "beta",
+      body: "second",
+      tags: [],
+      metadata: { error_pattern: "ep-b" },
+    },
   ];
 
   const result = await flush.reduceMerge({
@@ -314,7 +359,11 @@ test("writeFailedDistillStash: rapid serial writes for same session+ms produce u
     paths.push(p);
   }
   const unique = new Set(paths);
-  assert.equal(unique.size, paths.length, `every write should produce a unique path; got ${paths.join(", ")}`);
+  assert.equal(
+    unique.size,
+    paths.length,
+    `every write should produce a unique path; got ${paths.join(", ")}`,
+  );
   // Cleanup.
   for (const p of paths) fs.rmSync(p, { force: true });
 });

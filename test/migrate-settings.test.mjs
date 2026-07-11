@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
-import { SRC, runScript } from "./harness.mjs";
+import { runScript } from "./harness.mjs";
 
 const { migrate } = await import("../scripts/migrate-settings.mjs");
 
@@ -168,7 +168,10 @@ test("FLOAT coercion: cosine threshold parses as number", () => {
 
 test("CSV → array coercion for crossCuttingAreas", () => {
   const dir = makeDataDir();
-  writeEnv(dir, "MEMORY_LLM_PROVIDER=claude\nMEMORY_CROSS_CUTTING_AREAS=workspace,conventions,tooling\n");
+  writeEnv(
+    dir,
+    "MEMORY_LLM_PROVIDER=claude\nMEMORY_CROSS_CUTTING_AREAS=workspace,conventions,tooling\n",
+  );
   migrate(dir, { log: noop });
   const yaml = readYaml(dir, "settings.yaml");
   assert.deepEqual(yaml.crossCuttingAreas, ["workspace", "conventions", "tooling"]);
@@ -190,11 +193,17 @@ test("regression: upgrade preserves MEMORY_EMBED_CACHE_DIR through the .env rewr
 
 test("regression: MEMORY_LLM_CONFIG_PATH renames to MEMORY_SETTINGS_PATH", () => {
   const dir = makeDataDir();
-  writeEnv(dir, "MEMORY_LLM_PROVIDER=claude\nMEMORY_LLM_CONFIG_PATH=/custom/path/to/settings.yaml\n");
+  writeEnv(
+    dir,
+    "MEMORY_LLM_PROVIDER=claude\nMEMORY_LLM_CONFIG_PATH=/custom/path/to/settings.yaml\n",
+  );
   const result = migrate(dir, { log: noop });
   assert.equal(result.migrated, true);
   assert.ok(
-    result.renamedKeys && result.renamedKeys.some((r) => r.oldName === "MEMORY_LLM_CONFIG_PATH" && r.newName === "MEMORY_SETTINGS_PATH"),
+    result.renamedKeys &&
+      result.renamedKeys.some(
+        (r) => r.oldName === "MEMORY_LLM_CONFIG_PATH" && r.newName === "MEMORY_SETTINGS_PATH",
+      ),
     "renamedKeys array should record MEMORY_LLM_CONFIG_PATH → MEMORY_SETTINGS_PATH",
   );
   const env = fs.readFileSync(path.join(dir, "settings", ".env"), "utf8");
@@ -285,7 +294,10 @@ test("round-trip: strict-subset values with ' #' and quoted-spaces survive the .
     parsedEnvValue(rewrittenRhs(env, "MEMORY_LLM_MOCK_FILE")),
     parsedEnvValue(mockFileRhs),
   );
-  assert.equal(parsedEnvValue(rewrittenRhs(env, "MEMORY_LLM_MOCK_FILE")), "/tmp/seam fixtures/mock #1.json");
+  assert.equal(
+    parsedEnvValue(rewrittenRhs(env, "MEMORY_LLM_MOCK_FILE")),
+    "/tmp/seam fixtures/mock #1.json",
+  );
 });
 
 test("round-trip: a renamed strict key carries its RAW value forward under the new name", () => {
@@ -295,16 +307,15 @@ test("round-trip: a renamed strict key carries its RAW value forward under the n
   const configPathRhs = '"/Users/dev/my settings/settings.yaml"';
   writeEnv(
     dir,
-    [
-      "MEMORY_LLM_PROVIDER=claude",
-      `MEMORY_LLM_CONFIG_PATH=${configPathRhs}`,
-    ].join("\n") + "\n",
+    ["MEMORY_LLM_PROVIDER=claude", `MEMORY_LLM_CONFIG_PATH=${configPathRhs}`].join("\n") + "\n",
   );
 
   const result = migrate(dir, { log: noop });
   assert.equal(result.migrated, true);
   assert.ok(
-    result.renamedKeys.some((r) => r.oldName === "MEMORY_LLM_CONFIG_PATH" && r.newName === "MEMORY_SETTINGS_PATH"),
+    result.renamedKeys.some(
+      (r) => r.oldName === "MEMORY_LLM_CONFIG_PATH" && r.newName === "MEMORY_SETTINGS_PATH",
+    ),
   );
 
   const env = fs.readFileSync(path.join(dir, "settings", ".env"), "utf8");
@@ -326,13 +337,20 @@ test("precedence: existing settings.yaml WINS over a conflicting removed env var
   writeSettingsYaml(dir, "consolidate:\n  cosineThreshold: 0.88\n");
   migrate(dir, { log: noop });
   const yaml = readYaml(dir, "settings.yaml");
-  assert.equal(yaml.consolidate.cosineThreshold, 0.88, "hand-edited settings.yaml must win over stale env");
+  assert.equal(
+    yaml.consolidate.cosineThreshold,
+    0.88,
+    "hand-edited settings.yaml must win over stale env",
+  );
 });
 
 test("3-way merge: template + removed env + llm.yaml all present resolve coherently", () => {
   const dir = makeDataDir();
   writeEnv(dir, "MEMORY_LLM_PROVIDER=anthropic\nMEMORY_HOOK_MAX_TURNS=42\n");
-  writeLlmYaml(dir, "providers:\n  chain: [anthropic, openai]\n  anthropic:\n    models: [mA, mB]\nflush:\n  chunk_target_k: 4\n");
+  writeLlmYaml(
+    dir,
+    "providers:\n  chain: [anthropic, openai]\n  anthropic:\n    models: [mA, mB]\nflush:\n  chunk_target_k: 4\n",
+  );
   // No existing settings.yaml here → env + llm.yaml both apply.
   migrate(dir, { log: noop });
   const yaml = readYaml(dir, "settings.yaml");
@@ -380,9 +398,21 @@ test("round-trip: migrated settings.yaml loads through settings() with correct a
   try {
     const s = await import(`../scripts/lib/settings.mjs?roundtrip=${Date.now()}`);
     s.__clearSettingsForTest();
-    assert.equal(s.consolidateEnabled(), true, "MEMORY_CONSOLIDATE_ENABLED=on → consolidate.enabled true");
-    assert.equal(s.hookExitPlanModeDisable(), true, "EXITPLANMODE_DISABLE=yes → hook.exitPlanModeDisable true");
-    assert.equal(s.consolidateIntervalDays(), 0, "INTERVAL_DAYS=0 → consolidate.intervalDays 0 (disabled)");
+    assert.equal(
+      s.consolidateEnabled(),
+      true,
+      "MEMORY_CONSOLIDATE_ENABLED=on → consolidate.enabled true",
+    );
+    assert.equal(
+      s.hookExitPlanModeDisable(),
+      true,
+      "EXITPLANMODE_DISABLE=yes → hook.exitPlanModeDisable true",
+    );
+    assert.equal(
+      s.consolidateIntervalDays(),
+      0,
+      "INTERVAL_DAYS=0 → consolidate.intervalDays 0 (disabled)",
+    );
     assert.equal(s.consolidateCosineThreshold(), 0.85);
     assert.deepEqual([...s.crossCuttingAreas()], ["infra", "billing"]);
   } finally {
@@ -408,7 +438,10 @@ test("malformed existing settings.yaml is ignored (warned), migration still proc
   const yaml = readYaml(dir, "settings.yaml");
   assert.equal(yaml.hook.maxTurns, 17);
   // And the operator was warned about the bad file.
-  assert.ok(warnings.some((w) => /malformed/i.test(w)), "should warn about the malformed file");
+  assert.ok(
+    warnings.some((w) => /malformed/i.test(w)),
+    "should warn about the malformed file",
+  );
 });
 
 test("malformed old llm.yaml is ignored (warned), env migration still proceeds", () => {
@@ -417,7 +450,9 @@ test("malformed old llm.yaml is ignored (warned), env migration still proceeds",
   writeLlmYaml(dir, "providers: [unterminated\n");
   const warnings = [];
   let result;
-  assert.doesNotThrow(() => { result = migrate(dir, { log: (m) => warnings.push(m) }); });
+  assert.doesNotThrow(() => {
+    result = migrate(dir, { log: (m) => warnings.push(m) });
+  });
   assert.equal(result.migrated, true);
   const yaml = readYaml(dir, "settings.yaml");
   assert.equal(yaml.consolidate.cosineThreshold, 0.8);
@@ -457,7 +492,11 @@ test("session-start self-heals an un-migrated install (writes settings.yaml, sur
   assert.equal(r.status, 0, `hook exit 0: ${r.stderr}`);
 
   // Durable effect: the migrator ran and wrote the new layout.
-  assert.equal(fs.existsSync(path.join(dir, "settings", "settings.yaml")), true, "settings.yaml created");
+  assert.equal(
+    fs.existsSync(path.join(dir, "settings", "settings.yaml")),
+    true,
+    "settings.yaml created",
+  );
   assert.equal(fs.existsSync(path.join(dir, "settings", ".env.bak")), true, ".env backed up");
   const yaml = readYaml(dir, "settings.yaml");
   assert.equal(yaml.consolidate.cosineThreshold, 0.83);
@@ -486,7 +525,11 @@ test("session-start is SILENT on an already-migrated install (no migrate noise e
   // And it left the existing config untouched.
   const yaml = readYaml(dir, "settings.yaml");
   assert.equal(yaml.consolidate.cosineThreshold, 0.9);
-  assert.equal(fs.existsSync(path.join(dir, "settings", ".env.bak")), false, "no backup written on no-op");
+  assert.equal(
+    fs.existsSync(path.join(dir, "settings", ".env.bak")),
+    false,
+    "no backup written on no-op",
+  );
 });
 
 test("session-start self-heal is skipped inside a memory-spawned subprocess (re-entry guard)", () => {

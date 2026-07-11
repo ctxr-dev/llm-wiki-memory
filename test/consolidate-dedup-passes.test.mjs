@@ -84,7 +84,8 @@ function uniqueName(prefix) {
 // ─── (A) dedupe-by-sha256 ──────────────────────────────────────────────────
 
 test("dedupe-by-sha256: two identical bodies → one archived, supersedes_id points to keeper", async () => {
-  const body = "# SHA Dup A\n\nidentical body — two leaves with the same bytes should collapse to one keeper.";
+  const body =
+    "# SHA Dup A\n\nidentical body — two leaves with the same bytes should collapse to one keeper.";
   const aRes = store.saveDocument({
     name: uniqueName("lesson-sha-a"),
     text: body,
@@ -139,7 +140,8 @@ test("dedupe-by-sha256: two identical bodies → one archived, supersedes_id poi
 });
 
 test("dedupe-by-sha256: keeper takes the MAX priority of the merged pair (P1 loser bumps P2 keeper)", async () => {
-  const body = "# Prio Merge\n\nidentical body; the keeper must inherit the HIGHER priority of the merged pair.";
+  const body =
+    "# Prio Merge\n\nidentical body; the keeper must inherit the HIGHER priority of the merged pair.";
   const keeperRes = store.saveDocument({
     name: uniqueName("lesson-prio-keep"),
     text: body,
@@ -174,7 +176,11 @@ test("dedupe-by-sha256: keeper takes the MAX priority of the merged pair (P1 los
   assert.equal(r.ok, true);
 
   assert.ok(!activeIds("self_improvement").includes(loserId), "loser archived");
-  assert.equal(readMemoryBlock(keeperId).priority, "P1", "keeper bumped P2 -> P1 (max of the pair)");
+  assert.equal(
+    readMemoryBlock(keeperId).priority,
+    "P1",
+    "keeper bumped P2 -> P1 (max of the pair)",
+  );
 });
 
 test("dedupe-by-sha256: three identical bodies → newest survives, two archived (chained supersedes)", async () => {
@@ -299,7 +305,8 @@ test("dedupe-by-lesson-key: empty error_pattern → sentinel skip leaves both ac
   // and the pass short-circuits for them, so neither is archived even though
   // the other facets match.
   const bodyA = "# Empty EP A\n\nbody alpha for the empty-error-pattern sentinel test.";
-  const bodyB = "# Empty EP B\n\nbody beta for the empty-error-pattern sentinel test, very similar to alpha alpha alpha.";
+  const bodyB =
+    "# Empty EP B\n\nbody beta for the empty-error-pattern sentinel test, very similar to alpha alpha alpha.";
 
   const aRes = store.saveDocument({
     name: uniqueName("lesson-empty-ep"),
@@ -338,7 +345,11 @@ test("dedupe-by-lesson-key: empty error_pattern → sentinel skip leaves both ac
     delete memory.error_pattern;
     fs.writeFileSync(
       abs,
-      matter.stringify(`\n${parsed.content.trim()}\n`, { ...parsed.data, updated, memory }, { lineWidth: -1 }),
+      matter.stringify(
+        `\n${parsed.content.trim()}\n`,
+        { ...parsed.data, updated, memory },
+        { lineWidth: -1 },
+      ),
     );
   }
   clearEp(idA, "2026-05-01");

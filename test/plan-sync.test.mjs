@@ -102,10 +102,6 @@ function writePlan(wiki, relDir, basename, frontmatter, body) {
   return fp;
 }
 
-// ---------------------------------------------------------------------------
-// pickNonColliding
-// ---------------------------------------------------------------------------
-
 test("pickNonColliding: returns the target when nothing collides", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pnc-empty-"));
   const target = path.join(dir, "foo.plan.md");
@@ -134,10 +130,6 @@ test("pickNonColliding: keeps trying -v3, -v4, … until a free slot is found", 
   assert.equal(r.suffix, "-v4");
 });
 
-// ---------------------------------------------------------------------------
-// syncPlanFile — frontmatter only (file outside lifecycle-aware topology)
-// ---------------------------------------------------------------------------
-
 test("syncPlanFile: updates frontmatter on a flat plan file (no move)", async () => {
   const wiki = makeWikiWithLayout();
   // Place under wiki/plans/<area>/<file>.plan.md — NOT a lifecycle-aware path.
@@ -158,10 +150,6 @@ test("syncPlanFile: updates frontmatter on a flat plan file (no move)", async ()
   assert.deepEqual(fm.progress, { total: 2, done: 1, label: "1/2" });
 });
 
-// ---------------------------------------------------------------------------
-// syncPlanFile — lifecycle-aware move (the tracker-issues case)
-// ---------------------------------------------------------------------------
-
 test("syncPlanFile: pending → in-progress moves the file into in-progress/", async () => {
   const wiki = makeWikiWithLayout();
   const fp = writePlan(
@@ -175,10 +163,7 @@ test("syncPlanFile: pending → in-progress moves the file into in-progress/", a
   assert.equal(r.error, null);
   assert.equal(r.status, "in-progress");
   assert.ok(r.moved, JSON.stringify(r));
-  assert.ok(
-    r.moved.to.includes("in-progress/DEV-100001-investigate.plan.md"),
-    r.moved.to,
-  );
+  assert.ok(r.moved.to.includes("in-progress/DEV-100001-investigate.plan.md"), r.moved.to);
   assert.equal(fs.existsSync(r.moved.from), false, "source removed");
   assert.equal(fs.existsSync(r.moved.to), true, "destination present");
 });
@@ -248,10 +233,7 @@ test("syncPlanFile: archived: true freezes status (no auto-flip, no move)", asyn
 test("syncPlanFile: collision at destination triggers auto-suffix -v2", async () => {
   const wiki = makeWikiWithLayout();
   // Plant an existing file at the destination so the move collides.
-  fs.mkdirSync(
-    path.join(wiki, "issues/JIRA/DEV/100/0/6/in-progress"),
-    { recursive: true },
-  );
+  fs.mkdirSync(path.join(wiki, "issues/JIRA/DEV/100/0/6/in-progress"), { recursive: true });
   fs.writeFileSync(
     path.join(wiki, "issues/JIRA/DEV/100/0/6/in-progress/DEV-100006-foo.plan.md"),
     "pre-existing",
@@ -310,10 +292,6 @@ test("syncPlanFile: handles non-.plan.md file gracefully", async () => {
   const r = await syncPlanFile(fp, { wikiRoot: wiki });
   assert.equal(r.error, "not a .plan.md file");
 });
-
-// ---------------------------------------------------------------------------
-// syncAllPlans
-// ---------------------------------------------------------------------------
 
 test("syncAllPlans: sweeps every .plan.md and returns per-file results", async () => {
   const wiki = makeWikiWithLayout();

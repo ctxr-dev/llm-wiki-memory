@@ -18,6 +18,11 @@ import path from "node:path";
 // drops the dead ref). `survivor` is null when nothing was pruned (no stale ref
 // can exist). The rebuild decision lives with the caller (which owns the
 // wiki-commit frame), so this fn stays pure node-only.
+/**
+ * @param {string} dir
+ * @param {string} wikiRoot
+ * @returns {{ removed: string[], survivor: string | null }}
+ */
 export function pruneEmptyAncestors(dir, wikiRoot) {
   const wikiAbs = path.resolve(wikiRoot);
   let cur = path.resolve(dir);

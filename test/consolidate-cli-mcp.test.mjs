@@ -4,12 +4,10 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { setupWorkspace, cleanup, SRC, runScript } from "./harness.mjs";
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(SRC, "scripts", "cli.mjs");
 const BOOTSTRAP = path.join(SRC, "bootstrap.sh");
 
@@ -53,8 +51,6 @@ function ensureWikiInit(dataDir) {
     throw new Error(`wiki init failed: ${r.stderr || r.stdout}`);
   }
 }
-
-// -------- CLI surface --------
 
 test("CLI: consolidate --dry-run --json --no-llm exits 0 with ok+dryRun in JSON", () => {
   const dataDir = freshDataDir("consolidate-cli-dry");
@@ -104,8 +100,6 @@ test("CLI: --passes=unknown_pass still succeeds (unknown name → no passes run,
   }
 });
 
-// -------- MCP surface --------
-
 const { dataDir: mcpDataDir } = setupWorkspace();
 let client;
 let transport;
@@ -151,8 +145,6 @@ test("MCP: consolidate_memory call succeeds WITHOUT userRequested (not write-gat
   assert.equal(res.dryRun, true, "MCP dry-run flag honoured");
 });
 
-// -------- Bootstrap cron chain --------
-
 test("bootstrap.sh schedule_job invokes the cron-job CLI subcommand", () => {
   const raw = fs.readFileSync(BOOTSTRAP, "utf8");
   const startIdx = raw.indexOf("schedule_job()");
@@ -168,12 +160,20 @@ test("bootstrap.sh schedule_job invokes the cron-job CLI subcommand", () => {
   // the crontab wrapper (`exec "$node_bin" ".../cli.mjs" cron-job` — absolute
   // node: cron's minimal PATH may not resolve a bare `node` under nvm) AND,
   // on macOS, as a launchd ProgramArguments element (<string>cron-job</string>).
-  assert.match(body, /exec "\$node_bin" "\$SRC_DIR\/scripts\/cli\.mjs" cron-job/, "wrapper invokes cron-job via the absolute node");
+  assert.match(
+    body,
+    /exec "\$node_bin" "\$SRC_DIR\/scripts\/cli\.mjs" cron-job/,
+    "wrapper invokes cron-job via the absolute node",
+  );
   assert.match(body, /<string>cron-job<\/string>/, "launchd ProgramArguments invokes cron-job");
   // The launchd job must NOT route through `/bin/sh -c "<string>"` — that
   // mis-parses an install path containing a literal double-quote. It passes
   // node + the cli path as discrete ProgramArguments elements instead.
-  assert.doesNotMatch(body, /<string>\/bin\/sh<\/string>/, "no /bin/sh -c indirection in the plist");
+  assert.doesNotMatch(
+    body,
+    /<string>\/bin\/sh<\/string>/,
+    "no /bin/sh -c indirection in the plist",
+  );
 });
 
 test("bootstrap.sh crontab idempotency filter is prefix-collision-safe (awk suffix match, not grep -vF)", () => {
@@ -182,8 +182,16 @@ test("bootstrap.sh crontab idempotency filter is prefix-collision-safe (awk suff
   const body = raw.slice(startIdx, startIdx + 6000);
   // Guard against a regression to `grep -vF "$tag"`, whose unanchored substring
   // match wipes a sibling workspace whose path is a prefix of this one.
-  assert.doesNotMatch(body, /crontab -l[^\n]*grep -vF "\$tag"/, "must NOT use unanchored grep -vF on the tag");
-  assert.match(body, /awk -v t="\$tag"[^\n]*substr\(\$0[^\n]*length\(t\)/, "uses an awk suffix-match filter keyed on the tag");
+  assert.doesNotMatch(
+    body,
+    /crontab -l[^\n]*grep -vF "\$tag"/,
+    "must NOT use unanchored grep -vF on the tag",
+  );
+  assert.match(
+    body,
+    /awk -v t="\$tag"[^\n]*substr\(\$0[^\n]*length\(t\)/,
+    "uses an awk suffix-match filter keyed on the tag",
+  );
 
   // Execute the EXACT awk expression bootstrap uses and prove it drops only the
   // exact-suffix line, keeping a prefix-sibling and unrelated lines.
@@ -191,16 +199,23 @@ test("bootstrap.sh crontab idempotency filter is prefix-collision-safe (awk suff
   assert.ok(exprMatch, "extracted the awk program text");
   const awkProg = exprMatch[1];
   const tag = "# llm-wiki-memory:/a/proj";
-  const input = [
-    `0 * * * * "/a/proj/.llm/state/cron-daily.sh" ${tag}`,
-    `0 * * * * "/a/proj2/.llm/state/cron-daily.sh" # llm-wiki-memory:/a/proj2`,
-    "0 2 * * * /usr/bin/backup  # unrelated",
-  ].join("\n") + "\n";
+  const input =
+    [
+      `0 * * * * "/a/proj/.llm/state/cron-daily.sh" ${tag}`,
+      `0 * * * * "/a/proj2/.llm/state/cron-daily.sh" # llm-wiki-memory:/a/proj2`,
+      "0 2 * * * /usr/bin/backup  # unrelated",
+    ].join("\n") + "\n";
   const r = spawnSync("awk", ["-v", `t=${tag}`, awkProg], { input, encoding: "utf8" });
   assert.equal(r.status, 0, `awk ran; stderr=${r.stderr}`);
   const kept = r.stdout.trimEnd().split("\n");
-  assert.ok(kept.some((l) => l.includes("/a/proj2")), "sibling prefix workspace line is KEPT");
-  assert.ok(kept.some((l) => l.includes("/usr/bin/backup")), "unrelated cron line is KEPT");
+  assert.ok(
+    kept.some((l) => l.includes("/a/proj2")),
+    "sibling prefix workspace line is KEPT",
+  );
+  assert.ok(
+    kept.some((l) => l.includes("/usr/bin/backup")),
+    "unrelated cron line is KEPT",
+  );
   assert.ok(!kept.some((l) => l.endsWith(tag)), "this workspace's exact line is dropped");
 });
 
@@ -212,11 +227,20 @@ test("bootstrap.sh installs cron at hourly cadence (0 * * * *)", () => {
 });
 
 test("consolidate CLI: bare value-taking flags and invalid values abort loudly (exit 2)", () => {
-  const bare = runScript("scripts/cli.mjs", ["consolidate", "--dry-run", "--cosine-threshold", "0.9"]);
+  const bare = runScript("scripts/cli.mjs", [
+    "consolidate",
+    "--dry-run",
+    "--cosine-threshold",
+    "0.9",
+  ]);
   assert.equal(bare.status, 2, "bare --cosine-threshold must not silently run at defaults");
   assert.match(bare.stderr, /requires the equals form/);
 
-  const garbage = runScript("scripts/cli.mjs", ["consolidate", "--dry-run", "--cosine-threshold=abc"]);
+  const garbage = runScript("scripts/cli.mjs", [
+    "consolidate",
+    "--dry-run",
+    "--cosine-threshold=abc",
+  ]);
   assert.equal(garbage.status, 2, "invalid value must not silently run at defaults");
   assert.match(garbage.stderr, /invalid --cosine-threshold value/);
 });

@@ -8,7 +8,8 @@ import { setupWorkspace, cleanup } from "./harness.mjs";
 const { dataDir, wiki } = setupWorkspace();
 const store = await import("../scripts/lib/wiki-store.mjs");
 const wc = await import("../scripts/lib/wiki-commit.mjs");
-const { __setSettingsOverride, __clearSettingsOverride } = await import("../scripts/lib/settings.mjs");
+const { __setSettingsOverride, __clearSettingsOverride } =
+  await import("../scripts/lib/settings.mjs");
 
 after(() => cleanup(dataDir));
 
@@ -26,7 +27,10 @@ function lastMessage() {
   return git("log", "-1", "--format=%B").stdout;
 }
 function lastFiles() {
-  return git("show", "--name-status", "--format=", "HEAD").stdout.trim().split("\n").filter(Boolean);
+  return git("show", "--name-status", "--format=", "HEAD")
+    .stdout.trim()
+    .split("\n")
+    .filter(Boolean);
 }
 
 const BREADCRUMB = path.join(dataDir, "state", ".wiki-commit.log");
@@ -47,7 +51,9 @@ test("no .git at the wiki root: writes succeed, nothing commits, nothing throws"
   assert.equal(r.ok, true);
   assert.equal(fs.existsSync(path.join(wiki, ".git")), false);
   assert.equal(commitCount(), 0, "no wiki repo, no commit");
-  const parent = spawnSync("git", ["-C", dataDir, "rev-list", "--count", "HEAD"], { encoding: "utf8" });
+  const parent = spawnSync("git", ["-C", dataDir, "rev-list", "--count", "HEAD"], {
+    encoding: "utf8",
+  });
   assert.notEqual(parent.status, 0, "the enclosing workspace repo gained no commits");
 });
 
@@ -65,38 +71,59 @@ test("naked write after git init: exactly one commit with subject, body line, tr
 
   const msg = lastMessage();
   assert.match(msg, /^memory\(memory-write\): /, "subject carries the op");
-  assert.match(msg, /^- saved .*first-committed-leaf\.md — knowledge write$/m, "body lists leaf + action + reason");
+  assert.match(
+    msg,
+    /^- saved .*first-committed-leaf\.md — knowledge write$/m,
+    "body lists leaf + action + reason",
+  );
   assert.match(msg, /^Op: memory-write$/m);
   assert.match(msg, /^Actor: wiki-store$/m);
   assert.match(msg, /^Leaves: 1$/m);
 
   const files = lastFiles();
-  assert.ok(files.some((l) => l.includes("first-committed-leaf.md")), "leaf staged");
-  assert.ok(files.some((l) => /\bindex\.md$/.test(l)), "regenerated ancestor index.md staged");
+  assert.ok(
+    files.some((l) => l.includes("first-committed-leaf.md")),
+    "leaf staged",
+  );
+  assert.ok(
+    files.some((l) => /\bindex\.md$/.test(l)),
+    "regenerated ancestor index.md staged",
+  );
 
   const ident = git("log", "-1", "--format=%an|%ae").stdout.trim();
-  assert.equal(ident, "llm-wiki-memory|memory@llm-wiki-memory.local", "per-invocation identity, no global config needed");
+  assert.equal(
+    ident,
+    "llm-wiki-memory|memory@llm-wiki-memory.local",
+    "per-invocation identity, no global config needed",
+  );
 });
 
 test("withWikiCommit batches multiple writes into one commit; nested frames join", async () => {
   const before = commitCount();
-  await wc.withWikiCommit({ op: "test-batch", actor: "tester", summary: "two leaves in one op" }, async () => {
-    store.writeMemory({
-      name: "batch-leaf-one.md",
-      text: "first batched leaf",
-      datasetId: "knowledge",
-      metadata: { area: "alpha", atom_type: "reference" },
-    });
-    store.writeMemory({
-      name: "batch-leaf-two.md",
-      text: "second batched leaf",
-      datasetId: "knowledge",
-      metadata: { area: "beta", atom_type: "reference" },
-    });
-  });
+  await wc.withWikiCommit(
+    { op: "test-batch", actor: "tester", summary: "two leaves in one op" },
+    async () => {
+      store.writeMemory({
+        name: "batch-leaf-one.md",
+        text: "first batched leaf",
+        datasetId: "knowledge",
+        metadata: { area: "alpha", atom_type: "reference" },
+      });
+      store.writeMemory({
+        name: "batch-leaf-two.md",
+        text: "second batched leaf",
+        datasetId: "knowledge",
+        metadata: { area: "beta", atom_type: "reference" },
+      });
+    },
+  );
   assert.equal(commitCount(), before + 1, "one batch = one commit");
   const msg = lastMessage();
-  assert.match(msg, /^memory\(test-batch\): two leaves in one op$/m, "outer frame owns op + summary");
+  assert.match(
+    msg,
+    /^memory\(test-batch\): two leaves in one op$/m,
+    "outer frame owns op + summary",
+  );
   assert.match(msg, /^Leaves: 2$/m, "both nested writeMemory frames joined the outer batch");
 });
 
@@ -133,7 +160,9 @@ test("facet-change relocation commits old and new path in one commit", () => {
   });
   assert.equal(commitCount(), before + 1);
   const files = lastFiles();
-  const oldGone = files.some((l) => /^(D|R\d*)\t.*alpha.*moving-leaf\.md/.test(l) || /^R\d+\t.*moving-leaf\.md/.test(l));
+  const oldGone = files.some(
+    (l) => /^(D|R\d*)\t.*alpha.*moving-leaf\.md/.test(l) || /^R\d+\t.*moving-leaf\.md/.test(l),
+  );
   const newThere = files.some((l) => l.includes("gamma") && l.includes("moving-leaf.md"));
   assert.ok(oldGone, `old path staged as deletion/rename: ${files.join(" | ")}`);
   assert.ok(newThere, `new path staged: ${files.join(" | ")}`);
@@ -152,7 +181,10 @@ test("delete commits the removal (and prunes are folded in)", () => {
   const r = store.deleteDocument({ documentId: docId, datasetId: "knowledge" });
   assert.equal(r.ok, true);
   assert.equal(commitCount(), before + 1);
-  assert.ok(lastFiles().some((l) => l.startsWith("D\t") && l.includes("doomed-leaf.md")), "deletion staged");
+  assert.ok(
+    lastFiles().some((l) => l.startsWith("D\t") && l.includes("doomed-leaf.md")),
+    "deletion staged",
+  );
   assert.match(lastMessage(), /^memory\(memory\): /, "naked single-leaf op subject");
   assert.match(lastMessage(), /^- deleted /m);
 });
@@ -177,7 +209,10 @@ test("a held index.lock never fails the write; it leaves a breadcrumb and skips 
     assert.equal(r.ok, true, "the write path must not fail");
     assert.equal(commitCount(), before, "commit skipped while the lock is held");
     assert.ok(fs.existsSync(BREADCRUMB), "breadcrumb log written");
-    assert.match(fs.readFileSync(BREADCRUMB, "utf8"), /wiki-commit: (staging failed|commit (failed|gave up))/);
+    assert.match(
+      fs.readFileSync(BREADCRUMB, "utf8"),
+      /wiki-commit: (staging failed|commit (failed|gave up))/,
+    );
   } finally {
     fs.rmSync(lockPath, { force: true });
   }
@@ -186,7 +221,12 @@ test("a held index.lock never fails the write; it leaves a breadcrumb and skips 
 test("buildMessage caps the body and keeps exactly one Op trailer despite newline injection", () => {
   const entries = [];
   for (let i = 0; i < 205; i++) {
-    entries.push({ action: "saved", leafRelPath: `knowledge/a/leaf-${i}.md`, reason: "bulk", extraPaths: [] });
+    entries.push({
+      action: "saved",
+      leafRelPath: `knowledge/a/leaf-${i}.md`,
+      reason: "bulk",
+      extraPaths: [],
+    });
   }
   const msg = wc._internals.buildMessage(
     { op: "bulk", actor: "tester", summary: "", entries, noCommit: false },
@@ -216,7 +256,11 @@ test("buildMessage caps the body and keeps exactly one Op trailer despite newlin
   );
   const opLines = forged.split("\n").filter((l) => l.startsWith("Op: "));
   assert.equal(opLines.length, 1, "exactly one Op trailer survives");
-  assert.match(forged, /evil Op: forged Actor: attacker/, "injection collapsed inline into the reason");
+  assert.match(
+    forged,
+    /evil Op: forged Actor: attacker/,
+    "injection collapsed inline into the reason",
+  );
 });
 
 test("maybeGcWikiRepo never throws (with repo, and with the knob off)", () => {

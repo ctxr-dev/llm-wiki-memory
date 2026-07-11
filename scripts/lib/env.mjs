@@ -17,7 +17,7 @@ export const MEMORY_DIR = path.resolve(here, "../..");
 const inMemorySrc =
   path.basename(MEMORY_DIR) === "src" &&
   path.basename(path.dirname(MEMORY_DIR)) === ".llm-wiki-memory";
-export const WORKSPACE_DIR = path.resolve(MEMORY_DIR, inMemorySrc ? "../.." : "..");
+const WORKSPACE_DIR = path.resolve(MEMORY_DIR, inMemorySrc ? "../.." : "..");
 
 // Durable, (by default) gitignored data dir holding the wiki, the embedding
 // index, and settings. Overridable via MEMORY_DATA_DIR for tests.
@@ -26,7 +26,7 @@ export const MEMORY_DATA_DIR =
     ? process.env.MEMORY_DATA_DIR
     : path.join(WORKSPACE_DIR, ".llm-wiki-memory");
 
-export const ENV_PATH = path.join(MEMORY_DATA_DIR, "settings", ".env");
+const ENV_PATH = path.join(MEMORY_DATA_DIR, "settings", ".env");
 // Runtime compile state/lock live under the durable data dir (not the repo
 // clone), so the source tree stays clean and parallel installs don't collide.
 export const COMPILE_STATE_PATH = path.join(MEMORY_DATA_DIR, "state", ".compile-state.json");
@@ -38,7 +38,11 @@ export const GC_STATE_PATH = path.join(MEMORY_DATA_DIR, "state", ".embed-gc.json
 // passes: { name: { archived, touched, merged, refreshed, flagged, freedBytes, ms } } }.
 export const CONSOLIDATE_STATE_PATH = path.join(MEMORY_DATA_DIR, "state", ".consolidate.json");
 // Per-entity consolidation attempt history (entity-level self-healing).
-export const CONSOLIDATE_ENTITIES_PATH = path.join(MEMORY_DATA_DIR, "state", ".consolidate-entities.json");
+export const CONSOLIDATE_ENTITIES_PATH = path.join(
+  MEMORY_DATA_DIR,
+  "state",
+  ".consolidate-entities.json",
+);
 // Sharded full cron-run logs: <CRON_LOGS_DIR>/<yyyy>/<mm>/cron-<ts>.json.
 export const CRON_LOGS_DIR = path.join(MEMORY_DATA_DIR, "state", "logs");
 // Escalation issue reports: <ISSUES_DIR>/<yyyy>/<mm>/<dd>/<sig>.<version>.md.
@@ -60,6 +64,10 @@ export const PROMPTS_DIR = path.join(MEMORY_DIR, "prompts");
 // inline comment on a value line (e.g. `MEMORY_FLUSH_SLOT=daily   # ...`) leaks
 // into the value, so the slot name becomes "daily   # ..." and every consumer
 // silently reads a polluted string.
+/**
+ * @param {unknown} raw
+ * @returns {string}
+ */
 export function parseEnvValue(raw) {
   let v = String(raw ?? "").trim();
   if (!v) return "";
@@ -81,8 +89,13 @@ export function parseEnvValue(raw) {
   return v.trim();
 }
 
-export function readEnvFile(file = ENV_PATH) {
+/**
+ * @param {string} [file]
+ * @returns {Record<string, string>}
+ */
+function readEnvFile(file = ENV_PATH) {
   if (!fs.existsSync(file)) return {};
+  /** @type {Record<string, string>} */
   const out = {};
   for (const raw of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
     const line = raw.trim();
@@ -94,12 +107,23 @@ export function readEnvFile(file = ENV_PATH) {
   return out;
 }
 
+/**
+ * @param {string} name
+ * @param {string} [fallback]
+ * @returns {string}
+ */
 export function envValue(name, fallback = "") {
-  if (process.env[name] != null && process.env[name] !== "") return process.env[name];
+  if (process.env[name] != null && process.env[name] !== "")
+    return /** @type {string} */ (process.env[name]);
   const file = readEnvFile();
   return file[name] ?? fallback;
 }
 
+/**
+ * @param {string} name
+ * @param {number} fallback
+ * @returns {number}
+ */
 export function envInt(name, fallback) {
   const raw = envValue(name, "");
   const n = Number.parseInt(raw, 10);
@@ -108,6 +132,12 @@ export function envInt(name, fallback) {
 
 // Parse a float env var. Out-of-range values (or NaN / garbage) -> fallback.
 // `min`/`max` are inclusive bounds. Use for ratios like cosine thresholds.
+/**
+ * @param {string} name
+ * @param {number} fallback
+ * @param {{ min?: number, max?: number }} [bounds]
+ * @returns {number}
+ */
 export function envFloat(name, fallback, { min = -Infinity, max = Infinity } = {}) {
   const raw = envValue(name, "");
   if (raw === "") return fallback;
@@ -119,6 +149,11 @@ export function envFloat(name, fallback, { min = -Infinity, max = Infinity } = {
 // Parse a boolean-ish env var. Empty -> fallback. `0`/`off`/`false`/`no`
 // (case-insensitive) -> false; `1`/`on`/`true`/`yes` -> true; anything else ->
 // fallback (don't guess on garbage). Use for opt-out / opt-in switches.
+/**
+ * @param {string} name
+ * @param {boolean} fallback
+ * @returns {boolean}
+ */
 export function envBool(name, fallback) {
   const raw = envValue(name, "");
   if (raw === "") return fallback;

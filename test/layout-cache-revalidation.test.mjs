@@ -72,16 +72,27 @@ test("resetLayoutCache forces a re-read even when mtime is unchanged", () => {
   // (simulating a copy/restore that preserved mtimes).
   const FIXED_T = 1_700_000_000;
   fs.utimesSync(lp, FIXED_T, FIXED_T);
-  assert.equal(placementDirForMeta("knowledge", { area: "x", atom_type: "concept" }), "knowledge/x/concept");
+  assert.equal(
+    placementDirForMeta("knowledge", { area: "x", atom_type: "concept" }),
+    "knowledge/x/concept",
+  );
 
   // Edit, then restore the SAME fixed mtime.
   fs.writeFileSync(lp, LAYOUT_AREA_ONLY);
   fs.utimesSync(lp, FIXED_T, FIXED_T);
   // mtime unchanged -> auto-reload does NOT fire (still stale): proves gating.
-  assert.equal(placementDirForMeta("knowledge", { area: "x", atom_type: "concept" }), "knowledge/x/concept", "stale while mtime unchanged");
+  assert.equal(
+    placementDirForMeta("knowledge", { area: "x", atom_type: "concept" }),
+    "knowledge/x/concept",
+    "stale while mtime unchanged",
+  );
   // explicit reset -> fresh.
   resetLayoutCache();
-  assert.equal(placementDirForMeta("knowledge", { area: "x", atom_type: "concept" }), "knowledge/x", "fresh after explicit reset");
+  assert.equal(
+    placementDirForMeta("knowledge", { area: "x", atom_type: "concept" }),
+    "knowledge/x",
+    "fresh after explicit reset",
+  );
 });
 
 test("absent layout.yaml (mtime 0) does not crash — falls back to baked-in defaults", () => {
@@ -104,10 +115,17 @@ test("placement cache still reloads when the wiki ROOT changes (even if mtime co
   fs.utimesSync(layoutPathOf(b), T, T);
   process.env.LLM_WIKI_MEMORY_ROOT = a;
   resetLayoutCache();
-  assert.equal(placementDirForMeta("knowledge", { area: "x", atom_type: "concept" }), "knowledge/x/concept");
+  assert.equal(
+    placementDirForMeta("knowledge", { area: "x", atom_type: "concept" }),
+    "knowledge/x/concept",
+  );
   // Switch root (no reset) — the root change alone must trigger a reload.
   process.env.LLM_WIKI_MEMORY_ROOT = b;
-  assert.equal(placementDirForMeta("knowledge", { area: "x", atom_type: "concept" }), "knowledge/x", "root change reloads despite identical mtime");
+  assert.equal(
+    placementDirForMeta("knowledge", { area: "x", atom_type: "concept" }),
+    "knowledge/x",
+    "root change reloads despite identical mtime",
+  );
 });
 
 const topoLayout = (subdir) => `
@@ -154,7 +172,8 @@ layout:
         prefix: { type: string }
         number: { type: integer, minimum: 1 }
 `;
-const helperV = (seg) => `export function knowledge(f) { return "issues/${seg}/" + f.prefix + "-" + f.number + ".md"; }\n`;
+const helperV = (seg) =>
+  `export function knowledge(f) { return "issues/${seg}/" + f.prefix + "-" + f.number + ".md"; }\n`;
 
 test("topology cache auto-reloads when a sibling to_path .mjs is edited", async () => {
   const root = mkWiki(topoFileLayout, { "to_path.mjs": helperV("A") });

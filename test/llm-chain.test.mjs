@@ -8,7 +8,7 @@ const TMP_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "llm-chain-"));
 process.env.MEMORY_DATA_DIR = TMP_DATA_DIR;
 fs.mkdirSync(path.join(TMP_DATA_DIR, "settings"), { recursive: true });
 
-const { callLLMChain, LLMProviderUnavailable, LLMOutputInvalid } = await import("../scripts/lib/llm.mjs");
+const { callLLMChain, LLMProviderUnavailable } = await import("../scripts/lib/llm.mjs");
 
 after(() => {
   fs.rmSync(TMP_DATA_DIR, { recursive: true, force: true });
@@ -46,7 +46,9 @@ function chainConfig({ chain, providerModels = {} }) {
   return Object.freeze({
     providers: Object.freeze({
       chain: Object.freeze(providers.chain),
-      ...Object.fromEntries(known.map((p) => [p, Object.freeze({ models: Object.freeze(providers[p].models) })])),
+      ...Object.fromEntries(
+        known.map((p) => [p, Object.freeze({ models: Object.freeze(providers[p].models) })]),
+      ),
     }),
   });
 }
@@ -54,7 +56,12 @@ function chainConfig({ chain, providerModels = {} }) {
 test("chain: empty chain -> LLMProviderUnavailable", async () => {
   clearEnv();
   await assert.rejects(
-    () => callLLMChain({ systemPrompt: "s", userPrompt: "u", configOverride: chainConfig({ chain: [] }) }),
+    () =>
+      callLLMChain({
+        systemPrompt: "s",
+        userPrompt: "u",
+        configOverride: chainConfig({ chain: [] }),
+      }),
     /no LLM providers configured/i,
   );
 });
@@ -64,7 +71,11 @@ test("chain: mock provider returns parsed JSON via the chain wrapper with proven
   t.after(clearEnv);
   process.env.MEMORY_LLM_MOCK_RESPONSE = '{"atoms":[{"id":"a"}]}';
   const cfg = chainConfig({ chain: ["mock"] });
-  const { result, provenance } = await callLLMChain({ systemPrompt: "s", userPrompt: "u", configOverride: cfg });
+  const { result, provenance } = await callLLMChain({
+    systemPrompt: "s",
+    userPrompt: "u",
+    configOverride: cfg,
+  });
   assert.deepEqual(result, { atoms: [{ id: "a" }] });
   assert.equal(provenance.final_provider, "mock:(default)");
   assert.deepEqual(provenance.provider_chain_tried, ["mock:(default)"]);
@@ -79,7 +90,11 @@ test("chain: anthropic with no API key -> failure recorded; chain continues to n
     chain: ["anthropic", "mock"],
     providerModels: { anthropic: ["fixture-a"] },
   });
-  const { result, provenance } = await callLLMChain({ systemPrompt: "s", userPrompt: "u", configOverride: cfg });
+  const { result, provenance } = await callLLMChain({
+    systemPrompt: "s",
+    userPrompt: "u",
+    configOverride: cfg,
+  });
   assert.deepEqual(result, { ok: 1 });
   // Anthropic was tried (and failed because no API key); mock answered.
   assert.equal(provenance.final_provider, "mock:(default)");
@@ -99,7 +114,11 @@ test("chain: API provider with empty models[] is skipped entirely", async (t) =>
     chain: ["anthropic", "mock"],
     providerModels: { anthropic: [] },
   });
-  const { provenance } = await callLLMChain({ systemPrompt: "s", userPrompt: "u", configOverride: cfg });
+  const { provenance } = await callLLMChain({
+    systemPrompt: "s",
+    userPrompt: "u",
+    configOverride: cfg,
+  });
   // Anthropic recorded as a failure ("no models configured") without
   // actually trying any model:label combination.
   const tried = provenance.provider_chain_tried;
@@ -107,7 +126,10 @@ test("chain: API provider with empty models[] is skipped entirely", async (t) =>
   // mock answered.
   assert.equal(provenance.final_provider, "mock:(default)");
   const f = provenance.failure_reasons.find((x) => x.provider === "anthropic");
-  assert.ok(f && /no models configured/i.test(f.error), `expected no-models reason, got ${JSON.stringify(f)}`);
+  assert.ok(
+    f && /no models configured/i.test(f.error),
+    `expected no-models reason, got ${JSON.stringify(f)}`,
+  );
 });
 
 test("chain: all providers exhausted -> LLMProviderUnavailable carries provenance", async () => {

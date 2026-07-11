@@ -29,7 +29,11 @@ function logTail() {
 }
 
 function findDailyForSession(sid) {
-  const docs = store.listDocuments({ prefix: "daily-", enabled: "true", datasetId: "daily" }).documents;
+  const docs = store.listDocuments({
+    prefix: "daily-",
+    enabled: "true",
+    datasetId: "daily",
+  }).documents;
   for (const d of docs) {
     const { text } = store.readDocument({ documentId: d.id, datasetId: "daily" });
     if (text.includes(`session_id: ${sid}`)) return { id: d.id, text };
@@ -39,7 +43,9 @@ function findDailyForSession(sid) {
 
 // Session ids used here are simple, so this mirrors flush.mjs:flushLockPath.
 function flushLockPathFor(sid) {
-  const safe = String(sid || "manual").replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80);
+  const safe = String(sid || "manual")
+    .replace(/[^A-Za-z0-9_.-]/g, "_")
+    .slice(0, 80);
   return path.join(dataDir, "state", `.flush-${safe}.lock`);
 }
 
@@ -59,7 +65,10 @@ async function waitForWorker(sid, timeoutMs = 20000) {
 function writeTranscript(name, turns) {
   const file = path.join(dataDir, name);
   const lines = turns.map((t) =>
-    JSON.stringify({ type: t.role, message: { role: t.role, content: [{ type: "text", text: t.text }] } }),
+    JSON.stringify({
+      type: t.role,
+      message: { role: t.role, content: [{ type: "text", text: t.text }] },
+    }),
   );
   fs.writeFileSync(file, `${lines.join("\n")}\n`);
   return file;
@@ -119,7 +128,10 @@ test("a clean empty distillation writes NO leaf (nothing to save → nothing on 
   const start = Date.now();
   let saw = false;
   while (Date.now() - start < 20_000) {
-    if (/nothing-durable \(no leaf written\)/.test(logTail())) { saw = true; break; }
+    if (/nothing-durable \(no leaf written\)/.test(logTail())) {
+      saw = true;
+      break;
+    }
     await sleep(50);
   }
   assert.ok(saw, `expected nothing-durable breadcrumb; got:\n${logTail()}`);

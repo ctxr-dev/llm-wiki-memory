@@ -28,6 +28,11 @@ const STORE = new AsyncLocalStorage();
 // performed transitively inside `fn` will observe `isSystemMaintenance() ===
 // true` via `getMaintenanceContext()`. Returns whatever `fn` returns. Errors
 // propagate.
+/**
+ * @template T
+ * @param {() => T} fn
+ * @returns {T}
+ */
 export function withSystemMaintenance(fn) {
   return STORE.run({ maintenance: true }, fn);
 }

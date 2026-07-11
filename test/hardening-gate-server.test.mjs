@@ -23,10 +23,7 @@ function makeWorkspace({ writeGate } = {}) {
     ...process.env,
     MEMORY_DATA_DIR: dataDir,
     MEMORY_DEFAULT_PROJECT_MODULE: "testproj",
-    LLM_WIKI_SKILL_CLI: path.join(
-      SRC,
-      "node_modules/@ctxr/skill-llm-wiki/scripts/cli.mjs",
-    ),
+    LLM_WIKI_SKILL_CLI: path.join(SRC, "node_modules/@ctxr/skill-llm-wiki/scripts/cli.mjs"),
     LLM_WIKI_FIXED_TIMESTAMP: "1700000000",
     LLM_WIKI_NO_PROMPT: "1",
   };
@@ -88,12 +85,10 @@ function readAuditLog(dir) {
 
 const gateOn = makeWorkspace();
 let gateOnClient;
-let gateOnTransport;
 
 before(async () => {
-  const { client, transport } = await connectClient(gateOn.env);
+  const { client } = await connectClient(gateOn.env);
   gateOnClient = client;
-  gateOnTransport = transport;
 });
 
 after(async () => {
@@ -187,8 +182,15 @@ test("save_to_dataset (non-gated) requesting P0 without consent -> coerced to P1
     },
   });
   const payload = parse(res);
-  assert.equal(payload.ok ?? Boolean(payload.created), true, `write succeeds: ${JSON.stringify(payload)}`);
-  assert.ok(payload.priorityNote && /coerced/i.test(payload.priorityNote), "coercion reported via priorityNote");
+  assert.equal(
+    payload.ok ?? Boolean(payload.created),
+    true,
+    `write succeeds: ${JSON.stringify(payload)}`,
+  );
+  assert.ok(
+    payload.priorityNote && /coerced/i.test(payload.priorityNote),
+    "coercion reported via priorityNote",
+  );
   const id = payload.created?.document?.id;
   assert.ok(id, "leaf id returned");
   const raw = fs.readFileSync(path.join(gateOn.dataDir, "wiki", id), "utf8");
@@ -203,7 +205,12 @@ test("save_lesson with userRequested:true keeps a user-picked P0 (gated, no coer
       title: "Gated P0 lesson",
       body: "a user-confirmed guardrail lesson that should keep its P0 priority.",
       userRequested: true,
-      metadata: { area: "prio", task_type: "implementation", error_pattern: "gated-p0", priority: "P0" },
+      metadata: {
+        area: "prio",
+        task_type: "implementation",
+        error_pattern: "gated-p0",
+        priority: "P0",
+      },
     },
   });
   const payload = parse(res);
@@ -288,7 +295,7 @@ test("audit trail records L3 decisions (refused + accepted/consent) and skips no
   );
 });
 
-test("save_to_dataset(dataset=\"self_improvement\") WITHOUT userRequested -> refused", async () => {
+test('save_to_dataset(dataset="self_improvement") WITHOUT userRequested -> refused', async () => {
   const res = await gateOnClient.callTool({
     name: "save_to_dataset",
     arguments: {
@@ -308,7 +315,7 @@ test("save_to_dataset(dataset=\"self_improvement\") WITHOUT userRequested -> ref
   assert.equal(payload.error, "write-gate-refused");
 });
 
-test("save_to_dataset(dataset=\"knowledge\") WITHOUT userRequested -> success (not gated)", async () => {
+test('save_to_dataset(dataset="knowledge") WITHOUT userRequested -> success (not gated)', async () => {
   const res = await gateOnClient.callTool({
     name: "save_to_dataset",
     arguments: {
@@ -322,7 +329,7 @@ test("save_to_dataset(dataset=\"knowledge\") WITHOUT userRequested -> success (n
   assert.equal(payload.ok, true, `knowledge save should succeed: ${JSON.stringify(payload)}`);
 });
 
-test("save_to_dataset(dataset=\"plans\") WITHOUT userRequested -> success (not gated)", async () => {
+test('save_to_dataset(dataset="plans") WITHOUT userRequested -> success (not gated)', async () => {
   const res = await gateOnClient.callTool({
     name: "save_to_dataset",
     arguments: {
@@ -336,7 +343,7 @@ test("save_to_dataset(dataset=\"plans\") WITHOUT userRequested -> success (not g
   assert.equal(payload.ok, true, `plans save should succeed: ${JSON.stringify(payload)}`);
 });
 
-test("save_to_dataset(dataset=\"self_improvement\") with userRequested:true -> success", async () => {
+test('save_to_dataset(dataset="self_improvement") with userRequested:true -> success', async () => {
   const res = await gateOnClient.callTool({
     name: "save_to_dataset",
     arguments: {
@@ -353,7 +360,11 @@ test("save_to_dataset(dataset=\"self_improvement\") with userRequested:true -> s
     },
   });
   const payload = parse(res);
-  assert.equal(payload.ok, true, `gated save_to_dataset with flag should succeed: ${JSON.stringify(payload)}`);
+  assert.equal(
+    payload.ok,
+    true,
+    `gated save_to_dataset with flag should succeed: ${JSON.stringify(payload)}`,
+  );
 });
 
 test("audit covers the save_to_dataset + write_memory accept paths (consent: user-flag)", async () => {
@@ -364,7 +375,12 @@ test("audit covers the save_to_dataset + write_memory accept paths (consent: use
       name: "AUDIT-dataset-probe.md",
       text: "# Dataset probe\n\n- type: self-improvement-lesson\n- area: auditarea\n- task_type: implementation\n- error_pattern: ds-audit\n\nbody for the dataset audit probe.",
       userRequested: true,
-      metadata: { atom_type: "self-improvement-lesson", area: "auditarea", task_type: "implementation", error_pattern: "ds-audit" },
+      metadata: {
+        atom_type: "self-improvement-lesson",
+        area: "auditarea",
+        task_type: "implementation",
+        error_pattern: "ds-audit",
+      },
     },
   });
   await gateOnClient.callTool({
@@ -374,7 +390,12 @@ test("audit covers the save_to_dataset + write_memory accept paths (consent: use
       text: "# Write-memory probe\n\nA write_memory probe body long enough to satisfy the 20-char minimum.",
       datasetId: "self_improvement",
       userRequested: true,
-      metadata: { atom_type: "self-improvement-lesson", area: "auditarea", task_type: "implementation", error_pattern: "wm-audit" },
+      metadata: {
+        atom_type: "self-improvement-lesson",
+        area: "auditarea",
+        task_type: "implementation",
+        error_pattern: "wm-audit",
+      },
     },
   });
   const recs = readAuditLog(gateOn.dataDir);
@@ -401,10 +422,19 @@ test("audit covers the path-into-self_improvement bypass (dataset:knowledge + pa
       text: "# Path bypass probe\n\nrouted into self_improvement via a path override.",
       path: "self_improvement/auditable",
       userRequested: true,
-      metadata: { atom_type: "self-improvement-lesson", area: "auditarea", task_type: "implementation", error_pattern: "path-audit" },
+      metadata: {
+        atom_type: "self-improvement-lesson",
+        area: "auditarea",
+        task_type: "implementation",
+        error_pattern: "path-audit",
+      },
     },
   });
-  assert.equal(parse(res).ok, true, `path-routed write should succeed: ${JSON.stringify(parse(res))}`);
+  assert.equal(
+    parse(res).ok,
+    true,
+    `path-routed write should succeed: ${JSON.stringify(parse(res))}`,
+  );
   const rec = readAuditLog(gateOn.dataDir).find((r) => r.title === "AUDIT-pathbypass-probe.md");
   assert.ok(rec, "a knowledge-dataset write smuggled into self_improvement via path is audited");
   assert.equal(rec.tool, "save_to_dataset");
@@ -416,12 +446,10 @@ test("audit covers the path-into-self_improvement bypass (dataset:knowledge + pa
 
 const gateOff = makeWorkspace({ writeGate: "off" });
 let gateOffClient;
-let gateOffTransport;
 
 before(async () => {
-  const { client, transport } = await connectClient(gateOff.env);
+  const { client } = await connectClient(gateOff.env);
   gateOffClient = client;
-  gateOffTransport = transport;
 });
 
 after(async () => {

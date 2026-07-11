@@ -33,6 +33,10 @@ try {
 }
 
 // Escape the markers for use in a RegExp (they contain HTML-comment chars).
+/**
+ * @param {string} s
+ * @returns {string}
+ */
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

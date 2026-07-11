@@ -45,6 +45,27 @@ const DEFAULT_STALE_MS = 1_800_000;
 // forever. 5s is orders of magnitude above the real create→write gap.
 const EMPTY_LOCK_GRACE_MS = 5_000;
 
+/**
+ * The parsed body of a lockfile.
+ * @typedef {Object} LockBody
+ * @property {number} pid
+ * @property {string} startedAt - ISO timestamp.
+ * @property {string} [label]
+ */
+
+/**
+ * The result returned by `acquireLock`.
+ * @typedef {Object} LockResult
+ * @property {boolean} ok
+ * @property {() => void} [release] - present on success.
+ * @property {LockBody | null} [owner] - present on a refusal.
+ * @property {string} [reason] - present on a refusal.
+ */
+
+/**
+ * @param {unknown} pid
+ * @returns {boolean}
+ */
 function isProcessAlive(pid) {
   if (typeof pid !== "number" || !Number.isFinite(pid) || pid <= 0) return false;
   try {
@@ -55,10 +76,14 @@ function isProcessAlive(pid) {
   } catch (err) {
     // ESRCH = no such process. EPERM = exists but we can't signal it
     // (another user); for our purposes that still counts as "alive".
-    return err.code === "EPERM";
+    return /** @type {NodeJS.ErrnoException} */ (err).code === "EPERM";
   }
 }
 
+/**
+ * @param {string} lockPath
+ * @returns {LockBody | null}
+ */
 function readLockBody(lockPath) {
   try {
     const raw = fs.readFileSync(lockPath, "utf8");
@@ -69,6 +94,11 @@ function readLockBody(lockPath) {
   }
 }
 
+/**
+ * @param {string} lockPath
+ * @param {LockBody} body
+ * @returns {void}
+ */
 function writeLockBody(lockPath, body) {
   // We can't use 'wx' here because callers reach this function only
   // after a stale-detection path; the lockfile might still exist.
@@ -76,7 +106,13 @@ function writeLockBody(lockPath, body) {
   fs.writeFileSync(lockPath, JSON.stringify(body) + "\n");
 }
 
+/**
+ * @param {string} lockPath
+ * @param {{ staleMs?: number, label?: string }} [opts]
+ * @returns {LockResult}
+ */
 export function acquireLock(lockPath, { staleMs = DEFAULT_STALE_MS, label = "compile" } = {}) {
+  /** @type {LockBody} */
   const body = {
     pid: process.pid,
     startedAt: new Date().toISOString(),
@@ -90,7 +126,7 @@ export function acquireLock(lockPath, { staleMs = DEFAULT_STALE_MS, label = "com
     fs.closeSync(fd);
     return { ok: true, release: () => releaseLock(lockPath) };
   } catch (err) {
-    if (err.code !== "EEXIST") throw err;
+    if (/** @type {NodeJS.ErrnoException} */ (err).code !== "EEXIST") throw err;
   }
 
   // Lock exists. Check if owner is alive AND the lock is fresh.
@@ -116,10 +152,18 @@ export function acquireLock(lockPath, { staleMs = DEFAULT_STALE_MS, label = "com
     // cleanly; reclaiming would hand the same lock to two processes) from a
     // crash-abandoned 0-byte file or genuinely corrupt body (→ stale, reclaim).
     let raw = null;
-    try { raw = fs.readFileSync(lockPath, "utf8"); } catch { /* vanished between EEXIST and read */ }
+    try {
+      raw = fs.readFileSync(lockPath, "utf8");
+    } catch {
+      /* vanished between EEXIST and read */
+    }
     if (raw !== null && raw.trim() === "") {
       let ageMs = Infinity;
-      try { ageMs = Date.now() - fs.statSync(lockPath).mtimeMs; } catch { /* vanished */ }
+      try {
+        ageMs = Date.now() - fs.statSync(lockPath).mtimeMs;
+      } catch {
+        /* vanished */
+      }
       // Treat as a live mid-create racer (LOSE) only when the mtime is CLOSE to
       // now in EITHER direction: |age| < grace. A just-created file can read a
       // tiny NEGATIVE age (statSync mtimeMs is a sub-ms float, Date.now() is
@@ -134,7 +178,9 @@ export function acquireLock(lockPath, { staleMs = DEFAULT_STALE_MS, label = "com
           reason: `lock is mid-creation by another process (empty lockfile, age=${Math.round(ageMs)}ms)`,
         };
       }
-      process.stderr.write(`${label}: empty + stale lockfile at ${lockPath} (age=${Math.round(ageMs)}ms); reclaiming\n`);
+      process.stderr.write(
+        `${label}: empty + stale lockfile at ${lockPath} (age=${Math.round(ageMs)}ms); reclaiming\n`,
+      );
     } else {
       process.stderr.write(`${label}: lockfile at ${lockPath} is unparseable; reclaiming\n`);
     }
@@ -159,7 +205,11 @@ export function acquireLock(lockPath, { staleMs = DEFAULT_STALE_MS, label = "com
   return { ok: true, release: () => releaseLock(lockPath) };
 }
 
-export function releaseLock(lockPath) {
+/**
+ * @param {string} lockPath
+ * @returns {void}
+ */
+function releaseLock(lockPath) {
   // Only release if WE own it. Re-read to avoid clobbering a lock that
   // another process atomically claimed after us (shouldn't happen, but
   // defensive).
@@ -175,7 +225,12 @@ export function releaseLock(lockPath) {
 
 // Wire signal + exit handlers so unexpected termination still releases.
 // Caller passes the lockPath; we install one-shot handlers per path.
+/** @type {Set<string>} */
 const installedHandlers = new Set();
+/**
+ * @param {string} lockPath
+ * @returns {void}
+ */
 export function installLockReleaseHandlers(lockPath) {
   if (installedHandlers.has(lockPath)) return;
   installedHandlers.add(lockPath);
@@ -189,7 +244,13 @@ export function installLockReleaseHandlers(lockPath) {
   // code. SIGHUP matters because compile.mjs is often spawned detached by
   // SessionStart hooks; closing the controlling terminal delivers SIGHUP
   // and without this the lock would leak until staleMs expires.
-  for (const [sig, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]]) {
+  /** @type {Array<[NodeJS.Signals, number]>} */
+  const signalExits = [
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+    ["SIGHUP", 129],
+  ];
+  for (const [sig, code] of signalExits) {
     process.once(sig, () => {
       release();
       process.exit(code);

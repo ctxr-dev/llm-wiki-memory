@@ -1,3 +1,8 @@
+/**
+ * @param {string} text
+ * @param {{ maxLen?: number }} [options]
+ * @returns {string}
+ */
 export function slugify(text, { maxLen = 60 } = {}) {
   const base = String(text || "")
     .toLowerCase()
@@ -17,7 +22,17 @@ export function slugify(text, { maxLen = 60 } = {}) {
 // (preferSentence), to the last sentence end within the final sentenceWindow
 // chars. Falls back to the hard surrogate-safe slice when the text has no
 // boundary in range, so the result is never empty for non-empty input.
-export function truncateAtWordBoundary(text, max, { preferSentence = false, sentenceWindow = 80 } = {}) {
+/**
+ * @param {string} text
+ * @param {number} max
+ * @param {{ preferSentence?: boolean, sentenceWindow?: number }} [options]
+ * @returns {string}
+ */
+export function truncateAtWordBoundary(
+  text,
+  max,
+  { preferSentence = false, sentenceWindow = 80 } = {},
+) {
   const s = String(text ?? "");
   if (!Number.isFinite(max) || max <= 0) return "";
   if (s.length <= max) return s;
@@ -44,11 +59,20 @@ export function truncateAtWordBoundary(text, max, { preferSentence = false, sent
   return hard;
 }
 
+/**
+ * @param {number} n
+ * @param {number} [w]
+ * @returns {string}
+ */
 function pad(n, w = 2) {
   return String(n).padStart(w, "0");
 }
 
-export function timestampUtc(date = new Date()) {
+/**
+ * @param {Date} [date]
+ * @returns {string}
+ */
+function timestampUtc(date = new Date()) {
   return (
     `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}` +
     `-${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}` +
@@ -58,18 +82,36 @@ export function timestampUtc(date = new Date()) {
 
 // Nested date path for the daily category: "2026/05/22". Keeps any single
 // directory from accumulating an unbounded number of sibling entries.
+/**
+ * @param {Date} [date]
+ * @returns {string}
+ */
 export function dailyDatePath(date = new Date()) {
   return `${date.getUTCFullYear()}/${pad(date.getUTCMonth() + 1)}/${pad(date.getUTCDate())}`;
 }
 
+/**
+ * @param {Date} [date]
+ * @returns {string}
+ */
 export function dailyDocName(date = new Date()) {
   return `daily-${timestampUtc(date)}.md`;
 }
 
+/**
+ * @param {string} slugOrTitle
+ * @param {Date} [date]
+ * @returns {string}
+ */
 export function knowledgeDocName(slugOrTitle, date = new Date()) {
   return `knowledge-${slugify(slugOrTitle)}-${timestampUtc(date)}.md`;
 }
 
+/**
+ * @param {string} slugOrTitle
+ * @param {Date} [date]
+ * @returns {string}
+ */
 export function lessonDocName(slugOrTitle, date = new Date()) {
   return `lesson-${slugify(slugOrTitle)}-${timestampUtc(date)}.md`;
 }
@@ -78,6 +120,10 @@ const DAILY_RE = /^daily-(\d{4})-(\d{2})-(\d{2})-(\d{6})(\d{3})\.md$/;
 const KNOWLEDGE_RE = /^knowledge-(.+)-(\d{4})-(\d{2})-(\d{2})-(\d{6})(\d{3})\.md$/;
 const LESSON_RE = /^lesson-(.+)-(\d{4})-(\d{2})-(\d{2})-(\d{6})(\d{3})\.md$/;
 
+/**
+ * @param {string} name
+ * @returns {{ date: string, time: string, ms: string } | null}
+ */
 export function parseDailyDocName(name) {
   const m = String(name || "").match(DAILY_RE);
   if (!m) return null;
@@ -85,6 +131,10 @@ export function parseDailyDocName(name) {
   return { date: `${y}-${mo}-${d}`, time: hms, ms };
 }
 
+/**
+ * @param {string} name
+ * @returns {{ slug: string, date: string, time: string, ms: string } | null}
+ */
 export function parseKnowledgeDocName(name) {
   const m = String(name || "").match(KNOWLEDGE_RE);
   if (!m) return null;
@@ -92,6 +142,10 @@ export function parseKnowledgeDocName(name) {
   return { slug, date: `${y}-${mo}-${d}`, time: hms, ms };
 }
 
+/**
+ * @param {string} name
+ * @returns {{ slug: string, date: string, time: string, ms: string } | null}
+ */
 export function parseLessonDocName(name) {
   const m = String(name || "").match(LESSON_RE);
   if (!m) return null;

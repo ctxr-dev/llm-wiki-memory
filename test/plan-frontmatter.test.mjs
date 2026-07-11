@@ -15,10 +15,6 @@ import { parseChecklist } from "../scripts/lib/tracker-parse.mjs";
 
 const FIXED_NOW = new Date("2026-05-26T12:00:00Z");
 
-// ---------------------------------------------------------------------------
-// buildUpdatedFrontmatter — pure
-// ---------------------------------------------------------------------------
-
 test("buildUpdatedFrontmatter: inferred status flips pending→in-progress→done", () => {
   const checklist0 = parseChecklist("1. - [ ] A\n2. - [ ] B\n");
   const r0 = buildUpdatedFrontmatter({ data: {}, checklist: checklist0, now: FIXED_NOW });
@@ -122,10 +118,6 @@ test("buildUpdatedFrontmatter: flip_log caps at FLIP_LOG_MAX entries", () => {
   assert.equal(r.flip_log[r.flip_log.length - 1].num, "new");
 });
 
-// ---------------------------------------------------------------------------
-// applyFrontmatterUpdate — frontmatter rewrite (pure, in-memory)
-// ---------------------------------------------------------------------------
-
 const PLAN_FIXTURE = `---
 issue_key: DEV-129957
 plan_title: "Investigate timeout"
@@ -185,10 +177,6 @@ test("applyFrontmatterUpdate: no flip_log entries when `flips` omitted", () => {
   const parsed = matter(r.text);
   assert.equal(parsed.data.flip_log, undefined);
 });
-
-// ---------------------------------------------------------------------------
-// updatePlanFrontmatter — I/O round trip
-// ---------------------------------------------------------------------------
 
 test("updatePlanFrontmatter: reads, transforms, writes the plan file", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-io-"));

@@ -92,7 +92,13 @@ test("validate_layout validates the wiki's contract and never crashes the server
 test("get_memory_config reports the wiki + categories", async () => {
   const cfg = parse(await client.callTool({ name: "get_memory_config", arguments: {} }));
   assert.ok(cfg.wikiRoot.includes(".llm-wiki-memory") || cfg.wikiRoot.includes("wiki"));
-  assert.deepEqual(cfg.categories, ["knowledge", "self_improvement", "plans", "investigations", "daily"]);
+  assert.deepEqual(cfg.categories, [
+    "knowledge",
+    "self_improvement",
+    "plans",
+    "investigations",
+    "daily",
+  ]);
 });
 
 test("save_lesson then recall_lessons round-trips through the server", async () => {
@@ -106,7 +112,11 @@ test("save_lesson then recall_lessons round-trips through the server", async () 
         // must attest the user explicitly asked. In the round-trip test we
         // simulate that explicit ask.
         userRequested: true,
-        metadata: { project_module: "testproj", task_type: "implementation", error_pattern: "full-rebuild-hot-path" },
+        metadata: {
+          project_module: "testproj",
+          task_type: "implementation",
+          error_pattern: "full-rebuild-hot-path",
+        },
         tags: ["performance"],
       },
     }),
@@ -139,10 +149,16 @@ test("save_to_dataset upserts and search_memory finds it", async () => {
   const found = parse(
     await client.callTool({
       name: "search_memory",
-      arguments: { query: "stdio server registered mcp.json", filters: { project_module: "testproj" } },
+      arguments: {
+        query: "stdio server registered mcp.json",
+        filters: { project_module: "testproj" },
+      },
     }),
   );
-  assert.ok(found.records.some((r) => r.documentName === "knowledge-mcp-note.md"), "search finds the note");
+  assert.ok(
+    found.records.some((r) => r.documentName === "knowledge-mcp-note.md"),
+    "search finds the note",
+  );
 });
 
 test("move_document is registered", async () => {

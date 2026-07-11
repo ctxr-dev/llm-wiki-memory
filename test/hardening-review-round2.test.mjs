@@ -4,7 +4,7 @@
 //   - O-1:  L3 gate also fires when `path` lands the write in self_improvement
 //           even if `dataset` claims a non-gated category.
 
-import { test, after, before } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -92,13 +92,18 @@ test("R2-2: 'locked-by' skip return also includes llmRequested + llm:false", asy
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   fs.writeFileSync(
     lockPath,
-    JSON.stringify({ pid: 9999999, startedAt: new Date().toISOString(), label: "test-fixture" }) + "\n",
+    JSON.stringify({ pid: 9999999, startedAt: new Date().toISOString(), label: "test-fixture" }) +
+      "\n",
   );
   // pid 9999999 is unlikely to exist; the lock module may treat it as dead.
   // To force a fresh-lock branch deterministically, point the lock at OUR pid.
   fs.writeFileSync(
     lockPath,
-    JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), label: "test-fixture" }) + "\n",
+    JSON.stringify({
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      label: "test-fixture",
+    }) + "\n",
   );
 
   const r = await consolidateMemory({
@@ -113,7 +118,11 @@ test("R2-2: 'locked-by' skip return also includes llmRequested + llm:false", asy
   assert.equal(r.llm, false, "llm: false on lock skip");
 
   // Clean up the fake lock so subsequent tests don't pile contention.
-  try { fs.rmSync(lockPath); } catch {}
+  try {
+    fs.rmSync(lockPath);
+  } catch {
+    /* ignore */
+  }
 });
 
 // O-1: path-bypass of the L3 gate. We use the MCP stdio wire because the

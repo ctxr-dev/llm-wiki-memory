@@ -1,3 +1,4 @@
+/** @type {Array<[RegExp, string]>} */
 const PATTERNS = [
   [/Bearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer [REDACTED]"],
   [/(api[_-]?key|secret|token|password)(["'\s:=]+)[^"'\s]+/gi, "$1$2[REDACTED]"],
@@ -24,11 +25,17 @@ const PATTERNS = [
   // Anchoring lets the engine fast-fail the alternation at each position. Any
   // key PREFIX before the trigger (e.g. the `aws_` in `aws_secret_access_key`)
   // stays in the output untouched — cosmetic only; the VALUE is still redacted.
-  [/((?:secret|token|passwd|password|passphrase|credential|pwd|api[_-]?key|access[_-]?key|private[_-]?key|encryption[_-]?key|signing[_-]?key)[A-Za-z0-9_.-]*)(["']?\s*[:=]\s*["']?)([^"'\s,;]+)/gi, "$1$2[REDACTED]"],
+  [
+    /((?:secret|token|passwd|password|passphrase|credential|pwd|api[_-]?key|access[_-]?key|private[_-]?key|encryption[_-]?key|signing[_-]?key)[A-Za-z0-9_.-]*)(["']?\s*[:=]\s*["']?)([^"'\s,;]+)/gi,
+    "$1$2[REDACTED]",
+  ],
   // Authorization headers: keep the scheme word visible, redact the credential.
   // Bearer is also caught by the Bearer rule above; Basic / Digest / Negotiate
   // credentials are not caught anywhere else.
-  [/\b((?:proxy-)?authorization["']?\s*[:=]\s*["']?)(basic|digest|negotiate|bearer)(\s+)([^\s,;"']+)/gi, "$1$2$3[REDACTED]"],
+  [
+    /\b((?:proxy-)?authorization["']?\s*[:=]\s*["']?)(basic|digest|negotiate|bearer)(\s+)([^\s,;"']+)/gi,
+    "$1$2$3[REDACTED]",
+  ],
   [/\bsk-(?!ant-)[A-Za-z0-9_-]{16,}\b/g, "sk-[REDACTED]"],
   [/\bctx7sk-[A-Za-z0-9_-]{16,}\b/g, "ctx7sk-[REDACTED]"],
   [/\bghp_[A-Za-z0-9]{20,}\b/g, "ghp_[REDACTED]"],
@@ -49,12 +56,18 @@ const PATTERNS = [
   // Discord webhooks. The token segment after the snowflake id is the
   // sensitive part; the URL itself reveals routing but the token is what
   // grants posting rights.
-  [/https:\/\/discord(?:app)?\.com\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+/g, "https://discord.com/api/webhooks/[REDACTED]"],
+  [
+    /https:\/\/discord(?:app)?\.com\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+/g,
+    "https://discord.com/api/webhooks/[REDACTED]",
+  ],
   // PEM private key blocks (SSH, OpenSSL, PKCS#8, GCloud service-account
   // JSON values). Non-greedy match between BEGIN/END headers; `\s\S` so
   // newlines inside the block don't terminate the match. Covers
   // RSA/EC/DSA/OPENSSH/'ENCRYPTED' variants via [A-Z ]*.
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "[REDACTED-PRIVATE-KEY]"],
+  [
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+    "[REDACTED-PRIVATE-KEY]",
+  ],
   // Anthropic keys (sk-ant-...).
   [/\bsk-ant-[A-Za-z0-9_-]{20,}\b/g, "sk-ant-[REDACTED]"],
   // Database connection URLs with credentials in the userinfo segment:
@@ -67,7 +80,10 @@ const PATTERNS = [
   //   after the first '@'. Exotic multi-userinfo cluster lists
   //   (redis://u:p@h1,u2:p2@h2) over-redact into one userinfo — the
   //   fail-safe direction for a secret scrubber.
-  [/\b((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp|rediss):\/\/)[^\s:@\/]+:[^\s\/]+@/gi, "$1[REDACTED]:[REDACTED]@"],
+  [
+    /\b((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp|rediss):\/\/)[^\s:@/]+:[^\s/]+@/gi,
+    "$1[REDACTED]:[REDACTED]@",
+  ],
   // Azure Storage account keys (AccountKey=...; in connection strings).
   // The key is base64 + padding, ~80 chars; the connection string itself
   // is semicolon-separated key=value pairs.
@@ -80,8 +96,12 @@ const PATTERNS = [
   [/(\/\/[^/\s]+\/:_authToken=)[A-Za-z0-9_=-]+/g, "$1[REDACTED]"],
 ];
 
+/**
+ * @param {unknown} text
+ * @returns {string}
+ */
 export function redact(text) {
-  if (typeof text !== "string") return text;
+  if (typeof text !== "string") return /** @type {string} */ (text);
   let out = text;
   for (const [re, repl] of PATTERNS) {
     out = out.replace(re, repl);
