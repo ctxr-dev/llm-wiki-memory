@@ -1,12 +1,12 @@
 import fs from "node:fs";
-import { parse as parseYaml } from "yaml";
 import { slugify } from "./slug.mjs";
 
 // The pure parse half of the layout state (see `wiki-layout-state.mjs`, which
-// holds the live mutable bindings + accessors and calls `parseLayout` from
-// inside `ensureLayoutLoaded`). This module owns the baked-in DEFAULTS and the
-// stateless read+parse of `<wiki>/.layout/layout.yaml` into plain structures;
-// it never mutates shared state.
+// holds the per-root snapshot cache + accessors and calls `parseLayoutObject`
+// from inside `ensureLayoutLoaded`). This module owns the baked-in DEFAULTS and
+// the stateless projection of an ALREADY-parsed (merged + validated) layout
+// object into plain structures; it never reads files or mutates shared state.
+// The file read + shared/local merge live in `layout-merge.mjs`.
 //
 // CATEGORIES and PLACEMENT_FACETS were previously hardcoded module-level
 // constants. They are now sourced from <wiki>/.layout/layout.yaml on first
@@ -61,6 +61,31 @@ const DEFAULT_PLACEMENT_FACETS = Object.freeze({
  * @property {Record<string, boolean>} topologyCategories
  */
 
+// Loose views over the ALREADY-parsed layout object. The object was produced by
+// `parseYaml` and validated against `LayoutYamlSchema` upstream, so fields are
+// read defensively (unknown, narrowed at use) rather than trusted — same
+// cast-once pattern as topology-loader.mjs.
+/**
+ * @typedef {Object} RawFacetRule
+ * @property {unknown} [kind]
+ * @property {unknown} [vocabulary]
+ * @property {unknown} [fallback]
+ */
+/**
+ * @typedef {Object} RawLayoutEntry
+ * @property {unknown} [path]
+ * @property {unknown} [placement_facets]
+ * @property {unknown} [placement_strategy]
+ * @property {Record<string, RawFacetRule>} [facet_rules]
+ * @property {unknown} [consolidate]
+ * @property {unknown} [topology]
+ */
+/**
+ * @typedef {Object} RawLayoutDoc
+ * @property {Record<string, unknown>} [vocabularies]
+ * @property {RawLayoutEntry[]} [layout]
+ */
+
 // mtime (ms) of a file, or 0 if it's absent/unreadable.
 /**
  * @param {string} p
@@ -74,14 +99,16 @@ export function fileMtimeMs(p) {
   }
 }
 
-// Read + parse the layout YAML at `layoutPath` into plain structures, applying
-// the baked-in defaults for undeclared categories. Never mutates shared state;
-// the caller assigns the result into the live layout bindings.
+// Project an ALREADY-parsed (merged + validated) layout object into the plain
+// layout structures, applying the baked-in defaults for undeclared categories.
+// A null/undefined/non-object input (an absent, malformed, or schema-invalid
+// layout that the caller already fell back on) yields the pure defaults. Never
+// reads files, never mutates shared state; the caller snapshots the result.
 /**
- * @param {string} layoutPath
+ * @param {Record<string, unknown> | null | undefined} parsed
  * @returns {ParsedLayout}
  */
-export function parseLayout(layoutPath) {
+export function parseLayoutObject(parsed) {
   const cats = [...DEFAULT_CATEGORIES];
   /** @type {Record<string, string[]>} */
   const facets = {};
@@ -104,68 +131,62 @@ export function parseLayout(layoutPath) {
   const consolidateEligibility = Object.create(null);
   const topologyCategories = Object.create(null);
 
-  // Layout YAML canonical location is <wiki>/.layout/layout.yaml (resolved by caller).
-  if (fs.existsSync(layoutPath)) {
-    try {
-      const parsed = parseYaml(fs.readFileSync(layoutPath, "utf8")) || {};
-      // Controlled value sets referenced by `kind: path` facet rules.
-      if (parsed.vocabularies && typeof parsed.vocabularies === "object") {
-        for (const [vname, vals] of Object.entries(parsed.vocabularies)) {
-          if (!Array.isArray(vals)) continue;
-          vocabs[vname] = new Set(vals.map((v) => slugify(String(v))).filter(Boolean));
-        }
+  const doc = /** @type {RawLayoutDoc} */ (parsed && typeof parsed === "object" ? parsed : {});
+
+  // Controlled value sets referenced by `kind: path` facet rules.
+  if (doc.vocabularies && typeof doc.vocabularies === "object") {
+    for (const [vname, vals] of Object.entries(doc.vocabularies)) {
+      if (!Array.isArray(vals)) continue;
+      vocabs[vname] = new Set(vals.map((v) => slugify(String(v))).filter(Boolean));
+    }
+  }
+  const entries = Array.isArray(doc.layout) ? doc.layout : [];
+  if (entries.length > 0) {
+    // Replace categories wholesale from the layout (the YAML is the declared
+    // contract).
+    cats.length = 0;
+    for (const e of entries) {
+      const name = String((e && e.path) || "").trim();
+      if (!name) continue;
+      cats.push(name);
+      if (Array.isArray(e.placement_facets)) {
+        facets[name] = e.placement_facets.map((/** @type {unknown} */ s) => String(s));
+      } else if (DEFAULT_PLACEMENT_FACETS[name]) {
+        facets[name] = [...DEFAULT_PLACEMENT_FACETS[name]];
+      } else if (name === "daily" || e.placement_strategy === "daily-date") {
+        // daily is special-cased downstream; no facets entry needed.
+      } else {
+        // Declared but unspecified -> flat under category root.
+        facets[name] = [];
       }
-      const entries = Array.isArray(parsed.layout) ? parsed.layout : [];
-      if (entries.length > 0) {
-        // Replace categories wholesale from the YAML (the YAML is the
-        // declared contract).
-        cats.length = 0;
-        for (const e of entries) {
-          const name = String((e && e.path) || "").trim();
-          if (!name) continue;
-          cats.push(name);
-          if (Array.isArray(e.placement_facets)) {
-            facets[name] = e.placement_facets.map((/** @type {unknown} */ s) => String(s));
-          } else if (DEFAULT_PLACEMENT_FACETS[name]) {
-            facets[name] = [...DEFAULT_PLACEMENT_FACETS[name]];
-          } else if (name === "daily" || e.placement_strategy === "daily-date") {
-            // daily is special-cased downstream; no facets entry needed.
-          } else {
-            // Declared but unspecified -> flat under category root.
-            facets[name] = [];
-          }
-          if (e.facet_rules && typeof e.facet_rules === "object") {
-            const r2 = Object.create(null);
-            for (const [fname, spec] of Object.entries(e.facet_rules)) {
-              if (!spec || typeof spec !== "object") continue;
-              r2[fname] = {
-                kind: spec.kind === "path" ? "path" : "segment",
-                vocabulary: spec.vocabulary ? String(spec.vocabulary) : null,
-                fallback: spec.fallback != null ? String(spec.fallback) : null,
-              };
-            }
-            rules[name] = r2;
-          }
-          // consolidate: refine | none  (no default — see comment above).
-          if (e.consolidate !== undefined) {
-            const v = String(e.consolidate).trim().toLowerCase();
-            if (v === "refine" || v === "none") consolidateEligibility[name] = v;
-            // any other value falls through and the orchestrator surfaces the
-            // missing/invalid field at runtime.
-          }
-          // A `topology:` block means this category nests via the path-compiler,
-          // not facet placement: writes must supply an explicit path.
-          if (e.topology && typeof e.topology === "object") {
-            topologyCategories[name] = true;
-          }
+      if (e.facet_rules && typeof e.facet_rules === "object") {
+        const r2 = Object.create(null);
+        for (const [fname, spec] of Object.entries(e.facet_rules)) {
+          if (!spec || typeof spec !== "object") continue;
+          r2[fname] = {
+            kind: spec.kind === "path" ? "path" : "segment",
+            vocabulary: spec.vocabulary ? String(spec.vocabulary) : null,
+            fallback: spec.fallback != null ? String(spec.fallback) : null,
+          };
         }
-        // Drop default facet keys for categories the YAML did NOT declare.
-        for (const k of Object.keys(facets)) {
-          if (!cats.includes(k)) delete facets[k];
-        }
+        rules[name] = r2;
       }
-    } catch {
-      // Malformed YAML -> keep defaults; do not crash callers.
+      // consolidate: refine | none  (no default — see comment above).
+      if (e.consolidate !== undefined) {
+        const v = String(e.consolidate).trim().toLowerCase();
+        if (v === "refine" || v === "none") consolidateEligibility[name] = v;
+        // any other value falls through and the orchestrator surfaces the
+        // missing/invalid field at runtime.
+      }
+      // A `topology:` block means this category nests via the path-compiler,
+      // not facet placement: writes must supply an explicit path.
+      if (e.topology && typeof e.topology === "object") {
+        topologyCategories[name] = true;
+      }
+    }
+    // Drop default facet keys for categories the layout did NOT declare.
+    for (const k of Object.keys(facets)) {
+      if (!cats.includes(k)) delete facets[k];
     }
   }
 

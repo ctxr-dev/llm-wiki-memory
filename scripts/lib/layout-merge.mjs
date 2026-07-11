@@ -120,18 +120,14 @@ function safeReadLayoutYaml(filePath) {
 }
 
 /**
- * Read `<layoutDir>/layout.yaml` (shared, required) and the OPTIONAL personal
- * `<layoutDir>/layout.local.yaml`, safe-parse both, merge them (shared wins),
- * validate the merged layout against `LayoutYamlSchema`, and return it.
- *
- * A malformed/absent local file is ignored with a warning (shared is used
- * alone). A malformed/absent shared file falls back to the engine defaults
- * without crashing the parse. A merged layout that fails schema validation is
- * surfaced by throwing with the collected issues.
+ * Read `<layoutDir>/layout.yaml` (shared) and the OPTIONAL personal
+ * `<layoutDir>/layout.local.yaml`, safe-parse both, and warn on an
+ * absent/malformed shared file or a malformed (present-but-unparseable) local
+ * file. Neither read throws; an unreadable file comes back as `null`.
  * @param {string} layoutDir
- * @returns {Record<string, unknown>}
+ * @returns {{ shared: Record<string, unknown> | null, local: Record<string, unknown> | null, sharedPath: string, localPath: string }}
  */
-export function loadMergedLayout(layoutDir) {
+function readSharedAndLocal(layoutDir) {
   const sharedPath = path.join(layoutDir, "layout.yaml");
   const localPath = path.join(layoutDir, "layout.local.yaml");
 
@@ -153,7 +149,35 @@ export function loadMergedLayout(layoutDir) {
     local = localRead.obj;
   }
 
-  const merged = mergeLayouts(sharedRead.obj, local);
+  return { shared: sharedRead.obj, local, sharedPath, localPath };
+}
+
+/**
+ * Read + merge shared and local layout WITHOUT schema validation (shared wins).
+ * A null side merges to `{}`. The LIVE layout read path uses this: it has always
+ * tolerated schema-incomplete layouts (e.g. a topology block still being
+ * authored, or a custom category lacking optional fields), so it must not gate
+ * reads on the strict schema the way the federated resolver and `validate_layout`
+ * do — a strict gate here would silently drop declared categories.
+ * @param {string} layoutDir
+ * @returns {Record<string, unknown>}
+ */
+export function readMergedLayout(layoutDir) {
+  const { shared, local } = readSharedAndLocal(layoutDir);
+  return mergeLayouts(shared, local);
+}
+
+/**
+ * Read + merge shared and local layout (shared wins) and VALIDATE the result
+ * against `LayoutYamlSchema`. A merged layout that fails validation throws with
+ * the collected issues; absent/malformed files fall back to an empty object,
+ * which then fails validation (there is no valid empty layout).
+ * @param {string} layoutDir
+ * @returns {Record<string, unknown>}
+ */
+export function loadMergedLayout(layoutDir) {
+  const { shared, local, sharedPath, localPath } = readSharedAndLocal(layoutDir);
+  const merged = mergeLayouts(shared, local);
   const result = LayoutYamlSchema.safeParse(merged);
   if (!result.success) {
     const detail = result.error.issues

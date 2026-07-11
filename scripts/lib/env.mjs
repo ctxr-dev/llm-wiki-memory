@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // scripts/lib/env.mjs -> project clone root is two levels up.
@@ -163,9 +164,36 @@ export function envBool(name, fallback) {
   return fallback;
 }
 
-// Absolute path to the hosted wiki root. Override with LLM_WIKI_MEMORY_ROOT
-// (absolute, or relative to the workspace). Defaults to <data>/wiki.
+// Per-operation wiki-root override for the federated (layered) wiki. env is the
+// low-level module, so the ALS lives HERE — wiki-context.mjs imports
+// `withWikiRoot` (never the reverse), which keeps the dependency acyclic.
+/** @type {AsyncLocalStorage<string>} */
+const activeRootStore = new AsyncLocalStorage();
+
+/**
+ * Run `fn` inside an async frame where the active wiki root is `root`, so
+ * `wikiRoot()` (and the embed-cache path derived from it) resolves to that root
+ * instead of the env-derived default. Composable and nestable: an inner frame
+ * shadows an outer one and the previous override is restored on exit; each async
+ * frame sees only its own override. Only these per-operation, wiki-tree-scoped
+ * paths follow the override — the brain-global config/state (MEMORY_DATA_DIR,
+ * settingsPath, the state dir, .env) stays anchored to MEMORY_DATA_DIR.
+ * @template T
+ * @param {string} root absolute path to the wiki root directory
+ * @param {() => T} fn
+ * @returns {T}
+ */
+export function withWikiRoot(root, fn) {
+  return activeRootStore.run(root, fn);
+}
+
+// Absolute path to the hosted wiki root. An active `withWikiRoot` frame wins;
+// otherwise override with LLM_WIKI_MEMORY_ROOT (absolute, or relative to the
+// workspace), defaulting to <data>/wiki. With no active frame this is
+// byte-identical to the pre-federation resolver.
 export function wikiRoot() {
+  const active = activeRootStore.getStore();
+  if (active) return active;
   const configured = envValue("LLM_WIKI_MEMORY_ROOT", "");
   if (configured) {
     return path.isAbsolute(configured) ? configured : path.resolve(WORKSPACE_DIR, configured);
@@ -173,8 +201,14 @@ export function wikiRoot() {
   return path.join(MEMORY_DATA_DIR, "wiki");
 }
 
-// Absolute path to the embedding cache JSON.
+// Absolute path to the embedding cache JSON. Under an active `withWikiRoot`
+// frame it is that root's per-mount cache (`<root>/../index/embeddings.json`),
+// so mounts never share one cache. With no active frame the explicit
+// MEMORY_EMBED_CACHE override wins, else it is the brain default under
+// MEMORY_DATA_DIR — byte-identical to the pre-federation resolver.
 export function embedCachePath() {
+  const active = activeRootStore.getStore();
+  if (active) return path.join(path.dirname(active), "index", "embeddings.json");
   const configured = envValue("MEMORY_EMBED_CACHE", "");
   if (configured) {
     return path.isAbsolute(configured) ? configured : path.resolve(WORKSPACE_DIR, configured);

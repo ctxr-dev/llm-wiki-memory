@@ -20,6 +20,7 @@ import { z } from "zod";
 import { scanScopes } from "./scope-scanner.mjs";
 import { loadMergedLayout } from "./layout-merge.mjs";
 import { embedBackend } from "./settings.mjs";
+import { withWikiRoot } from "./env.mjs";
 
 /**
  * One level of a federated wiki stack.
@@ -135,16 +136,20 @@ export function resolveWikiContext(scopes, opts = {}) {
 const contextStorage = new AsyncLocalStorage();
 
 /**
- * Run `fn` inside an async frame carrying `ctx` as the active wiki context.
- * Concurrent frames each see their own context; the frame disappears when `fn`
- * settles. Mirrors settings.mjs `withSettingsOverride`.
+ * Run `fn` inside an async frame carrying `ctx` as the active wiki context AND
+ * the env wiki-root override set to `ctx.writeDefault.root`, so operations
+ * inside default to the write-default level (the brain unless a level is chosen
+ * explicitly). A read that needs a different level nests its own
+ * {@link withWikiRoot} frame (Phase E). Concurrent frames each see their own
+ * context; both frames disappear when `fn` settles. Mirrors settings.mjs
+ * `withSettingsOverride`.
  * @template T
  * @param {WikiContext} ctx
  * @param {() => T} fn
  * @returns {T}
  */
 export function withWikiContext(ctx, fn) {
-  return contextStorage.run(ctx, fn);
+  return contextStorage.run(ctx, () => withWikiRoot(ctx.writeDefault.root, fn));
 }
 
 /**

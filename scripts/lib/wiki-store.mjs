@@ -3,16 +3,15 @@
 // surface (the package main export, `.` -> ./scripts/lib/wiki-store.mjs) so
 // every importer and test keeps resolving the same names from the same path.
 //
-// Layout state is a lazy-loaded module singleton (wiki-layout-state.mjs). Reach
-// CATEGORIES and the placement maps ONLY through the accessors (getCategories /
-// getPlacementFacets / ...): importing a raw mutable module-level array
-// snapshots a stale empty binding before the lazy init runs (that bug once made
-// CLI search return zero hits). The single-root singleton semantics are intact.
+// Layout state is a lazy-loaded, per-root cache (wiki-layout-state.mjs). Reach
+// the category list and the placement maps ONLY through the accessors
+// (getCategories / getPlacementFacets / ...): there is deliberately no raw
+// mutable array to import — importing one snapshots a stale empty binding
+// before the lazy load runs (that bug once made CLI search return zero hits).
 
 export { WikiStoreUnavailable } from "./wiki-core.mjs";
 
 export {
-  CATEGORIES,
   resetLayoutCache,
   getConsolidateLayout,
   _resetLayoutCacheForTests,

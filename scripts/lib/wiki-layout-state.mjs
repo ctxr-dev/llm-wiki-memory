@@ -1,106 +1,118 @@
 import path from "node:path";
 import { root } from "./wiki-core.mjs";
-import { fileMtimeMs, parseLayout } from "./wiki-layout-parse.mjs";
+import { fileMtimeMs, parseLayoutObject } from "./wiki-layout-parse.mjs";
+import { loadMergedLayout, readMergedLayout } from "./layout-merge.mjs";
 
-// Holds the LIVE, mutable layout bindings and the accessors over them.
-// `ensureLayoutLoaded` reads the parsed layout from `wiki-layout-parse.mjs`
-// (the pure DEFAULTS + YAML parse) and assigns it into these bindings. The
-// bindings + their mutator stay co-located in this ONE module: never import the
-// raw PLACEMENT_FACETS / PLACEMENT_RULES / VOCABULARIES bindings across modules
-// — go through the accessors, which run `ensureLayoutLoaded` first.
+// The live layout state, cached PER WIKI ROOT. Each root gets its own resolved
+// snapshot (categories + placement facets/rules + vocabularies + topology and
+// consolidate flags) plus the mtime(s) it was built from, mirroring the
+// path-keyed topology cache in topology-cache.mjs. Two operations against
+// DIFFERENT roots each read their OWN snapshot; neither can clobber the other
+// (the previous single mutable slot was overwritten on every root switch and at
+// every await boundary between them).
+//
+// The snapshot is built from `loadMergedLayout`, so a personal
+// `layout.local.yaml` is merged over the shared `layout.yaml` on the live read
+// path. Reach the state ONLY through the accessors below (they run
+// `ensureLayoutLoaded` first): never export or import a raw mutable array —
+// importing one snapshots a stale empty binding before the lazy load (that bug
+// once made CLI search return zero hits).
 
 /** @typedef {import("./wiki-layout-parse.mjs").FacetRule} FacetRule */
 
-/** @type {string[]} */
-export const CATEGORIES = [];
-/** @type {Record<string, string[]>} */
-const PLACEMENT_FACETS = {};
-// Per-category facet rules from layout `facet_rules`. A rule marks a facet as
-// `kind: path` (array-valued -> one directory segment per element) and can pin
-// its first segment to a declared vocabulary, with a `fallback` sentinel used
-// when the facet is absent/empty. Facets without a rule stay single-segment.
-// null-prototype: keys are author-controlled layout category/vocab names, so a
-// `__proto__`/`constructor` key can never reach a prototype slot.
-/** @type {Record<string, Record<string, FacetRule>>} */
-const PLACEMENT_RULES = Object.create(null);
-// Declared `vocabularies` (name -> Set<slug>): controlled value sets a
-// `kind: path` facet's first segment must belong to.
-/** @type {Record<string, Set<string>>} */
-const VOCABULARIES = Object.create(null);
-// Per-category consolidate eligibility from `layout[].consolidate`. Authors
-// must declare "refine" or "none" explicitly; the consolidate orchestrator
-// refuses to run when any category lacks the field. null-prototype mirrors
-// PLACEMENT_RULES.
-/** @type {Record<string, string>} */
-const CONSOLIDATE_ELIGIBILITY = Object.create(null);
-// Per-category presence of a `topology:` block in the layout YAML. A topology
-// category (e.g. tracker `issues`) nests via the topology path-compiler, NOT
-// facet placement — so a write to it MUST carry an explicit `path` and a
-// no-path write fails loud (see the placement guard). Keyed on block presence,
-// never the literal category name.
-/** @type {Record<string, boolean>} */
-const TOPOLOGY_CATEGORIES = Object.create(null);
-let _layoutLoaded = false;
-/** @type {string | null} */
-let _layoutRootSeen = null;
-/** @type {number | null} */
-let _layoutMtimeSeen = null;
+/**
+ * A single root's resolved layout plus the mtimes it was built from. Treated as
+ * immutable once cached: revalidation REPLACES the Map entry with a fresh
+ * snapshot rather than mutating this one, so a reference captured across an
+ * await keeps describing the root it was resolved for.
+ * @typedef {Object} LayoutSnapshot
+ * @property {string[]} cats declared category names, in layout order
+ * @property {Record<string, string[]>} facets per-category placement facets
+ * @property {Record<string, Record<string, FacetRule>>} rules per-category facet rules
+ * @property {Record<string, Set<string>>} vocabs declared vocabularies (name -> slug set)
+ * @property {Record<string, string>} consolidateEligibility per-category "refine" | "none"
+ * @property {Record<string, boolean>} topologyCategories categories with a `topology:` block
+ * @property {number} sharedMtime mtime (ms) of layout.yaml when built (0 if absent)
+ * @property {number} localMtime mtime (ms) of layout.local.yaml when built (0 if absent)
+ */
 
+/** @type {Map<string, LayoutSnapshot>} */
+const layoutCacheByRoot = new Map();
+
+// Build a root's snapshot from its `.layout` dir. Both readers merge a personal
+// layout.local.yaml over the shared layout.yaml (shared wins). We PREFER the
+// validated `loadMergedLayout`, but a strict-schema failure is NOT fatal on the
+// live read path: it has always tolerated schema-incomplete layouts (e.g. a
+// topology block mid-authoring), so we fall back to the unvalidated
+// `readMergedLayout` rather than dropping the declared categories. Truly
+// malformed/absent yaml degrades to `{}` there, which `parseLayoutObject` maps
+// to the baked-in defaults — so no bad USER yaml ever wedges a layout read.
+/**
+ * @param {string} layoutDir
+ * @param {number} sharedMtime
+ * @param {number} localMtime
+ * @returns {LayoutSnapshot}
+ */
+function buildSnapshot(layoutDir, sharedMtime, localMtime) {
+  /** @type {Record<string, unknown>} */
+  let raw;
+  try {
+    raw = loadMergedLayout(layoutDir);
+  } catch {
+    raw = readMergedLayout(layoutDir);
+  }
+  return { ...parseLayoutObject(raw), sharedMtime, localMtime };
+}
+
+// Resolve the CURRENT wiki root and return its layout snapshot, (re)building it
+// when the root has no cached entry OR either layout file changed since it was
+// built (so a long-running MCP server picks up `.layout/*.yaml` edits without a
+// restart). Returns the snapshot so accessors read it directly instead of
+// re-resolving the root.
+/**
+ * @returns {LayoutSnapshot}
+ */
 export function ensureLayoutLoaded() {
-  // Re-load if the wiki root changed (test isolation flips MEMORY_DATA_DIR) OR
-  // the layout contract was edited since we last read it (so a long-running MCP
-  // server picks up `.layout/layout.yaml` changes without a restart).
   const r = root();
-  const layoutPath = path.join(r, ".layout", "layout.yaml");
-  const mtime = fileMtimeMs(layoutPath);
-  if (_layoutLoaded && _layoutRootSeen === r && _layoutMtimeSeen === mtime) return;
-
-  const { cats, facets, rules, vocabs, consolidateEligibility, topologyCategories } =
-    parseLayout(layoutPath);
-
-  CATEGORIES.length = 0;
-  CATEGORIES.push(...cats);
-  for (const k of Object.keys(PLACEMENT_FACETS)) delete PLACEMENT_FACETS[k];
-  Object.assign(PLACEMENT_FACETS, facets);
-  for (const k of Object.keys(PLACEMENT_RULES)) delete PLACEMENT_RULES[k];
-  Object.assign(PLACEMENT_RULES, rules);
-  for (const k of Object.keys(VOCABULARIES)) delete VOCABULARIES[k];
-  Object.assign(VOCABULARIES, vocabs);
-  for (const k of Object.keys(CONSOLIDATE_ELIGIBILITY)) delete CONSOLIDATE_ELIGIBILITY[k];
-  Object.assign(CONSOLIDATE_ELIGIBILITY, consolidateEligibility);
-  for (const k of Object.keys(TOPOLOGY_CATEGORIES)) delete TOPOLOGY_CATEGORIES[k];
-  Object.assign(TOPOLOGY_CATEGORIES, topologyCategories);
-
-  _layoutLoaded = true;
-  _layoutRootSeen = r;
-  _layoutMtimeSeen = mtime;
+  const layoutDir = path.join(r, ".layout");
+  const sharedMtime = fileMtimeMs(path.join(layoutDir, "layout.yaml"));
+  const localMtime = fileMtimeMs(path.join(layoutDir, "layout.local.yaml"));
+  const cached = layoutCacheByRoot.get(r);
+  if (cached && cached.sharedMtime === sharedMtime && cached.localMtime === localMtime) {
+    return cached;
+  }
+  const snapshot = buildSnapshot(layoutDir, sharedMtime, localMtime);
+  layoutCacheByRoot.set(r, snapshot);
+  return snapshot;
 }
 
-// Force the next layout-touching call to re-parse .layout/layout.yaml. The mtime
-// check already auto-reloads on edit; this is the explicit escape hatch (e.g. the
-// `reload_layout` MCP tool, or a copy that preserved mtime) and the test reset.
+// Drop every cached root so the next layout-touching call re-reads from disk.
+// The mtime check already auto-reloads on edit; this is the explicit escape
+// hatch (the `reload_layout` MCP tool, or a copy/restore that preserved mtime)
+// and the test reset.
 export function resetLayoutCache() {
-  _layoutLoaded = false;
-  _layoutRootSeen = null;
-  _layoutMtimeSeen = null;
+  layoutCacheByRoot.clear();
 }
 
-// Back-compat alias used by the test suite.
-// Report the consolidate-eligibility declared in the layout YAML. Returns
-// {refine, excluded, missing} where:
+export function _resetLayoutCacheForTests() {
+  resetLayoutCache();
+}
+
+// Report the consolidate-eligibility declared in the CURRENT root's layout.
+// Returns {refine, excluded, missing} where:
 //   - refine[]   = category names declared `consolidate: refine`
 //   - excluded[] = category names declared `consolidate: none`
 //   - missing[]  = category names with NO consolidate declaration (a
 //                  validation error — the orchestrator refuses to run)
-// No defaults applied: author intent must be explicit. Order mirrors
-// CATEGORIES (i.e. the layout YAML's `layout:` order).
+// No defaults applied: author intent must be explicit. Order mirrors the
+// layout YAML's `layout:` order.
 export function getConsolidateLayout() {
-  ensureLayoutLoaded();
+  const snap = ensureLayoutLoaded();
   const refine = [];
   const excluded = [];
   const missing = [];
-  for (const c of CATEGORIES) {
-    const v = CONSOLIDATE_ELIGIBILITY[c];
+  for (const c of snap.cats) {
+    const v = snap.consolidateEligibility[c];
     if (v === "refine") refine.push(c);
     else if (v === "none") excluded.push(c);
     else missing.push(c);
@@ -108,16 +120,11 @@ export function getConsolidateLayout() {
   return { refine, excluded, missing };
 }
 
-export function _resetLayoutCacheForTests() {
-  resetLayoutCache();
-}
-
 // Public accessor for category names. Triggers layout load on demand so a
 // caller (e.g. the MCP `get_memory_config` tool) that does not first touch a
 // write/search path still gets the populated list. Returns a fresh copy.
 export function getCategories() {
-  ensureLayoutLoaded();
-  return [...CATEGORIES];
+  return [...ensureLayoutLoaded().cats];
 }
 
 // True when the category declares a `topology:` block (e.g. tracker `issues`).
@@ -128,8 +135,7 @@ export function getCategories() {
  * @returns {boolean}
  */
 export function categoryHasTopology(category) {
-  ensureLayoutLoaded();
-  return Boolean(TOPOLOGY_CATEGORIES[String(category || "")]);
+  return Boolean(ensureLayoutLoaded().topologyCategories[String(category || "")]);
 }
 
 // Public accessor for a category's declared placement facets (a fresh copy; []
@@ -141,22 +147,19 @@ export function categoryHasTopology(category) {
  * @returns {string[]}
  */
 export function getPlacementFacets(category) {
-  ensureLayoutLoaded();
-  const f = PLACEMENT_FACETS[String(category || "")];
+  const f = ensureLayoutLoaded().facets[String(category || "")];
   return Array.isArray(f) ? [...f] : [];
 }
 
-// Internal accessors used by the placement module. They return the LIVE layout
-// state AFTER ensuring the layout is loaded, so a consumer never snapshots a
-// stale (empty) binding before the lazy init runs. Never import the raw
-// PLACEMENT_FACETS / PLACEMENT_RULES / VOCABULARIES bindings across modules.
+// Internal accessors used by the placement module. They return the CURRENT
+// root's layout state AFTER ensuring it is loaded, so a consumer never
+// snapshots a stale (empty) binding before the lazy init runs.
 /**
  * @param {string} category
  * @returns {string[]}
  */
 export function placementFacetsFor(category) {
-  ensureLayoutLoaded();
-  const f = PLACEMENT_FACETS[String(category || "")];
+  const f = ensureLayoutLoaded().facets[String(category || "")];
   return Array.isArray(f) ? f : [];
 }
 
@@ -165,8 +168,7 @@ export function placementFacetsFor(category) {
  * @returns {Record<string, FacetRule>}
  */
 export function placementRulesFor(category) {
-  ensureLayoutLoaded();
-  return PLACEMENT_RULES[String(category || "")] || {};
+  return ensureLayoutLoaded().rules[String(category || "")] || {};
 }
 
 /**
@@ -174,8 +176,8 @@ export function placementRulesFor(category) {
  * @returns {Set<string> | null}
  */
 export function vocabularyFor(name) {
-  ensureLayoutLoaded();
-  return Object.hasOwn(VOCABULARIES, name) ? VOCABULARIES[name] : null;
+  const vocabs = ensureLayoutLoaded().vocabs;
+  return Object.hasOwn(vocabs, name) ? vocabs[name] : null;
 }
 
 /**
@@ -183,9 +185,9 @@ export function vocabularyFor(name) {
  * @returns {string}
  */
 export function slotToCategory(slot) {
-  ensureLayoutLoaded();
+  const snap = ensureLayoutLoaded();
   const s = String(slot || "").trim();
-  if (CATEGORIES.includes(s)) return s;
+  if (snap.cats.includes(s)) return s;
   // Tolerate a few aliases / raw category dirs.
   if (s === "lessons") return "self_improvement";
   if (s === "knowledge_base") return "knowledge";

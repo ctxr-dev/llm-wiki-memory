@@ -20,10 +20,9 @@ import { facetIssues, classifyFacetsLLM } from "./lib/facets.mjs";
 // offenders + their issues (no LLM); a real run calls the LLM only for the
 // offenders. A clean wiki is a no-op.
 
-// Live list (getCategories triggers layout load; the module-level CATEGORIES
-// binding is empty until then). Excludes `daily` (date-placed) and any topology
-// category (path-compiler-placed, no facet `area` — would be flagged forever
-// and reject the unpinned updateDocMetadata).
+// Live list (getCategories triggers the layout load). Excludes `daily`
+// (date-placed) and any topology category (path-compiler-placed, no facet
+// `area` — would be flagged forever and reject the unpinned updateDocMetadata).
 function facetCategories() {
   return getCategories().filter((c) => c !== "daily" && !categoryHasTopology(c));
 }

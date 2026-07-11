@@ -31,9 +31,8 @@ export async function searchMemory({
   const withGlance = Array.isArray(sections) && sections.includes("frontmatter");
   // Caller threshold wins; else the configured floor (settings.recall.scoreThreshold).
   const effectiveThreshold = scoreThreshold ?? recallScoreThreshold();
-  // Use getCategories() not the raw CATEGORIES export — getCategories()
-  // calls ensureLayoutLoaded() so fresh CLI invocations see the
-  // YAML-declared categories (including any custom ones like `issues`).
+  // getCategories() runs ensureLayoutLoaded() first, so fresh CLI invocations
+  // see the YAML-declared categories (including any custom ones like `issues`).
   const slots = Array.isArray(datasets) && datasets.length ? datasets : getCategories();
   const effectiveFilters = filters
     ? filters.project_module
