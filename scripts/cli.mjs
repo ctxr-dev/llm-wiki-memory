@@ -56,7 +56,7 @@ async function main() {
     case "consolidate":
       return handleConsolidate(rest);
     case "where":
-      return handleWhere();
+      return handleWhere(rest);
     case "cron-job":
       return handleCronJob();
     case "cron-health":
