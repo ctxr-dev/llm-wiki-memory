@@ -412,15 +412,16 @@ test("(5) prune-embeddings throttle: recent state -> skipped; backdated -> runs"
   const tenDaysAgo = new Date(Date.now() - 10 * 86_400_000).toISOString();
   fs.writeFileSync(env.GC_STATE_PATH, JSON.stringify({ last_run_utc: tenDaysAgo, removed: 0 }));
 
-  // Seed an orphan into the embed cache so a sweep has something to remove
-  // (gives the report a non-zero touched count we can assert positively on).
+  // Seed an orphan into the self_improvement category cache so a sweep has
+  // something to remove (a non-zero touched count we can assert positively on).
   const embed = await import("../scripts/lib/embed.mjs");
-  const cache = embed.loadCache(env.embedCachePath());
+  const sPath = env.embedCacheFor(env.wikiRoot(), "self_improvement");
+  const cache = embed.loadCache(sPath);
   cache.entries["self_improvement/gone/refactor/orphan-throttle.md"] = {
     hash: "sha256:throttle-orphan",
     vector: [0.1, 0.2],
   };
-  embed.saveCache(env.embedCachePath(), cache);
+  embed.saveCache(sPath, cache);
 
   const rRan = await consolidateMemory({
     dryRun: false,

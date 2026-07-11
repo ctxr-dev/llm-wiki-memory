@@ -216,6 +216,21 @@ export function embedCachePath() {
   return path.join(MEMORY_DATA_DIR, "index", "embeddings.json");
 }
 
+// Per-category embedding cache file. Phase D split the one monolithic per-root
+// cache into a file per category, living in the category's OWN hidden dir so a
+// leaf's vectors sit beside the leaf (and Phase E can fan a search across only
+// the categories it touches). The leading-dot `.embeddings/` keeps every wiki
+// walk (walkLeaves / listDocuments / doctor) from seeing the cache as a leaf.
+// `root` is the wiki root; `category` is a top-level dir under it.
+/**
+ * @param {string} root absolute wiki root directory
+ * @param {string} category top-level category dir name
+ * @returns {string}
+ */
+export function embedCacheFor(root, category) {
+  return path.join(root, String(category), ".embeddings", "embeddings.json");
+}
+
 // Workspace identifier used to scope recall so two installs don't cross-leak.
 // Mirrors the boilerplate's COMPOSE_PROJECT_NAME / MEMORY_DEFAULT_PROJECT_MODULE.
 export function defaultProjectModule() {

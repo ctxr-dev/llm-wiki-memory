@@ -31,6 +31,8 @@ import { writeFileAtomic } from "./atomic-write.mjs";
 /**
  * @typedef {Object} EmbedCache
  * @property {string} [model]
+ * @property {string} [backend]
+ * @property {number} [dim]
  * @property {Record<string, EmbedCacheEntry>} entries
  */
 
@@ -113,6 +115,10 @@ function l2normalize(vec) {
  * @returns {number}
  */
 export function cosine(a, b) {
+  // A length mismatch means the two vectors came from different backends/dims
+  // (e.g. a stale lexical-256 cache vector scored against a transformer query).
+  // Treat it as no-match rather than iterating to one length and computing a
+  // bogus partial dot product (which would also read `undefined` -> NaN).
   if (!a || !b || a.length !== b.length) return 0;
   let dot = 0;
   let na = 0;
@@ -162,21 +168,58 @@ export function activeBackend() {
 
 // embedding cache keyed by leaf id + content hash
 
+// The signature a cache is stamped with: the embed model AND the resolved
+// backend. Vectors from a different model OR a different backend are not
+// comparable (a lexical-256 vector and a transformer vector share neither
+// dimension nor geometry), so a change in either invalidates the cache. The
+// backend must be resolved (call after the first embed) for the comparison to
+// be meaningful; before then it is the optimistic default.
+/**
+ * @returns {{ model: string, backend: string }}
+ */
+function cacheStamp() {
+  return { model: embedModel() || DEFAULT_EMBED_MODEL, backend: activeBackend() };
+}
+
+// The dimension of the first cached vector, or 0 when the cache is empty. Used
+// to stamp the cache's `dim` at save time; a per-entry dim mismatch at score
+// time is caught by `cosine`.
+/**
+ * @param {EmbedCache} cache
+ * @returns {number}
+ */
+function cacheDim(cache) {
+  for (const e of Object.values(cache.entries || {})) {
+    if (Array.isArray(e?.vector)) return e.vector.length;
+  }
+  return 0;
+}
+
+// Load the cache, invalidating (returning an empty cache) when it was built by
+// a different model, a different backend, or — when the caller passes the dim
+// it is about to score against — a different vector dimension. Invalidation is
+// safe: lazy-embed rebuilds a dropped cache on first use (m7 self-heal).
 /**
  * @param {string} cachePath
+ * @param {number} [expectedDim] the current query/scoring dim; 0/omitted skips the dim check
  * @returns {EmbedCache}
  */
-export function loadCache(cachePath) {
-  const currentModel = embedModel() || DEFAULT_EMBED_MODEL;
+export function loadCache(cachePath, expectedDim = 0) {
+  const { model, backend } = cacheStamp();
   try {
     const raw = JSON.parse(fs.readFileSync(cachePath, "utf8"));
-    // Drop the cache when the embedding model changed: vectors from a different
-    // model are not comparable, so reusing them would corrupt similarity ranking.
-    if (raw && typeof raw === "object" && raw.entries && raw.model === currentModel) return raw;
+    const stampOk =
+      raw &&
+      typeof raw === "object" &&
+      raw.entries &&
+      raw.model === model &&
+      raw.backend === backend;
+    const dimOk = !(expectedDim > 0) || raw.dim === expectedDim;
+    if (stampOk && dimOk) return raw;
   } catch {
     /* fresh cache */
   }
-  return { model: currentModel, entries: {} };
+  return { model, backend, dim: 0, entries: {} };
 }
 
 /**
@@ -195,7 +238,12 @@ export function saveCache(cachePath, cache) {
   // pid+uuid temp + data fsync eliminates both the collision and the torn
   // write — the same discipline every other durable write here already uses.
   fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-  writeFileAtomic(cachePath, JSON.stringify(cache));
+  // Re-stamp from the current (resolved) signature so the persisted file
+  // records the model/backend/dim that actually produced its vectors — a
+  // mid-run transformer→lexical fallback thus self-heals on the next load.
+  const { model, backend } = cacheStamp();
+  const stamped = { model, backend, dim: cacheDim(cache), entries: cache.entries || {} };
+  writeFileAtomic(cachePath, JSON.stringify(stamped));
 }
 
 // Return the embedding for `id`, recomputing only when the content hash

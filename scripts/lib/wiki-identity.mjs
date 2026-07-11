@@ -23,6 +23,17 @@ export function toAbs(relOrId) {
   return path.join(root(), String(relOrId).split("/").join(path.sep));
 }
 
+// The category a leaf id belongs to is its first path segment (ids are the
+// "/"-joined rel path from the wiki root, e.g. "knowledge/foo/bar.md"). This is
+// how the per-category embed cache is located for a given leaf.
+/**
+ * @param {string | null | undefined} id
+ * @returns {string}
+ */
+export function categoryOfId(id) {
+  return String(id || "").split("/")[0] || "";
+}
+
 // Normalize a `kind: path` facet value (an array, or a "/"-joined string) into
 // clean slug segments. Segments carrying NO sluggable content (empty, pure
 // whitespace, or punctuation-only) are DROPPED — not collapsed to slugify's

@@ -1,11 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { embedCachePath, GC_STATE_PATH } from "./env.mjs";
+import { wikiRoot, embedCacheFor, GC_STATE_PATH } from "./env.mjs";
 import { gcIntervalDays } from "./settings.mjs";
 import { writeFileAtomic } from "./atomic-write.mjs";
 import { contentHash, loadCache, saveCache, removeFromCache } from "./embed.mjs";
 import { root, walkLeaves } from "./wiki-core.mjs";
-import { toRel } from "./wiki-identity.mjs";
+import { toRel, categoryOfId } from "./wiki-identity.mjs";
 import { ensureLayoutLoaded, getCategories } from "./wiki-layout-state.mjs";
 
 /**
@@ -14,6 +14,16 @@ import { ensureLayoutLoaded, getCategories } from "./wiki-layout-state.mjs";
  * @property {number} [removed]
  */
 
+// The per-category cache file holding a leaf's vector: located from the leaf's
+// category (its id's first segment) under the active wiki root.
+/**
+ * @param {string} id
+ * @returns {string}
+ */
+function cachePathForId(id) {
+  return embedCacheFor(wikiRoot(), categoryOfId(id));
+}
+
 /**
  * @param {string} id
  * @param {string} text
@@ -21,7 +31,7 @@ import { ensureLayoutLoaded, getCategories } from "./wiki-layout-state.mjs";
  */
 export function upsertEmbedding(id, text) {
   try {
-    const cachePath = embedCachePath();
+    const cachePath = cachePathForId(id);
     const cache = loadCache(cachePath);
     const hash = contentHash(text);
     // Defer the (possibly async) vector compute to search time; we only mark
@@ -42,7 +52,7 @@ export function upsertEmbedding(id, text) {
  */
 export function removeEmbedding(id) {
   try {
-    const cachePath = embedCachePath();
+    const cachePath = cachePathForId(id);
     const cache = loadCache(cachePath);
     if (cache.entries[id]) {
       removeFromCache(cache, id);
@@ -57,6 +67,8 @@ export function removeEmbedding(id) {
 // content is unchanged (e.g. migrate-nest moving a flat leaf into a facet
 // folder). The cached vector stays valid since the content hash is unchanged,
 // so this avoids a cold re-embed of the whole moved corpus on the next search.
+// When the two ids live in DIFFERENT categories the entry is moved between the
+// two per-category cache files.
 /**
  * @param {string} oldId
  * @param {string} newId
@@ -65,13 +77,25 @@ export function removeEmbedding(id) {
 export function renameEmbedding(oldId, newId) {
   if (!oldId || !newId || oldId === newId) return;
   try {
-    const cachePath = embedCachePath();
-    const cache = loadCache(cachePath);
-    if (cache.entries[oldId]) {
-      cache.entries[newId] = cache.entries[oldId];
-      delete cache.entries[oldId];
-      saveCache(cachePath, cache);
+    const oldPath = cachePathForId(oldId);
+    const newPath = cachePathForId(newId);
+    if (oldPath === newPath) {
+      const cache = loadCache(oldPath);
+      if (cache.entries[oldId]) {
+        cache.entries[newId] = cache.entries[oldId];
+        delete cache.entries[oldId];
+        saveCache(oldPath, cache);
+      }
+      return;
     }
+    const from = loadCache(oldPath);
+    const entry = from.entries[oldId];
+    if (!entry) return;
+    delete from.entries[oldId];
+    saveCache(oldPath, from);
+    const to = loadCache(newPath);
+    to.entries[newId] = entry;
+    saveCache(newPath, to);
   } catch {
     /* best effort */
   }
@@ -117,37 +141,45 @@ export function pruneEmbeddingCache({ dryRun = false, ifDue = false } = {}) {
     }
   }
 
-  const cachePath = embedCachePath();
-  const cache = loadCache(cachePath);
-  const ids = Object.keys(cache.entries);
-  const before = ids.length;
-
-  // Live-leaf id set: toRel of every leaf under every category (all categories,
-  // so we never wrongly prune a live leaf's entry — daily/issues included).
+  // Enumerate EVERY category's own cache and prune it against that category's
+  // live leaves. An entry is an orphan only within its own category, so live
+  // sets are scoped per category (an id can never move between category files
+  // without renameEmbedding, which keeps them in sync).
   ensureLayoutLoaded();
-  const live = new Set();
+  const wiki = root();
+  let before = 0;
+  let removed = 0;
+  /** @type {string[]} */
+  const removedIds = [];
   for (const cat of getCategories()) {
-    for (const leaf of walkLeaves(path.join(root(), cat))) live.add(toRel(leaf));
-  }
-
-  const removedIds = ids.filter((id) => !live.has(id));
-  if (!dryRun) {
-    if (removedIds.length > 0) {
-      for (const id of removedIds) delete cache.entries[id];
+    const cachePath = embedCacheFor(wiki, cat);
+    const cache = loadCache(cachePath);
+    const ids = Object.keys(cache.entries);
+    if (ids.length === 0) continue;
+    before += ids.length;
+    /** @type {Set<string>} */
+    const live = new Set();
+    for (const leaf of walkLeaves(path.join(wiki, cat))) live.add(toRel(leaf));
+    const gone = ids.filter((id) => !live.has(id));
+    if (gone.length > 0 && !dryRun) {
+      for (const id of gone) delete cache.entries[id];
       saveCache(cachePath, cache);
     }
+    removed += gone.length;
+    for (const id of gone) if (removedIds.length < 50) removedIds.push(id);
+  }
+  if (!dryRun) {
     // Stamp the last-run timestamp even when nothing was removed, so the
     // throttle clock advances on every actual sweep.
-    writeGcState({ last_run_utc: new Date().toISOString(), removed: removedIds.length });
+    writeGcState({ last_run_utc: new Date().toISOString(), removed });
   }
   return {
     ok: true,
-    cachePath,
     dryRun,
     before,
-    after: before - (dryRun ? 0 : removedIds.length),
-    removed: removedIds.length,
-    removedIds: removedIds.slice(0, 50),
+    after: before - (dryRun ? 0 : removed),
+    removed,
+    removedIds,
   };
 }
 

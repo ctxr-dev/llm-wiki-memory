@@ -13,7 +13,7 @@ after(() => cleanup(dataDir));
 const store = await import("../../scripts/lib/wiki-store.mjs");
 const recall = await import("../../scripts/lib/recall.mjs");
 const cli = await import("../../scripts/lib/wiki-cli.mjs");
-const { embedCachePath } = await import("../../scripts/lib/env.mjs");
+const { embedCacheFor, wikiRoot } = await import("../../scripts/lib/env.mjs");
 
 function writeTranscript(name, turns) {
   const file = path.join(dataDir, name);
@@ -355,6 +355,9 @@ test("7. tree stays valid as a category grows (skill nesting/index-rebuild)", ()
 test("8. integrity + idempotency: re-compile is a clean no-op; embed cache present", () => {
   const r = runCompile();
   assert.equal(r.status, 0, "re-compile exits 0 with no active dailies");
-  assert.ok(fs.existsSync(embedCachePath()), "embedding cache written");
+  assert.ok(
+    fs.existsSync(embedCacheFor(wikiRoot(), "self_improvement")),
+    "per-category embedding cache written (self_improvement, populated by the test-6 recall)",
+  );
   assert.equal(cli.validate(wiki).ok, true, "final validate clean");
 });

@@ -98,7 +98,7 @@ test("resolveWikiContext: each level's layout is the merged (shared + local) obj
   );
 });
 
-test("resolveWikiContext: embedCacheFor returns the per-level index/embeddings.json path", () => {
+test("resolveWikiContext: embedCacheFor returns the per-level, per-category cache path", () => {
   const home = makeHome();
   mkMount(home);
   const proj = mkMount(path.join(home, "proj"), { local: LOCAL_LAYOUT });
@@ -109,18 +109,25 @@ test("resolveWikiContext: embedCacheFor returns the per-level index/embeddings.j
   assert.equal(typeof repo.embedCacheFor, "function");
   assert.equal(
     repo.embedCacheFor("knowledge"),
-    path.join(real(proj), ".llm-wiki-memory", "index", "embeddings.json"),
-    "repo cache path is derived from the repo mount, not the brain",
+    path.join(
+      real(proj),
+      ".llm-wiki-memory",
+      "wiki",
+      "knowledge",
+      ".embeddings",
+      "embeddings.json",
+    ),
+    "repo cache path is derived from the repo mount's wiki root + category",
   );
   assert.equal(
     ctx.brain.embedCacheFor("knowledge"),
-    path.join(home, ".llm-wiki-memory", "index", "embeddings.json"),
-    "brain cache path is derived from the brain data dir",
+    path.join(home, ".llm-wiki-memory", "wiki", "knowledge", ".embeddings", "embeddings.json"),
+    "brain cache path is derived from the brain wiki root + category",
   );
-  assert.equal(
+  assert.notEqual(
     repo.embedCacheFor("knowledge"),
     repo.embedCacheFor("daily"),
-    "category is accepted but not yet consulted (step-2 forward-compat)",
+    "each category resolves to its OWN per-category cache file (Phase D)",
   );
 });
 

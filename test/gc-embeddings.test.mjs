@@ -15,7 +15,7 @@ const env = await import("../scripts/lib/env.mjs");
 const { __setSettingsForTest, __clearSettingsForTest } =
   await import("../scripts/lib/settings.mjs");
 
-test("pruneEmbeddingCache drops orphan ids and keeps live-leaf ids", () => {
+test("pruneEmbeddingCache drops orphan ids per category and keeps live-leaf ids", () => {
   // A real live leaf on disk; its rel id must survive the sweep.
   const res = store.saveDocument({
     name: "gc-live.md",
@@ -25,34 +25,39 @@ test("pruneEmbeddingCache drops orphan ids and keeps live-leaf ids", () => {
   });
   const liveId = res.created.document.id;
 
-  // Seed the cache with the live id + two orphans (ids with no leaf on disk).
-  const cachePath = env.embedCachePath();
-  const cache = embed.loadCache(cachePath); // correct model header for this env
-  cache.entries[liveId] = { hash: "sha256:live", vector: [0.1, 0.2] };
-  cache.entries["knowledge/gone/reference/orphan-a.md"] = { hash: "sha256:a", vector: [0.3] };
-  cache.entries["issues/JIRA/DEV/999/9/9/DEV-999999.md"] = { hash: "sha256:b", vector: [0.4] };
-  embed.saveCache(cachePath, cache);
+  // Seed TWO category caches: knowledge holds the live id + a knowledge orphan;
+  // self_improvement holds a lone orphan. The sweep must enumerate both.
+  const kPath = env.embedCacheFor(env.wikiRoot(), "knowledge");
+  const orphanK = "knowledge/gone/reference/orphan-a.md";
+  const kCache = embed.loadCache(kPath); // correct stamp for this env
+  kCache.entries[liveId] = { hash: "sha256:live", vector: [0.1, 0.2] };
+  kCache.entries[orphanK] = { hash: "sha256:a", vector: [0.3] };
+  embed.saveCache(kPath, kCache);
 
-  // Dry-run: reports the 2 orphans, writes nothing.
+  const sPath = env.embedCacheFor(env.wikiRoot(), "self_improvement");
+  const orphanS = "self_improvement/gone/refactor/orphan-b.md";
+  const sCache = embed.loadCache(sPath);
+  sCache.entries[orphanS] = { hash: "sha256:b", vector: [0.4] };
+  embed.saveCache(sPath, sCache);
+
+  // Dry-run: reports both orphans across categories, writes nothing.
   const dry = store.pruneEmbeddingCache({ dryRun: true });
-  assert.equal(dry.removed, 2, "dry-run counts both orphans");
+  assert.equal(dry.removed, 2, "dry-run counts both orphans across categories");
   assert.equal(dry.after, dry.before, "dry-run does not shrink the cache");
-  assert.ok(
-    embed.loadCache(cachePath).entries["knowledge/gone/reference/orphan-a.md"],
-    "orphan still present after dry-run",
-  );
+  assert.ok(embed.loadCache(kPath).entries[orphanK], "orphan still present after dry-run");
 
-  // Real run: orphans removed, live id kept.
-  const before = embed.loadCache(cachePath);
-  const beforeCount = Object.keys(before.entries).length;
+  // Real run: orphans removed from their own category caches, live id kept.
   const r = store.pruneEmbeddingCache();
   assert.equal(r.removed, 2);
-  assert.equal(r.after, beforeCount - 2);
+  assert.equal(r.after, r.before - 2);
 
-  const reloaded = embed.loadCache(cachePath);
-  assert.ok(reloaded.entries[liveId], "live-leaf entry kept");
-  assert.ok(!reloaded.entries["knowledge/gone/reference/orphan-a.md"], "orphan-a removed");
-  assert.ok(!reloaded.entries["issues/JIRA/DEV/999/9/9/DEV-999999.md"], "orphan-b removed");
+  const kReloaded = embed.loadCache(kPath);
+  assert.ok(kReloaded.entries[liveId], "live-leaf entry kept in knowledge cache");
+  assert.ok(!kReloaded.entries[orphanK], "knowledge orphan removed");
+  assert.ok(
+    !embed.loadCache(sPath).entries[orphanS],
+    "self_improvement orphan removed from its own cache",
+  );
 
   // Idempotent: a second sweep removes nothing.
   const again = store.pruneEmbeddingCache();

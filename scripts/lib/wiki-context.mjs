@@ -20,7 +20,7 @@ import { z } from "zod";
 import { scanScopes } from "./scope-scanner.mjs";
 import { loadMergedLayout } from "./layout-merge.mjs";
 import { embedBackend } from "./settings.mjs";
-import { withWikiRoot } from "./env.mjs";
+import { withWikiRoot, embedCacheFor as embedCacheForRoot } from "./env.mjs";
 
 /**
  * One level of a federated wiki stack.
@@ -87,11 +87,6 @@ function readEmbedBackend() {
  * @returns {WikiLevel}
  */
 function enrichLevel(level, backend) {
-  // `dirname(root)` is this level's `<mount>/.llm-wiki-memory` data dir; the
-  // cache lives at `<data>/index/embeddings.json` today. Phase D will make it
-  // per-category (`wiki/<category>/.embeddings/`), which is why `category` is
-  // already part of the signature but not yet consulted.
-  const dataDir = path.dirname(level.root);
   /** @type {WikiLevel} */
   const enriched = {
     root: level.root,
@@ -99,7 +94,9 @@ function enrichLevel(level, backend) {
     depth: level.depth,
     projectModule: level.projectModule,
     layout: loadMergedLayout(path.join(level.root, ".layout")),
-    embedCacheFor: (_category) => path.join(dataDir, "index", "embeddings.json"),
+    // Per-category cache under this level's own wiki root
+    // (`<root>/<category>/.embeddings/embeddings.json`, Phase D).
+    embedCacheFor: (category) => embedCacheForRoot(level.root, category),
   };
   if (backend) enriched.embedBackend = backend;
   return enriched;

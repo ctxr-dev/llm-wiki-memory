@@ -150,12 +150,17 @@ test("withWikiContext: wikiRoot()/embedCachePath() default to ctx.writeDefault.r
     assert.equal(
       embedCachePath(),
       path.join(path.dirname(ctx.writeDefault.root), "index", "embeddings.json"),
-      "embed cache follows the write-default root's data dir",
+      "the root-level embedCachePath still follows the write-default root's data dir",
     );
     assert.equal(
+      ctx.writeDefault.embedCacheFor("knowledge"),
+      path.join(ctx.writeDefault.root, "knowledge", ".embeddings", "embeddings.json"),
+      "the context level's embedCacheFor is per-category under its own wiki root (Phase D)",
+    );
+    assert.notEqual(
       embedCachePath(),
       ctx.writeDefault.embedCacheFor("knowledge"),
-      "env embed-cache path matches the context level's own embedCacheFor",
+      "the per-category cache is distinct from the legacy root-level path",
     );
 
     const other = "/fake/level/.llm-wiki-memory/wiki";

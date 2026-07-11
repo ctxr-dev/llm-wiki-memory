@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { priorityForAtomType, normalisePriority, priorityRank } from "./datasets.mjs";
-import { embedCachePath } from "./env.mjs";
+import { embedCacheFor } from "./env.mjs";
 import { recallPriorityBand } from "./settings.mjs";
 import { loadCache, saveCache, cachedEmbedding, embed, cosine } from "./embed.mjs";
 import {
@@ -188,14 +188,30 @@ export async function searchMemoryFiltered({
   }
   if (candidates.length === 0) return { records: [] };
 
-  const cache = loadCache(embedCachePath());
+  // Embed the query FIRST so the backend is resolved before any cache load:
+  // loadCache stamps against the RESOLVED backend + this dim, so a stale-dim or
+  // cross-backend category cache is dropped and re-embedded instead of scoring
+  // as all-zero. Each candidate's cache is its own category file, loaded once
+  // and reused (a multi-category search touches every relevant category cache).
   const queryVec = await embed(String(query || ""));
+  const wiki = root();
+  /** @type {Map<string, import("./embed.mjs").EmbedCache>} */
+  const cacheByCat = new Map();
+  /** @param {string} cat @returns {import("./embed.mjs").EmbedCache} */
+  const cacheFor = (cat) => {
+    let c = cacheByCat.get(cat);
+    if (!c) {
+      c = loadCache(embedCacheFor(wiki, cat), queryVec.length);
+      cacheByCat.set(cat, c);
+    }
+    return c;
+  };
   const scored = [];
   for (const c of candidates) {
-    const vec = await cachedEmbedding(cache, c.id, c.text);
+    const vec = await cachedEmbedding(cacheFor(c.datasetId), c.id, c.text);
     scored.push({ ...c, score: cosine(queryVec, vec) });
   }
-  saveCache(embedCachePath(), cache);
+  for (const [cat, cache] of cacheByCat) saveCache(embedCacheFor(wiki, cat), cache);
   scored.sort((a, b) => b.score - a.score);
 
   // Relevance is the gate (cosine sort + scoreThreshold). Priority is a

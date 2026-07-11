@@ -352,16 +352,16 @@ test("missing area falls back to the cross-cutting area; missing task_type to th
 });
 
 test("renameEmbedding moves a cache entry so a relocation keeps the cached vector", async () => {
-  const { embedCachePath } = await import("../scripts/lib/env.mjs");
+  const { embedCacheFor, wikiRoot } = await import("../scripts/lib/env.mjs");
   const { loadCache, saveCache } = await import("../scripts/lib/embed.mjs");
-  const cp = embedCachePath();
+  const cp = embedCacheFor(wikiRoot(), "knowledge");
   const cache = loadCache(cp);
   cache.entries["knowledge/old/x.md"] = { hash: "sha256:abc", vector: [0.1, 0.2, 0.3] };
   saveCache(cp, cache);
 
   store.renameEmbedding("knowledge/old/x.md", "knowledge/new/x.md");
 
-  const after = loadCache(embedCachePath());
+  const after = loadCache(embedCacheFor(wikiRoot(), "knowledge"));
   assert.ok(!after.entries["knowledge/old/x.md"], "old cache id removed");
   assert.deepEqual(
     after.entries["knowledge/new/x.md"],
