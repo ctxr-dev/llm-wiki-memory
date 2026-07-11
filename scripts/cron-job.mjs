@@ -32,6 +32,7 @@ import { spawnSync } from "node:child_process";
 import { MEMORY_DIR } from "./lib/env.mjs";
 import { redact } from "./lib/redact.mjs";
 import { maybeGcWikiRepo } from "./lib/wiki-commit.mjs";
+import { withBrainContextSafe } from "./lib/wiki-context.mjs";
 import { consolidateEnabled } from "./lib/settings.mjs";
 import { collapse, relToDataDir, escalateAfterSafe } from "./cron-shared.mjs";
 import { appendAttempt, writeFullLog, fullLogPathFor, pruneFullLogs } from "./cron-attempts.mjs";
@@ -100,8 +101,20 @@ function runStep(cli, args) {
 // Run compile + consolidate sequentially. Returns the SLIM log entry that was
 // appended; the full record (redacted stdout/stderr + complete consolidate
 // report) lands in the sharded full log either way. Throws nothing.
+//
+// The cron entry always operates on the brain wiki, so the run is wrapped in a
+// brain-only context. This scopes the one wiki-tree touch the runner makes
+// in-process (maybeGcWikiRepo, in finish()); the compile + consolidate STEPS
+// run as separate processes (spawned via cli.mjs) and re-enter the brain
+// context through their own entrypoint wraps. Behavior-neutral in the
+// single-tree case.
 /** @returns {Promise<SlimAttemptEntry>} */
 export async function runCronJob() {
+  return withBrainContextSafe(() => runCronJobBody());
+}
+
+/** @returns {Promise<SlimAttemptEntry>} */
+async function runCronJobBody() {
   const start = new Date();
   const ts = start.toISOString();
   // Master switch (settings.consolidate.enabled, default false). When off the

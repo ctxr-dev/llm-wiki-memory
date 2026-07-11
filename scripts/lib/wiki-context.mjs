@@ -171,3 +171,30 @@ export function getActiveWikiContext() {
 export function withBrainContext(fn, opts = {}) {
   return withWikiContext(resolveWikiContext([], opts), fn);
 }
+
+/**
+ * Best-effort {@link withBrainContext} for internal automation entrypoints
+ * (compile, flush worker, cron, the capture hooks). It runs `fn` inside a
+ * brain-only context, but if the context cannot be RESOLVED — e.g. the wiki is
+ * not initialised yet, so `loadMergedLayout` throws on the empty layout — it
+ * falls through to running `fn` with no context, exactly today's behavior. This
+ * preserves each hook's exit-0 / best-effort contract: a resolve failure must
+ * not crash a capture hook.
+ *
+ * Only the resolve is guarded — an error thrown by `fn` itself propagates
+ * unchanged (the guard never swallows the caller's own failures).
+ * @template T
+ * @param {() => T} fn
+ * @param {{ home?: string, brainDataDir?: string }} [opts] injectable roots for tests
+ * @returns {T}
+ */
+export function withBrainContextSafe(fn, opts = {}) {
+  /** @type {WikiContext} */
+  let ctx;
+  try {
+    ctx = resolveWikiContext([], opts);
+  } catch {
+    return fn();
+  }
+  return withWikiContext(ctx, fn);
+}

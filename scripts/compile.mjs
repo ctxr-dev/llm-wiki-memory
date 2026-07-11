@@ -5,6 +5,7 @@ import { COMPILE_LOCK_PATH } from "./lib/env.mjs";
 import { compileLockStaleMs, flushSlotName } from "./lib/settings.mjs";
 import { acquireLock, installLockReleaseHandlers } from "./lib/lock.mjs";
 import { withWikiCommit } from "./lib/wiki-commit.mjs";
+import { withBrainContextSafe } from "./lib/wiki-context.mjs";
 import { listDocuments, WikiStoreUnavailable as DifyBridgeUnavailable } from "./lib/wiki-store.mjs";
 import { parseDailyDocName } from "./lib/slug.mjs";
 import { FORCE, DRY_RUN } from "./compile-flags.mjs";
@@ -122,5 +123,12 @@ if (invokedAsCli) {
   // exit-hook in wiki-commit flushes the batch even when main() bails out via
   // process.exit (bridge-gone aborts). DRY_RUN writes nothing; noCommit is
   // belt-and-suspenders.
-  await withWikiCommit({ op: "compile", actor: "compile", noCommit: DRY_RUN }, () => main());
+  //
+  // The brain context is the OUTERMOST frame so both main()'s reads/writes and
+  // the wiki-commit target the brain wiki. Behavior-neutral in the single-tree
+  // case (brain root == env wikiRoot() default); structural so a spawned
+  // `cli.mjs compile` (from the cron) always runs brain-scoped too.
+  await withBrainContextSafe(() =>
+    withWikiCommit({ op: "compile", actor: "compile", noCommit: DRY_RUN }, () => main()),
+  );
 }

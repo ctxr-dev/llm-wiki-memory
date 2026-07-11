@@ -11,6 +11,7 @@ import {
 import { buildSessionStartContext } from "../lib/discipline.mjs";
 import { isReentrant, reentryEnv } from "../lib/reentry.mjs";
 import { buildWorkContextSection, buildRecentActivitySection } from "../lib/work-context.mjs";
+import { withBrainContextSafe } from "../lib/wiki-context.mjs";
 import { migrate as migrateSettings } from "../migrate-settings.mjs";
 
 // Self-heal a "live upgrade": an operator who git-pulls a new src/ and just
@@ -104,13 +105,17 @@ const disciplineContext = buildSessionStartContext({
 // string and we ship the discipline context alone.
 let workContext = "";
 try {
-  const { searchMemory } = await import("../lib/recall.mjs");
-  const workContextArgs = {
-    cwd: process.cwd(),
-    searchMemory,
-    wikiRoot: wikiRoot(),
-  };
-  workContext = await buildWorkContextSection(workContextArgs);
+  // The hook's own wiki reads run brain-scoped (brain-only context). Resolving
+  // wikiRoot() INSIDE the frame so the search targets the brain wiki.
+  // Behavior-neutral in the single-tree case; a resolve failure falls through.
+  workContext = await withBrainContextSafe(async () => {
+    const { searchMemory } = await import("../lib/recall.mjs");
+    return buildWorkContextSection({
+      cwd: process.cwd(),
+      searchMemory,
+      wikiRoot: wikiRoot(),
+    });
+  });
 } catch (err) {
   console.error(
     `session-start.mjs: work-context skipped: ${err instanceof Error ? err.message : err}`,
@@ -122,7 +127,9 @@ try {
 // failure produces an empty string and the pipeline ships without it.
 let recentActivitySection = "";
 try {
-  recentActivitySection = buildRecentActivitySection({ wikiRoot: wikiRoot() });
+  recentActivitySection = withBrainContextSafe(() =>
+    buildRecentActivitySection({ wikiRoot: wikiRoot() }),
+  );
 } catch (err) {
   console.error(
     `session-start.mjs: recent-activity skipped: ${err instanceof Error ? err.message : err}`,

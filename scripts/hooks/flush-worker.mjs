@@ -4,6 +4,7 @@ import { acquireLock, installLockReleaseHandlers } from "../lib/lock.mjs";
 import { withWikiCommit } from "../lib/wiki-commit.mjs";
 import { flushLockStaleMs } from "../lib/settings.mjs";
 import { wikiRoot } from "../lib/env.mjs";
+import { withBrainContextSafe } from "../lib/wiki-context.mjs";
 import { logBreadcrumb, shortId, ensureStateDir } from "./flush-state.mjs";
 import {
   flushLockPath,
@@ -49,13 +50,20 @@ export async function runWorker(ctxFile, sessionId, mode) {
   // winner's lock (releaseLock matches by pid, which is unsafe under pid reuse).
   installLockReleaseHandlers(lockPath);
   try {
-    await withWikiCommit(
-      {
-        op: "flush",
-        actor: "flush-worker",
-        summary: `session capture ${shortId(sessionId)} (${mode})`,
-      },
-      () => flushSession({ ctxFile, sessionId, mode, tag }),
+    // Scope the daily-leaf write to the brain wiki (brain-only context). The
+    // per-session lock + release live outside the frame (state-dir paths, not
+    // wiki-tree-scoped). Behavior-neutral in the single-tree case; a resolve
+    // failure falls through so flushSession's own "wiki not initialised" skip
+    // still fires and the worker keeps its best-effort contract.
+    await withBrainContextSafe(() =>
+      withWikiCommit(
+        {
+          op: "flush",
+          actor: "flush-worker",
+          summary: `session capture ${shortId(sessionId)} (${mode})`,
+        },
+        () => flushSession({ ctxFile, sessionId, mode, tag }),
+      ),
     );
   } finally {
     /** @type {() => void} */ (lock.release)();

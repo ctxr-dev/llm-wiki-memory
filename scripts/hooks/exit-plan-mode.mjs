@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { saveDocument, WikiStoreUnavailable } from "../lib/wiki-store.mjs";
 import { syncPlanFile } from "../lib/plan-sync.mjs";
 import { wikiRoot } from "../lib/env.mjs";
+import { withBrainContextSafe } from "../lib/wiki-context.mjs";
 import { hookExitPlanModeDisable, hookExitPlanModeMaxBytes } from "../lib/settings.mjs";
 import {
   DEFAULT_MAX_PLAN_BYTES,
@@ -145,7 +146,10 @@ const invokedAsCli = (() => {
 
 if (invokedAsCli) {
   try {
-    await main();
+    // Scope the plan-capture write to the brain wiki. Behavior-neutral in the
+    // single-tree case; a resolve failure falls through so main()'s own
+    // "wiki not initialised" skip still fires and the hook stays exit-0.
+    await withBrainContextSafe(() => main());
   } catch (err) {
     if (err instanceof SkipPlanCapture) {
       console.error(`exit-plan-mode.mjs: skipped (${err.message})`);

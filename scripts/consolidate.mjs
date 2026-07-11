@@ -51,6 +51,7 @@ import { withWikiCommit } from "./lib/wiki-commit.mjs";
 import { activeBackend } from "./lib/embed.mjs";
 import { getConsolidateLayout } from "./lib/wiki-store.mjs";
 import { health as llmHealth } from "./lib/llm.mjs";
+import { withBrainContextSafe } from "./lib/wiki-context.mjs";
 
 import { ALL_PASS_NAMES } from "./consolidate-constants.mjs";
 import { toIso, nowMs, ageInDays, ageInMonths } from "./consolidate-time.mjs";
@@ -88,9 +89,17 @@ import { runConsolidate } from "./consolidate-run.mjs";
 // ─── entry point ───────────────────────────────────────────────────────────
 
 /**
+ * Consolidate is system maintenance over the whole brain wiki in every path
+ * (cron, MCP tool, CLI), so the run is brain-scoped — behavior-neutral in the
+ * single-tree case; a resolve failure falls through to the existing returns.
  * @param {ConsolidateOptions} [options]
  */
-export async function consolidateMemory({
+export async function consolidateMemory(options = {}) {
+  return withBrainContextSafe(() => consolidateMemoryRun(options));
+}
+
+/** @param {ConsolidateOptions} [options] */
+async function consolidateMemoryRun({
   dryRun = false,
   ifDue = false,
   force = false,

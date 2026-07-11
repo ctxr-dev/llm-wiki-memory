@@ -16,6 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { wikiRoot } from "../lib/env.mjs";
 import { syncPlanFile, syncAllPlans } from "../lib/plan-sync.mjs";
+import { withBrainContextSafe } from "../lib/wiki-context.mjs";
 
 /** @typedef {import("../lib/plan-sync.mjs").PlanSyncResult} PlanSyncResult */
 
@@ -75,11 +76,12 @@ async function runSessionEnd() {
 
 const input = /** @type {PlanSyncHookInput} */ (readStdin());
 try {
-  if (MODE === "session-end") {
-    await runSessionEnd();
-  } else {
-    await runPostToolUse(input);
-  }
+  // Scope the frontmatter/lifecycle write to the brain wiki. Behavior-neutral
+  // in the single-tree case; a resolve failure falls through so the sync runs
+  // as today and the hook stays best-effort exit-0.
+  await withBrainContextSafe(() =>
+    MODE === "session-end" ? runSessionEnd() : runPostToolUse(input),
+  );
 } catch (err) {
   logEntry(`fatal: ${err instanceof Error && err.message ? err.message : String(err)}`);
 }
