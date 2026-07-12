@@ -187,3 +187,118 @@ export function runInit(dataDir, args = [], extraEnv = {}) {
   });
   return { status: r.status, stdout: r.stdout || "", stderr: r.stderr || "" };
 }
+
+/**
+ * @typedef {"default"|"repo"|"tracker-issues"} TemplateName
+ * @typedef {{ rel: string, template?: TemplateName, local?: string }} MountSpec
+ * @typedef {{ rel: string, dir: string, wikiRoot: string, template: TemplateName }} BuiltMount
+ * @typedef {{ home: string, brainDataDir: string, brainWiki: string, mounts: BuiltMount[], restore: () => void }} FakeHome
+ * @typedef {{ seeded?: string, gitignore?: boolean, personalGit?: { created: boolean, path: string, ok?: boolean }, hostIgnore?: { ok: boolean, message?: string }, syncHook?: { ok: boolean, hooksDir: string, results: Record<string, string> }, skipped?: string }} MountResult
+ * @typedef {{ rel: string, dir: string, result: MountResult, wikiRoot: string }} NestedMount
+ */
+
+/**
+ * @param {string} prefix
+ * @param {string[]} tmps sink for cleanup (dirs pushed here)
+ * @returns {string} a fresh realpath'd HOME with process.env.HOME pointed at it
+ */
+export function freshHome(prefix, tmps) {
+  const home = realTmp(prefix);
+  tmps.push(home);
+  // os.homedir() honours $HOME → the real scanner default resolves under /tmp.
+  process.env.HOME = home;
+  return home;
+}
+
+// Engine modules are imported LAZILY (inside the builders, not at file top):
+// a top-level import of mount-init/layout-template perturbs shared module state
+// enough to change consolidate behaviour in sibling e2e files — imports here
+// must stay side-effect-free for callers that only want the fs/git helpers.
+/**
+ * @param {string} mountDir directory holding `.llm-wiki-memory`
+ * @param {TemplateName} template
+ * @param {string} [local] optional layout.local.yaml body
+ * @returns {Promise<string>} wiki root
+ */
+async function installWiki(mountDir, template, local) {
+  const { installLayoutTemplate } = await import("../../scripts/lib/layout-template.mjs");
+  const wikiRoot = path.join(mountDir, ".llm-wiki-memory", "wiki");
+  const layoutDir = path.join(wikiRoot, ".layout");
+  installLayoutTemplate(layoutDir, template);
+  if (local != null) fs.writeFileSync(path.join(layoutDir, "layout.local.yaml"), local);
+  return wikiRoot;
+}
+
+/**
+ * Build a realpath'd fake $HOME with a brain + repo mounts at chosen depths,
+ * each with a chosen template + optional layout.local.yaml. Sets HOME +
+ * MEMORY_DATA_DIR + MEMORY_EMBED_BACKEND (+ project module); returns restore().
+ * @param {{ prefix: string, brainTemplate?: TemplateName, brainLocal?: string, mounts?: MountSpec[], projectModule?: string }} spec
+ * @returns {Promise<FakeHome>}
+ */
+export async function buildFakeHome(spec) {
+  const { prefix, brainTemplate = "default", brainLocal, mounts = [], projectModule } = spec;
+  /** @type {Record<string, string | undefined>} */
+  const saved = {
+    HOME: process.env.HOME,
+    MEMORY_DATA_DIR: process.env.MEMORY_DATA_DIR,
+    MEMORY_EMBED_BACKEND: process.env.MEMORY_EMBED_BACKEND,
+    MEMORY_DEFAULT_PROJECT_MODULE: process.env.MEMORY_DEFAULT_PROJECT_MODULE,
+  };
+  const home = realTmp(prefix);
+  const brainDataDir = path.join(home, ".llm-wiki-memory");
+  process.env.HOME = home;
+  process.env.MEMORY_DATA_DIR = brainDataDir;
+  process.env.MEMORY_EMBED_BACKEND = "lexical";
+  if (projectModule != null) process.env.MEMORY_DEFAULT_PROJECT_MODULE = projectModule;
+  const brainWiki = await installWiki(home, brainTemplate, brainLocal);
+  writeLexicalSettings(brainDataDir);
+  /** @type {BuiltMount[]} */
+  const built = [];
+  for (const m of mounts) {
+    const dir = mkdirp(home, m.rel);
+    const template = m.template || "default";
+    built.push({ rel: m.rel, dir, wikiRoot: await installWiki(dir, template, m.local), template });
+  }
+  const restore = () => {
+    for (const k of Object.keys(saved)) {
+      const v = saved[k];
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
+  return { home, brainDataDir, brainWiki, mounts: built, restore };
+}
+
+/**
+ * Build a fake $HOME with real git repos at the given rel paths and run the
+ * real `initMount` on each. Sets process.env.HOME (via freshHome).
+ * @param {{ prefix: string, tmps: string[], repos: { rel: string }[], template?: TemplateName }} spec
+ * @returns {Promise<{ home: string, brainDataDir: string, repos: NestedMount[] }>}
+ */
+export async function installNest(spec) {
+  const { initMount } = await import("../../scripts/mount-init.mjs");
+  const { prefix, tmps, repos, template } = spec;
+  const home = freshHome(prefix, tmps);
+  const brainDataDir = path.join(home, ".llm-wiki-memory");
+  /** @type {NestedMount[]} */
+  const out = [];
+  for (const r of repos) {
+    const dir = mkdirp(home, r.rel);
+    gitInit(dir);
+    const result = /** @type {MountResult} */ (template ? initMount(dir, { template }) : initMount(dir));
+    out.push({ rel: r.rel, dir, result, wikiRoot: path.join(dir, ".llm-wiki-memory", "wiki") });
+  }
+  return { home, brainDataDir, repos: out };
+}
+
+/**
+ * @param {string} target absolute existing path
+ * @param {string} linkPath absolute symlink to create (parents made)
+ * @returns {string} linkPath
+ */
+export function symlinkAlias(target, linkPath) {
+  fs.mkdirSync(path.dirname(linkPath), { recursive: true });
+  fs.symlinkSync(target, linkPath);
+  return linkPath;
+}
