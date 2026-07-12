@@ -1,6 +1,7 @@
 import { slugify, dailyDatePath } from "./slug.mjs";
 import { WikiStoreUnavailable } from "./wiki-core.mjs";
 import { slugSegments } from "./wiki-identity.mjs";
+import { pathSegments } from "./path-segments.mjs";
 import {
   ensureLayoutLoaded,
   slotToCategory,
@@ -169,8 +170,10 @@ export function normalisePlacementOverride(raw) {
     );
   }
   // Forbid `..` segments so a caller can't escape the wiki root, even though
-  // path.join would normalise some of them away. We also strip empty segments.
-  const segs = raw.split(/[\\/]+/).filter((s) => s !== "" && s !== ".");
+  // path.join would normalise some of them away. `pathSegments` strips empty and
+  // `.` segments — the SAME segmentation the write-gate predicate uses, so the
+  // gate and the real landing dir can never disagree on the category.
+  const segs = pathSegments(raw);
   if (segs.length === 0) {
     throw new WikiStoreUnavailable(
       `placementOverride must include at least one path segment; got: ${raw}`,

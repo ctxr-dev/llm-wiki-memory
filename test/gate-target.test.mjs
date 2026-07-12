@@ -44,3 +44,33 @@ test("placementTargetsCategory: non-matching / empty / non-string -> false", () 
   assert.equal(placementTargetsCategory(null, "self_improvement"), false);
   assert.equal(placementTargetsCategory(123, "self_improvement"), false);
 });
+
+test("placementTargetsCategory: the `.`-segment consent-gate bypass is closed", () => {
+  assert.equal(placementTargetsCategory("./self_improvement/x", "self_improvement"), true);
+  assert.equal(placementTargetsCategory("././self_improvement/x", "self_improvement"), true);
+  assert.equal(
+    placementTargetsCategory(".\\self_improvement\\x", "self_improvement"),
+    true,
+    "backslash + leading dot",
+  );
+  // `..` is rejected by placement (never lands), so gate and placement agree it
+  // is not a self_improvement write.
+  assert.equal(placementTargetsCategory("../self_improvement/x", "self_improvement"), false);
+});
+
+test("placementTargetsCategory agrees with the real placement normaliser on the landing category", async () => {
+  const { normalisePlacementOverride } = await import("../scripts/lib/wiki-placement.mjs");
+  const paths = [
+    "self_improvement/a/b",
+    "./self_improvement/a/b",
+    "././self_improvement/x",
+    "knowledge/x",
+    "./knowledge/x",
+    "issues/JIRA/DEV/1",
+  ];
+  for (const p of paths) {
+    const landed = normalisePlacementOverride(p).split("/")[0];
+    assert.equal(placementTargetsCategory(p, landed), true, `gate must gate ${p} -> ${landed}`);
+    assert.equal(placementTargetsCategory(p, "definitely_not_a_category"), false, `${p} no false positive`);
+  }
+});
