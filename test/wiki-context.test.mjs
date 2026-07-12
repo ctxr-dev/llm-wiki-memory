@@ -24,6 +24,8 @@ after(() => {
 
 const SHARED_LAYOUT = "layout:\n  - path: knowledge\n  - path: daily\n";
 const LOCAL_LAYOUT = "layout:\n  - path: scratch\n    placement_facets: []\n";
+const INCOMPLETE_LAYOUT =
+  "layout:\n  - path: knowledge\n  - path: issues\n    topology:\n      strategy: caller_path\n";
 
 function makeHome() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-wctx-"));
@@ -39,6 +41,13 @@ function mkMount(dir, { local } = {}) {
   fs.mkdirSync(layoutDir, { recursive: true });
   fs.writeFileSync(path.join(layoutDir, "layout.yaml"), SHARED_LAYOUT);
   if (local) fs.writeFileSync(path.join(layoutDir, "layout.local.yaml"), local);
+  return dir;
+}
+
+function mkIncompleteMount(dir) {
+  const layoutDir = path.join(dir, ".llm-wiki-memory", "wiki", ".layout");
+  fs.mkdirSync(layoutDir, { recursive: true });
+  fs.writeFileSync(path.join(layoutDir, "layout.yaml"), INCOMPLETE_LAYOUT);
   return dir;
 }
 
@@ -95,6 +104,27 @@ test("resolveWikiContext: each level's layout is the merged (shared + local) obj
     layoutPaths(ctx.levels[1].layout),
     ["daily", "knowledge", "scratch"],
     "repo layout merged the local-only 'scratch' category on top of shared",
+  );
+});
+
+test("resolveWikiContext: a schema-incomplete repo mount layout does not wedge the brain or the chain", () => {
+  const home = makeHome();
+  mkMount(home);
+  const proj = mkIncompleteMount(path.join(home, "proj"));
+
+  const ctx = resolveWikiContext([proj], brainOpts(home));
+
+  assert.equal(ctx.levels.length, 2, "brain + the schema-incomplete repo both survive");
+  assert.equal(ctx.brain.ownership, "wiki");
+  assert.deepEqual(
+    layoutPaths(ctx.brain.layout),
+    ["daily", "knowledge"],
+    "the brain resolves normally through its own valid layout",
+  );
+  assert.deepEqual(
+    layoutPaths(ctx.levels[1].layout),
+    ["issues", "knowledge"],
+    "the schema-incomplete level stays usable via the tolerant read",
   );
 });
 

@@ -19,7 +19,7 @@ import path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { z } from "zod";
 import { scanScopes } from "./scope-scanner.mjs";
-import { loadMergedLayout } from "./layout-merge.mjs";
+import { loadMergedLayout, readMergedLayout } from "./layout-merge.mjs";
 import { embedBackend } from "./settings.mjs";
 import { withWikiRoot, embedCacheFor as embedCacheForRoot } from "./env.mjs";
 
@@ -82,6 +82,20 @@ function readEmbedBackend() {
 }
 
 /**
+ * @param {string} layoutDir
+ * @returns {Record<string, unknown>}
+ */
+function resolveLevelLayout(layoutDir) {
+  try {
+    return loadMergedLayout(layoutDir);
+  } catch (err) {
+    const tolerant = readMergedLayout(layoutDir);
+    if (Object.keys(tolerant).length > 0) return tolerant;
+    throw err;
+  }
+}
+
+/**
  * Enrich a scanner-emitted placement level into a full {@link WikiLevel}: attach
  * the merged (shared + local) layout, the process embed backend when available,
  * and a per-level embed-cache resolver.
@@ -97,7 +111,7 @@ function enrichLevel(level, backend) {
     ownership: level.ownership,
     depth: level.depth,
     projectModule: level.projectModule,
-    layout: loadMergedLayout(path.join(level.root, ".layout")),
+    layout: resolveLevelLayout(path.join(level.root, ".layout")),
     // Per-category cache under this level's own wiki root
     // (`<root>/<category>/.embeddings/embeddings.json`, Phase D).
     embedCacheFor: (category) => embedCacheForRoot(level.root, category),
