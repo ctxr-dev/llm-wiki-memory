@@ -8,12 +8,13 @@ import { MetadataSchema } from "./mcp-schemas.mjs";
 import {
   assertTopologyPathValid,
   refuseWriteGate,
-  targetsGatedCategory,
   auditGatedL3,
   guardScarcePriority,
 } from "./mcp-write-gate.mjs";
 import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
-import { withWriteTarget, annotateSharedWrite } from "./mcp-write-target.mjs";
+import { withResolvedWriteTarget, annotateSharedWrite } from "./mcp-write-target.mjs";
+import { getActiveWikiContext } from "../scripts/lib/wiki-context.mjs";
+import { parseWriteRequest, isGatedWrite, WRITE_KIND } from "../scripts/lib/context/write.mjs";
 import {
   MCP_OPS,
   MCP_ACTOR,
@@ -35,27 +36,49 @@ const TARGET_DESCRIPTION =
   ' Optional `target` routes the write into a chosen scope: pass a context level\'s wiki root or mount directory, or "brain". Omitted, the write lands in your brain (private memory). NEVER write to a shared repo without the user choosing it: ASK first, then pass that repo as `target`; a shared write is only staged in the repo working tree (the engine runs no git) — tell the user to commit and push it.';
 
 /**
- * Shared body for save_to_dataset + write_memory: enforce the self_improvement
- * gate, route into the chosen `target` (brain by default), then INSIDE the
- * target frame validate topology, coerce a scarce priority, remap out-of-vocab
- * facets against the TARGET layout (skipped when an explicit `path` is given),
- * run `doWrite(placed)` under one commit, audit a gated write, and shape the
- * response (shared-target note + priority/remap notes).
- * @param {{ tool: string, dataset: string, name: string, path?: string, userRequested?: boolean, metadata?: MetadataInput, target?: string, op: string, refuseLabel: string, okFromCreated?: boolean }} cfg
- * @param {(placed: MetadataInput | undefined) => WriteResult} doWrite
+ * The L3 gate REFUSAL, decided from RAW args (no resolved context needed) so it
+ * runs BEFORE parse-time input validation — a gated write without consent is
+ * refused and audited regardless of any other malformed field, preserving the
+ * gate-first precedence and a complete refused-audit trail (C8). Returns the
+ * refusal response, or null to proceed.
+ * @param {{ tool: string, dataset: string, path?: string, name: string, metadata?: MetadataInput, userRequested?: boolean, refuseLabel: string }} a
+ * @returns {ReturnType<typeof refuseWriteGate> | null}
  */
-async function runFacetWrite(cfg, doWrite) {
-  const { tool, dataset, name, path, userRequested, metadata, target, op } = cfg;
+function gateRefusal(a) {
   if (
-    targetsGatedCategory(dataset, path) &&
+    isGatedWrite(a.dataset, a.path) &&
     writeGateSelfImprovementEnabled() &&
-    userRequested !== true &&
+    a.userRequested !== true &&
     !isSystemMaintenance()
   ) {
-    auditGatedL3({ tool, status: "refused", userRequested, title: name, metadata });
-    return refuseWriteGate(cfg.refuseLabel);
+    auditGatedL3({
+      tool: a.tool,
+      status: "refused",
+      userRequested: a.userRequested,
+      title: a.name,
+      metadata: a.metadata,
+    });
+    return refuseWriteGate(a.refuseLabel);
   }
-  return await withWriteTarget(target, async (level) => {
+  return null;
+}
+
+/**
+ * Dispatch a parsed WriteRequest (save_lesson / save_to_dataset / write_memory):
+ * route into the already-resolved target, then INSIDE the target frame validate
+ * topology, coerce a scarce priority, remap out-of-vocab facets against the target
+ * layout (skipped when an explicit `path` is given), run `doWrite(placed)` under
+ * one commit, audit an accepted gated write (C8), and shape the response
+ * (shared-target note + priority/remap notes). The gate REFUSAL was already
+ * decided by {@link gateRefusal} before this runs.
+ * @param {import("../scripts/lib/context/write.mjs").WriteRequest} req
+ * @param {(placed: MetadataInput | undefined) => WriteResult} doWrite
+ * @param {{ tool: string, op: string, okFromCreated?: boolean }} cfg
+ */
+async function dispatchWrite(req, doWrite, cfg) {
+  const { gated, target, dataset, path, metadata, userRequested } = req;
+  const name = /** @type {string} */ (req.name);
+  return await withResolvedWriteTarget(target, async (level) => {
     await assertTopologyPathValid({ dataset, name, path });
     const { metadata: md, note: priorityNote } = guardScarcePriority(metadata, userRequested);
     // Facet placement (only when no explicit path) pre-validates against the
@@ -65,10 +88,10 @@ async function runFacetWrite(cfg, doWrite) {
       ? { metadata: md, remaps: [] }
       : getImpl().remapUnknownPathFacets(dataset, md);
     const result = /** @type {WriteResult} */ (
-      withWikiCommit({ op, actor: MCP_ACTOR }, () => doWrite(placed))
+      withWikiCommit({ op: cfg.op, actor: MCP_ACTOR }, () => doWrite(placed))
     );
-    if (targetsGatedCategory(dataset, path)) {
-      auditGatedL3({ tool, status: "accepted", userRequested, title: name, metadata: placed });
+    if (gated) {
+      auditGatedL3({ tool: cfg.tool, status: "accepted", userRequested, title: name, metadata: placed });
     }
     return jsonResponse(
       annotateSharedWrite(level, {
@@ -128,40 +151,29 @@ function registerWriteTools(server) {
       withToolScopes(args, async () => {
         const { title, body, userRequested, metadata, tags, evidence, target } = args;
         try {
-          if (
-            writeGateSelfImprovementEnabled() &&
-            userRequested !== true &&
-            !isSystemMaintenance()
-          ) {
-            auditGatedL3({
-              tool: "save_lesson",
-              status: "refused",
-              userRequested,
-              title,
-              metadata,
-            });
-            return refuseWriteGate("save_lesson");
-          }
-          return withWriteTarget(target, (level) => {
-            const result = /** @type {WriteResult} */ (
-              withWikiCommit({ op: MCP_OPS.SAVE_LESSON, actor: MCP_ACTOR }, () =>
-                getImpl().saveLesson({ title, body, metadata, tags, evidence }),
-              )
-            );
-            auditGatedL3({
-              tool: "save_lesson",
-              status: "accepted",
-              userRequested,
-              title,
-              metadata,
-            });
-            return jsonResponse(
-              annotateSharedWrite(level, {
-                ok: !!result.created,
-                .../** @type {Record<string, unknown>} */ (result),
-              }),
-            );
+          const refusal = gateRefusal({
+            tool: "save_lesson",
+            dataset: SELF_IMPROVEMENT,
+            name: title,
+            metadata,
+            userRequested,
+            refuseLabel: "save_lesson",
           });
+          if (refusal) return refusal;
+          const req = parseWriteRequest(getActiveWikiContext(), {
+            kind: WRITE_KIND.LESSON,
+            dataset: SELF_IMPROVEMENT,
+            name: title,
+            text: body,
+            metadata,
+            userRequested,
+            target,
+          });
+          return await dispatchWrite(
+            req,
+            (placed) => getImpl().saveLesson({ title, body, metadata: placed, tags, evidence }),
+            { tool: "save_lesson", op: MCP_OPS.SAVE_LESSON, okFromCreated: true },
+          );
         } catch (error) {
           return errorResponse(error);
         }
@@ -192,22 +204,31 @@ function registerWriteTools(server) {
       withToolScopes(args, async () => {
         const { dataset, name, text, userRequested, metadata, path, target } = args;
         try {
-          return await runFacetWrite(
-            {
-              tool: "save_to_dataset",
-              dataset,
-              name,
-              path,
-              userRequested,
-              metadata,
-              target,
-              op: MCP_OPS.SAVE,
-              okFromCreated: true,
-              refuseLabel:
-                dataset === SELF_IMPROVEMENT
-                  ? `save_to_dataset(dataset="${SELF_IMPROVEMENT}")`
-                  : `save_to_dataset(path="${path}" lands in ${SELF_IMPROVEMENT})`,
-            },
+          const refusal = gateRefusal({
+            tool: "save_to_dataset",
+            dataset,
+            path,
+            name,
+            metadata,
+            userRequested,
+            refuseLabel:
+              dataset === SELF_IMPROVEMENT
+                ? `save_to_dataset(dataset="${SELF_IMPROVEMENT}")`
+                : `save_to_dataset(path="${path}" lands in ${SELF_IMPROVEMENT})`,
+          });
+          if (refusal) return refusal;
+          const req = parseWriteRequest(getActiveWikiContext(), {
+            kind: WRITE_KIND.DOCUMENT,
+            dataset,
+            name,
+            text,
+            path,
+            metadata,
+            userRequested,
+            target,
+          });
+          return await dispatchWrite(
+            req,
             (placed) =>
               getImpl().saveDocument({
                 name,
@@ -216,6 +237,7 @@ function registerWriteTools(server) {
                 metadata: placed,
                 placementOverride: path,
               }),
+            { tool: "save_to_dataset", op: MCP_OPS.SAVE, okFromCreated: true },
           );
         } catch (error) {
           return errorResponse(error);
@@ -257,21 +279,31 @@ function registerWriteTools(server) {
           target,
         } = args;
         try {
-          return await runFacetWrite(
-            {
-              tool: "write_memory",
-              dataset: datasetId,
-              name,
-              path,
-              userRequested,
-              metadata,
-              target,
-              op: MCP_OPS.WRITE_MEMORY,
-              refuseLabel:
-                datasetId === SELF_IMPROVEMENT
-                  ? `write_memory(datasetId="${SELF_IMPROVEMENT}")`
-                  : `write_memory(path="${path}" lands in ${SELF_IMPROVEMENT})`,
-            },
+          const refusal = gateRefusal({
+            tool: "write_memory",
+            dataset: datasetId,
+            path,
+            name,
+            metadata,
+            userRequested,
+            refuseLabel:
+              datasetId === SELF_IMPROVEMENT
+                ? `write_memory(datasetId="${SELF_IMPROVEMENT}")`
+                : `write_memory(path="${path}" lands in ${SELF_IMPROVEMENT})`,
+          });
+          if (refusal) return refusal;
+          const req = parseWriteRequest(getActiveWikiContext(), {
+            kind: WRITE_KIND.MEMORY,
+            dataset: datasetId,
+            name,
+            text,
+            path,
+            metadata,
+            userRequested,
+            target,
+          });
+          return await dispatchWrite(
+            req,
             (placed) =>
               getImpl().writeMemory({
                 name,
@@ -282,6 +314,7 @@ function registerWriteTools(server) {
                 metadata: placed,
                 placementOverride: path,
               }),
+            { tool: "write_memory", op: MCP_OPS.WRITE_MEMORY },
           );
         } catch (error) {
           return errorResponse(error);

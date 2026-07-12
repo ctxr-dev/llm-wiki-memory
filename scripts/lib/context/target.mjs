@@ -36,7 +36,7 @@ function sameDir(a, b) {
  * match selects that level; any other non-empty value throws (never a silent
  * brain fallback — R11). The returned `.level` is the SAME WikiLevel reference
  * the context holds, so callers can compare by identity.
- * @param {WikiContext} ctx
+ * @param {WikiContext | null | undefined} ctx
  * @param {string | null | undefined} raw
  * @returns {ResolvedTarget}
  */

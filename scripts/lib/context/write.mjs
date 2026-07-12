@@ -88,7 +88,7 @@ function assertMetadataVocabulary(metadata) {
  * in vocabulary — each rejected with an actionable envelope. Computes the
  * write-gate decision (C4). Throws a {@link ContextValidationError} on any
  * invalid field; never coerces silently.
- * @param {WikiContext} env
+ * @param {WikiContext | null | undefined} env
  * @param {{ kind: string, dataset: string, name?: string, text?: string, path?: string, metadata?: MetadataInput, userRequested?: boolean, target?: string | null }} args
  * @returns {WriteRequest}
  */

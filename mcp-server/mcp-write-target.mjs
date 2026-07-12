@@ -35,6 +35,20 @@ export function withWriteTarget(target, fn) {
 }
 
 /**
+ * Like {@link withWriteTarget} but for an ALREADY-resolved target (from
+ * parseTarget / parseWriteRequest): bind a `withWikiRoot` frame to the chosen
+ * level's root and pass that level to `fn`. Skips re-resolution because the
+ * ResolvedTarget already came from a validated context.
+ * @template T
+ * @param {import("../scripts/lib/context/target.mjs").ResolvedTarget} resolved
+ * @param {(level: WikiLevel) => T} fn
+ * @returns {T}
+ */
+export function withResolvedWriteTarget(resolved, fn) {
+  return withWikiRoot(resolved.level.root, () => fn(resolved.level));
+}
+
+/**
  * Annotate a write result destined for a SHARED (repo-owned) level: the leaf is
  * only staged in the repo's working tree and the engine ran no git (R11), so
  * tell the caller to commit and push it. A brain write is returned unchanged.

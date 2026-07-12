@@ -166,6 +166,52 @@ test("save_to_dataset upserts and search_memory finds it", async () => {
   );
 });
 
+test("save_to_dataset rejects an off-vocabulary task_type with an actionable envelope", async () => {
+  const res = await client.callTool({
+    name: "save_to_dataset",
+    arguments: {
+      dataset: "knowledge",
+      name: "knowledge-bad-tasktype.md",
+      text: "# bad\n\noff-vocab task_type",
+      metadata: { task_type: "frobnicate" },
+    },
+  });
+  assert.equal(res.isError, true, "off-vocab task_type is rejected");
+  const env = parse(res);
+  assert.equal(env.ok, false);
+  assert.equal(env.field, "task_type");
+  assert.ok(Array.isArray(env.allowed) && env.allowed.includes("debugging"), "envelope lists allowed");
+});
+
+test("save_to_dataset rejects an undeclared dataset with an actionable envelope", async () => {
+  const res = await client.callTool({
+    name: "save_to_dataset",
+    arguments: { dataset: "no_such_category", name: "x.md", text: "# x\n\nbody" },
+  });
+  assert.equal(res.isError, true, "undeclared dataset is rejected");
+  const env = parse(res);
+  assert.equal(env.field, "dataset");
+  assert.ok(env.allowed.includes("knowledge"), "envelope lists the declared categories");
+});
+
+test("a gated no-consent write is refused GATE-FIRST, even with an off-vocab enum", async () => {
+  // self_improvement + no userRequested + an off-vocab task_type: the gate refusal
+  // must win over (and precede) the enum validation, so the refused-audit still
+  // fires and no input detail leaks to an un-consented caller.
+  const res = await client.callTool({
+    name: "save_to_dataset",
+    arguments: {
+      dataset: "self_improvement",
+      name: "si-note.md",
+      text: "# si\n\nbody",
+      metadata: { area: "a", task_type: "frobnicate", error_pattern: "e" },
+    },
+  });
+  const env = parse(res);
+  assert.equal(env.ok, false);
+  assert.equal(env.error, "write-gate-refused", "gate refusal precedes the enum validation");
+});
+
 test("move_document is registered", async () => {
   const { tools } = await client.listTools();
   assert.ok(tools.map((t) => t.name).includes("move_document"), "move_document registered");
