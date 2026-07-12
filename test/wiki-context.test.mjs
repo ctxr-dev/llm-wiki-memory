@@ -210,6 +210,7 @@ test("withWikiContext: concurrent interleaved frames never leak into each other"
 test("WikiLevelSchema: accepts an enriched level, rejects bad ownership and a non-function embedCacheFor", () => {
   const good = {
     root: "/x/.llm-wiki-memory/wiki",
+    mountDir: "/x",
     ownership: "wiki",
     depth: 0,
     projectModule: "x",

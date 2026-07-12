@@ -20,6 +20,7 @@ import { settingsPath } from "../scripts/lib/settings.mjs";
  * @property {() => string[]} getCategories
  * @property {() => { datasets: Array<{ name: string, id: string }>, declaredLocally: Array<{ name: string, configuredId: string }> }} listDatasets
  * @property {(category: string) => boolean} categoryHasTopology
+ * @property {(categoryOrSlot: string, metadata?: MetadataInput) => { metadata: MetadataInput, remaps: Array<{ facet: string, from: string, to: string }> }} remapUnknownPathFacets
  * @property {(name: string) => { name: string, id: string }} normalizeLeafNamePreservingCase
  * @property {() => void} resetLayoutCache
  * @property {(args: { query: string, datasets?: string[], filters?: MetadataInput, scoreThreshold?: number, maxResults?: number, sections?: string[] }) => Promise<SearchResponse>} searchMemory

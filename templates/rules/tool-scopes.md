@@ -50,6 +50,31 @@ client-specific environment variable (e.g. `CLAUDE_PROJECT_DIR`) to build it —
 the memory engine serves every client uniformly, and a provider-specific signal
 is absent (or wrong) on the others.
 
+## Choosing where a write lands (the `target`)
+
+`scopes` says which wikis the call *concerns*; `target` says which one a WRITE
+goes INTO. They are different arguments with different jobs.
+
+> Every write (`save_to_dataset`, `save_lesson`, `write_memory`) and every
+> document mutation (`disable_document`, `enable_document`, `delete_document`,
+> `move_document`) DEFAULTS to your **brain** — your private memory tree. To
+> write into a **shared repo** (a `.llm-wiki-memory` mount that lives inside a
+> project checked into git), you MUST **ask the user first**, then pass
+> `target=<that repo's scope>` (its wiki root or mount directory, or the literal
+> `"brain"` for the private tree).
+
+- **Never write to a shared repo without the user choosing it.** A shared repo
+  being present in `scopes` does NOT make it a write target — an unspecified
+  `target` always resolves to the brain. The engine will not silently write to a
+  shared level.
+- **A shared write is working-tree only.** The engine writes the leaf into the
+  shared repo's working tree and runs **no git** there. It is not committed and
+  not shared until a human commits and pushes it. After a shared write, tell the
+  user: *"written to `<path>` in `<repo>` — commit and push it in the repo to
+  share it."*
+- **A target naming no resolved level is an error**, not a fallback — the write
+  is refused rather than quietly redirected to the brain.
+
 ## Quick reference
 
 | Situation | Pass as `scopes` |
@@ -58,3 +83,8 @@ is absent (or wrong) on the others.
 | Working in a plain directory, no git | `["<cwd>"]` |
 | Spanning two repos this session | `["<repoA-root>", "<repoB-root>"]` |
 | Given a default at SessionStart | reuse it verbatim until you change directories |
+
+| Where should this write land? | Pass as `target` |
+|---|---|
+| Your private memory (the default) | omit `target` (or `"brain"`) |
+| A shared repo, AFTER the user chose it | `"<that repo's root or mount dir>"` — then tell them to commit + push |

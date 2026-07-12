@@ -67,6 +67,46 @@ function pathFacetSegments(key, meta, rule) {
   return parts;
 }
 
+/** @typedef {{ facet: string, from: string, to: string }} FacetRemap */
+
+// Pre-validate a note's `kind: path` facets against the ACTIVE root's merged
+// layout vocabulary and REMAP an out-of-vocab first segment to the rule's
+// fallback (`general`) instead of letting the write throw. Run inside the
+// TARGET level's `withWikiRoot` frame so the vocabulary checked is that level's
+// (R2): a write the user directed to a shared repo must never hard-throw on an
+// out-of-vocab subject. Deeper sub-segments are preserved under the fallback
+// domain. Absent/in-vocab facets and vocabulary-less path facets are left
+// untouched, and the deep `pathFacetSegments` throw stays as the last-resort net
+// for callers that skip this step. Returns the (possibly new) metadata object
+// plus the list of remaps applied.
+/**
+ * @param {string} categoryOrSlot
+ * @param {PlacementMeta} [metadata]
+ * @returns {{ metadata: PlacementMeta, remaps: FacetRemap[] }}
+ */
+export function remapUnknownPathFacets(categoryOrSlot, metadata = {}) {
+  const meta = metadata && typeof metadata === "object" ? metadata : {};
+  /** @type {FacetRemap[]} */
+  const remaps = [];
+  const category = slotToCategory(String(categoryOrSlot || ""));
+  if (category === "daily") return { metadata: meta, remaps };
+  ensureLayoutLoaded();
+  const catRules = placementRulesFor(category);
+  let next = meta;
+  for (const key of placementFacetsFor(category)) {
+    const rule = catRules[key];
+    if (!rule || rule.kind !== "path" || !rule.vocabulary) continue;
+    const vocab = vocabularyFor(rule.vocabulary);
+    if (!vocab || vocab.size === 0) continue;
+    const parts = slugSegments(next[key]);
+    if (parts.length === 0 || vocab.has(parts[0])) continue;
+    const fallback = slugify(String(rule.fallback || "general")) || "general";
+    next = { ...next, [key]: [fallback, ...parts.slice(1)] };
+    remaps.push({ facet: key, from: parts[0], to: fallback });
+  }
+  return { metadata: next, remaps };
+}
+
 // Relative dir (under the wiki root) for a leaf, derived from its NORMALISED
 // `memory` metadata. Exported so migrate-nest computes the same target from an
 // existing leaf's frontmatter. Returns null for `daily` (caller date-nests it).

@@ -169,6 +169,7 @@ test("loadMergedLayout: an invalid merged layout is surfaced by throwing", () =>
 test("WikiLevelSchema: accepts a valid level and rejects a bad ownership", () => {
   const level = {
     root: "/repo/.llm-wiki-memory/wiki",
+    mountDir: "/repo",
     ownership: "wiki",
     depth: 0,
     projectModule: "repos",
@@ -185,6 +186,7 @@ test("WikiLevelSchema: accepts a valid level and rejects a bad ownership", () =>
 test("WikiContextSchema: accepts a well-formed context, rejects a missing brain", () => {
   const level = {
     root: "/repo",
+    mountDir: "/repo",
     ownership: "repo",
     depth: 1,
     projectModule: "repos",

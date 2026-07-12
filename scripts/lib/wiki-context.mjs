@@ -14,6 +14,7 @@
 // this module is import-safe — its only module-scope side effect is
 // constructing the AsyncLocalStorage instance, mirroring settings.mjs.
 
+import fs from "node:fs";
 import path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { z } from "zod";
@@ -26,6 +27,7 @@ import { withWikiRoot, embedCacheFor as embedCacheForRoot } from "./env.mjs";
  * One level of a federated wiki stack.
  * @typedef {Object} WikiLevel
  * @property {string} root absolute path to this level's wiki root directory
+ * @property {string} mountDir absolute path to the directory that holds this level's `.llm-wiki-memory` mount
  * @property {"repo" | "wiki"} ownership who owns this level: the consuming repo, or the private wiki
  * @property {number} depth 0-based position in the stack (0 = outermost/nearest)
  * @property {string} projectModule the workspace/module identifier this level scopes to
@@ -47,6 +49,7 @@ import { withWikiRoot, embedCacheFor as embedCacheForRoot } from "./env.mjs";
 export const WikiLevelSchema = z
   .object({
     root: z.string().min(1),
+    mountDir: z.string().min(1),
     ownership: z.enum(["repo", "wiki"]),
     depth: z.number().int().nonnegative(),
     projectModule: z.string(),
@@ -90,6 +93,7 @@ function enrichLevel(level, backend) {
   /** @type {WikiLevel} */
   const enriched = {
     root: level.root,
+    mountDir: level.mountDir,
     ownership: level.ownership,
     depth: level.depth,
     projectModule: level.projectModule,
@@ -155,6 +159,53 @@ export function withWikiContext(ctx, fn) {
  */
 export function getActiveWikiContext() {
   return contextStorage.getStore() || null;
+}
+
+/**
+ * Symlink-resolved directory equality (macOS surfaces `/var` as `/private/var`,
+ * and the scanner realpaths some paths but not the brain's), falling back to a
+ * plain resolve when a side cannot be stat'd.
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+function sameDir(a, b) {
+  if (!a || !b) return false;
+  try {
+    return fs.realpathSync(a) === fs.realpathSync(b);
+  } catch {
+    return path.resolve(a) === path.resolve(b);
+  }
+}
+
+/**
+ * Resolve a write/mutate `target` selector against a resolved context's levels.
+ * Accepts a level's `root`, its `mountDir`, the literal `"brain"` (the
+ * wiki-owned level), or null/undefined/"" (which selects the context's
+ * `writeDefault`, the brain). Throws when a non-empty target names no level in
+ * the context — a write directed elsewhere must surface as an error, never fall
+ * back silently to the brain (R11: never a silent shared write, and never a
+ * silent brain write for an intended-shared target).
+ * @param {WikiContext} ctx
+ * @param {string | null | undefined} target
+ * @returns {WikiLevel}
+ */
+export function resolveTargetLevel(ctx, target) {
+  if (!ctx || !Array.isArray(ctx.levels) || ctx.levels.length === 0) {
+    throw new Error("resolveTargetLevel: no resolved wiki context");
+  }
+  const wanted = typeof target === "string" ? target.trim() : "";
+  if (wanted === "") return ctx.writeDefault;
+  if (wanted === "brain") {
+    return ctx.levels.find((l) => l.ownership === "wiki") || ctx.brain;
+  }
+  const match = ctx.levels.find((l) => sameDir(l.root, wanted) || sameDir(l.mountDir, wanted));
+  if (match) return match;
+  const known = ctx.levels.map((l) => l.projectModule || l.root).join(", ");
+  throw new Error(
+    `target ${JSON.stringify(target)} is not one of the active context levels (${known}). ` +
+      `Pass a level's root or mount directory, or "brain".`,
+  );
 }
 
 /**

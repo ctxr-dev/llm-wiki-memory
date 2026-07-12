@@ -28,7 +28,7 @@ export {
   normalizeLeafNamePreservingCase,
 } from "./wiki-identity.mjs";
 
-export { placementDirForMeta } from "./wiki-placement.mjs";
+export { placementDirForMeta, remapUnknownPathFacets } from "./wiki-placement.mjs";
 
 export {
   upsertEmbedding,
