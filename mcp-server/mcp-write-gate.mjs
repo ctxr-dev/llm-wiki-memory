@@ -2,11 +2,11 @@ import { wikiRoot } from "../scripts/lib/env.mjs";
 import { enforceP0Scarcity } from "../scripts/lib/datasets.mjs";
 import { isSystemMaintenance } from "../scripts/lib/maintenance-tag.mjs";
 import { recordGatedWrite, consentBasis } from "../scripts/lib/save-gate-audit.mjs";
-import { placementTargetsCategory } from "../scripts/lib/gate-target.mjs";
+import { isGatedWrite } from "../scripts/lib/context/write.mjs";
 import { loadTopology, parsePath } from "../scripts/lib/topology-runtime.mjs";
 import { getImpl } from "./mcp-reload.mjs";
 import { jsonResponse } from "./mcp-responses.mjs";
-import { PLAN_SUFFIX, KIND, SELF_IMPROVEMENT } from "../scripts/lib/context/enums.mjs";
+import { PLAN_SUFFIX, KIND } from "../scripts/lib/context/enums.mjs";
 
 /** @typedef {import("../scripts/lib/types.mjs").MetadataInput} MetadataInput */
 /** @typedef {import("../scripts/lib/types.mjs").Priority} Priority */
@@ -84,8 +84,7 @@ function refuseWriteGate(toolName) {
  * @returns {boolean}
  */
 function targetsGatedCategory(dataset, placementOverride) {
-  if (dataset === SELF_IMPROVEMENT) return true;
-  return placementTargetsCategory(placementOverride, SELF_IMPROVEMENT);
+  return isGatedWrite(dataset, placementOverride);
 }
 
 // Append an L3 audit record for a gated-category decision. Best-effort: the
