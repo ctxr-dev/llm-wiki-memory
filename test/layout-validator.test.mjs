@@ -19,8 +19,8 @@ test("validator accepts the shipped tracker-issues layout template", () => {
   assert.equal(result.ok, true, JSON.stringify(result, null, 2));
 });
 
-test("validator accepts the bundled top-level template", () => {
-  const fp = path.join(SRC, "templates/llmwiki.layout.yaml");
+test("validator accepts the shipped repo layout template", () => {
+  const fp = path.join(SRC, "examples/layouts/repo/layout.yaml");
   const result = validateLayoutFile(fp);
   assert.equal(result.ok, true, JSON.stringify(result, null, 2));
 });

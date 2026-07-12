@@ -65,8 +65,13 @@ These govern DEVELOPING llm-wiki-memory; the rules shipped into consumer install
   ancestor dir, bottom-up.
 - `mcp-server/index.mjs`: local stdio MCP server exposing `save_lesson`, `recall_lessons`,
   `save_to_dataset`, `search_memory`, and the document/audit tools.
-- `templates/`: `.claude/settings.json` hooks, `.mcp.json`, the `.llmwiki.layout.yaml`
-  contract, `env.example`, vendor-neutral `agents/`, and discipline `skills/`.
+- `templates/`: `.claude/settings.json` hooks, `.mcp.json`, `env.example`, vendor-neutral
+  `agents/`, and discipline `skills/`. (Layout contracts are NOT here: the
+  `examples/layouts/<name>/` folders are the single source, installed by `cli.mjs init
+  --template <name>`.)
+- `examples/layouts/<name>/`: the shipped layout templates (`default`, `tracker-issues`,
+  `repo`) — a `layout.yaml` plus any sibling path-compiler helpers and a README. `init`
+  copies the whole chosen folder into `<wiki>/.layout/`.
 - `bootstrap.sh`: installer (npm install, render config, merge hooks and mcp, render rules
   to `.agents/rules`/`.claude/skills`/`.cursor/rules`, materialise the wiki, gitignore,
   optional `--schedule`). `scripts/mcp-config.sh` prints per-client MCP config.

@@ -63,6 +63,31 @@ test("initMount provisions gitignore + personal git + sync hook when a shared ca
   assert.ok(fs.existsSync(path.join(m, ".git", "hooks", "post-merge")), "sync hook installed");
 });
 
+test("initMount seeds the knowledge-only repo template when the mount has no layout", () => {
+  const m = mount("mi-seed");
+  spawnSync("git", ["-C", m, "init", "-q"], { encoding: "utf8" });
+  // No writeLayout(): the mount starts with no layout at all.
+  const res = initMount(m);
+
+  assert.equal(res.seeded, "repo", "repo template seeded");
+  const layoutFile = path.join(m, ".llm-wiki-memory", "wiki", ".layout", "layout.yaml");
+  assert.ok(fs.existsSync(layoutFile), "layout.yaml materialised from the repo template");
+  const raw = fs.readFileSync(layoutFile, "utf8");
+  assert.match(raw, /- path: knowledge/);
+  assert.match(raw, /ownership:\s*repo/, "seeded layout declares a shared category");
+  assert.ok(!raw.includes("- path: daily"), "repo template is knowledge-only");
+
+  // Having seeded a shared layout, it proceeds to wire the git surfaces.
+  assert.equal(res.gitignore, true);
+  const gi = path.join(m, ".llm-wiki-memory", ".gitignore");
+  assert.match(fs.readFileSync(gi, "utf8"), /!\/wiki\/knowledge\//);
+  assert.ok(fs.existsSync(path.join(m, ".git", "hooks", "post-merge")), "sync hook installed");
+
+  // Idempotent: a second call finds the layout present and does not re-seed.
+  const again = initMount(m);
+  assert.equal(again.seeded, undefined, "no re-seed once the layout exists");
+});
+
 test("initMount surfaces (non-fatally) a host-ignored mount", () => {
   const m = mount("mi-hostign");
   spawnSync("git", ["-C", m, "init", "-q"], { encoding: "utf8" });

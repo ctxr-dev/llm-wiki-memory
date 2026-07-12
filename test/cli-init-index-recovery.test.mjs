@@ -8,7 +8,7 @@ import { SRC, setupWorkspace, cleanup } from "./harness.mjs";
 
 const CLI = path.join(SRC, "scripts/cli.mjs");
 const REAL_SKILL_CLI = path.join(SRC, "node_modules/@ctxr/skill-llm-wiki/scripts/cli.mjs");
-const LAYOUT_TMPL = path.join(SRC, "templates/llmwiki.layout.yaml");
+const LAYOUT_TMPL = path.join(SRC, "examples/layouts/default/layout.yaml");
 const BOOTSTRAP = path.join(SRC, "bootstrap.sh");
 
 // A recording stand-in for the skill CLI: it appends the subcommand it was

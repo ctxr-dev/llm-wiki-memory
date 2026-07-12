@@ -1,13 +1,32 @@
 import fs from "node:fs";
 import path from "node:path";
-import { MEMORY_DIR, COMPILE_STATE_PATH, wikiRoot, embedCachePath } from "./lib/env.mjs";
+import { COMPILE_STATE_PATH, wikiRoot, embedCachePath } from "./lib/env.mjs";
 import { indexRebuildAll } from "./lib/wiki-cli.mjs";
+import { installLayoutTemplate, DEFAULT_TEMPLATE } from "./lib/layout-template.mjs";
 import { out } from "./cli-io.mjs";
 
-// Materialise the hosted wiki: write the contract from the template (if
-// absent) into the canonical <wiki>/.layout/layout.yaml location, then
-// regenerate the derived index.md tree. Idempotent.
-export function cmdInit() {
+// Parse `--template <name>` from the init argv tail. Unknown flags are ignored
+// here (they fail-close later in installLayoutTemplate on an unknown name).
+/**
+ * @param {string[]} argv
+ * @returns {string}
+ */
+function parseTemplate(argv) {
+  const i = argv.indexOf("--template");
+  const v = i !== -1 ? argv[i + 1] : undefined;
+  return v && !v.startsWith("--") ? v : DEFAULT_TEMPLATE;
+}
+
+// Materialise the hosted wiki: install the chosen layout template (if absent)
+// into the canonical <wiki>/.layout/ location, then regenerate the derived
+// index.md tree. Idempotent. `--template <name>` selects examples/layouts/<name>/
+// (default: "default"); an unknown name fails closed (clear error, exit 2).
+/**
+ * @param {string[]} [argv]
+ * @returns {void}
+ */
+export function cmdInit(argv = []) {
+  const template = parseTemplate(argv);
   const wiki = wikiRoot();
   fs.mkdirSync(wiki, { recursive: true });
   fs.mkdirSync(path.join(wiki, ".layout"), { recursive: true });
@@ -32,12 +51,12 @@ export function cmdInit() {
       process.exit(2);
     }
   } else {
-    const tmpl = path.join(MEMORY_DIR, "templates", "llmwiki.layout.yaml");
-    if (!fs.existsSync(tmpl)) {
-      out({ ok: false, error: `template not found at ${tmpl}` });
+    try {
+      installLayoutTemplate(layoutDir, template);
+    } catch (err) {
+      out({ ok: false, error: err instanceof Error ? err.message : String(err) });
       process.exit(2);
     }
-    fs.copyFileSync(tmpl, contractPath);
   }
 
   // A fresh clone of a shared wiki carries its tracked leaves but never its
@@ -48,5 +67,5 @@ export function cmdInit() {
   if (!fs.existsSync(path.join(wiki, "index.md"))) {
     indexRebuildAll(wiki);
   }
-  out({ ok: true, wiki, contract: contractPath, embedCache: embedCachePath() });
+  out({ ok: true, wiki, contract: contractPath, template, embedCache: embedCachePath() });
 }

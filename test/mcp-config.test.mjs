@@ -91,8 +91,12 @@ test("the relative server path actually resolves to the real mcp-server entry", 
   );
 });
 
-test("shipped default + install template declare the subject axis", () => {
-  for (const rel of ["examples/layouts/default/layout.yaml", "templates/llmwiki.layout.yaml"]) {
+test("shipped layout templates declare the subject axis", () => {
+  for (const rel of [
+    "examples/layouts/default/layout.yaml",
+    "examples/layouts/tracker-issues/layout.yaml",
+    "examples/layouts/repo/layout.yaml",
+  ]) {
     const raw = fs.readFileSync(path.join(SRC, rel), "utf8");
     assert.match(raw, /vocabularies:/, `${rel}: must declare vocabularies`);
     assert.match(raw, /subject_domains:/, `${rel}: must declare subject_domains`);

@@ -6,8 +6,17 @@
 # Expected layout: this script lives at <workspace>/.llm-wiki-memory/src/bootstrap.sh
 #
 # Usage:
-#   ./.llm-wiki-memory/src/bootstrap.sh [--commit-memory] [--provider claude|codex|anthropic|openai|openai-compatible|mock] [--schedule daily|off] [--enable-self-observability|--disable-self-observability]
+#   ./.llm-wiki-memory/src/bootstrap.sh [--commit-memory] [--template <name>] [--provider claude|codex|anthropic|openai|openai-compatible|mock] [--schedule daily|off] [--enable-self-observability|--disable-self-observability]
+#   ./.llm-wiki-memory/src/bootstrap.sh --uninstall
 #
+#   --template       Layout template to install into a FRESH wiki (one of the
+#                    examples/layouts/<name>/ folders). Default: default. A repo
+#                    mount uses `repo`. Ignored once a wiki already exists.
+#   --uninstall      Reverse the machine-managed install surfaces: remove the
+#                    MCP registration, the cron/launchd job, and the chained
+#                    sync-embeddings git-hook block; then PRINT the manual
+#                    reversals (gitignore edit, per-mount personal git, deleting
+#                    the mount). Never deletes memory data. Idempotent.
 #   --commit-memory  Do NOT gitignore the whole ./.llm-wiki-memory tree; commit
 #                    the wiki content (still ignores node_modules, the embed
 #                    index, and settings/.env). Default: ignore the whole tree.
@@ -42,10 +51,14 @@ DATA_DIR="$WORKSPACE_DIR/.llm-wiki-memory"
 COMMIT_MEMORY=0
 PROVIDER=""
 SCHEDULE=""
+TEMPLATE="default"
+UNINSTALL=0
 SELF_OBS=""   # "on" enables, "off" disables, "" leaves prior consent untouched
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --commit-memory) COMMIT_MEMORY=1; shift ;;
+    --template) TEMPLATE="${2:-}"; shift 2 ;;
+    --uninstall) UNINSTALL=1; shift ;;
     --provider) PROVIDER="${2:-}"; shift 2 ;;
     --schedule) SCHEDULE="${2:-}"; shift 2 ;;
     --enable-self-observability)  SELF_OBS="on";  shift ;;
@@ -56,6 +69,34 @@ done
 
 log() { printf '\033[1;36m[llm-wiki-memory]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[llm-wiki-memory] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
+
+# --- uninstall (thin shell; fs reversals live in scripts/uninstall.mjs) ---
+# Remove the cron/launchd job (OS glue owned here), then hand the filesystem
+# reversals (MCP registration + chained git-hook block) to the Node helper,
+# which also prints the manual steps it deliberately does NOT perform. Never
+# deletes memory data. Idempotent.
+if [[ "$UNINSTALL" -eq 1 ]]; then
+  command -v node >/dev/null 2>&1 || die "node is required to uninstall."
+  log "Uninstalling llm-wiki-memory from $WORKSPACE_DIR (memory data is left intact) ..."
+  ws_hash="$(printf '%s' "$WORKSPACE_DIR" | cksum | awk '{print $1}')"
+  if [[ "$(uname)" == "Darwin" ]]; then
+    plist="$HOME/Library/LaunchAgents/com.llm-wiki-memory.$ws_hash.plist"
+    if command -v launchctl >/dev/null 2>&1; then
+      launchctl unload "$plist" >/dev/null 2>&1 || true
+    fi
+    rm -f "$plist"
+    log "Removed launchd cron job if present ($plist)."
+  elif command -v crontab >/dev/null 2>&1; then
+    tag="# llm-wiki-memory:$WORKSPACE_DIR"
+    filtered="$(crontab -l 2>/dev/null | awk -v t="$tag" 'index($0, t) == 0 || substr($0, length($0) - length(t) + 1) != t' || true)"
+    printf '%s\n' "$filtered" | grep -v '^$' | crontab - 2>/dev/null || true
+    rm -f "$DATA_DIR/state/cron-daily.sh"
+    log "Removed crontab cron job if present (tag: $tag)."
+  fi
+  node "$SRC_DIR/scripts/uninstall.mjs" "$WORKSPACE_DIR" || die "uninstall helper failed."
+  log "Uninstall complete."
+  exit 0
+fi
 
 # --- prereqs ---
 command -v node >/dev/null 2>&1 || die "node is required (>=20)."
@@ -207,8 +248,10 @@ render_agent "$SRC_DIR/templates/agents/clients/openai-codex.toml" "$WORKSPACE_D
 log "Wrote vendor-neutral MCP config to .agents/ (Cursor, Codex, Claude Desktop, generic)."
 
 # --- materialise the wiki ---
-log "Initialising the hosted wiki ..."
-( cd "$SRC_DIR" && MEMORY_DATA_DIR="$DATA_DIR" node scripts/cli.mjs init >/dev/null ) || die "wiki init failed."
+# --template selects the layout for a FRESH wiki (default: default). A repo
+# mount passes `repo`; once a wiki exists, init keeps the existing layout.
+log "Initialising the hosted wiki (template: $TEMPLATE) ..."
+( cd "$SRC_DIR" && MEMORY_DATA_DIR="$DATA_DIR" node scripts/cli.mjs init --template "$TEMPLATE" >/dev/null ) || die "wiki init failed."
 
 # --- validate the wiki (non-fatal) ---
 VALIDATE_OUT="$(cd "$SRC_DIR" && MEMORY_DATA_DIR="$DATA_DIR" node scripts/cli.mjs validate 2>&1 || true)"

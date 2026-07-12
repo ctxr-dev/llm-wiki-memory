@@ -40,7 +40,7 @@ async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   switch (cmd) {
     case "init":
-      return cmdInit();
+      return cmdInit(rest);
     case "validate":
       return handleValidate();
     case "validate-topology":

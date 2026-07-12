@@ -1,0 +1,66 @@
+mode: hosted
+versioning:
+  style: in-place
+  backup_before_mutate: false
+purpose: "Shared, repo-tracked project memory — one knowledge category committed into the consuming repo"
+# This wiki nests deep (the subject axis), so directory-depth limits are
+# intentionally NOT enforced: llm-wiki-memory never passes --max-depth to
+# skill-llm-wiki, and per-entry `max_depth` is omitted. This flag documents that.
+ignore_max_depth: true
+# repo layout (template).
+#
+# The layout for a SHARED, repo-owned brain: a single `knowledge` category
+# (`ownership: repo`) that lives inside a consuming project and is committed by
+# the USER, so teammates who clone the repo inherit its accumulated knowledge.
+# Federation (Phase G) mounts this as a wiki root beside the user's private
+# brain; the mount's git surfaces (negated .gitignore, personal git, chained
+# sync-embeddings hook) are wired by scripts/mount-init.mjs.
+#
+# Nesting is subject-domain-FIRST — `knowledge/<subject…>/<atom_type>` — the
+# mirror image of the default layout (which leads with area/atom_type and puts
+# `subject` last). A repo brain has a single implicit area (the repo itself), so
+# leading with the semantic `subject` axis is what keeps the tree tidy:
+#   knowledge -> knowledge/<subject…>/<atom_type>/
+#
+# `subject` is a `kind: path` facet: its value is an array (or "/"-joined
+# string) and expands to one directory segment each, broad->narrow. Its FIRST
+# segment must be one of the controlled `subject_domains` vocabulary below; an
+# absent subject collapses to the `general` fallback. `atom_type` is the single
+# trailing leaf segment, so the path inverts unambiguously over a
+# variable-depth subject (last segment = atom_type, everything before it =
+# subject). Missing-facet sentinel: atom_type -> "untyped".
+#
+# A `vocabulary:` reference is resolved WITHIN this file — there is no cross-file
+# inheritance — so the full `subject_domains` block is embedded here verbatim.
+
+# Controlled top-level subject domains (the first `subject` segment). Curate
+# this list for your repo; `validate-layout` enforces references to it.
+vocabularies:
+  subject_domains:
+    - languages      # programming languages & their ecosystems (scala, ruby, cats-effect, ...)
+    - frameworks     # libraries & frameworks (pekko, rails, react, ...)
+    - architecture   # system design, patterns, lifecycle, refactoring
+    - observability  # metrics, logging, tracing, monitoring (kamon, grafana, ...)
+    - infra          # infrastructure, gateways, k8s, networking (apisix, ...)
+    - data           # databases, storage, schemas, pipelines
+    - security       # auth, secrets, compliance
+    - testing        # test strategy, frameworks, flakiness
+    - process        # workflow, planning, conventions, ways-of-working
+    - tooling        # build, CI/CD, editors, dev tooling (sbt, intellij, ...)
+    - general        # fallback when no domain fits
+
+# Per-category consolidate eligibility (REQUIRED — no defaults). See
+# examples/layouts/default/layout.yaml for the full semantics. A shared repo
+# brain is curated by its committers, so consolidation is left OFF (`none`).
+
+layout:
+  - path: knowledge
+    purpose: "shared, repo-tracked knowledge; nested subject-first by <subject…>/<atom_type>"
+    placement_facets: [subject, atom_type]
+    facet_rules:
+      subject: { kind: path, vocabulary: subject_domains, fallback: general }
+    allow_entry_types: [primary]
+    # Checked into the consuming repo and committed by the USER; the engine
+    # never git-commits a repo-owned category (R11).
+    ownership: repo
+    consolidate: none

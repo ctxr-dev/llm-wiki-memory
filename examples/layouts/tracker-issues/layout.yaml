@@ -48,6 +48,11 @@ vocabularies:
     - tooling        # build, CI/CD, editors, dev tooling (sbt, intellij, ...)
     - general        # fallback when no domain fits
 
+# Per-category consolidate eligibility (REQUIRED — no defaults). Each category
+# MUST declare `consolidate: refine | none`; the consolidate orchestrator
+# refuses to run if any lacks it. See examples/layouts/default/layout.yaml for
+# the full semantics. issues is owned by the tracker lifecycle, so `none`.
+
 layout:
   - path: knowledge
     purpose: "long-lived facts, decisions, lore, and gotchas; nested by area/atom_type/subject"
@@ -55,31 +60,37 @@ layout:
     facet_rules:
       subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
+    consolidate: refine
   - path: self_improvement
     purpose: "self-improvement lessons; nested by area/task_type/subject (dedup keyed by error_pattern)"
     placement_facets: [area, task_type, subject]
     facet_rules:
       subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
+    consolidate: refine
   - path: plans
     purpose: "approved and in-flight plans; nested by area/subject"
     placement_facets: [area, subject]
     facet_rules:
       subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
+    consolidate: none
   - path: investigations
     purpose: "investigation and analysis artefacts; nested by area/subject"
     placement_facets: [area, subject]
     facet_rules:
       subject: { kind: path, vocabulary: subject_domains, fallback: general }
     allow_entry_types: [primary]
+    consolidate: none
   - path: daily
     purpose: "raw captured memory atoms, nested by capture date (yyyy/mm/dd)"
     placement_strategy: daily-date
     allow_entry_types: [primary]
+    consolidate: none
   - path: issues
     placement_facets: []
     allow_entry_types: [primary]
+    consolidate: none
     topology:
       strategy: caller_path
       helper:

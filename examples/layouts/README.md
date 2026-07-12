@@ -23,10 +23,15 @@ Then bootstrap or rebuild the wiki as usual.
 
 ## Available templates
 
+These folders are the single source of truth for shipped layouts. A fresh
+install selects one with `node scripts/cli.mjs init --template <name>` (default:
+`default`), which copies the whole folder into `<wiki>/.layout/`.
+
 | Template | Best for | Adds beyond default |
 |---|---|---|
 | [`default/`](./default/README.md) | A fresh install with no custom topology requirements. The historical 5 categories: knowledge, self_improvement, plans, investigations, daily. | (baseline) |
 | [`tracker-issues/`](./tracker-issues/README.md) | Workspaces that track issues in Jira, GitHub, Linear, ZenDesk, or any prefix-`N`-style tracker. Adds a deterministic digit-bucketed `issues/<TRACKER>/<PREFIX>/<thousands>/<hundreds_tens>/<units>/...` tree with optional lifecycle subfolders for plans. | `issues` category with the `tracker-issue` topology helper |
+| [`repo/`](./repo/README.md) | A shared, repo-tracked brain committed into a consuming project so teammates inherit it. Federation mounts it beside the private brain. | one `knowledge` category, `ownership: repo`, subject-first nesting |
 
 ## Authoring a new template
 

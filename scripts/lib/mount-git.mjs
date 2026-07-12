@@ -17,9 +17,12 @@ import { fileURLToPath } from "node:url";
 import { writeFileAtomic } from "./atomic-write.mjs";
 
 const MOUNT_DIRNAME = ".llm-wiki-memory";
-const HOOK_EVENTS = ["post-merge", "post-checkout", "post-rewrite"];
-const MARKER_START = "# >>> llm-wiki-memory sync-embeddings >>>";
-const MARKER_END = "# <<< llm-wiki-memory sync-embeddings <<<";
+// The git-hook events we chain into, and the fence markers wrapping our
+// invocation block. Exported so the uninstaller strips the EXACT same block
+// (single source of truth for the marker strings).
+export const HOOK_EVENTS = ["post-merge", "post-checkout", "post-rewrite"];
+export const MARKER_START = "# >>> llm-wiki-memory sync-embeddings >>>";
+export const MARKER_END = "# <<< llm-wiki-memory sync-embeddings <<<";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = path.resolve(HERE, "../..");
@@ -69,7 +72,7 @@ export function assertMountNotHostIgnored(mountDir) {
  * @param {string} repoDir
  * @returns {string | null} absolute hooks dir, or null when repoDir is not a repo
  */
-function hooksDirFor(repoDir) {
+export function hooksDirFor(repoDir) {
   const cfg = spawnSync("git", ["-C", repoDir, "config", "--get", "core.hooksPath"], {
     encoding: "utf8",
   });

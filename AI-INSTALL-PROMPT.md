@@ -20,6 +20,17 @@ no Docker) in this project. Follow these steps EXACTLY; do not improvise.
    them `./.llm-wiki-memory/src/scripts/mcp-config.sh <their-client>` so they
    can register the MCP server. Done — skip step 3.
 
+   Two fresh-install choices you may need to make (see the sections at the end):
+   - **Layout template.** A plain install uses the `default` layout (the private
+     per-developer brain). If the user wants a SHARED, repo-committed brain
+     instead, install with `--template repo --commit-memory`. If you are unsure
+     which they want, ASK once; otherwise take the `default`.
+   - **Install location.** The private brain normally lives in the user's home
+     directory, not in a project. Moving the engine home is a user-manual
+     one-time step (Phase A) — do NOT relocate it yourself; install into
+     `./.llm-wiki-memory/src` of the current project unless the user directs
+     otherwise.
+
 3. **It DOES exist → update.** Releases may contain BREAKING changes; each
    ships a runbook at `docs/releases/<yyyy>/<mm>/<dd>[/vN]/update-prompt.md`.
    Never just pull and re-run bootstrap blindly. Procedure:
@@ -70,3 +81,37 @@ no Docker) in this project. Follow these steps EXACTLY; do not improvise.
 
 5. Never run `git add -A`, never commit or push anything; show the user the
    resulting change set and let them gate the git writes.
+
+---
+
+## Per-repo shared memory (opt-in)
+
+A project can carry its OWN shared brain — a single `knowledge` category checked
+into the repo so teammates who clone it inherit the knowledge — separate from
+each developer's private brain. This is the `repo` layout template.
+
+- **Detect an already-shared repo first.** Before offering to set one up, check
+  whether the repo already has a committed shared brain:
+  `test -f .llm-wiki-memory/wiki/.layout/layout.yaml && git ls-files --error-unmatch .llm-wiki-memory/wiki/.layout/layout.yaml`.
+  If that layout.yaml is tracked AND declares `ownership: repo`, the repo is
+  already shared — OFFER to ADOPT it (register the MCP server + wire the mount
+  git surfaces with `node .llm-wiki-memory/src/scripts/mount-init.mjs "$PWD"`),
+  do NOT re-seed it.
+- **Otherwise, per-repo opt-in.** Ask whether this repo's memory should be
+  PERSONAL (private, gitignored — the `default` layout) or SHARED (committed —
+  the `repo` layout). For SHARED, install with
+  `./.llm-wiki-memory/src/bootstrap.sh --template repo --commit-memory`; bootstrap
+  materialises the `repo` layout and `mount-init.mjs` wires the mount (a negated
+  `.gitignore` tracking only `knowledge/`, a private personal git repo, and a
+  chained sync-embeddings hook). The user commits the shared category; the
+  engine never commits it for them.
+
+## Uninstall
+
+`./.llm-wiki-memory/src/bootstrap.sh --uninstall` reverses the machine-managed
+surfaces: it removes the MCP server registration, the cron/launchd job, and the
+chained sync-embeddings git-hook block, then PRINTS the manual reversals it
+deliberately does NOT perform (revert the `.gitignore` edit, remove a per-mount
+personal `.git`, and delete the mount / memory data). It NEVER deletes memory
+data and is idempotent. Relay the printed manual steps to the user and let them
+decide.

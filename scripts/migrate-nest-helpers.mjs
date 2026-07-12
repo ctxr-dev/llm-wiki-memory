@@ -192,7 +192,7 @@ export function flatLeaves(wiki) {
 export function seedContractIfAbsent(wiki) {
   const dest = path.join(wiki, ".layout", "layout.yaml");
   if (fs.existsSync(dest)) return;
-  const tmpl = path.join(MEMORY_DIR, "templates", "llmwiki.layout.yaml");
+  const tmpl = path.join(MEMORY_DIR, "examples", "layouts", "default", "layout.yaml");
   if (!fs.existsSync(tmpl)) return;
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.copyFileSync(tmpl, dest);
