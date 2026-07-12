@@ -1,32 +1,19 @@
 import { z } from "zod";
-import { writeGateSelfImprovementEnabled } from "../scripts/lib/settings.mjs";
-import { withWikiCommit } from "../scripts/lib/wiki-commit.mjs";
-import { isSystemMaintenance } from "../scripts/lib/maintenance-tag.mjs";
 import { getImpl } from "./mcp-reload.mjs";
-import { jsonResponse, errorResponse } from "./mcp-responses.mjs";
+import { errorResponse } from "./mcp-responses.mjs";
 import { MetadataSchema } from "./mcp-schemas.mjs";
-import {
-  assertTopologyPathValid,
-  refuseWriteGate,
-  targetsGatedCategory,
-  auditGatedL3,
-  guardScarcePriority,
-} from "./mcp-write-gate.mjs";
+import { gateRefusal, dispatchWrite } from "./mcp-write-dispatch.mjs";
 import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
-import { withResolvedWriteTarget, annotateSharedWrite } from "./mcp-write-target.mjs";
 import { getActiveWikiContext } from "../scripts/lib/wiki-context.mjs";
 import { parseWriteRequest, WRITE_KIND } from "../scripts/lib/context/write.mjs";
 import {
   MCP_OPS,
-  MCP_ACTOR,
   PrioritySchema,
   SupersedesActionSchema,
   SELF_IMPROVEMENT,
 } from "../scripts/lib/context/enums.mjs";
 
 /** @typedef {import("@modelcontextprotocol/sdk/server/mcp.js").McpServer} McpServer */
-/** @typedef {import("../scripts/lib/types.mjs").MetadataInput} MetadataInput */
-/** @typedef {import("../scripts/lib/types.mjs").WriteResult} WriteResult */
 
 // Shared schema for the OPTIONAL write target: the scope/root a write lands in.
 // Omitted -> the brain (writeDefault). Accepts a context level's `root` or
@@ -35,81 +22,6 @@ const TargetSchema = z.string().trim().min(1).optional();
 
 const TARGET_DESCRIPTION =
   ' Optional `target` routes the write into a chosen scope: pass a context level\'s wiki root or mount directory, or "brain". Omitted, the write lands in your brain (private memory). NEVER write to a shared repo without the user choosing it: ASK first, then pass that repo as `target`; a shared write is only staged in the repo working tree (the engine runs no git) — tell the user to commit and push it.';
-
-/**
- * The L3 gate REFUSAL, decided from RAW args (no resolved context needed) so it
- * runs BEFORE parse-time input validation — a gated write without consent is
- * refused and audited regardless of any other malformed field, preserving the
- * gate-first precedence and a complete refused-audit trail (C8). Returns the
- * refusal response, or null to proceed.
- * @param {{ tool: string, dataset: string, path?: string, name: string, metadata?: MetadataInput, userRequested?: boolean, refuseLabel: string }} a
- * @returns {ReturnType<typeof refuseWriteGate> | null}
- */
-function gateRefusal(a) {
-  if (
-    targetsGatedCategory(a.dataset, a.path) &&
-    writeGateSelfImprovementEnabled() &&
-    a.userRequested !== true &&
-    !isSystemMaintenance()
-  ) {
-    auditGatedL3({
-      tool: a.tool,
-      status: "refused",
-      userRequested: a.userRequested,
-      title: a.name,
-      metadata: a.metadata,
-    });
-    return refuseWriteGate(a.refuseLabel);
-  }
-  return null;
-}
-
-/**
- * Dispatch a parsed WriteRequest (save_lesson / save_to_dataset / write_memory):
- * route into the already-resolved target, then INSIDE the target frame validate
- * topology, coerce a scarce priority, remap out-of-vocab facets against the target
- * layout (skipped when an explicit `path` is given), run `doWrite(placed)` under
- * one commit, audit an accepted gated write (C8), and shape the response
- * (shared-target note + priority/remap notes). The gate REFUSAL was already
- * decided by {@link gateRefusal} before this runs.
- * @param {import("../scripts/lib/context/write.mjs").WriteRequest} req
- * @param {(placed: MetadataInput | undefined) => WriteResult} doWrite
- * @param {{ tool: string, op: string, okFromCreated?: boolean }} cfg
- */
-async function dispatchWrite(req, doWrite, cfg) {
-  const { gated, target, dataset, path, metadata, userRequested } = req;
-  const name = /** @type {string} */ (req.name);
-  return await withResolvedWriteTarget(target, async (level) => {
-    await assertTopologyPathValid({ dataset, name, path });
-    const { metadata: md, note: priorityNote } = guardScarcePriority(metadata, userRequested);
-    // Facet placement (only when no explicit path) pre-validates against the
-    // target layout, remapping an out-of-vocab subject to `general` rather than
-    // throwing (R2).
-    const { metadata: placed, remaps } = path
-      ? { metadata: md, remaps: [] }
-      : getImpl().remapUnknownPathFacets(dataset, md);
-    const result = /** @type {WriteResult} */ (
-      withWikiCommit({ op: cfg.op, actor: MCP_ACTOR }, () => doWrite(placed))
-    );
-    if (gated) {
-      auditGatedL3({
-        tool: cfg.tool,
-        status: "accepted",
-        userRequested,
-        title: name,
-        metadata: placed,
-      });
-    }
-    return jsonResponse(
-      annotateSharedWrite(level, {
-        ...(cfg.okFromCreated ? { ok: !!result.created } : {}),
-        .../** @type {Record<string, unknown>} */ (result),
-        ...(priorityNote ? { priorityNote } : {}),
-        ...(remaps.length ? { facetRemap: remaps } : {}),
-      }),
-    );
-  });
-}
 
 /** @param {McpServer} server */
 function registerWriteTools(server) {
