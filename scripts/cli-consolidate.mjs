@@ -7,6 +7,7 @@ export async function handleConsolidate(rest) {
   //   --dry-run, --if-due, --force, --no-llm, --json
   //   --passes=<csv>            (allow-list of pass names)
   //   --cosine-threshold=<n>    (override 0..1)
+  //   --target=<selector>       (brain-only in v1; a shared target is refused)
   const { consolidateMemory } = await import("./consolidate.mjs");
   /** @param {string} name */
   const flag = (name) => rest.includes(`--${name}`);
@@ -23,7 +24,7 @@ export async function handleConsolidate(rest) {
   // Space-form flags silently did nothing (the 2026-06-04 one-off run
   // executed at the default threshold twice before anyone noticed).
   // Fail loud on the known value-taking flags when passed without '='.
-  for (const valueFlag of ["cosine-threshold", "passes"]) {
+  for (const valueFlag of ["cosine-threshold", "passes", "target"]) {
     if (rest.includes(`--${valueFlag}`)) {
       process.stderr.write(
         `consolidate: --${valueFlag} requires the equals form (--${valueFlag}=<value>); ignoring the bare flag would silently run with defaults — aborting.\n`,
@@ -51,6 +52,8 @@ export async function handleConsolidate(rest) {
       force: flag("force"),
       llm: !flag("no-llm"),
       passes: opt("passes"),
+      // Brain-only in v1; a non-brain --target=<selector> is refused (deferred to v1.1).
+      target: opt("target"),
     }),
   );
   if (flag("json")) return out(result);

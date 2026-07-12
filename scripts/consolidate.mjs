@@ -35,7 +35,7 @@
 //   - consolidate-structural-passes.mjs — 2H structural cleanup passes
 //   - consolidate-run.mjs            — the Phase-2/3 per-leaf + corpus run loop
 
-import { COMPILE_LOCK_PATH } from "./lib/env.mjs";
+import { COMPILE_LOCK_PATH, wikiRoot } from "./lib/env.mjs";
 import {
   consolidateEnabled,
   consolidateIntervalDays,
@@ -65,6 +65,7 @@ import {
 } from "./consolidate-report.mjs";
 import { pickKeeper, lessonKey } from "./consolidate-dedup-passes.mjs";
 import { runConsolidate } from "./consolidate-run.mjs";
+import { filterBrainOwnedRefine, guardConsolidateTarget } from "./consolidate-isolation.mjs";
 
 /** @typedef {import("./consolidate-time.mjs").NowInput} NowInput */
 
@@ -77,16 +78,9 @@ import { runConsolidate } from "./consolidate-run.mjs";
  * @property {boolean} [force]
  * @property {boolean} [llm]
  * @property {string | string[] | null} [passes]
+ * @property {string | null} [target] explicit consolidation target; only the brain is supported in v1
  * @property {NowInput} [now]
  */
-
-// The set of categories the consolidate orchestrator walks is now declared
-// EXPLICITLY in the layout YAML (per-category `consolidate: refine|none`).
-// No defaults — every category must say which side it's on. The orchestrator
-// reads the layout at run start and refuses to proceed if any category lacks
-// the field. See getConsolidateLayout() in wiki-store.mjs.
-
-// ─── entry point ───────────────────────────────────────────────────────────
 
 /**
  * Consolidate is system maintenance over the whole brain wiki in every path
@@ -95,7 +89,9 @@ import { runConsolidate } from "./consolidate-run.mjs";
  * @param {ConsolidateOptions} [options]
  */
 export async function consolidateMemory(options = {}) {
-  return withBrainContextSafe(() => consolidateMemoryRun(options));
+  // v1 is brain-only: refuse an explicit shared/non-brain target before any lock/commit/rewrite (v1.1 defers it).
+  const refusal = guardConsolidateTarget(options.target);
+  return refusal || withBrainContextSafe(() => consolidateMemoryRun(options));
 }
 
 /** @param {ConsolidateOptions} [options] */
@@ -190,6 +186,10 @@ async function consolidateMemoryRun({
   // have wired the same path); the lock module dedupes via its own set.
   installLockReleaseHandlers(COMPILE_LOCK_PATH);
 
+  // Defence-in-depth (R11): drop repo-owned (shared) refine categories so consolidate
+  // never rewrites a shared leaf, even one the brain's own merged layout declares.
+  const { brainRefine, repoOwnedRefine } = filterBrainOwnedRefine(layout.refine, wikiRoot());
+
   try {
     // One consolidate run = one wiki commit (dedup archives, merges,
     // refreshes, stale stamps). Nested INSIDE the maintenance frame's caller
@@ -229,8 +229,8 @@ async function consolidateMemoryRun({
             cosineThreshold,
             cosineBandFloor,
             llmEnabled: false,
-            refineCategories: layout.refine,
-            excludedCategories: layout.excluded,
+            refineCategories: brainRefine,
+            excludedCategories: [...layout.excluded, ...repoOwnedRefine],
           };
 
           // Probe the LLM provider ONCE at the top of the run. If unreachable,

@@ -100,6 +100,21 @@ test("CLI: --passes=unknown_pass still succeeds (unknown name → no passes run,
   }
 });
 
+test("CLI: --target=<shared> is refused with the brain-only deferral error", () => {
+  const dataDir = freshDataDir("consolidate-cli-target");
+  try {
+    ensureWikiInit(dataDir);
+    const r = runConsolidateCli(["--json", "--no-llm", "--target=/not/the/brain"], dataDir);
+    assert.equal(r.status, 0, `cli exited non-zero; stderr=${r.stderr}; stdout=${r.stdout}`);
+    const parsed = JSON.parse(r.stdout);
+    assert.equal(parsed.ok, false, "a shared target is refused");
+    assert.equal(parsed.error, "shared-target-consolidate-unsupported");
+    assert.match(parsed.message, /brain-only/);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 const { dataDir: mcpDataDir } = setupWorkspace();
 let client;
 let transport;
@@ -144,6 +159,18 @@ test("MCP: consolidate_memory call succeeds WITHOUT userRequested (not write-gat
   );
   assert.equal(res.ok, true, `consolidate_memory ok; raw=${JSON.stringify(res)}`);
   assert.equal(res.dryRun, true, "MCP dry-run flag honoured");
+});
+
+test("MCP: consolidate_memory with a shared/non-brain target is refused (deferred to v1.1)", async () => {
+  const res = parse(
+    await client.callTool({
+      name: "consolidate_memory",
+      arguments: { dryRun: true, llm: false, target: "/not/the/brain" },
+    }),
+  );
+  assert.equal(res.ok, false, `shared target refused; raw=${JSON.stringify(res)}`);
+  assert.equal(res.error, "shared-target-consolidate-unsupported");
+  assert.match(res.message, /brain-only/);
 });
 
 test("bootstrap.sh schedule_job invokes the cron-job CLI subcommand", () => {

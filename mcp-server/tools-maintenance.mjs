@@ -13,7 +13,7 @@ function registerMaintenanceTools(server) {
     {
       title: "Run search-driven memory consolidation",
       description:
-        "Run the AutoDream-style consolidation orchestrator. For each active leaf in self_improvement + knowledge, finds its similarity cluster via internal vector search, then applies deterministic passes (sha256 dedup, lesson-key dedup, cosine archive, staleness flag, orphan archive, compress-archived bodies, embedding-cache GC, index rebuild) and the LLM passes (merge near-duplicate bodies, refresh stale leaves) when enabled. Never hard-deletes; always uses disable_document. Throttled via `consolidate.intervalDays` in settings.yaml when ifDue=true. Internal writes are system-maintenance-tagged so the write-gate exempts them. Daily cron + the hook-less `consolidate` skill rule run this on a schedule; invoke manually only when the user asks. NOT subject to the L3 write-gate (it's a system tool, not a save). REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.",
+        "Run the AutoDream-style consolidation orchestrator. For each active leaf in self_improvement + knowledge, finds its similarity cluster via internal vector search, then applies deterministic passes (sha256 dedup, lesson-key dedup, cosine archive, staleness flag, orphan archive, compress-archived bodies, embedding-cache GC, index rebuild) and the LLM passes (merge near-duplicate bodies, refresh stale leaves) when enabled. Never hard-deletes; always uses disable_document. Throttled via `consolidate.intervalDays` in settings.yaml when ifDue=true. Internal writes are system-maintenance-tagged so the write-gate exempts them. Daily cron + the hook-less `consolidate` skill rule run this on a schedule; invoke manually only when the user asks. NOT subject to the L3 write-gate (it's a system tool, not a save). Consolidate is BRAIN-ONLY in v1: passing a `target` that resolves to a shared/non-brain mount is refused (shared-target consolidate is deferred to v1.1). REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.",
       inputSchema: {
         dryRun: z.boolean().optional(),
         ifDue: z.boolean().optional(),
@@ -21,12 +21,13 @@ function registerMaintenanceTools(server) {
         llm: z.boolean().optional(),
         passes: z.array(z.string().trim().min(1)).optional(),
         cosineThreshold: z.number().min(0).max(1).optional(),
+        target: z.string().trim().min(1).optional(),
         scopes: ScopesSchema,
       },
     },
     async (args) =>
       withToolScopes(args, async () => {
-        const { dryRun, ifDue, force, llm, passes, cosineThreshold } = args;
+        const { dryRun, ifDue, force, llm, passes, cosineThreshold, target } = args;
         try {
           // Per-call cosine override wrapped in an AsyncLocalStorage frame so
           // concurrent consolidate_memory MCP calls don't trample each other's
@@ -35,7 +36,7 @@ function registerMaintenanceTools(server) {
           const { consolidateMemory } = await import(
             `../scripts/consolidate.mjs?v=${getReloadSeq()}`
           );
-          const run = () => consolidateMemory({ dryRun, ifDue, force, llm, passes });
+          const run = () => consolidateMemory({ dryRun, ifDue, force, llm, passes, target });
           const result =
             cosineThreshold != null
               ? await withSettingsOverride(
