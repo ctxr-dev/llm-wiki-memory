@@ -1,18 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import {
-  MEMORY_DIR,
-  MEMORY_DATA_DIR,
-  COMPILE_STATE_PATH,
-  wikiRoot,
-  embedCachePath,
-} from "./lib/env.mjs";
-import { buildHosted } from "./lib/wiki-cli.mjs";
+import { MEMORY_DIR, COMPILE_STATE_PATH, wikiRoot, embedCachePath } from "./lib/env.mjs";
+import { indexRebuildAll } from "./lib/wiki-cli.mjs";
 import { out } from "./cli-io.mjs";
 
 // Materialise the hosted wiki: write the contract from the template (if
-// absent) into the canonical <wiki>/.layout/layout.yaml location, and run
-// the skill build. Idempotent.
+// absent) into the canonical <wiki>/.layout/layout.yaml location, then
+// regenerate the derived index.md tree. Idempotent.
 export function cmdInit() {
   const wiki = wikiRoot();
   fs.mkdirSync(wiki, { recursive: true });
@@ -46,12 +40,13 @@ export function cmdInit() {
     fs.copyFileSync(tmpl, contractPath);
   }
 
-  // Build needs a source folder; an empty one yields an empty wiki shell.
-  const src = path.join(MEMORY_DATA_DIR, ".build-src");
-  fs.mkdirSync(src, { recursive: true });
-
+  // A fresh clone of a shared wiki carries its tracked leaves but never its
+  // gitignored index.md, so the root index is absent. Regenerate the derived
+  // index tree LOCALLY — this only (re)writes index.md, it never moves,
+  // re-clusters, or deletes leaves. The whole-tree `build` convergence would
+  // clobber a freshly-cloned tree, so it must never run on this path.
   if (!fs.existsSync(path.join(wiki, "index.md"))) {
-    buildHosted({ wiki, source: src });
+    indexRebuildAll(wiki);
   }
   out({ ok: true, wiki, contract: contractPath, embedCache: embedCachePath() });
 }

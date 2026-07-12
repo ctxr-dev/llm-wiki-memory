@@ -407,8 +407,10 @@ if [[ "$COMMIT_MEMORY" -eq 1 ]]; then
   # the embed-gc and consolidate state files live under <data>/state/, not
   # <data>/src/. Ignore the whole `state/` directory so locks + journals +
   # the consolidate/embed-gc bookkeeping never enter git, regardless of which
-  # subsystem owns them.
-  for line in "/.llm-wiki-memory/src/node_modules" "/.llm-wiki-memory/index" "/.llm-wiki-memory/settings/.env" "/.llm-wiki-memory/settings/.env.bak" "/.llm-wiki-memory/state" "/.llm-wiki-memory/monitoring" "/.llm-wiki-memory/settings/self-observability.enabled"; do
+  # subsystem owns them. Wiki index.md files are DERIVED (regenerated locally on
+  # init/clone-adopt via index-rebuild), so they are ignored too — this keeps a
+  # clone free of them, which is what makes init's missing-index recovery fire.
+  for line in "/.llm-wiki-memory/src/node_modules" "/.llm-wiki-memory/index" "/.llm-wiki-memory/settings/.env" "/.llm-wiki-memory/settings/.env.bak" "/.llm-wiki-memory/state" "/.llm-wiki-memory/monitoring" "/.llm-wiki-memory/settings/self-observability.enabled" "/.llm-wiki-memory/wiki/**/index.md"; do
     grep -qxF "$line" "$GITIGNORE" || echo "$line" >> "$GITIGNORE"
   done
   log "Committing wiki content; ignoring node_modules / index / secrets only."

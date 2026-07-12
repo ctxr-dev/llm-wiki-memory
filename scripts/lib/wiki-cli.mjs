@@ -154,16 +154,6 @@ export function where() {
   return envelope;
 }
 
-// Build (materialize) a hosted wiki from `source` into `wiki`. The contract
-// file must already exist at <wiki>/.layout/layout.yaml.
-/**
- * @param {{ wiki: string, source: string }} args
- * @returns {SpawnResult}
- */
-export function buildHosted({ wiki, source }) {
-  return run(["build", source, "--layout-mode", "hosted", "--target", wiki]);
-}
-
 // Regenerate one directory's index.md (creating it if absent). Deterministic.
 /**
  * @param {string} dir

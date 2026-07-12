@@ -173,8 +173,7 @@ envelope; `validate` degrades gracefully by scraping `"N error(s)"`.
 | memory wrapper (`wiki-cli.mjs`) | engine subcommand | Why |
 |---|---|---|
 | `ensureIndexes` / `indexRebuildOne` | `index-rebuild-one <dir> <wiki>` | **Hot path** — regenerate `index.md` after every leaf write/move/delete (walks leaf→root, deepest-first, because a full rebuild won't create *new* nested indexes). |
-| `indexRebuildAll` | `index-rebuild <wiki>` | Refresh all existing indexes. |
-| `buildHosted` | `build … --layout-mode hosted --target <wiki>` | Materialize the wiki on install. |
+| `indexRebuildAll` | `index-rebuild <wiki>` | Refresh all existing indexes; also the install / clone-adopt path (regenerates the root index non-destructively — never the whole-tree `build` convergence, which would clobber a freshly-cloned shared wiki). |
 | `validate` | `validate <wiki>` | Structural invariant check. |
 | `heal` | `heal <wiki> --json` | Classify wiki state + name the next command. |
 | `rebuild` | `rebuild <wiki> --quality-mode …` | Structural rebalance (the anti-flat-pile optimizer). |
