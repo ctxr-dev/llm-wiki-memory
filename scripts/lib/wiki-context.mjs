@@ -22,6 +22,7 @@ import { scanScopes } from "./scope-scanner.mjs";
 import { loadMergedLayout, readMergedLayout } from "./layout-merge.mjs";
 import { embedBackend } from "./settings.mjs";
 import { withWikiRoot, embedCacheFor as embedCacheForRoot } from "./env.mjs";
+import { OwnershipSchema, OWNERSHIP, BRAIN_TARGET } from "./context/enums.mjs";
 
 /**
  * One level of a federated wiki stack.
@@ -50,7 +51,7 @@ export const WikiLevelSchema = z
   .object({
     root: z.string().min(1),
     mountDir: z.string().min(1),
-    ownership: z.enum(["repo", "wiki"]),
+    ownership: OwnershipSchema,
     depth: z.number().int().nonnegative(),
     projectModule: z.string(),
     layout: z.record(z.string(), z.unknown()),
@@ -210,15 +211,15 @@ export function resolveTargetLevel(ctx, target) {
   }
   const wanted = typeof target === "string" ? target.trim() : "";
   if (wanted === "") return ctx.writeDefault;
-  if (wanted === "brain") {
-    return ctx.levels.find((l) => l.ownership === "wiki") || ctx.brain;
+  if (wanted === BRAIN_TARGET) {
+    return ctx.levels.find((l) => l.ownership === OWNERSHIP.WIKI) || ctx.brain;
   }
   const match = ctx.levels.find((l) => sameDir(l.root, wanted) || sameDir(l.mountDir, wanted));
   if (match) return match;
   const known = ctx.levels.map((l) => l.projectModule || l.root).join(", ");
   throw new Error(
     `target ${JSON.stringify(target)} is not one of the active context levels (${known}). ` +
-      `Pass a level's root or mount directory, or "brain".`,
+      `Pass a level's root or mount directory, or "${BRAIN_TARGET}".`,
   );
 }
 

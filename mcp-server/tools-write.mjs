@@ -14,6 +14,13 @@ import {
 } from "./mcp-write-gate.mjs";
 import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
 import { withWriteTarget, annotateSharedWrite } from "./mcp-write-target.mjs";
+import {
+  MCP_OPS,
+  MCP_ACTOR,
+  PrioritySchema,
+  SupersedesActionSchema,
+  SELF_IMPROVEMENT,
+} from "../scripts/lib/context/enums.mjs";
 
 /** @typedef {import("@modelcontextprotocol/sdk/server/mcp.js").McpServer} McpServer */
 /** @typedef {import("../scripts/lib/types.mjs").MetadataInput} MetadataInput */
@@ -58,7 +65,7 @@ async function runFacetWrite(cfg, doWrite) {
       ? { metadata: md, remaps: [] }
       : getImpl().remapUnknownPathFacets(dataset, md);
     const result = /** @type {WriteResult} */ (
-      withWikiCommit({ op, actor: "mcp" }, () => doWrite(placed))
+      withWikiCommit({ op, actor: MCP_ACTOR }, () => doWrite(placed))
     );
     if (targetsGatedCategory(dataset, path)) {
       auditGatedL3({ tool, status: "accepted", userRequested, title: name, metadata: placed });
@@ -103,7 +110,7 @@ function registerWriteTools(server) {
             // Apply-strength. Gated saves are user-confirmed, so P0 is allowed
             // here (the user picks it in the propose-then-confirm). Defaults to
             // the rubric (P1 for a lesson) when omitted.
-            priority: z.enum(["P0", "P1", "P2"]).optional(),
+            priority: PrioritySchema.optional(),
           })
           // saveLesson needs a sub-module: `area`, or legacy `project_module` as a
           // fallback. Enforce here so clients get a validation error, not a runtime throw.
@@ -137,7 +144,7 @@ function registerWriteTools(server) {
           }
           return withWriteTarget(target, (level) => {
             const result = /** @type {WriteResult} */ (
-              withWikiCommit({ op: "mcp-save-lesson", actor: "mcp" }, () =>
+              withWikiCommit({ op: MCP_OPS.SAVE_LESSON, actor: MCP_ACTOR }, () =>
                 getImpl().saveLesson({ title, body, metadata, tags, evidence }),
               )
             );
@@ -194,12 +201,12 @@ function registerWriteTools(server) {
               userRequested,
               metadata,
               target,
-              op: "mcp-save",
+              op: MCP_OPS.SAVE,
               okFromCreated: true,
               refuseLabel:
-                dataset === "self_improvement"
-                  ? 'save_to_dataset(dataset="self_improvement")'
-                  : `save_to_dataset(path="${path}" lands in self_improvement)`,
+                dataset === SELF_IMPROVEMENT
+                  ? `save_to_dataset(dataset="${SELF_IMPROVEMENT}")`
+                  : `save_to_dataset(path="${path}" lands in ${SELF_IMPROVEMENT})`,
             },
             (placed) =>
               getImpl().saveDocument({
@@ -229,7 +236,7 @@ function registerWriteTools(server) {
         datasetId: z.string().trim().min(1),
         userRequested: z.boolean().optional(),
         supersedes: z.string().trim().min(1).optional(),
-        supersedesAction: z.enum(["disable", "delete"]).optional(),
+        supersedesAction: SupersedesActionSchema.optional(),
         metadata: MetadataSchema.optional(),
         path: z.string().trim().min(1).max(500).optional(),
         target: TargetSchema,
@@ -259,11 +266,11 @@ function registerWriteTools(server) {
               userRequested,
               metadata,
               target,
-              op: "mcp-write-memory",
+              op: MCP_OPS.WRITE_MEMORY,
               refuseLabel:
-                datasetId === "self_improvement"
-                  ? 'write_memory(datasetId="self_improvement")'
-                  : `write_memory(path="${path}" lands in self_improvement)`,
+                datasetId === SELF_IMPROVEMENT
+                  ? `write_memory(datasetId="${SELF_IMPROVEMENT}")`
+                  : `write_memory(path="${path}" lands in ${SELF_IMPROVEMENT})`,
             },
             (placed) =>
               getImpl().writeMemory({

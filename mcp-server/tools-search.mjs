@@ -4,6 +4,7 @@ import { getImpl } from "./mcp-reload.mjs";
 import { jsonResponse, errorResponse } from "./mcp-responses.mjs";
 import { FilterSchema } from "./mcp-schemas.mjs";
 import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
+import { SectionSchema } from "../scripts/lib/context/enums.mjs";
 
 /** @typedef {import("@modelcontextprotocol/sdk/server/mcp.js").McpServer} McpServer */
 /**
@@ -28,7 +29,7 @@ function registerSearchTools(server) {
         maxResults: z.number().int().min(1).max(50).optional(),
         maxChars: z.number().int().min(80).max(20000).optional(),
         fullContent: z.boolean().optional(),
-        sections: z.array(z.enum(["frontmatter", "body"])).optional(),
+        sections: z.array(SectionSchema).optional(),
         scopes: ScopesSchema,
       },
     },
@@ -84,7 +85,7 @@ function registerSearchTools(server) {
         maxResults: z.number().int().min(1).max(20).optional(),
         maxChars: z.number().int().min(80).max(20000).optional(),
         fullContent: z.boolean().optional(),
-        sections: z.array(z.enum(["frontmatter", "body"])).optional(),
+        sections: z.array(SectionSchema).optional(),
         scopes: ScopesSchema,
       },
     },

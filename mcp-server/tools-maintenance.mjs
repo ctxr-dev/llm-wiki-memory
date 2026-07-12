@@ -3,6 +3,14 @@ import { wikiRoot } from "../scripts/lib/env.mjs";
 import { getImpl, getReloadSeq } from "./mcp-reload.mjs";
 import { jsonResponse, errorResponse } from "./mcp-responses.mjs";
 import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
+import {
+  AuditClassSchema,
+  AUDIT_CLASS_VALUES,
+  AUDIT_CLASSES,
+  SELF_IMPROVEMENT,
+  KNOWLEDGE,
+  DEFAULT_TOPOLOGY_CATEGORY,
+} from "../scripts/lib/context/enums.mjs";
 
 /** @typedef {import("@modelcontextprotocol/sdk/server/mcp.js").McpServer} McpServer */
 
@@ -58,7 +66,7 @@ function registerMaintenanceTools(server) {
       description:
         "Walk categories for cleanup candidates; never mutates. Classes: duplicate-error-pattern (self_improvement lessons sharing an error_pattern), missing-metadata (lessons/bug-root-cause missing required fields). REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.",
       inputSchema: {
-        classes: z.array(z.enum(["duplicate-error-pattern", "missing-metadata"])).optional(),
+        classes: z.array(AuditClassSchema).optional(),
         scopes: ScopesSchema,
       },
     },
@@ -73,15 +81,15 @@ function registerMaintenanceTools(server) {
           // impl.* reference atomically, so they need no snapshot.)
           const api = getImpl();
           const requested = new Set(
-            classes && classes.length ? classes : ["duplicate-error-pattern", "missing-metadata"],
+            classes && classes.length ? classes : [...AUDIT_CLASS_VALUES],
           );
           const findings = [];
           const byErrorPattern = new Map();
-          for (const slot of ["self_improvement", "knowledge"]) {
+          for (const slot of [SELF_IMPROVEMENT, KNOWLEDGE]) {
             const { documents } = api.listDocuments({ datasetId: slot, enabled: "true" });
             for (const doc of documents) {
               const { metadata } = api.readDocument({ documentId: doc.id, datasetId: slot });
-              if (requested.has("missing-metadata")) {
+              if (requested.has(AUDIT_CLASSES.MISSING_METADATA)) {
                 const at = metadata.atom_type;
                 if (
                   (at === "self-improvement-lesson" || at === "bug-root-cause") &&
@@ -89,7 +97,7 @@ function registerMaintenanceTools(server) {
                     (at === "self-improvement-lesson" && !metadata.error_pattern))
                 ) {
                   findings.push({
-                    class: "missing-metadata",
+                    class: AUDIT_CLASSES.MISSING_METADATA,
                     slot,
                     documentId: doc.id,
                     atom_type: at,
@@ -97,8 +105,8 @@ function registerMaintenanceTools(server) {
                 }
               }
               if (
-                requested.has("duplicate-error-pattern") &&
-                slot === "self_improvement" &&
+                requested.has(AUDIT_CLASSES.DUPLICATE_ERROR_PATTERN) &&
+                slot === SELF_IMPROVEMENT &&
                 metadata.error_pattern
               ) {
                 const key = `${metadata.area || metadata.project_module || ""}:${metadata.error_pattern}`;
@@ -107,10 +115,10 @@ function registerMaintenanceTools(server) {
               }
             }
           }
-          if (requested.has("duplicate-error-pattern")) {
+          if (requested.has(AUDIT_CLASSES.DUPLICATE_ERROR_PATTERN)) {
             for (const [key, ids] of byErrorPattern) {
               if (ids.length > 1)
-                findings.push({ class: "duplicate-error-pattern", key, documentIds: ids });
+                findings.push({ class: AUDIT_CLASSES.DUPLICATE_ERROR_PATTERN, key, documentIds: ids });
             }
           }
           return jsonResponse({ ok: true, findings, total: findings.length });
@@ -189,7 +197,7 @@ function registerMaintenanceTools(server) {
             await import("../scripts/lib/topology-validator.mjs");
           const root = wiki_root || wikiRoot();
           const result = await validateTopologyAgainstSamples(root, {
-            categoryPath: category || "issues",
+            categoryPath: category || DEFAULT_TOPOLOGY_CATEGORY,
           });
           return jsonResponse(result);
         } catch (error) {
@@ -219,7 +227,9 @@ function registerMaintenanceTools(server) {
           const { loadTopology, pathFor, validateFacets, findUnresolvedPlaceholders } =
             await import("../scripts/lib/topology-runtime.mjs");
           const root = wiki_root || wikiRoot();
-          const topology = await loadTopology(root, { categoryPath: category || "issues" });
+          const topology = await loadTopology(root, {
+            categoryPath: category || DEFAULT_TOPOLOGY_CATEGORY,
+          });
           const v = validateFacets(topology, file_kind, facets || {});
           if (!v.ok) {
             return jsonResponse({

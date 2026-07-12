@@ -2,7 +2,7 @@
 // Both flush.mjs and compile.mjs import from here so the type list cannot
 // drift between extraction and promotion.
 
-export const ATOM_TYPES = new Set([
+export const ATOM_TYPES_LIST = Object.freeze([
   "decision",
   "bug-root-cause",
   "feedback-rule",
@@ -17,6 +17,7 @@ export const ATOM_TYPES = new Set([
   // tripping enum-validation paths.
   "plan",
 ]);
+export const ATOM_TYPES = new Set(ATOM_TYPES_LIST);
 
 // Atom-type -> default dataset slot when promoted by compile.
 // Inline `save_lesson` writes go directly to "self_improvement"; everything
@@ -38,7 +39,8 @@ export const ATOM_TYPE_TO_DATASET = {
 // contextual. P0 is SCARCE: never produced by the rubric or auto-assigned — it
 // enters only via an explicit user/human designation (e.g. a gated lesson), so
 // the "hard constraint" tier stays trustworthy.
-const PRIORITIES = new Set(["P0", "P1", "P2"]);
+export const PRIORITY_VALUES = Object.freeze(["P0", "P1", "P2"]);
+const PRIORITIES = new Set(PRIORITY_VALUES);
 const DEFAULT_PRIORITY = "P2";
 
 const PRIORITY_P1_TYPES = new Set([
@@ -109,7 +111,7 @@ export function enforceP0Scarcity(priority, p0Allowed) {
   return { priority, coerced: false };
 }
 
-export const TASK_TYPES = new Set([
+export const TASK_TYPES_LIST = Object.freeze([
   "planning",
   "implementation",
   "debugging",
@@ -119,6 +121,7 @@ export const TASK_TYPES = new Set([
   "docs",
   "unknown",
 ]);
+export const TASK_TYPES = new Set(TASK_TYPES_LIST);
 
 // Normalise an atom's metadata block into the exact fields Dify will store.
 // Tags array is joined with commas. Empty/absent fields are OMITTED so

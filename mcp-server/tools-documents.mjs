@@ -4,6 +4,7 @@ import { getImpl } from "./mcp-reload.mjs";
 import { jsonResponse, errorResponse } from "./mcp-responses.mjs";
 import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
 import { withWriteTarget } from "./mcp-write-target.mjs";
+import { MCP_OPS, MCP_ACTOR } from "../scripts/lib/context/enums.mjs";
 
 /** @typedef {import("@modelcontextprotocol/sdk/server/mcp.js").McpServer} McpServer */
 
@@ -37,7 +38,7 @@ function registerDocumentTools(server) {
         try {
           return withWriteTarget(target, () =>
             jsonResponse(
-              withWikiCommit({ op: "mcp-disable", actor: "mcp" }, () =>
+              withWikiCommit({ op: MCP_OPS.DISABLE, actor: MCP_ACTOR }, () =>
                 getImpl().disableDocument({ documentId, datasetId: dataset }),
               ),
             ),
@@ -68,7 +69,7 @@ function registerDocumentTools(server) {
         try {
           return withWriteTarget(target, () =>
             jsonResponse(
-              withWikiCommit({ op: "mcp-enable", actor: "mcp" }, () =>
+              withWikiCommit({ op: MCP_OPS.ENABLE, actor: MCP_ACTOR }, () =>
                 getImpl().enableDocument({ documentId, datasetId: dataset }),
               ),
             ),
@@ -99,7 +100,7 @@ function registerDocumentTools(server) {
         try {
           return withWriteTarget(target, () =>
             jsonResponse(
-              withWikiCommit({ op: "mcp-delete", actor: "mcp" }, () =>
+              withWikiCommit({ op: MCP_OPS.DELETE, actor: MCP_ACTOR }, () =>
                 getImpl().deleteDocument({ documentId, datasetId: dataset }),
               ),
             ),
@@ -131,7 +132,7 @@ function registerDocumentTools(server) {
         try {
           return withWriteTarget(target, () =>
             jsonResponse(
-              withWikiCommit({ op: "mcp-move", actor: "mcp" }, () =>
+              withWikiCommit({ op: MCP_OPS.MOVE, actor: MCP_ACTOR }, () =>
                 getImpl().moveDocument({ documentId, datasetId: dataset, toPath }),
               ),
             ),

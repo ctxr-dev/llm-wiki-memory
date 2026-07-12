@@ -32,9 +32,11 @@ import { slugify } from "./slug.mjs";
 // tools). When supplied, the override bypasses category facet derivation; the
 // only remaining role of CATEGORIES is to gate which slots are accepted as a
 // `datasetId`.
-const DEFAULT_CATEGORIES = Object.freeze([
-  "knowledge",
-  "self_improvement",
+export const KNOWLEDGE = "knowledge";
+export const SELF_IMPROVEMENT = "self_improvement";
+export const DEFAULT_CATEGORIES = Object.freeze([
+  KNOWLEDGE,
+  SELF_IMPROVEMENT,
   "plans",
   "investigations",
   "daily",

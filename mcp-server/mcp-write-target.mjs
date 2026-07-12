@@ -9,6 +9,7 @@
 
 import { getActiveWikiContext, resolveTargetLevel } from "../scripts/lib/wiki-context.mjs";
 import { withWikiRoot } from "../scripts/lib/env.mjs";
+import { OWNERSHIP } from "../scripts/lib/context/enums.mjs";
 
 /** @typedef {import("../scripts/lib/wiki-context.mjs").WikiLevel} WikiLevel */
 
@@ -42,7 +43,7 @@ export function withWriteTarget(target, fn) {
  * @returns {Record<string, unknown>}
  */
 export function annotateSharedWrite(level, result) {
-  if (!level || level.ownership !== "repo") return result;
+  if (!level || level.ownership !== OWNERSHIP.REPO) return result;
   const created = /** @type {{ document?: { id?: string } }} */ (result?.created);
   const rel = created && created.document ? created.document.id : undefined;
   const repo = level.projectModule || level.mountDir;

@@ -6,6 +6,7 @@ import { placementTargetsCategory } from "../scripts/lib/gate-target.mjs";
 import { loadTopology, parsePath } from "../scripts/lib/topology-runtime.mjs";
 import { getImpl } from "./mcp-reload.mjs";
 import { jsonResponse } from "./mcp-responses.mjs";
+import { PLAN_SUFFIX, KIND, SELF_IMPROVEMENT } from "../scripts/lib/context/enums.mjs";
 
 /** @typedef {import("../scripts/lib/types.mjs").MetadataInput} MetadataInput */
 /** @typedef {import("../scripts/lib/types.mjs").Priority} Priority */
@@ -47,7 +48,7 @@ async function assertTopologyPathValid({ dataset, name, path: placePath }) {
       `path "${placePath}" does not match the "${dataset}" topology in .layout/layout.yaml (no file_kind parses ${rel}).`,
     );
   }
-  const kind = safeName.endsWith(".plan.md") ? "plan" : "knowledge";
+  const kind = safeName.endsWith(PLAN_SUFFIX) ? KIND.PLAN : KIND.KNOWLEDGE;
   if (parsed.kind !== kind) {
     throw new Error(
       `path "${placePath}" resolves to topology kind "${parsed.kind}", but leaf name "${safeName}" implies "${kind}".`,
@@ -83,8 +84,8 @@ function refuseWriteGate(toolName) {
  * @returns {boolean}
  */
 function targetsGatedCategory(dataset, placementOverride) {
-  if (dataset === "self_improvement") return true;
-  return placementTargetsCategory(placementOverride, "self_improvement");
+  if (dataset === SELF_IMPROVEMENT) return true;
+  return placementTargetsCategory(placementOverride, SELF_IMPROVEMENT);
 }
 
 // Append an L3 audit record for a gated-category decision. Best-effort: the

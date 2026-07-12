@@ -2,6 +2,7 @@ import path from "node:path";
 import { wikiRoot } from "./lib/env.mjs";
 import { validate } from "./lib/wiki-cli.mjs";
 import { out } from "./cli-io.mjs";
+import { DEFAULT_TOPOLOGY_CATEGORY } from "./lib/context/enums.mjs";
 
 export function handleValidate() {
   return out(validate(wikiRoot()));
@@ -12,7 +13,7 @@ export async function handleValidateTopology(rest) {
   const { validateTopologyAgainstSamples, formatValidationReport } =
     await import("./lib/topology-validator.mjs");
   const target = rest[0] || wikiRoot();
-  const category = rest[1] || "issues";
+  const category = rest[1] || DEFAULT_TOPOLOGY_CATEGORY;
   const result = await validateTopologyAgainstSamples(target, { categoryPath: category });
   process.stdout.write(`validate-topology on ${target} (category=${category}):\n`);
   process.stdout.write(formatValidationReport(result));
@@ -37,7 +38,7 @@ export async function handleTestPathCompiler(rest) {
   // unresolved placeholders.
   const { loadTopology, pathFor, validateFacets, findUnresolvedPlaceholders } =
     await import("./lib/topology-runtime.mjs");
-  let categoryPath = "issues";
+  let categoryPath = DEFAULT_TOPOLOGY_CATEGORY;
   let wikiOverride = null;
   /** @type {string[]} */
   const fkArgs = [];

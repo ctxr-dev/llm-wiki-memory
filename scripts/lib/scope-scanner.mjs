@@ -15,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { MEMORY_DATA_DIR, defaultProjectModule } from "./env.mjs";
+import { OWNERSHIP } from "./context/enums.mjs";
 
 const MOUNT_DIRNAME = ".llm-wiki-memory";
 const WIKI_DIRNAME = "wiki";
@@ -121,7 +122,7 @@ function walkScope(scope, homeReal, brainRootKey, out) {
         out.set(key, {
           mountDir: dir,
           root,
-          ownership: "repo",
+          ownership: OWNERSHIP.REPO,
           projectModule: path.basename(dir),
           depth: 0,
         });
@@ -173,7 +174,7 @@ export function scanScopes(scopes, { home = os.homedir(), brainDataDir = MEMORY_
   const brain = {
     mountDir: brainMountDir,
     root: brainRoot,
-    ownership: "wiki",
+    ownership: OWNERSHIP.WIKI,
     projectModule: defaultProjectModule() || path.basename(brainMountDir),
     depth: 0,
   };

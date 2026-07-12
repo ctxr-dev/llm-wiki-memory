@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PrioritySchema } from "../scripts/lib/context/enums.mjs";
 
 const FilterSchema = z
   .object({
@@ -25,7 +26,7 @@ const MetadataSchema = z
     // when absent). P0 is scarce: a non-gated write requesting P0 without an
     // explicit user/maintenance consent signal is coerced to P1 (see
     // guardScarcePriority).
-    priority: z.enum(["P0", "P1", "P2"]).optional(),
+    priority: PrioritySchema.optional(),
   })
   .partial();
 
