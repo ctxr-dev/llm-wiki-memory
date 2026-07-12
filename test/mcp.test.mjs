@@ -180,7 +180,10 @@ test("save_to_dataset rejects an off-vocabulary task_type with an actionable env
   const env = parse(res);
   assert.equal(env.ok, false);
   assert.equal(env.field, "task_type");
-  assert.ok(Array.isArray(env.allowed) && env.allowed.includes("debugging"), "envelope lists allowed");
+  assert.ok(
+    Array.isArray(env.allowed) && env.allowed.includes("debugging"),
+    "envelope lists allowed",
+  );
 });
 
 test("save_to_dataset rejects an undeclared dataset with an actionable envelope", async () => {
@@ -242,6 +245,34 @@ test("move_document refuses a facet-category free-path move (structured, no cras
   );
   assert.equal(res.ok, false, "facet move refused, not thrown");
   assert.match(res.reason, /facet/, `structured refusal reason: ${JSON.stringify(res)}`);
+});
+
+test("audit_memory groups two same-key lessons into a duplicate-error-pattern finding (dispatchAudit)", async () => {
+  // Seed two DISTINCT-title self_improvement lessons that share area+error_pattern,
+  // so dispatchAudit's byErrorPattern grouping + the ids.length>1 check fire. A
+  // unique error_pattern isolates this finding from other lessons in the wiki.
+  const lesson = (title) => ({
+    title,
+    body: `Audit probe ${title}: same area+error_pattern so the duplicate class groups them.`,
+    userRequested: true,
+    metadata: { area: "auditprobe", task_type: "debugging", error_pattern: "audit-dup-ep-probe" },
+  });
+  for (const title of ["Audit probe A", "Audit probe B"]) {
+    const saved = parse(await client.callTool({ name: "save_lesson", arguments: lesson(title) }));
+    assert.equal(saved.ok, true, `seeded ${title}`);
+  }
+  const res = parse(
+    await client.callTool({
+      name: "audit_memory",
+      arguments: { classes: ["duplicate-error-pattern"] },
+    }),
+  );
+  assert.equal(res.ok, true);
+  const dup = res.findings.find(
+    (f) => f.class === "duplicate-error-pattern" && f.key === "auditprobe:audit-dup-ep-probe",
+  );
+  assert.ok(dup, `duplicate-error-pattern finding present: ${JSON.stringify(res.findings)}`);
+  assert.equal(dup.documentIds.length, 2, "both same-error_pattern lessons grouped");
 });
 
 test("search_memory excerpts oversized hit bodies at the MCP boundary; fullContent opts out", async () => {

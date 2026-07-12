@@ -5,14 +5,66 @@ import { jsonResponse, errorResponse } from "./mcp-responses.mjs";
 import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
 import {
   AuditClassSchema,
-  AUDIT_CLASS_VALUES,
   AUDIT_CLASSES,
   SELF_IMPROVEMENT,
   KNOWLEDGE,
   DEFAULT_TOPOLOGY_CATEGORY,
 } from "../scripts/lib/context/enums.mjs";
+import { parseConsolidateRequest, parseAuditRequest } from "../scripts/lib/context/maintenance.mjs";
 
 /** @typedef {import("@modelcontextprotocol/sdk/server/mcp.js").McpServer} McpServer */
+
+/**
+ * The audit-logic home (C13): walk self_improvement + knowledge for the
+ * requested cleanup classes and return the findings. Snapshots the impl ONCE —
+ * this is the only handler making MULTIPLE impl calls (listDocuments +
+ * readDocument in a loop), so pinning one version stops a mid-audit hot-reload
+ * from mixing functions across module versions.
+ * @param {string[]} classes
+ */
+function dispatchAudit(classes) {
+  const api = getImpl();
+  const requested = new Set(classes);
+  const findings = [];
+  const byErrorPattern = new Map();
+  for (const slot of [SELF_IMPROVEMENT, KNOWLEDGE]) {
+    const { documents } = api.listDocuments({ datasetId: slot, enabled: "true" });
+    for (const doc of documents) {
+      const { metadata } = api.readDocument({ documentId: doc.id, datasetId: slot });
+      if (requested.has(AUDIT_CLASSES.MISSING_METADATA)) {
+        const at = metadata.atom_type;
+        if (
+          (at === "self-improvement-lesson" || at === "bug-root-cause") &&
+          (!(metadata.area || metadata.project_module) ||
+            (at === "self-improvement-lesson" && !metadata.error_pattern))
+        ) {
+          findings.push({
+            class: AUDIT_CLASSES.MISSING_METADATA,
+            slot,
+            documentId: doc.id,
+            atom_type: at,
+          });
+        }
+      }
+      if (
+        requested.has(AUDIT_CLASSES.DUPLICATE_ERROR_PATTERN) &&
+        slot === SELF_IMPROVEMENT &&
+        metadata.error_pattern
+      ) {
+        const key = `${metadata.area || metadata.project_module || ""}:${metadata.error_pattern}`;
+        if (!byErrorPattern.has(key)) byErrorPattern.set(key, []);
+        byErrorPattern.get(key).push(doc.id);
+      }
+    }
+  }
+  if (requested.has(AUDIT_CLASSES.DUPLICATE_ERROR_PATTERN)) {
+    for (const [key, ids] of byErrorPattern) {
+      if (ids.length > 1)
+        findings.push({ class: AUDIT_CLASSES.DUPLICATE_ERROR_PATTERN, key, documentIds: ids });
+    }
+  }
+  return { ok: true, findings, total: findings.length };
+}
 
 /** @param {McpServer} server */
 function registerMaintenanceTools(server) {
@@ -35,8 +87,8 @@ function registerMaintenanceTools(server) {
     },
     async (args) =>
       withToolScopes(args, async () => {
-        const { dryRun, ifDue, force, llm, passes, cosineThreshold, target } = args;
         try {
+          const req = parseConsolidateRequest(args);
           // Per-call cosine override wrapped in an AsyncLocalStorage frame so
           // concurrent consolidate_memory MCP calls don't trample each other's
           // overrides. The frame disappears when the wrapped function resolves.
@@ -44,11 +96,19 @@ function registerMaintenanceTools(server) {
           const { consolidateMemory } = await import(
             `../scripts/consolidate.mjs?v=${getReloadSeq()}`
           );
-          const run = () => consolidateMemory({ dryRun, ifDue, force, llm, passes, target });
+          const run = () =>
+            consolidateMemory({
+              dryRun: req.dryRun,
+              ifDue: req.ifDue,
+              force: req.force,
+              llm: req.llm,
+              passes: req.passes,
+              target: req.target,
+            });
           const result =
-            cosineThreshold != null
+            req.cosineThreshold != null
               ? await withSettingsOverride(
-                  { consolidate: { cosineThreshold: Number(cosineThreshold) } },
+                  { consolidate: { cosineThreshold: req.cosineThreshold } },
                   run,
                 )
               : await run();
@@ -72,56 +132,9 @@ function registerMaintenanceTools(server) {
     },
     async (args) =>
       withToolScopes(args, async () => {
-        const { classes } = args;
         try {
-          // Snapshot the implementation for the whole audit: this is the only
-          // handler that makes MULTIPLE impl calls (listDocuments + readDocument in a
-          // loop), so pinning one version prevents a mid-audit hot-reload from mixing
-          // functions across module versions. (Single-call handlers capture their one
-          // impl.* reference atomically, so they need no snapshot.)
-          const api = getImpl();
-          const requested = new Set(
-            classes && classes.length ? classes : [...AUDIT_CLASS_VALUES],
-          );
-          const findings = [];
-          const byErrorPattern = new Map();
-          for (const slot of [SELF_IMPROVEMENT, KNOWLEDGE]) {
-            const { documents } = api.listDocuments({ datasetId: slot, enabled: "true" });
-            for (const doc of documents) {
-              const { metadata } = api.readDocument({ documentId: doc.id, datasetId: slot });
-              if (requested.has(AUDIT_CLASSES.MISSING_METADATA)) {
-                const at = metadata.atom_type;
-                if (
-                  (at === "self-improvement-lesson" || at === "bug-root-cause") &&
-                  (!(metadata.area || metadata.project_module) ||
-                    (at === "self-improvement-lesson" && !metadata.error_pattern))
-                ) {
-                  findings.push({
-                    class: AUDIT_CLASSES.MISSING_METADATA,
-                    slot,
-                    documentId: doc.id,
-                    atom_type: at,
-                  });
-                }
-              }
-              if (
-                requested.has(AUDIT_CLASSES.DUPLICATE_ERROR_PATTERN) &&
-                slot === SELF_IMPROVEMENT &&
-                metadata.error_pattern
-              ) {
-                const key = `${metadata.area || metadata.project_module || ""}:${metadata.error_pattern}`;
-                if (!byErrorPattern.has(key)) byErrorPattern.set(key, []);
-                byErrorPattern.get(key).push(doc.id);
-              }
-            }
-          }
-          if (requested.has(AUDIT_CLASSES.DUPLICATE_ERROR_PATTERN)) {
-            for (const [key, ids] of byErrorPattern) {
-              if (ids.length > 1)
-                findings.push({ class: AUDIT_CLASSES.DUPLICATE_ERROR_PATTERN, key, documentIds: ids });
-            }
-          }
-          return jsonResponse({ ok: true, findings, total: findings.length });
+          const req = parseAuditRequest(args);
+          return jsonResponse(dispatchAudit(req.classes));
         } catch (error) {
           return errorResponse(error);
         }

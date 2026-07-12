@@ -3,18 +3,71 @@ import { withWikiCommit } from "../scripts/lib/wiki-commit.mjs";
 import { getImpl } from "./mcp-reload.mjs";
 import { jsonResponse, errorResponse } from "./mcp-responses.mjs";
 import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
-import { withWriteTarget } from "./mcp-write-target.mjs";
+import { withResolvedWriteTarget } from "./mcp-write-target.mjs";
+import { getActiveWikiContext } from "../scripts/lib/wiki-context.mjs";
+import { parseMutateRequest, MUTATE_OP } from "../scripts/lib/context/mutate.mjs";
 import { MCP_OPS, MCP_ACTOR } from "../scripts/lib/context/enums.mjs";
 
 /** @typedef {import("@modelcontextprotocol/sdk/server/mcp.js").McpServer} McpServer */
+/** @typedef {import("../scripts/lib/context/mutate.mjs").MutateRequest} MutateRequest */
+/** @typedef {import("../scripts/lib/context/mutate.mjs").MutateOp} MutateOp */
 
 // A mutate resolves its RELATIVE `documentId` against the chosen `target`
-// level's root (via withWriteTarget's withWikiRoot frame), NOT the brain
+// level's root (via the resolved-target withWikiRoot frame), NOT the brain
 // default. Omitted -> the brain (writeDefault), so single-tree behaviour is
 // byte-identical.
 const TargetSchema = z.string().trim().min(1).optional();
 const TARGET_DESCRIPTION =
   ' Optional `target` selects which scope the relative `documentId` resolves against: a context level\'s wiki root or mount directory, or "brain". Omitted, it resolves against your brain (private memory).';
+
+const MUTATE_COMMIT = Object.freeze({
+  [MUTATE_OP.DISABLE]: MCP_OPS.DISABLE,
+  [MUTATE_OP.ENABLE]: MCP_OPS.ENABLE,
+  [MUTATE_OP.DELETE]: MCP_OPS.DELETE,
+  [MUTATE_OP.MOVE]: MCP_OPS.MOVE,
+});
+
+/**
+ * Run the store mutation for a parsed op. The store owns the faceted/topology/
+ * daily move refusal and the disable/enable/delete not-found handling — those
+ * stay runtime invariants; this only routes the op to its store method.
+ * @param {MutateOp} op
+ * @param {{ documentId: string, datasetId: string | undefined, toPath: string | undefined }} sel
+ */
+function storeMutate(op, { documentId, datasetId, toPath }) {
+  const impl = getImpl();
+  if (op === MUTATE_OP.DISABLE) return impl.disableDocument({ documentId, datasetId });
+  if (op === MUTATE_OP.ENABLE) return impl.enableDocument({ documentId, datasetId });
+  if (op === MUTATE_OP.DELETE) return impl.deleteDocument({ documentId, datasetId });
+  return impl.moveDocument({ documentId, datasetId, toPath: /** @type {string} */ (toPath) });
+}
+
+/**
+ * Dispatch a parsed MutateRequest into its already-resolved target: bind the
+ * withWikiRoot frame to the chosen level (so a relative `documentId` resolves
+ * against THAT level, not the brain), run the store mutation under one wiki
+ * commit, and shape the JSON response.
+ * @param {MutateRequest} req
+ */
+function dispatchMutate(req) {
+  const { op, dataset, documentId, toPath, target } = req;
+  return withResolvedWriteTarget(target, () =>
+    jsonResponse(
+      withWikiCommit({ op: MUTATE_COMMIT[op], actor: MCP_ACTOR }, () =>
+        storeMutate(op, { documentId, datasetId: dataset, toPath }),
+      ),
+    ),
+  );
+}
+
+/**
+ * @param {string} op
+ * @param {{ dataset?: string, documentId: string, toPath?: string, target?: string }} args
+ */
+function runMutate(op, args) {
+  const req = parseMutateRequest(getActiveWikiContext(), { op, ...args });
+  return dispatchMutate(req);
+}
 
 /** @param {McpServer} server */
 function registerDocumentTools(server) {
@@ -34,15 +87,8 @@ function registerDocumentTools(server) {
     },
     async (args) =>
       withToolScopes(args, async () => {
-        const { dataset, documentId, target } = args;
         try {
-          return withWriteTarget(target, () =>
-            jsonResponse(
-              withWikiCommit({ op: MCP_OPS.DISABLE, actor: MCP_ACTOR }, () =>
-                getImpl().disableDocument({ documentId, datasetId: dataset }),
-              ),
-            ),
-          );
+          return runMutate(MUTATE_OP.DISABLE, args);
         } catch (error) {
           return errorResponse(error);
         }
@@ -65,15 +111,8 @@ function registerDocumentTools(server) {
     },
     async (args) =>
       withToolScopes(args, async () => {
-        const { dataset, documentId, target } = args;
         try {
-          return withWriteTarget(target, () =>
-            jsonResponse(
-              withWikiCommit({ op: MCP_OPS.ENABLE, actor: MCP_ACTOR }, () =>
-                getImpl().enableDocument({ documentId, datasetId: dataset }),
-              ),
-            ),
-          );
+          return runMutate(MUTATE_OP.ENABLE, args);
         } catch (error) {
           return errorResponse(error);
         }
@@ -96,15 +135,8 @@ function registerDocumentTools(server) {
     },
     async (args) =>
       withToolScopes(args, async () => {
-        const { dataset, documentId, target } = args;
         try {
-          return withWriteTarget(target, () =>
-            jsonResponse(
-              withWikiCommit({ op: MCP_OPS.DELETE, actor: MCP_ACTOR }, () =>
-                getImpl().deleteDocument({ documentId, datasetId: dataset }),
-              ),
-            ),
-          );
+          return runMutate(MUTATE_OP.DELETE, args);
         } catch (error) {
           return errorResponse(error);
         }
@@ -128,15 +160,8 @@ function registerDocumentTools(server) {
     },
     async (args) =>
       withToolScopes(args, async () => {
-        const { dataset, documentId, toPath, target } = args;
         try {
-          return withWriteTarget(target, () =>
-            jsonResponse(
-              withWikiCommit({ op: MCP_OPS.MOVE, actor: MCP_ACTOR }, () =>
-                getImpl().moveDocument({ documentId, datasetId: dataset, toPath }),
-              ),
-            ),
-          );
+          return runMutate(MUTATE_OP.MOVE, args);
         } catch (error) {
           return errorResponse(error);
         }
