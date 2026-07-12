@@ -146,3 +146,30 @@ export function scopeClient(client, scopes) {
   };
   return client;
 }
+
+// Companion to scopeClient for the A6 nested wire: wrap the 3 write tools' FLAT
+// arguments into `{ write:{...}, gate:{userRequested} }`, keeping scopes/target
+// top-level. The gate-focused hardening suites send flat write payloads; this
+// adapts them to the nested schema without rewriting each call site. Compose
+// OUTSIDE scopeClient — nestClient(scopeClient(client, dirs)) — so scopes stays a
+// top-level sibling. Idempotent: a payload that already carries `write` passes
+// through untouched.
+export function nestClient(client) {
+  const WRITE_TOOLS = new Set(["save_lesson", "save_to_dataset", "write_memory"]);
+  const call = client.callTool.bind(client);
+  client.callTool = (params, ...rest) => {
+    const a = params && typeof params === "object" ? params.arguments : undefined;
+    if (a && typeof a === "object" && WRITE_TOOLS.has(params.name) && !("write" in a)) {
+      const { userRequested, target, scopes, ...write } = a;
+      const nested = {
+        write,
+        ...(scopes !== undefined ? { scopes } : {}),
+        ...(target !== undefined ? { target } : {}),
+        ...(userRequested !== undefined ? { gate: { userRequested } } : {}),
+      };
+      return call({ ...params, arguments: nested }, ...rest);
+    }
+    return call(params, ...rest);
+  };
+  return client;
+}

@@ -3,68 +3,11 @@ import { wikiRoot } from "../scripts/lib/env.mjs";
 import { getImpl, getReloadSeq } from "./mcp-reload.mjs";
 import { jsonResponse, errorResponse } from "./mcp-responses.mjs";
 import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
-import {
-  AuditClassSchema,
-  AUDIT_CLASSES,
-  SELF_IMPROVEMENT,
-  KNOWLEDGE,
-  DEFAULT_TOPOLOGY_CATEGORY,
-} from "../scripts/lib/context/enums.mjs";
+import { AuditClassSchema, DEFAULT_TOPOLOGY_CATEGORY } from "../scripts/lib/context/enums.mjs";
 import { parseConsolidateRequest, parseAuditRequest } from "../scripts/lib/context/maintenance.mjs";
+import { dispatchAudit } from "./mcp-audit-dispatch.mjs";
 
 /** @typedef {import("@modelcontextprotocol/sdk/server/mcp.js").McpServer} McpServer */
-
-/**
- * The audit-logic home (C13): walk self_improvement + knowledge for the
- * requested cleanup classes and return the findings. Snapshots the impl ONCE —
- * this is the only handler making MULTIPLE impl calls (listDocuments +
- * readDocument in a loop), so pinning one version stops a mid-audit hot-reload
- * from mixing functions across module versions.
- * @param {string[]} classes
- */
-function dispatchAudit(classes) {
-  const api = getImpl();
-  const requested = new Set(classes);
-  const findings = [];
-  const byErrorPattern = new Map();
-  for (const slot of [SELF_IMPROVEMENT, KNOWLEDGE]) {
-    const { documents } = api.listDocuments({ datasetId: slot, enabled: "true" });
-    for (const doc of documents) {
-      const { metadata } = api.readDocument({ documentId: doc.id, datasetId: slot });
-      if (requested.has(AUDIT_CLASSES.MISSING_METADATA)) {
-        const at = metadata.atom_type;
-        if (
-          (at === "self-improvement-lesson" || at === "bug-root-cause") &&
-          (!(metadata.area || metadata.project_module) ||
-            (at === "self-improvement-lesson" && !metadata.error_pattern))
-        ) {
-          findings.push({
-            class: AUDIT_CLASSES.MISSING_METADATA,
-            slot,
-            documentId: doc.id,
-            atom_type: at,
-          });
-        }
-      }
-      if (
-        requested.has(AUDIT_CLASSES.DUPLICATE_ERROR_PATTERN) &&
-        slot === SELF_IMPROVEMENT &&
-        metadata.error_pattern
-      ) {
-        const key = `${metadata.area || metadata.project_module || ""}:${metadata.error_pattern}`;
-        if (!byErrorPattern.has(key)) byErrorPattern.set(key, []);
-        byErrorPattern.get(key).push(doc.id);
-      }
-    }
-  }
-  if (requested.has(AUDIT_CLASSES.DUPLICATE_ERROR_PATTERN)) {
-    for (const [key, ids] of byErrorPattern) {
-      if (ids.length > 1)
-        findings.push({ class: AUDIT_CLASSES.DUPLICATE_ERROR_PATTERN, key, documentIds: ids });
-    }
-  }
-  return { ok: true, findings, total: findings.length };
-}
 
 /** @param {McpServer} server */
 function registerMaintenanceTools(server) {
@@ -74,21 +17,28 @@ function registerMaintenanceTools(server) {
       title: "Run search-driven memory consolidation",
       description:
         "Run the AutoDream-style consolidation orchestrator. For each active leaf in self_improvement + knowledge, finds its similarity cluster via internal vector search, then applies deterministic passes (sha256 dedup, lesson-key dedup, cosine archive, staleness flag, orphan archive, compress-archived bodies, embedding-cache GC, index rebuild) and the LLM passes (merge near-duplicate bodies, refresh stale leaves) when enabled. Never hard-deletes; always uses disable_document. Throttled via `consolidate.intervalDays` in settings.yaml when ifDue=true. Internal writes are system-maintenance-tagged so the write-gate exempts them. Daily cron + the hook-less `consolidate` skill rule run this on a schedule; invoke manually only when the user asks. NOT subject to the L3 write-gate (it's a system tool, not a save). Consolidate is BRAIN-ONLY in v1: passing a `target` that resolves to a shared/non-brain mount is refused (shared-target consolidate is deferred to v1.1). REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.",
-      inputSchema: {
-        dryRun: z.boolean().optional(),
-        ifDue: z.boolean().optional(),
-        force: z.boolean().optional(),
-        llm: z.boolean().optional(),
-        passes: z.array(z.string().trim().min(1)).optional(),
-        cosineThreshold: z.number().min(0).max(1).optional(),
-        target: z.string().trim().min(1).optional(),
-        scopes: ScopesSchema,
-      },
+      inputSchema: z
+        .object({
+          target: z.string().trim().min(1).optional(),
+          consolidate: z
+            .object({
+              dryRun: z.boolean().optional(),
+              ifDue: z.boolean().optional(),
+              force: z.boolean().optional(),
+              llm: z.boolean().optional(),
+              passes: z.array(z.string().trim().min(1)).optional(),
+              cosineThreshold: z.number().min(0).max(1).optional(),
+            })
+            .strict()
+            .optional(),
+          scopes: ScopesSchema,
+        })
+        .strict(),
     },
     async (args) =>
       withToolScopes(args, async () => {
         try {
-          const req = parseConsolidateRequest(args);
+          const req = parseConsolidateRequest({ ...(args.consolidate ?? {}), target: args.target });
           // Per-call cosine override wrapped in an AsyncLocalStorage frame so
           // concurrent consolidate_memory MCP calls don't trample each other's
           // overrides. The frame disappears when the wrapped function resolves.
@@ -125,15 +75,20 @@ function registerMaintenanceTools(server) {
       title: "Audit memory for stale or low-quality leaves (list-only)",
       description:
         "Walk categories for cleanup candidates; never mutates. Classes: duplicate-error-pattern (self_improvement lessons sharing an error_pattern), missing-metadata (lessons/bug-root-cause missing required fields). REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.",
-      inputSchema: {
-        classes: z.array(AuditClassSchema).optional(),
-        scopes: ScopesSchema,
-      },
+      inputSchema: z
+        .object({
+          audit: z
+            .object({ classes: z.array(AuditClassSchema).optional() })
+            .strict()
+            .optional(),
+          scopes: ScopesSchema,
+        })
+        .strict(),
     },
     async (args) =>
       withToolScopes(args, async () => {
         try {
-          const req = parseAuditRequest(args);
+          const req = parseAuditRequest(args.audit ?? {});
           return jsonResponse(dispatchAudit(req.classes));
         } catch (error) {
           return errorResponse(error);
@@ -147,7 +102,7 @@ function registerMaintenanceTools(server) {
       title: "Force-reload the layout contract + topology caches",
       description:
         "Clear the in-process layout/topology caches so the next operation re-reads <wiki>/.layout/layout.yaml and its sibling to_path/from_path .mjs helpers. Edits are normally picked up automatically (the caches revalidate by file mtime), so you only need this as an explicit escape hatch — e.g. after a copy/restore that preserved mtimes, or to force a refresh immediately. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.",
-      inputSchema: { scopes: ScopesSchema },
+      inputSchema: z.object({ scopes: ScopesSchema }).strict(),
     },
     async (args) =>
       withToolScopes(args, async () => {
@@ -169,11 +124,13 @@ function registerMaintenanceTools(server) {
       title: "Validate a wiki's layout contract YAML (schema + line:col errors)",
       description:
         "Parse and schema-validate a layout contract. Reports each problem with a line:column pointer (facet_rules without placement_facets, a vocabulary reference that isn't declared, a fallback that isn't a vocab member, bad topology block, etc.). Inputs: optional `path` (an explicit layout.yaml path) OR optional `wiki_root` (defaults to the env-resolved wiki; reads <wiki_root>/.layout/layout.yaml). Returns {ok, errors:[{line,col,message}]}. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.",
-      inputSchema: {
-        path: z.string().trim().min(1).optional(),
-        wiki_root: z.string().trim().min(1).optional(),
-        scopes: ScopesSchema,
-      },
+      inputSchema: z
+        .object({
+          path: z.string().trim().min(1).optional(),
+          wiki_root: z.string().trim().min(1).optional(),
+          scopes: ScopesSchema,
+        })
+        .strict(),
     },
     async (args) =>
       withToolScopes(args, async () => {
@@ -196,11 +153,13 @@ function registerMaintenanceTools(server) {
       title: "Pre-flight check that a topology's path compilers round-trip",
       description:
         "Iterates every declared file_kind in the topology, picks sample facets from facet_inputs (examples / enum-first / type defaults), runs pathFor with the round-trip safety net ON, and reports pass/fail per kind. Use BEFORE the first write against a layout to catch ambiguous from_path regexes, dropped facets, or no-placeholder templates. Inputs: optional `wiki_root` (defaults to env-resolved wiki) + optional `category` (defaults to 'issues'). REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.",
-      inputSchema: {
-        wiki_root: z.string().trim().min(1).optional(),
-        category: z.string().trim().min(1).optional(),
-        scopes: ScopesSchema,
-      },
+      inputSchema: z
+        .object({
+          wiki_root: z.string().trim().min(1).optional(),
+          category: z.string().trim().min(1).optional(),
+          scopes: ScopesSchema,
+        })
+        .strict(),
     },
     async (args) =>
       withToolScopes(args, async () => {
@@ -225,13 +184,15 @@ function registerMaintenanceTools(server) {
       title: "Test a custom-topology path compiler",
       description:
         "Dry-run a topology file_kind's path_compiler (or path_template) against caller-supplied facets and return the computed relative path. Use this to sanity-check a layout's topology block before writing real leaves; reports validation errors, runtime errors from the compiler, and any unresolved {variable} placeholders in the result. Reads <wiki>/.layout/layout.yaml (or the supplied `wiki_root` override). REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.",
-      inputSchema: {
-        file_kind: z.string().trim().min(1),
-        facets: z.record(z.string(), z.any()),
-        category: z.string().trim().min(1).optional(),
-        wiki_root: z.string().trim().min(1).optional(),
-        scopes: ScopesSchema,
-      },
+      inputSchema: z
+        .object({
+          file_kind: z.string().trim().min(1),
+          facets: z.record(z.string(), z.any()),
+          category: z.string().trim().min(1).optional(),
+          wiki_root: z.string().trim().min(1).optional(),
+          scopes: ScopesSchema,
+        })
+        .strict(),
     },
     async (args) =>
       withToolScopes(args, async () => {

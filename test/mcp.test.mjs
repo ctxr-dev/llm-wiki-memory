@@ -111,18 +111,19 @@ test("save_lesson then recall_lessons round-trips through the server", async () 
     await client.callTool({
       name: "save_lesson",
       arguments: {
-        title: "Prefer index-rebuild-one over full rebuild on hot paths",
-        body: "On hot paths, call index-rebuild-one per touched dir rather than a full rebuild.",
-        // Required by the L3 write-gate (memory-write hardening): caller
-        // must attest the user explicitly asked. In the round-trip test we
-        // simulate that explicit ask.
-        userRequested: true,
-        metadata: {
-          project_module: "testproj",
-          task_type: "implementation",
-          error_pattern: "full-rebuild-hot-path",
+        // gate.userRequested attests the user explicitly asked (the L3 write-gate
+        // refuses a self_improvement write without it); simulated here.
+        write: {
+          title: "Prefer index-rebuild-one over full rebuild on hot paths",
+          body: "On hot paths, call index-rebuild-one per touched dir rather than a full rebuild.",
+          metadata: {
+            project_module: "testproj",
+            task_type: "implementation",
+            error_pattern: "full-rebuild-hot-path",
+          },
+          tags: ["performance"],
         },
-        tags: ["performance"],
+        gate: { userRequested: true },
       },
     }),
   );
@@ -131,7 +132,7 @@ test("save_lesson then recall_lessons round-trips through the server", async () 
   const recalled = parse(
     await client.callTool({
       name: "recall_lessons",
-      arguments: { query: "rebuild hot path index", project_module: "testproj" },
+      arguments: { query: "rebuild hot path index", filters: { project_module: "testproj" } },
     }),
   );
   assert.ok(recalled.lessonHits >= 1, "recall finds the lesson");
@@ -142,10 +143,12 @@ test("save_to_dataset upserts and search_memory finds it", async () => {
     await client.callTool({
       name: "save_to_dataset",
       arguments: {
-        dataset: "knowledge",
-        name: "knowledge-mcp-note.md",
-        text: "# MCP note\n\nThe stdio server is registered in .mcp.json.",
-        metadata: { atom_type: "reference", project_module: "testproj" },
+        write: {
+          dataset: "knowledge",
+          name: "knowledge-mcp-note.md",
+          text: "# MCP note\n\nThe stdio server is registered in .mcp.json.",
+          metadata: { atom_type: "reference", project_module: "testproj" },
+        },
       },
     }),
   );
@@ -170,10 +173,12 @@ test("save_to_dataset rejects an off-vocabulary task_type with an actionable env
   const res = await client.callTool({
     name: "save_to_dataset",
     arguments: {
-      dataset: "knowledge",
-      name: "knowledge-bad-tasktype.md",
-      text: "# bad\n\noff-vocab task_type",
-      metadata: { task_type: "frobnicate" },
+      write: {
+        dataset: "knowledge",
+        name: "knowledge-bad-tasktype.md",
+        text: "# bad\n\noff-vocab task_type",
+        metadata: { task_type: "frobnicate" },
+      },
     },
   });
   assert.equal(res.isError, true, "off-vocab task_type is rejected");
@@ -189,7 +194,7 @@ test("save_to_dataset rejects an off-vocabulary task_type with an actionable env
 test("save_to_dataset rejects an undeclared dataset with an actionable envelope", async () => {
   const res = await client.callTool({
     name: "save_to_dataset",
-    arguments: { dataset: "no_such_category", name: "x.md", text: "# x\n\nbody" },
+    arguments: { write: { dataset: "no_such_category", name: "x.md", text: "# x\n\nbody" } },
   });
   assert.equal(res.isError, true, "undeclared dataset is rejected");
   const env = parse(res);
@@ -204,10 +209,12 @@ test("a gated no-consent write is refused GATE-FIRST, even with an off-vocab enu
   const res = await client.callTool({
     name: "save_to_dataset",
     arguments: {
-      dataset: "self_improvement",
-      name: "si-note.md",
-      text: "# si\n\nbody",
-      metadata: { area: "a", task_type: "frobnicate", error_pattern: "e" },
+      write: {
+        dataset: "self_improvement",
+        name: "si-note.md",
+        text: "# si\n\nbody",
+        metadata: { area: "a", task_type: "frobnicate", error_pattern: "e" },
+      },
     },
   });
   const env = parse(res);
@@ -228,10 +235,12 @@ test("move_document refuses a facet-category free-path move (structured, no cras
     await client.callTool({
       name: "save_to_dataset",
       arguments: {
-        dataset: "knowledge",
-        name: "knowledge-move-victim.md",
-        text: "# Move victim\n\nA facet leaf relocates by metadata, never a raw path.",
-        metadata: { atom_type: "reference", project_module: "testproj" },
+        write: {
+          dataset: "knowledge",
+          name: "knowledge-move-victim.md",
+          text: "# Move victim\n\nA facet leaf relocates by metadata, never a raw path.",
+          metadata: { atom_type: "reference", project_module: "testproj" },
+        },
       },
     }),
   );
@@ -240,7 +249,9 @@ test("move_document refuses a facet-category free-path move (structured, no cras
   const res = parse(
     await client.callTool({
       name: "move_document",
-      arguments: { documentId: id, toPath: "knowledge/elsewhere/knowledge-move-victim.md" },
+      arguments: {
+        select: { documentId: id, toPath: "knowledge/elsewhere/knowledge-move-victim.md" },
+      },
     }),
   );
   assert.equal(res.ok, false, "facet move refused, not thrown");
@@ -252,10 +263,12 @@ test("audit_memory groups two same-key lessons into a duplicate-error-pattern fi
   // so dispatchAudit's byErrorPattern grouping + the ids.length>1 check fire. A
   // unique error_pattern isolates this finding from other lessons in the wiki.
   const lesson = (title) => ({
-    title,
-    body: `Audit probe ${title}: same area+error_pattern so the duplicate class groups them.`,
-    userRequested: true,
-    metadata: { area: "auditprobe", task_type: "debugging", error_pattern: "audit-dup-ep-probe" },
+    write: {
+      title,
+      body: `Audit probe ${title}: same area+error_pattern so the duplicate class groups them.`,
+      metadata: { area: "auditprobe", task_type: "debugging", error_pattern: "audit-dup-ep-probe" },
+    },
+    gate: { userRequested: true },
   });
   for (const title of ["Audit probe A", "Audit probe B"]) {
     const saved = parse(await client.callTool({ name: "save_lesson", arguments: lesson(title) }));
@@ -264,7 +277,7 @@ test("audit_memory groups two same-key lessons into a duplicate-error-pattern fi
   const res = parse(
     await client.callTool({
       name: "audit_memory",
-      arguments: { classes: ["duplicate-error-pattern"] },
+      arguments: { audit: { classes: ["duplicate-error-pattern"] } },
     }),
   );
   assert.equal(res.ok, true);
@@ -283,10 +296,12 @@ test("search_memory excerpts oversized hit bodies at the MCP boundary; fullConte
     await client.callTool({
       name: "save_to_dataset",
       arguments: {
-        dataset: "knowledge",
-        name: "knowledge-huge-body.md",
-        text: huge,
-        metadata: { atom_type: "reference", project_module: "testproj" },
+        write: {
+          dataset: "knowledge",
+          name: "knowledge-huge-body.md",
+          text: huge,
+          metadata: { atom_type: "reference", project_module: "testproj" },
+        },
       },
     }),
   );
@@ -345,4 +360,153 @@ test("HARD FAIL: a tool call with missing or empty `scopes` is schema-rejected",
   // above is the scopes contract, not an unrelated error).
   const ok = await client.callTool({ name: "search_memory", arguments: { query: "anything" } });
   assert.notEqual(ok.isError, true, "a scoped search_memory call succeeds");
+});
+
+test("A6 hard-cut: a LEGACY FLAT save_to_dataset call is rejected (no nested `write`)", async () => {
+  const res = await client.callTool({
+    name: "save_to_dataset",
+    arguments: { dataset: "knowledge", name: "flat.md", text: "# flat\n\nbody" },
+  });
+  assert.equal(res.isError, true, "flat payload rejected by the strict nested schema");
+});
+
+test("A6 strict wire: an unknown TOP-LEVEL key (typo'd target) is rejected, never dropped to brain", async () => {
+  const res = await client.callTool({
+    name: "save_to_dataset",
+    arguments: {
+      write: { dataset: "knowledge", name: "typo-top.md", text: "# x\n\nbody" },
+      targett: "/somewhere",
+    },
+  });
+  assert.equal(res.isError, true, "a typo'd top-level key is rejected by the strict object");
+});
+
+test("A6 strict wire: an unknown NESTED key (write.typo) is rejected", async () => {
+  const res = await client.callTool({
+    name: "save_to_dataset",
+    arguments: {
+      write: { dataset: "knowledge", name: "typo-nested.md", text: "# x\n\nbody", typo: 1 },
+    },
+  });
+  assert.equal(res.isError, true, "a typo'd nested key is rejected by the strict sub-object");
+});
+
+test("A6 nested wire: a valid nested save_to_dataset + nested mutate round-trips", async () => {
+  const saved = parse(
+    await client.callTool({
+      name: "save_to_dataset",
+      arguments: {
+        write: {
+          dataset: "knowledge",
+          name: "a6-nested-ok.md",
+          text: "# nested\n\nA valid nested write over the A6 wire.",
+          metadata: { atom_type: "reference", project_module: "testproj" },
+        },
+      },
+    }),
+  );
+  assert.equal(saved.ok, true, "valid nested write accepted");
+  const id = saved.created.document.id;
+  const disabled = parse(
+    await client.callTool({
+      name: "disable_document",
+      arguments: { select: { dataset: "knowledge", documentId: id } },
+    }),
+  );
+  assert.equal(disabled.ok, true, "valid nested mutate (select) accepted");
+});
+
+test("A6 nested wire: save_to_dataset accepts the layout `subject` placement facet", async () => {
+  const saved = parse(
+    await client.callTool({
+      name: "save_to_dataset",
+      arguments: {
+        write: {
+          dataset: "knowledge",
+          name: "a6-subject.md",
+          text: "# subject\n\nA nested write carrying the subject placement facet.",
+          metadata: {
+            atom_type: "reference",
+            area: "observability",
+            subject: ["observability", "kamon"],
+          },
+        },
+      },
+    }),
+  );
+  assert.equal(saved.ok, true, "subject-carrying metadata is admitted by the strict schema");
+});
+
+test("A6 nested wire: write_memory supersede round-trips through the nested `write`", async () => {
+  const first = parse(
+    await client.callTool({
+      name: "write_memory",
+      arguments: {
+        write: {
+          datasetId: "knowledge",
+          name: "a6-super-old.md",
+          text: "# old\n\nThis leaf is superseded by the next nested write.",
+          metadata: { atom_type: "reference", project_module: "testproj" },
+        },
+      },
+    }),
+  );
+  assert.ok(first.created, "first leaf created via nested write_memory");
+  const superseded = parse(
+    await client.callTool({
+      name: "write_memory",
+      arguments: {
+        write: {
+          datasetId: "knowledge",
+          name: "a6-super-new.md",
+          text: "# new\n\nSupersedes the old leaf via the nested wire (supersedes/supersedesAction).",
+          supersedes: first.created.document.id,
+          supersedesAction: "disable",
+          metadata: { atom_type: "reference", project_module: "testproj" },
+        },
+      },
+    }),
+  );
+  assert.ok(
+    superseded.created,
+    "superseding leaf created; supersedes/supersedesAction reached the impl",
+  );
+});
+
+test("A6 nested wire: enable_document + delete_document accept the nested `select`", async () => {
+  const saved = parse(
+    await client.callTool({
+      name: "save_to_dataset",
+      arguments: {
+        write: {
+          dataset: "knowledge",
+          name: "a6-lifecycle.md",
+          text: "# life\n\nNested-select lifecycle probe for enable + delete.",
+          metadata: { atom_type: "reference", project_module: "testproj" },
+        },
+      },
+    }),
+  );
+  const id = saved.created.document.id;
+  const dis = parse(
+    await client.callTool({
+      name: "disable_document",
+      arguments: { select: { dataset: "knowledge", documentId: id } },
+    }),
+  );
+  assert.equal(dis.ok, true, "disable via nested select");
+  const en = parse(
+    await client.callTool({
+      name: "enable_document",
+      arguments: { select: { dataset: "knowledge", documentId: id } },
+    }),
+  );
+  assert.equal(en.ok, true, "enable via nested select");
+  const del = parse(
+    await client.callTool({
+      name: "delete_document",
+      arguments: { select: { dataset: "knowledge", documentId: id } },
+    }),
+  );
+  assert.equal(del.ok, true, "delete via nested select");
 });

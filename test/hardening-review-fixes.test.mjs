@@ -26,7 +26,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { setupWorkspace, cleanup, SRC, scopeClient } from "./harness.mjs";
+import { setupWorkspace, cleanup, SRC, scopeClient, nestClient } from "./harness.mjs";
 
 const CLI = path.join(SRC, "scripts", "cli.mjs");
 
@@ -218,7 +218,7 @@ let wmClient;
 before(async () => {
   wmGate = makeGateWorkspace();
   const conn = await connectMcp(wmGate.env);
-  wmClient = scopeClient(conn.client, [wmGate.gateDir]);
+  wmClient = nestClient(scopeClient(conn.client, [wmGate.gateDir]));
 });
 
 after(async () => {

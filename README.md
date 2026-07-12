@@ -225,7 +225,7 @@ The audit fields recorded on every leaf — `chunks_total`, `chunks_succeeded`, 
 ## Memory write-gate (read-freely, write-gated)
 ![](docs/assets/line-bold.svg)
 
-Self-improvement lessons are **propose-then-confirm**: the agent NEVER calls `save_lesson` (or `save_to_dataset(dataset="self_improvement", ...)` / `write_memory(datasetId="self_improvement", ...)`) on its own. It proposes the save in chat, waits for an explicit user yes in the same turn, then calls the tool with `userRequested: true`. The server refuses gated writes without the flag.
+Self-improvement lessons are **propose-then-confirm**: the agent NEVER calls `save_lesson` (or `save_to_dataset(dataset="self_improvement", ...)` / `write_memory(datasetId="self_improvement", ...)`) on its own. It proposes the save in chat, waits for an explicit user yes in the same turn, then calls the tool with `gate.userRequested: true`. The server refuses gated writes without the flag. (Tool inputs are a single nested context object: writes send `write:{...}` plus `gate:{userRequested}`, mutates send `select:{...}`; every schema is strict, so a typo'd or misplaced key is rejected rather than silently dropped.)
 
 Three enforcement layers, defence-in-depth:
 
@@ -421,7 +421,7 @@ The **LLM provider** that extracts typed atoms during capture / compile / consol
 | --- | --- |
 | `recall_lessons` | Recall self-improvement lessons before a task (fall-back ladder drops `error_pattern`, then `language`, then `task_type`). Pass `sections:["frontmatter"]` for a compact glance view (brief + metadata, no body). |
 | `search_memory` | Cross-category embedding search with metadata pre-filtering. Each hit is annotated with its `priority` (P0/P1/P2); relevance ranks first and priority breaks near-ties + decides which bodies survive. Hit bodies are excerpted at the response boundary (per-hit + total budget) so a broad query can't overflow; pass `fullContent: true` for whole bodies, or `sections:["frontmatter"]` for a compact glance view (brief + type + status/progress + tags + priority, no body) — ideal for a light session-start scan. |
-| `save_lesson` | **Write-gated.** Persist a lesson after explicit user yes (requires `userRequested: true`). |
+| `save_lesson` | **Write-gated.** Persist a lesson after explicit user yes (requires `gate.userRequested: true`). |
 | `save_to_dataset` | Upsert a plan, investigation, knowledge artefact, or other category by name. Write-gated when `dataset="self_improvement"`. |
 | `write_memory` | Create a memory leaf, optionally superseding an existing one. Write-gated when `datasetId="self_improvement"`. |
 | `consolidate_memory` | Run the deterministic + LLM consolidation passes. System-maintenance; not write-gated. |

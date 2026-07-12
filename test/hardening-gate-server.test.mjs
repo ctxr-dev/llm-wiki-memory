@@ -6,7 +6,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { SRC, scopeClient } from "./harness.mjs";
+import { SRC, scopeClient, nestClient } from "./harness.mjs";
 import { withSystemMaintenance, isSystemMaintenance } from "../scripts/lib/maintenance-tag.mjs";
 
 // The MCP server child process MUST be spawned with the env vars it should see;
@@ -88,7 +88,7 @@ let gateOnClient;
 
 before(async () => {
   const { client } = await connectClient(gateOn.env);
-  gateOnClient = scopeClient(client, [gateOn.dataDir]);
+  gateOnClient = nestClient(scopeClient(client, [gateOn.dataDir]));
 });
 
 after(async () => {
@@ -449,7 +449,7 @@ let gateOffClient;
 
 before(async () => {
   const { client } = await connectClient(gateOff.env);
-  gateOffClient = scopeClient(client, [gateOff.dataDir]);
+  gateOffClient = nestClient(scopeClient(client, [gateOff.dataDir]));
 });
 
 after(async () => {

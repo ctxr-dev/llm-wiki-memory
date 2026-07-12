@@ -21,17 +21,19 @@ function registerSearchTools(server) {
       title: "Search project memory",
       description:
         'Search the local wiki memory and return scored chunks. Pass `filters` (atom_type, area, language, task_type, error_pattern, tags) to pre-filter by frontmatter metadata before embedding rank. `area` scopes to a sub-module. `datasets` accepts category names; default searches every category. project_module is the workspace identifier and is auto-injected when you pass `filters` (so results stay within this install). Hit bodies are EXCERPTED by default (~600 chars each + a total budget) so a broad query can\'t overflow the response; pass `fullContent:true` (or read a leaf by id) for whole bodies, or `maxChars` to tune the excerpt width. `sections` chooses what each hit returns: `["frontmatter"]` yields a compact glance view (brief + type + status/progress + tags + priority, NO body) — ideal when you only need to know what a hit IS without spending context on its body; `["body"]` (or omitting `sections`) returns the excerpted body as before; `["frontmatter","body"]` returns both. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.',
-      inputSchema: {
-        query: z.string().trim().min(1).max(1000),
-        datasets: z.array(z.string().trim().min(1)).optional(),
-        filters: FilterSchema.optional(),
-        scoreThreshold: z.number().min(0).max(1).optional(),
-        maxResults: z.number().int().min(1).max(50).optional(),
-        maxChars: z.number().int().min(80).max(20000).optional(),
-        fullContent: z.boolean().optional(),
-        sections: z.array(SectionSchema).optional(),
-        scopes: ScopesSchema,
-      },
+      inputSchema: z
+        .object({
+          query: z.string().trim().min(1).max(1000),
+          datasets: z.array(z.string().trim().min(1)).optional(),
+          filters: FilterSchema.optional(),
+          scoreThreshold: z.number().min(0).max(1).optional(),
+          maxResults: z.number().int().min(1).max(50).optional(),
+          maxChars: z.number().int().min(80).max(20000).optional(),
+          fullContent: z.boolean().optional(),
+          sections: z.array(SectionSchema).optional(),
+          scopes: ScopesSchema,
+        })
+        .strict(),
     },
     async (args) =>
       withToolScopes(args, async () => {
@@ -71,33 +73,38 @@ function registerSearchTools(server) {
     {
       title: "Recall relevant self-improvement lessons",
       description:
-        'BEFORE a non-trivial task, call this. It scopes to THIS workspace by default (so it returns hits without you guessing a module); pass `area` (the sub-module, e.g. frontend/billing/infra) to narrow, plus language/task_type (optional error_pattern). Broadens via a fall-back ladder (drop error_pattern, language, task_type, area, then project_module last) until enough hits; tags is never dropped. When includeKnowledge !== false, up to 2 bug-root-cause/feedback-rule knowledge atoms are appended. `sections:["frontmatter"]` returns a compact glance view (brief + type + status/progress + tags + priority, no body); omit it (or pass `["body"]`) for the excerpted body as before. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.',
-      inputSchema: {
-        query: z.string().trim().min(1).max(1000),
-        project_module: z.string().trim().min(1).optional(),
-        area: z.string().trim().min(1).optional(),
-        language: z.string().trim().min(1).optional(),
-        task_type: z.string().trim().min(1).optional(),
-        error_pattern: z.string().trim().min(1).optional(),
-        tags: z.string().trim().min(1).optional(),
-        includeKnowledge: z.boolean().optional(),
-        scoreThreshold: z.number().min(0).max(1).optional(),
-        maxResults: z.number().int().min(1).max(20).optional(),
-        maxChars: z.number().int().min(80).max(20000).optional(),
-        fullContent: z.boolean().optional(),
-        sections: z.array(SectionSchema).optional(),
-        scopes: ScopesSchema,
-      },
+        'BEFORE a non-trivial task, call this. It scopes to THIS workspace by default (so it returns hits without you guessing a module); nest facets under `filters:{ area, language, task_type, error_pattern }` to narrow — `area` is the sub-module (e.g. frontend/billing/infra). Broadens via a fall-back ladder (drop error_pattern, language, task_type, area, then project_module last) until enough hits; tags is never dropped. When includeKnowledge !== false, up to 2 bug-root-cause/feedback-rule knowledge atoms are appended. `sections:["frontmatter"]` returns a compact glance view (brief + type + status/progress + tags + priority, no body); omit it (or pass `["body"]`) for the excerpted body as before. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.',
+      inputSchema: z
+        .object({
+          query: z.string().trim().min(1).max(1000),
+          // Frontmatter facets nest under `filters` (matching search_memory);
+          // area scopes to a sub-module, project_module is auto-injected.
+          filters: FilterSchema.optional(),
+          includeKnowledge: z.boolean().optional(),
+          scoreThreshold: z.number().min(0).max(1).optional(),
+          maxResults: z.number().int().min(1).max(20).optional(),
+          maxChars: z.number().int().min(80).max(20000).optional(),
+          fullContent: z.boolean().optional(),
+          sections: z.array(SectionSchema).optional(),
+          scopes: ScopesSchema,
+        })
+        .strict(),
     },
     async (allArgs) =>
       withToolScopes(allArgs, async () => {
-        // `scopes` is consumed by withToolScopes above; strip it here so it is
-        // never forwarded to recallLessons as a stray filter field.
-        const { maxChars, fullContent, sections, scopes, ...args } = allArgs;
+        const { query, filters, includeKnowledge, scoreThreshold, maxResults } = allArgs;
+        const { maxChars, fullContent, sections } = allArgs;
         try {
           return jsonResponse(
             clampSearchResponse(
-              await getImpl().recallLessons({ ...args, sections }),
+              await getImpl().recallLessons({
+                query,
+                ...(filters ?? {}),
+                includeKnowledge,
+                scoreThreshold,
+                maxResults,
+                sections,
+              }),
               /** @type {ClampOptions} */ ({
                 maxChars,
                 fullContent,

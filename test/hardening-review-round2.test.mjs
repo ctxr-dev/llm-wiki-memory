@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { setupWorkspace, cleanup, SRC, runScript, scopeClient } from "./harness.mjs";
+import { setupWorkspace, cleanup, SRC, runScript, scopeClient, nestClient } from "./harness.mjs";
 
 const { dataDir } = setupWorkspace();
 after(() => cleanup(dataDir));
@@ -138,7 +138,7 @@ test("O-1: save_to_dataset(dataset='knowledge', path='self_improvement/...') is 
   });
   try {
     await client.connect(transport);
-    scopeClient(client, [tmp.dataDir]);
+    nestClient(scopeClient(client, [tmp.dataDir]));
     runScript("scripts/cli.mjs", ["init"], { env: { MEMORY_DATA_DIR: tmp.dataDir } });
     const res = await client.callTool({
       name: "save_to_dataset",
@@ -172,7 +172,7 @@ test("O-1: same call with userRequested:true succeeds (and lands under self_impr
   });
   try {
     await client.connect(transport);
-    scopeClient(client, [tmp.dataDir]);
+    nestClient(scopeClient(client, [tmp.dataDir]));
     runScript("scripts/cli.mjs", ["init"], { env: { MEMORY_DATA_DIR: tmp.dataDir } });
     const res = await client.callTool({
       name: "save_to_dataset",
@@ -203,7 +203,7 @@ test("O-1: save_to_dataset(dataset='knowledge', path='knowledge/...') is NOT gat
   });
   try {
     await client.connect(transport);
-    scopeClient(client, [tmp.dataDir]);
+    nestClient(scopeClient(client, [tmp.dataDir]));
     runScript("scripts/cli.mjs", ["init"], { env: { MEMORY_DATA_DIR: tmp.dataDir } });
     const res = await client.callTool({
       name: "save_to_dataset",

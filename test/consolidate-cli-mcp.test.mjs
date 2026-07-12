@@ -154,7 +154,7 @@ test("MCP: consolidate_memory call succeeds WITHOUT userRequested (not write-gat
   const res = parse(
     await client.callTool({
       name: "consolidate_memory",
-      arguments: { dryRun: true, llm: false },
+      arguments: { consolidate: { dryRun: true, llm: false } },
     }),
   );
   assert.equal(res.ok, true, `consolidate_memory ok; raw=${JSON.stringify(res)}`);
@@ -165,7 +165,7 @@ test("MCP: consolidate_memory with a shared/non-brain target is refused (deferre
   const res = parse(
     await client.callTool({
       name: "consolidate_memory",
-      arguments: { dryRun: true, llm: false, target: "/not/the/brain" },
+      arguments: { consolidate: { dryRun: true, llm: false }, target: "/not/the/brain" },
     }),
   );
   assert.equal(res.ok, false, `shared target refused; raw=${JSON.stringify(res)}`);

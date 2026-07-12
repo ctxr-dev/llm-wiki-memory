@@ -180,7 +180,7 @@ after(async () => {
 });
 
 async function save(args) {
-  return client.callTool({ name: "save_to_dataset", arguments: args });
+  return client.callTool({ name: "save_to_dataset", arguments: { write: args } });
 }
 
 test("MCP save_to_dataset(issues) with NO path is rejected with an actionable message", async () => {

@@ -18,7 +18,23 @@ import { MCP_OPS, MCP_ACTOR } from "../scripts/lib/context/enums.mjs";
 // byte-identical.
 const TargetSchema = z.string().trim().min(1).optional();
 const TARGET_DESCRIPTION =
-  ' Optional `target` selects which scope the relative `documentId` resolves against: a context level\'s wiki root or mount directory, or "brain". Omitted, it resolves against your brain (private memory).';
+  ' Optional top-level `target` selects which scope the relative `select.documentId` resolves against: a context level\'s wiki root or mount directory, or "brain". Omitted, it resolves against your brain (private memory). Inputs are a single nested context object; unknown keys are rejected.';
+
+// The leaf a mutate acts on. disable/enable/delete need `dataset` + `documentId`;
+// move needs `documentId` + `toPath` and an OPTIONAL `dataset`.
+const SelectSchema = z
+  .object({
+    dataset: z.string().trim().min(1),
+    documentId: z.string().trim().min(1),
+  })
+  .strict();
+const MoveSelectSchema = z
+  .object({
+    documentId: z.string().trim().min(1),
+    toPath: z.string().trim().min(1).max(500),
+    dataset: z.string().trim().min(1).optional(),
+  })
+  .strict();
 
 const MUTATE_COMMIT = Object.freeze({
   [MUTATE_OP.DISABLE]: MCP_OPS.DISABLE,
@@ -62,10 +78,17 @@ function dispatchMutate(req) {
 
 /**
  * @param {string} op
- * @param {{ dataset?: string, documentId: string, toPath?: string, target?: string }} args
+ * @param {{ select: { dataset?: string, documentId: string, toPath?: string }, target?: string }} args
  */
 function runMutate(op, args) {
-  const req = parseMutateRequest(getActiveWikiContext(), { op, ...args });
+  const { select, target } = args;
+  const req = parseMutateRequest(getActiveWikiContext(), {
+    op,
+    dataset: select.dataset,
+    documentId: select.documentId,
+    toPath: select.toPath,
+    target,
+  });
   return dispatchMutate(req);
 }
 
@@ -78,12 +101,9 @@ function registerDocumentTools(server) {
       description:
         "Soft-delete: mark a leaf archived so search_memory / recall_lessons skip it, while keeping it on disk and in git history. Reversible via enable_document. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki." +
         TARGET_DESCRIPTION,
-      inputSchema: {
-        dataset: z.string().trim().min(1),
-        documentId: z.string().trim().min(1),
-        target: TargetSchema,
-        scopes: ScopesSchema,
-      },
+      inputSchema: z
+        .object({ target: TargetSchema, select: SelectSchema, scopes: ScopesSchema })
+        .strict(),
     },
     async (args) =>
       withToolScopes(args, async () => {
@@ -102,12 +122,9 @@ function registerDocumentTools(server) {
       description:
         "Symmetric counterpart to disable_document: brings an archived leaf back into recall results. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki." +
         TARGET_DESCRIPTION,
-      inputSchema: {
-        dataset: z.string().trim().min(1),
-        documentId: z.string().trim().min(1),
-        target: TargetSchema,
-        scopes: ScopesSchema,
-      },
+      inputSchema: z
+        .object({ target: TargetSchema, select: SelectSchema, scopes: ScopesSchema })
+        .strict(),
     },
     async (args) =>
       withToolScopes(args, async () => {
@@ -126,12 +143,9 @@ function registerDocumentTools(server) {
       description:
         "Permanently remove a leaf file. Prefer disable_document unless you are sure. Primary safe use: clean up a stale plan-<old-slug>.md after a rename. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki." +
         TARGET_DESCRIPTION,
-      inputSchema: {
-        dataset: z.string().trim().min(1),
-        documentId: z.string().trim().min(1),
-        target: TargetSchema,
-        scopes: ScopesSchema,
-      },
+      inputSchema: z
+        .object({ target: TargetSchema, select: SelectSchema, scopes: ScopesSchema })
+        .strict(),
     },
     async (args) =>
       withToolScopes(args, async () => {
@@ -148,15 +162,11 @@ function registerDocumentTools(server) {
     {
       title: "Relocate a curated leaf to a new path (preserves content, embedding, indexes)",
       description:
-        'Move a leaf to a new path within the CURATED human zone, preserving its content + embedding and refreshing both the source and destination index.md. Free-path moves are only for curated (consolidate:none, non-facet) categories — facet categories relocate via metadata (save_to_dataset / write_memory), and topology categories via a compiler-derived path; moves into/out of those are refused. Also refuses a destination collision or a missing source. toPath is a wiki-relative dir + filename, e.g. "Notes/Testing/My Note.md". REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.' +
+        'Move a leaf to a new path within the CURATED human zone, preserving its content + embedding and refreshing both the source and destination index.md. Send `select:{documentId, toPath, dataset?}`. Free-path moves are only for curated (consolidate:none, non-facet) categories — facet categories relocate via metadata (save_to_dataset / write_memory), and topology categories via a compiler-derived path; moves into/out of those are refused. Also refuses a destination collision or a missing source. select.toPath is a wiki-relative dir + filename, e.g. "Notes/Testing/My Note.md". REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.' +
         TARGET_DESCRIPTION,
-      inputSchema: {
-        dataset: z.string().trim().min(1).optional(),
-        documentId: z.string().trim().min(1),
-        toPath: z.string().trim().min(1).max(500),
-        target: TargetSchema,
-        scopes: ScopesSchema,
-      },
+      inputSchema: z
+        .object({ target: TargetSchema, select: MoveSelectSchema, scopes: ScopesSchema })
+        .strict(),
     },
     async (args) =>
       withToolScopes(args, async () => {

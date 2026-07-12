@@ -15,13 +15,18 @@ import {
 
 /** @typedef {import("@modelcontextprotocol/sdk/server/mcp.js").McpServer} McpServer */
 
-// Shared schema for the OPTIONAL write target: the scope/root a write lands in.
-// Omitted -> the brain (writeDefault). Accepts a context level's `root` or
-// `mountDir`, or the literal "brain".
+// Shared OPTIONAL write target: the scope/root a write lands in. Omitted -> the
+// brain (writeDefault). Accepts a context level's `root` or `mountDir`, or "brain".
 const TargetSchema = z.string().trim().min(1).optional();
+// The consent envelope. `userRequested` attests an in-turn user OK; the L3 gate
+// refuses a self_improvement write without it. Required for save_lesson (always
+// gated), optional for the other writes (gated only for self_improvement).
+const GateSchema = z.object({ userRequested: z.boolean() }).strict();
 
 const TARGET_DESCRIPTION =
-  ' Optional `target` routes the write into a chosen scope: pass a context level\'s wiki root or mount directory, or "brain". Omitted, the write lands in your brain (private memory). NEVER write to a shared repo without the user choosing it: ASK first, then pass that repo as `target`; a shared write is only staged in the repo working tree (the engine runs no git) — tell the user to commit and push it.';
+  ' Optional top-level `target` routes the write into a chosen scope: pass a context level\'s wiki root or mount directory, or "brain". Omitted, the write lands in your brain (private memory). NEVER write to a shared repo without the user choosing it: ASK first, then pass that repo as `target`; a shared write is only staged in the repo working tree (the engine runs no git) — tell the user to commit and push it.';
+
+const NESTED_NOTE = " Inputs are a single nested context object; unknown keys are rejected.";
 
 /** @param {McpServer} server */
 function registerWriteTools(server) {
@@ -30,45 +35,46 @@ function registerWriteTools(server) {
     {
       title: "Save a self-improvement lesson (write-gated)",
       description:
-        "Persist a self-improvement lesson into the self_improvement category. WRITE-GATED: propose to the user in chat first, and only call AFTER explicit yes in this turn — passing `userRequested:true`. The server refuses without that flag. metadata.area, task_type, and error_pattern are required; project_module is stamped to the workspace automatically. Same title overwrites in place. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki." +
+        "Persist a self-improvement lesson into the self_improvement category. Send `write:{title, body, metadata, tags?, evidence?}` and `gate:{userRequested}`. WRITE-GATED: propose to the user in chat first, and only call AFTER explicit yes in this turn — passing `gate.userRequested:true`. The server refuses without it. write.metadata.area, task_type, and error_pattern are required; project_module is stamped to the workspace automatically. Same title overwrites in place. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki." +
+        NESTED_NOTE +
         TARGET_DESCRIPTION,
-      inputSchema: {
-        title: z.string().trim().min(1).max(180),
-        body: z.string().trim().min(1).max(10_000),
-        target: TargetSchema,
-        // REQUIRED: set to true ONLY when the user explicitly asked to save in
-        // this turn. The L2 PreToolUse hook in Claude Code also returns "ask"
-        // when the latest user turn has no save phrase — but this server-side
-        // check is the airtight layer because it covers Cursor / Codex too.
-        userRequested: z.boolean(),
-        metadata: z
-          .object({
-            area: z.string().trim().min(1).optional(),
-            project_module: z.string().trim().min(1).optional(),
-            task_type: z.string().trim().min(1),
-            error_pattern: z.string().trim().min(1),
-            language: z.string().trim().optional(),
-            tags: z.string().trim().optional(),
-            // Apply-strength. Gated saves are user-confirmed, so P0 is allowed
-            // here (the user picks it in the propose-then-confirm). Defaults to
-            // the rubric (P1 for a lesson) when omitted.
-            priority: PrioritySchema.optional(),
-          })
-          // saveLesson needs a sub-module: `area`, or legacy `project_module` as a
-          // fallback. Enforce here so clients get a validation error, not a runtime throw.
-          .refine((m) => Boolean(m.area || m.project_module), {
-            message:
-              "metadata.area (the sub-module; legacy metadata.project_module is accepted) is required",
-            path: ["area"],
-          }),
-        tags: z.array(z.string().trim().min(1)).optional(),
-        evidence: z.string().trim().max(500).optional(),
-        scopes: ScopesSchema,
-      },
+      inputSchema: z
+        .object({
+          target: TargetSchema,
+          write: z
+            .object({
+              title: z.string().trim().min(1).max(180),
+              body: z.string().trim().min(1).max(10_000),
+              metadata: z
+                .object({
+                  area: z.string().trim().min(1).optional(),
+                  project_module: z.string().trim().min(1).optional(),
+                  task_type: z.string().trim().min(1),
+                  error_pattern: z.string().trim().min(1),
+                  language: z.string().trim().optional(),
+                  tags: z.string().trim().optional(),
+                  priority: PrioritySchema.optional(),
+                })
+                .strict()
+                .refine((m) => Boolean(m.area || m.project_module), {
+                  message:
+                    "metadata.area (the sub-module; legacy metadata.project_module is accepted) is required",
+                  path: ["area"],
+                }),
+              tags: z.array(z.string().trim().min(1)).optional(),
+              evidence: z.string().trim().max(500).optional(),
+            })
+            .strict(),
+          gate: GateSchema,
+          scopes: ScopesSchema,
+        })
+        .strict(),
     },
     async (args) =>
       withToolScopes(args, async () => {
-        const { title, body, userRequested, metadata, tags, evidence, target } = args;
+        const { write, gate, target } = args;
+        const { title, body, metadata, tags, evidence } = write;
+        const userRequested = gate.userRequested;
         try {
           const refusal = gateRefusal({
             tool: "save_lesson",
@@ -104,24 +110,31 @@ function registerWriteTools(server) {
     {
       title: "Upsert a document into a named category",
       description:
-        'Write `text` as a wiki leaf with the given exact `name`, replacing any existing leaf in the category that has the same name. Use for plans, investigations, and knowledge artefacts. `dataset` is a category name (knowledge, plans, investigations, self_improvement, or any extra category declared in <wiki>/.layout/layout.yaml). Optional `metadata` applies filterable frontmatter. `path` is a relative directory under the wiki root (e.g. "issues/JIRA/DEV/129/95/7") that overrides facet-derived placement so the leaf is written verbatim at <path>/<name> (casing preserved). `path` is REQUIRED for any category with a `topology:` block in .layout/layout.yaml (e.g. tracker issues): consult the layout, pick the file_kind for your intent (plan vs knowledge), and compute the path from its required facets. A missing or topology-mismatched `path` for such a category is REFUSED. For default facet categories `path` is optional (placement is facet-derived). WRITE-GATED for dataset="self_improvement" only: pass `userRequested:true` after the user explicitly asks (propose-then-confirm); other datasets are not gated. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.' +
+        'Write `write.text` as a wiki leaf with the exact `write.name`, replacing any existing leaf in the category with the same name. Send `write:{dataset, name, text, path?, metadata?}` and, only for a self_improvement write, `gate:{userRequested:true}`. `write.dataset` is a category name (knowledge, plans, investigations, self_improvement, or any extra category declared in <wiki>/.layout/layout.yaml). `write.path` is a relative directory under the wiki root (e.g. "issues/JIRA/DEV/129/95/7") that overrides facet-derived placement so the leaf is written verbatim at <path>/<name>. `write.path` is REQUIRED for any category with a `topology:` block (e.g. tracker issues) and REFUSED if missing/mismatched; optional for default facet categories. WRITE-GATED for dataset="self_improvement" only. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.' +
+        NESTED_NOTE +
         TARGET_DESCRIPTION,
-      inputSchema: {
-        dataset: z.string().trim().min(1),
-        name: z.string().trim().min(1).max(180),
-        text: z.string().trim().min(1).max(500_000),
-        // Optional: required only when dataset === "self_improvement". The
-        // server refuses gated writes without it (see save_lesson description).
-        userRequested: z.boolean().optional(),
-        metadata: MetadataSchema.optional(),
-        path: z.string().trim().min(1).max(500).optional(),
-        target: TargetSchema,
-        scopes: ScopesSchema,
-      },
+      inputSchema: z
+        .object({
+          target: TargetSchema,
+          write: z
+            .object({
+              dataset: z.string().trim().min(1),
+              name: z.string().trim().min(1).max(180),
+              text: z.string().trim().min(1).max(500_000),
+              path: z.string().trim().min(1).max(500).optional(),
+              metadata: MetadataSchema.optional(),
+            })
+            .strict(),
+          gate: GateSchema.optional(),
+          scopes: ScopesSchema,
+        })
+        .strict(),
     },
     async (args) =>
       withToolScopes(args, async () => {
-        const { dataset, name, text, userRequested, metadata, path, target } = args;
+        const { write, gate, target } = args;
+        const { dataset, name, text, path, metadata } = write;
+        const userRequested = gate?.userRequested;
         try {
           const refusal = gateRefusal({
             tool: "save_to_dataset",
@@ -169,34 +182,33 @@ function registerWriteTools(server) {
     {
       title: "Write project memory",
       description:
-        "Create a new wiki leaf from concise memory text. Optionally supersede an existing leaf by passing its documentId (the old leaf is archived, or deleted with supersedesAction='delete'). `path` is a relative directory under the wiki root that overrides facet-derived placement so the leaf is written verbatim at <path>/<name> (casing preserved). `path` is REQUIRED for any category with a `topology:` block in .layout/layout.yaml (e.g. tracker issues) and must match that topology for the leaf file_kind; it is optional for default facet categories. A missing or topology-mismatched path for a topology category is REFUSED. WRITE-GATED for datasetId=\"self_improvement\" only — pass `userRequested:true` (server refuses without it). Other categories are not gated. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki." +
+        'Create a new wiki leaf from concise memory text. Send `write:{name, text, datasetId, supersedes?, supersedesAction?, path?, metadata?}` and, only for a self_improvement write, `gate:{userRequested:true}`. Optionally supersede an existing leaf by passing `write.supersedes` (its documentId; the old leaf is archived, or deleted with supersedesAction="delete"). `write.path` overrides facet-derived placement and is REQUIRED for a topology category (REFUSED if missing/mismatched), optional otherwise. WRITE-GATED for datasetId="self_improvement" only. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.' +
+        NESTED_NOTE +
         TARGET_DESCRIPTION,
-      inputSchema: {
-        name: z.string().trim().min(1).max(180),
-        text: z.string().trim().min(20).max(200_000),
-        datasetId: z.string().trim().min(1),
-        userRequested: z.boolean().optional(),
-        supersedes: z.string().trim().min(1).optional(),
-        supersedesAction: SupersedesActionSchema.optional(),
-        metadata: MetadataSchema.optional(),
-        path: z.string().trim().min(1).max(500).optional(),
-        target: TargetSchema,
-        scopes: ScopesSchema,
-      },
+      inputSchema: z
+        .object({
+          target: TargetSchema,
+          write: z
+            .object({
+              name: z.string().trim().min(1).max(180),
+              text: z.string().trim().min(20).max(200_000),
+              datasetId: z.string().trim().min(1),
+              supersedes: z.string().trim().min(1).optional(),
+              supersedesAction: SupersedesActionSchema.optional(),
+              path: z.string().trim().min(1).max(500).optional(),
+              metadata: MetadataSchema.optional(),
+            })
+            .strict(),
+          gate: GateSchema.optional(),
+          scopes: ScopesSchema,
+        })
+        .strict(),
     },
     async (args) =>
       withToolScopes(args, async () => {
-        const {
-          name,
-          text,
-          datasetId,
-          userRequested,
-          supersedes,
-          supersedesAction,
-          metadata,
-          path,
-          target,
-        } = args;
+        const { write, gate, target } = args;
+        const { name, text, datasetId, supersedes, supersedesAction, path, metadata } = write;
+        const userRequested = gate?.userRequested;
         try {
           const refusal = gateRefusal({
             tool: "write_memory",
