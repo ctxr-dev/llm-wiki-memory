@@ -5,10 +5,11 @@
 //   - the Claude Code SessionStart hook prints the longer context block.
 // Keeping both here means they never drift. No em or en dashes (project rule).
 //
-// MAINTAINERS: changes to INSTRUCTIONS must also land in the upstream
-// `@ctxr/skill-llm-wiki` package source and be re-published before existing
-// vendored installs in OTHER repos pick up the change. The package distributes
-// this file verbatim; a local edit only affects this clone.
+// MAINTAINERS: this file IS the durable source of the discipline. It propagates
+// to OTHER repos when they sync the vendored `.llm-wiki-memory/src` (COMMIT_MEMORY
+// mode) — a local edit here is enough. `@ctxr/skill-llm-wiki` is a SEPARATE
+// package (a wiki build/balance tool) that ships NO copy of these INSTRUCTIONS,
+// so no republish of it is required to roll a discipline change out.
 
 export const INSTRUCTIONS = [
   "This project has a local LLM wiki memory (no RAG, no external service), reachable through this MCP server. Follow this discipline:",

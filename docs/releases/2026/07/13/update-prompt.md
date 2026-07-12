@@ -29,10 +29,12 @@ untouched. **The security-relevant context-derived checks are unchanged** (datas
 declared category, target must be in the resolved scopes, the self_improvement write-gate); they
 are still enforced at the parse step with the same actionable error envelope.
 
-**Cross-package ordering (IMPORTANT).** The initialize-time discipline (rule 14, which teaches
-the nested shape) lives in `scripts/lib/discipline.mjs`, shipped **verbatim** by the upstream
-`@ctxr/skill-llm-wiki` package. **Republish `@ctxr/skill-llm-wiki` FIRST**, then flip this repo,
-so a model connecting to an upgraded server is also taught the upgraded shape.
+**Propagation.** The initialize-time discipline (rule 14, which teaches the nested shape) lives
+in `scripts/lib/discipline.mjs` — the durable source. It reaches OTHER repos when they sync the
+vendored `.llm-wiki-memory/src` (COMMIT_MEMORY mode); there is NO separate package to republish
+(`@ctxr/skill-llm-wiki` is an unrelated wiki build/balance tool that ships none of this). So a
+model connecting to an upgraded server is taught the upgraded shape by the same update that
+ships the new schema — just RESTART the server (step 4) to make both live together.
 
 ## How to use this file
 
@@ -113,8 +115,8 @@ DECISIONS:
   this release. If a write starts getting rejected with a "not a category declared at the
   target level" envelope, the fix is the layout, not the wire shape.
 - The restart window (step 4) is unavoidable with a hard-cut. SAFE DEFAULT: restart promptly
-  after step 3 passes, and do the republish of `@ctxr/skill-llm-wiki` BEFORE flipping servers
-  so the taught shape and the enforced shape line up.
+  after step 3 passes so the taught shape (rule 14) and the enforced schema go live together.
+  Both ship in this same update — there is no separate package to republish first.
 
 VERIFICATION:
 
