@@ -14,7 +14,6 @@
 // this module is import-safe — its only module-scope side effect is
 // constructing the AsyncLocalStorage instance, mirroring settings.mjs.
 
-import fs from "node:fs";
 import path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { z } from "zod";
@@ -22,7 +21,8 @@ import { scanScopes } from "./scope-scanner.mjs";
 import { loadMergedLayout, readMergedLayout } from "./layout-merge.mjs";
 import { embedBackend } from "./settings.mjs";
 import { withWikiRoot, embedCacheFor as embedCacheForRoot } from "./env.mjs";
-import { OwnershipSchema, OWNERSHIP, BRAIN_TARGET } from "./context/enums.mjs";
+import { OwnershipSchema } from "./context/enums.mjs";
+import { parseTarget } from "./context/target.mjs";
 
 /**
  * One level of a federated wiki stack.
@@ -177,50 +177,19 @@ export function getActiveWikiContext() {
 }
 
 /**
- * Symlink-resolved directory equality (macOS surfaces `/var` as `/private/var`,
- * and the scanner realpaths some paths but not the brain's), falling back to a
- * plain resolve when a side cannot be stat'd.
- * @param {string} a
- * @param {string} b
- * @returns {boolean}
- */
-function sameDir(a, b) {
-  if (!a || !b) return false;
-  try {
-    return fs.realpathSync(a) === fs.realpathSync(b);
-  } catch {
-    return path.resolve(a) === path.resolve(b);
-  }
-}
-
-/**
- * Resolve a write/mutate `target` selector against a resolved context's levels.
- * Accepts a level's `root`, its `mountDir`, the literal `"brain"` (the
- * wiki-owned level), or null/undefined/"" (which selects the context's
- * `writeDefault`, the brain). Throws when a non-empty target names no level in
- * the context — a write directed elsewhere must surface as an error, never fall
- * back silently to the brain (R11: never a silent shared write, and never a
- * silent brain write for an intended-shared target).
+ * Resolve a write/mutate `target` selector against a resolved context's levels
+ * to the SAME WikiLevel reference the context holds. Delegates to `parseTarget`
+ * (context/target.mjs), which owns the selection rules: a level's `root` or
+ * `mountDir`, the literal `"brain"` (the wiki-owned level), or null/undefined/""
+ * (the context's `writeDefault`, the brain). Throws when a non-empty target
+ * names no level — a write directed elsewhere must surface as an error, never
+ * fall back silently to the brain (R11).
  * @param {WikiContext} ctx
  * @param {string | null | undefined} target
  * @returns {WikiLevel}
  */
 export function resolveTargetLevel(ctx, target) {
-  if (!ctx || !Array.isArray(ctx.levels) || ctx.levels.length === 0) {
-    throw new Error("resolveTargetLevel: no resolved wiki context");
-  }
-  const wanted = typeof target === "string" ? target.trim() : "";
-  if (wanted === "") return ctx.writeDefault;
-  if (wanted === BRAIN_TARGET) {
-    return ctx.levels.find((l) => l.ownership === OWNERSHIP.WIKI) || ctx.brain;
-  }
-  const match = ctx.levels.find((l) => sameDir(l.root, wanted) || sameDir(l.mountDir, wanted));
-  if (match) return match;
-  const known = ctx.levels.map((l) => l.projectModule || l.root).join(", ");
-  throw new Error(
-    `target ${JSON.stringify(target)} is not one of the active context levels (${known}). ` +
-      `Pass a level's root or mount directory, or "${BRAIN_TARGET}".`,
-  );
+  return parseTarget(ctx, target).level;
 }
 
 /**
