@@ -22,14 +22,17 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "test:e2e": "node --test test/e2e/*.test.mjs",
+    "test:e2e": "MEMORY_EMBED_BACKEND=lexical node --test test/e2e/*.test.mjs",
     "mcp": "node mcp-server/index.mjs",
     "typecheck": "tsc -p jsconfig.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "deadcode": "knip"
+    "deadcode": "knip",
+    "check:size": "find scripts mcp-server -name '*.mjs' -exec wc -l {} + | awk '$2!=\"total\" && $1>300 {print $1\"  \"$2; c++} END{exit c>0?1:0}'",
+    "check:comments": "test -z \"$(grep -rnE '^[[:space:]]*//[[:space:]]*[-=*]{3,}|^[[:space:]]*/\\*[[:space:]]*[-=*]{3,}' scripts mcp-server test --include='*.mjs')\"",
+    "gates": "npm run typecheck && npx eslint . --max-warnings 0 && npm run format:check && npm run deadcode && npm run check:size && npm run check:comments && npm test && npm run test:e2e"
   },
   "dependencies": {
     "@ctxr/skill-llm-wiki": "^1.4.4",

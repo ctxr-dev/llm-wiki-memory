@@ -9,7 +9,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-export const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+export const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const CLI = path.join(SRC, "scripts", "cli.mjs");
 export const MOUNT_INIT = path.join(SRC, "scripts", "mount-init.mjs");
 export const SKILL_CLI = path.join(SRC, "node_modules/@ctxr/skill-llm-wiki/scripts/cli.mjs");

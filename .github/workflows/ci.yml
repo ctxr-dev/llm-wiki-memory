@@ -15,6 +15,10 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci --no-audit --no-fund
+      - name: Configure git identity (e2e git ops)
+        run: |
+          git config --global user.email "ci@llm-wiki-memory.local"
+          git config --global user.name "ci"
       - name: Typecheck (tsc --checkJs --strict, zero any)
         run: npm run typecheck
       - name: Lint (eslint, zero warnings)
@@ -33,10 +37,16 @@ jobs:
       - name: No decorative comment banners/dividers
         run: |
           hits=$(grep -rnE '^[[:space:]]*//[[:space:]]*[-=*]{3,}|^[[:space:]]*/\*[[:space:]]*[-=*]{3,}' \
-            scripts mcp-server --include='*.mjs' || true)
+            scripts mcp-server test --include='*.mjs' || true)
           if [ -n "$hits" ]; then
             echo "Decorative comment banners/dividers found (strip to plain WHY comments):"
             echo "$hits"; exit 1
           fi
       - name: Test suite
         run: npm test
+      - name: E2E suite
+        run: |
+          rm -rf /tmp/lwm-* || true
+          npm run test:e2e
+        env:
+          MEMORY_EMBED_BACKEND: lexical

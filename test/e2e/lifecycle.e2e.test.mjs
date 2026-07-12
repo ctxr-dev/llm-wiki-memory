@@ -132,10 +132,13 @@ const DECISION_ATOM = {
   metadata: { project_module: "testproj", language: "", task_type: "deploy" },
 };
 
-test("1. genesis: hosted wiki shell, contract, git op-log, validate clean", () => {
+test("1. genesis: engine-built wiki shell, contract, validate clean", () => {
   assert.ok(fs.existsSync(path.join(wiki, "index.md")), "root index.md");
   assert.ok(fs.existsSync(path.join(wiki, ".layout", "layout.yaml")), "layout contract");
-  assert.ok(fs.existsSync(path.join(wiki, ".llmwiki", "op-log.yaml")), "git op-log");
+  // Genesis is engine-built (indexRebuildAll, m2/INIT-08), not the skill's
+  // buildHosted, so the skill-internal .llmwiki/op-log.yaml is not a genesis
+  // artifact (it appears lazily on a skill mutation). A fresh shell validates
+  // without it; the engine has no dependency on the op-log.
   assert.equal(cli.validate(wiki).ok, true);
 });
 

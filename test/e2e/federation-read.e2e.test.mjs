@@ -11,15 +11,15 @@ import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { setupWorkspace, cleanup } from "./harness.mjs";
-import { realTmp, rmAll, mkdirp, writeMountLayout, runInit } from "./e2e-federation-helpers.mjs";
+import { setupWorkspace, cleanup } from "../harness.mjs";
+import { realTmp, rmAll, mkdirp, writeMountLayout, runInit } from "./federation-helpers.mjs";
 
 const { dataDir } = setupWorkspace(); // brain = <dataDir>/wiki, lexical settings
-const { scanScopes } = await import("../scripts/lib/scope-scanner.mjs");
-const { resolveWikiContext } = await import("../scripts/lib/wiki-context.mjs");
-const { withToolScopes } = await import("../mcp-server/mcp-scopes.mjs");
-const { withWikiRoot } = await import("../scripts/lib/env.mjs");
-const store = await import("../scripts/lib/wiki-store.mjs");
+const { scanScopes } = await import("../../scripts/lib/scope-scanner.mjs");
+const { resolveWikiContext } = await import("../../scripts/lib/wiki-context.mjs");
+const { withToolScopes } = await import("../../mcp-server/mcp-scopes.mjs");
+const { withWikiRoot } = await import("../../scripts/lib/env.mjs");
+const store = await import("../../scripts/lib/wiki-store.mjs");
 
 const BRAIN_MODULE = "testproj"; // MEMORY_DEFAULT_PROJECT_MODULE from setupWorkspace
 const MOUNT_LAYOUT = "layout:\n  - path: knowledge\n  - path: daily\n";
@@ -91,11 +91,17 @@ test("read: fan-out ranks a deeper hit above a shallower one, additively", async
     "brain(0) + repo(1) + sub(2), shallowest-first",
   );
 
-  const { records } = /** @type {{ records: import("../scripts/lib/types.mjs").SearchHit[] }} */ (
-    await withToolScopes({ scopes: [deepCwd] }, () =>
-      store.searchMemoryFiltered({ query: token, datasetId: "knowledge", filters: {}, limit: 10 }),
-    )
-  );
+  const { records } =
+    /** @type {{ records: import("../../scripts/lib/types.mjs").SearchHit[] }} */ (
+      await withToolScopes({ scopes: [deepCwd] }, () =>
+        store.searchMemoryFiltered({
+          query: token,
+          datasetId: "knowledge",
+          filters: {},
+          limit: 10,
+        }),
+      )
+    );
 
   assert.equal(records.length, 3, "all three same-path leaves survive (tree-namespaced dedupe)");
   assert.deepEqual(
@@ -144,11 +150,12 @@ test("read: fan-out skips a level that lacks the searched category (no crash)", 
     placementOverride: "plans",
   });
 
-  const { records } = /** @type {{ records: import("../scripts/lib/types.mjs").SearchHit[] }} */ (
-    await withToolScopes({ scopes: [cwd] }, () =>
-      store.searchMemoryFiltered({ query: token, datasetId: "plans", filters: {}, limit: 10 }),
-    )
-  );
+  const { records } =
+    /** @type {{ records: import("../../scripts/lib/types.mjs").SearchHit[] }} */ (
+      await withToolScopes({ scopes: [cwd] }, () =>
+        store.searchMemoryFiltered({ query: token, datasetId: "plans", filters: {}, limit: 10 }),
+      )
+    );
   assert.equal(records.length, 1, "only the brain has a `plans` category; the mount is skipped");
   assert.equal(records[0].depth, 0, "the surviving hit is the brain's");
 });

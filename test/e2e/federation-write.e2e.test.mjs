@@ -12,7 +12,7 @@ import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { setupWorkspace, cleanup } from "./harness.mjs";
+import { setupWorkspace, cleanup } from "../harness.mjs";
 import {
   realTmp,
   rmAll,
@@ -23,19 +23,20 @@ import {
   lsFiles,
   porcelain,
   writeMountLayout,
-} from "./e2e-federation-helpers.mjs";
+} from "./federation-helpers.mjs";
 
 const { dataDir, wiki: brainWiki } = setupWorkspace();
-const { withToolScopes } = await import("../mcp-server/mcp-scopes.mjs");
-const { withWriteTarget, annotateSharedWrite } = await import("../mcp-server/mcp-write-target.mjs");
-const { withWikiCommit, _resetGitProbeCache } = await import("../scripts/lib/wiki-commit.mjs");
-const { withWikiRoot } = await import("../scripts/lib/env.mjs");
-const { resolveWikiContext, withWikiContext } = await import("../scripts/lib/wiki-context.mjs");
-const { resetLayoutCache } = await import("../scripts/lib/wiki-layout-state.mjs");
-const store = await import("../scripts/lib/wiki-store.mjs");
-const { initMount } = await import("../scripts/mount-init.mjs");
-const { consolidateMemory } = await import("../scripts/consolidate.mjs");
-const { SHARED_TARGET_ERROR } = await import("../scripts/consolidate-isolation.mjs");
+const { withToolScopes } = await import("../../mcp-server/mcp-scopes.mjs");
+const { withWriteTarget, annotateSharedWrite } =
+  await import("../../mcp-server/mcp-write-target.mjs");
+const { withWikiCommit, _resetGitProbeCache } = await import("../../scripts/lib/wiki-commit.mjs");
+const { withWikiRoot } = await import("../../scripts/lib/env.mjs");
+const { resolveWikiContext, withWikiContext } = await import("../../scripts/lib/wiki-context.mjs");
+const { resetLayoutCache } = await import("../../scripts/lib/wiki-layout-state.mjs");
+const store = await import("../../scripts/lib/wiki-store.mjs");
+const { initMount } = await import("../../scripts/mount-init.mjs");
+const { consolidateMemory } = await import("../../scripts/consolidate.mjs");
+const { SHARED_TARGET_ERROR } = await import("../../scripts/consolidate-isolation.mjs");
 
 const MOUNT_LAYOUT = "layout:\n  - path: knowledge\n  - path: daily\n";
 const FROZEN_NOW = new Date("2026-06-02T12:00:00Z");

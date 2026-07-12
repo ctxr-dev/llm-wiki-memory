@@ -24,9 +24,9 @@ import {
   cliEnv,
   writeLexicalSettings,
   runInit,
-} from "./e2e-federation-helpers.mjs";
+} from "./federation-helpers.mjs";
 
-const { initMount } = await import("../scripts/mount-init.mjs");
+const { initMount } = await import("../../scripts/mount-init.mjs");
 
 /** @type {string[]} */
 const tmps = [];
