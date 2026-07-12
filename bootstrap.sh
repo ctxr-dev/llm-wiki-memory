@@ -412,6 +412,20 @@ if [[ "$COMMIT_MEMORY" -eq 1 ]]; then
     grep -qxF "$line" "$GITIGNORE" || echo "$line" >> "$GITIGNORE"
   done
   log "Committing wiki content; ignoring node_modules / index / secrets only."
+  # Phase G mount primitives: when the wiki content rides inside the consuming
+  # repo AND its layout declares shared (ownership: repo) categories, provision
+  # the per-folder git surfaces (negated .gitignore, private personal git,
+  # host-ignore shadow check, chained sync-embeddings hook). A no-op — logged as
+  # skipped — when no shared category is declared, so a plain commit-memory
+  # install is byte-identical to before. The interactive repo-vs-personal FLOW
+  # is Phase J; this only wires the primitives.
+  MOUNT_OUT="$(node "$SRC_DIR/scripts/mount-init.mjs" "$WORKSPACE_DIR" 2>&1 || true)"
+  if printf '%s' "$MOUNT_OUT" | grep -q '"skipped": "no-shared-categories"'; then
+    :
+  else
+    log "Mount primitives provisioned (negated .gitignore, personal git, sync-embeddings hook)."
+    printf '%s' "$MOUNT_OUT" | grep -q '"ok": false' && log "$MOUNT_OUT"
+  fi
 else
   grep -qxF "/.llm-wiki-memory" "$GITIGNORE" || {
     printf '\n# llm-wiki-memory (local memory; not committed)\n/.llm-wiki-memory\n' >> "$GITIGNORE"

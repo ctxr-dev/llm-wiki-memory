@@ -27,6 +27,7 @@ import path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { wikiRoot } from "./env.mjs";
 import { wikiAutoCommit } from "./settings.mjs";
+import { partitionEntriesForCommit } from "./wiki-ownership.mjs";
 import {
   oneLine,
   gitUsable,
@@ -47,6 +48,7 @@ export { _resetGitProbeCache };
  * @property {string} leafRelPath
  * @property {string} reason
  * @property {string[]} extraPaths
+ * @property {string} [rootDir] absolute wiki root this entry's paths are relative to (M5: a batch may span roots)
  */
 
 /**
@@ -160,12 +162,16 @@ export function withWikiCommit(meta, fn) {
 export function recordWikiChange({ action, leafRelPath, reason = "", extraPaths = [] } = {}) {
   if (!action || !leafRelPath) return;
   const batch = STORE.getStore();
-  const base = batch?.rootDir || "";
+  // The ABSOLUTE root this write landed under: the batch's explicit override
+  // (migrate-nest / plan-sync) or the active wiki root (Phase F routes writes
+  // to different levels within one batch, so it is captured per entry).
+  const absRoot = batch?.rootDir || wikiRoot();
   const entry = {
     action: oneLine(action),
-    leafRelPath: toRel(leafRelPath, base),
+    leafRelPath: toRel(leafRelPath, absRoot),
     reason: oneLine(reason),
-    extraPaths: (extraPaths || []).filter(Boolean).map((p) => toRel(p, base)),
+    extraPaths: (extraPaths || []).filter(Boolean).map((p) => toRel(p, absRoot)),
+    rootDir: absRoot,
   };
   if (batch) {
     batch.entries.push(entry);
@@ -219,18 +225,23 @@ function flushBatch(batch, failed) {
     openBatches.delete(batch);
     if (batch.noCommit || batch.entries.length === 0) return;
     if (!autoCommitEnabled()) return;
-    const rootDir = batch.rootDir || wikiRoot();
-    if (!gitUsable(rootDir)) return;
-    const specs = buildDirset(rootDir, batch.entries);
-    if (specs.length === 0) return;
-    if (!stageAll(rootDir, specs)) {
-      breadcrumb(`staging failed for op=${batch.op} (${specs.length} pathspec(s))`);
-      return;
+    const fallbackRoot = batch.rootDir || wikiRoot();
+    // V3/R20: drop shared (repo-owned) leaves — the engine never stages, let
+    // alone commits, a shared repo. M5: group the survivors by their owning wiki
+    // root so a single `git add`/commit never spans two roots.
+    for (const [rootDir, entries] of partitionEntriesForCommit(batch.entries, fallbackRoot)) {
+      if (!gitUsable(rootDir)) continue;
+      const specs = buildDirset(rootDir, entries);
+      if (specs.length === 0) continue;
+      if (!stageAll(rootDir, specs)) {
+        breadcrumb(`staging failed for op=${batch.op} (${specs.length} pathspec(s))`);
+        continue;
+      }
+      // diff --cached --quiet exits 0 when nothing is staged (dry-run passes,
+      // content-identical rewrites): skip the empty commit silently.
+      if (runGit(rootDir, ["diff", "--cached", "--quiet"]).status === 0) continue;
+      commitWithRetry(rootDir, buildMessage({ ...batch, entries }, failed));
     }
-    // diff --cached --quiet exits 0 when nothing is staged (dry-run passes,
-    // content-identical rewrites): skip the empty commit silently.
-    if (runGit(rootDir, ["diff", "--cached", "--quiet"]).status === 0) return;
-    commitWithRetry(rootDir, buildMessage(batch, failed));
   } catch (err) {
     breadcrumb(
       `flush error (${oneLine(String(/** @type {{ message?: unknown }} */ (err)?.message || err)).slice(0, 200)})`,
