@@ -19,7 +19,11 @@ export const MOCK_DOCS = {
   K2: {
     id: "K2",
     datasetId: "knowledge",
-    metadata: { atom_type: "reference", area: "infra", subject: ["languages", "scala", "cats-effect"] },
+    metadata: {
+      atom_type: "reference",
+      area: "infra",
+      subject: ["languages", "scala", "cats-effect"],
+    },
     token: "catseffectio",
     edge: "multi-segment-subject",
   },
@@ -33,7 +37,11 @@ export const MOCK_DOCS = {
   K4: {
     id: "K4",
     datasetId: "knowledge",
-    metadata: { atom_type: "reference", area: "billing", subject: ["quantumphysics", "entanglement"] },
+    metadata: {
+      atom_type: "reference",
+      area: "billing",
+      subject: ["quantumphysics", "entanglement"],
+    },
     token: "entangled",
     edge: "out-of-vocab-subject",
   },
@@ -83,7 +91,13 @@ export const MOCK_DOCS = {
     id: "T2",
     datasetId: "issues",
     metadata: { atom_type: "plan" },
-    topology: { tracker: "JIRA", prefix: "DEV", number: 42, lifecycle: "in-progress", slug: "fix-retry" },
+    topology: {
+      tracker: "JIRA",
+      prefix: "DEV",
+      number: 42,
+      lifecycle: "in-progress",
+      slug: "fix-retry",
+    },
     token: "trackerplan",
     edge: "topology-plan",
   },
@@ -134,7 +148,11 @@ export const EXPECTED_PLACEMENT = {
     REPO: ABSENT,
     TRK: "self_improvement/billing/unknown/general",
   },
-  P1: { DEF: "plans/infra/architecture/refactoring", REPO: ABSENT, TRK: "plans/infra/architecture/refactoring" },
+  P1: {
+    DEF: "plans/infra/architecture/refactoring",
+    REPO: ABSENT,
+    TRK: "plans/infra/architecture/refactoring",
+  },
   I1: { DEF: "investigations/infra/general", REPO: ABSENT, TRK: "investigations/infra/general" },
 };
 

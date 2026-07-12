@@ -10,7 +10,15 @@ const DEFAULT_CATS = ["knowledge", "self_improvement", "plans", "investigations"
 
 /** @param {string} root @param {string} mountDir @param {"repo"|"wiki"} own @param {Record<string, unknown>} layout @returns {WikiLevel} */
 function level(root, mountDir, own, layout) {
-  return { root, mountDir, ownership: own, depth: 0, projectModule: "m", layout, embedCacheFor: () => "" };
+  return {
+    root,
+    mountDir,
+    ownership: own,
+    depth: 0,
+    projectModule: "m",
+    layout,
+    embedCacheFor: () => "",
+  };
 }
 
 // brain declares the 5 defaults (empty layout => baked-in defaults); the repo
@@ -20,7 +28,11 @@ function makeCtx() {
   const repo = level("/h/r/.llm-wiki-memory/wiki", "/h/r/.llm-wiki-memory", "repo", {
     layout: [...DEFAULT_CATS, "runbooks"].map((p) => ({ path: p })),
   });
-  return { ctx: /** @type {WikiContext} */ ({ levels: [brain, repo], brain, writeDefault: brain }), brain, repo };
+  return {
+    ctx: /** @type {WikiContext} */ ({ levels: [brain, repo], brain, writeDefault: brain }),
+    brain,
+    repo,
+  };
 }
 
 const baseArgs = (over) => ({ kind: WRITE_KIND.DOCUMENT, dataset: "knowledge", ...over });
@@ -28,8 +40,16 @@ const baseArgs = (over) => ({ kind: WRITE_KIND.DOCUMENT, dataset: "knowledge", .
 test("isGatedWrite: the OR of both signals (C4 — both bypass directions closed)", () => {
   assert.equal(isGatedWrite("self_improvement", undefined), true);
   assert.equal(isGatedWrite("knowledge", undefined), false);
-  assert.equal(isGatedWrite("knowledge", "self_improvement/billing/x.md"), true, "path bypass caught");
-  assert.equal(isGatedWrite("self_improvement", "knowledge/x.md"), true, "reverse bypass: dataset still gates");
+  assert.equal(
+    isGatedWrite("knowledge", "self_improvement/billing/x.md"),
+    true,
+    "path bypass caught",
+  );
+  assert.equal(
+    isGatedWrite("self_improvement", "knowledge/x.md"),
+    true,
+    "reverse bypass: dataset still gates",
+  );
   assert.equal(isGatedWrite("plans", "plans/x.md"), false);
   assert.equal(isGatedWrite("knowledge", null), false);
 });
@@ -51,7 +71,10 @@ test("parseWriteRequest: self_improvement dataset is gated", () => {
 
 test("parseWriteRequest: knowledge dataset + self_improvement path is gated (bypass closed)", () => {
   const { ctx } = makeCtx();
-  const req = parseWriteRequest(ctx, baseArgs({ dataset: "knowledge", path: "self_improvement/x.md" }));
+  const req = parseWriteRequest(
+    ctx,
+    baseArgs({ dataset: "knowledge", path: "self_improvement/x.md" }),
+  );
   assert.equal(req.gated, true);
 });
 
@@ -71,7 +94,10 @@ test("parseWriteRequest: an undeclared dataset is rejected with an actionable en
 test("parseWriteRequest: dataset is validated against the TARGET level's layout (C7)", () => {
   const { ctx, repo } = makeCtx();
   // runbooks is declared at the repo level -> accepted when target is the repo,
-  assert.equal(parseWriteRequest(ctx, baseArgs({ dataset: "runbooks", target: repo.root })).dataset, "runbooks");
+  assert.equal(
+    parseWriteRequest(ctx, baseArgs({ dataset: "runbooks", target: repo.root })).dataset,
+    "runbooks",
+  );
   // but NOT at the brain (default target) -> rejected.
   assert.throws(
     () => parseWriteRequest(ctx, baseArgs({ dataset: "runbooks" })),

@@ -8,13 +8,14 @@ import { MetadataSchema } from "./mcp-schemas.mjs";
 import {
   assertTopologyPathValid,
   refuseWriteGate,
+  targetsGatedCategory,
   auditGatedL3,
   guardScarcePriority,
 } from "./mcp-write-gate.mjs";
 import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
 import { withResolvedWriteTarget, annotateSharedWrite } from "./mcp-write-target.mjs";
 import { getActiveWikiContext } from "../scripts/lib/wiki-context.mjs";
-import { parseWriteRequest, isGatedWrite, WRITE_KIND } from "../scripts/lib/context/write.mjs";
+import { parseWriteRequest, WRITE_KIND } from "../scripts/lib/context/write.mjs";
 import {
   MCP_OPS,
   MCP_ACTOR,
@@ -46,7 +47,7 @@ const TARGET_DESCRIPTION =
  */
 function gateRefusal(a) {
   if (
-    isGatedWrite(a.dataset, a.path) &&
+    targetsGatedCategory(a.dataset, a.path) &&
     writeGateSelfImprovementEnabled() &&
     a.userRequested !== true &&
     !isSystemMaintenance()
@@ -91,7 +92,13 @@ async function dispatchWrite(req, doWrite, cfg) {
       withWikiCommit({ op: cfg.op, actor: MCP_ACTOR }, () => doWrite(placed))
     );
     if (gated) {
-      auditGatedL3({ tool: cfg.tool, status: "accepted", userRequested, title: name, metadata: placed });
+      auditGatedL3({
+        tool: cfg.tool,
+        status: "accepted",
+        userRequested,
+        title: name,
+        metadata: placed,
+      });
     }
     return jsonResponse(
       annotateSharedWrite(level, {

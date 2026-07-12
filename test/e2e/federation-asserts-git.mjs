@@ -47,7 +47,8 @@ export function assertSyncHook(hooksDir, spec = {}) {
     assert.ok((fs.statSync(p).mode & 0o111) !== 0, `hook ${ev} executable`);
     const body = fs.readFileSync(p, "utf8");
     assert.match(body, /^#!\/usr\/bin\/env bash/, `hook ${ev} shebang`);
-    if (spec.wrapperFragment) assert.ok(body.includes(spec.wrapperFragment), `hook ${ev} wrapper path`);
+    if (spec.wrapperFragment)
+      assert.ok(body.includes(spec.wrapperFragment), `hook ${ev} wrapper path`);
   }
 }
 

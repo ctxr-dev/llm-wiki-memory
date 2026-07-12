@@ -71,6 +71,10 @@ test("placementTargetsCategory agrees with the real placement normaliser on the 
   for (const p of paths) {
     const landed = normalisePlacementOverride(p).split("/")[0];
     assert.equal(placementTargetsCategory(p, landed), true, `gate must gate ${p} -> ${landed}`);
-    assert.equal(placementTargetsCategory(p, "definitely_not_a_category"), false, `${p} no false positive`);
+    assert.equal(
+      placementTargetsCategory(p, "definitely_not_a_category"),
+      false,
+      `${p} no false positive`,
+    );
   }
 });

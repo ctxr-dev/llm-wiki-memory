@@ -44,7 +44,9 @@ export function assertResolvedLeafPath(wikiRoot, rel, exists = true) {
  * @returns {unknown}
  */
 function getPath(obj, dotPath) {
-  return dotPath.split(".").reduce((/** @type {any} */ acc, k) => (acc == null ? acc : acc[k]), obj);
+  return dotPath
+    .split(".")
+    .reduce((/** @type {any} */ acc, k) => (acc == null ? acc : acc[k]), obj);
 }
 
 /**

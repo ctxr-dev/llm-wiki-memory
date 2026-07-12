@@ -9,9 +9,17 @@ import { ATOM_TYPES_LIST, TASK_TYPES_LIST, PRIORITY_VALUES } from "../datasets.m
 /** @typedef {import("./target.mjs").ResolvedTarget} ResolvedTarget */
 /** @typedef {import("../types.mjs").MetadataInput} MetadataInput */
 
-export const WRITE_KIND = Object.freeze({ LESSON: "lesson", DOCUMENT: "document", MEMORY: "memory" });
+export const WRITE_KIND = Object.freeze({
+  LESSON: "lesson",
+  DOCUMENT: "document",
+  MEMORY: "memory",
+});
 /** @type {readonly string[]} */
-const WRITE_KIND_VALUES = Object.freeze([WRITE_KIND.LESSON, WRITE_KIND.DOCUMENT, WRITE_KIND.MEMORY]);
+const WRITE_KIND_VALUES = Object.freeze([
+  WRITE_KIND.LESSON,
+  WRITE_KIND.DOCUMENT,
+  WRITE_KIND.MEMORY,
+]);
 
 /**
  * @typedef {(typeof WRITE_KIND)[keyof typeof WRITE_KIND]} WriteKind

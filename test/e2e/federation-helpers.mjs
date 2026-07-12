@@ -286,7 +286,9 @@ export async function installNest(spec) {
   for (const r of repos) {
     const dir = mkdirp(home, r.rel);
     gitInit(dir);
-    const result = /** @type {MountResult} */ (template ? initMount(dir, { template }) : initMount(dir));
+    const result = /** @type {MountResult} */ (
+      template ? initMount(dir, { template }) : initMount(dir)
+    );
     out.push({ rel: r.rel, dir, result, wikiRoot: path.join(dir, ".llm-wiki-memory", "wiki") });
   }
   return { home, brainDataDir, repos: out };
