@@ -43,9 +43,13 @@ export {
   readLeafForConsolidate,
   listActiveLeavesForConsolidate,
   rerankWithinBands,
-  searchMemoryFiltered,
+  searchOneTree,
   listDatasets,
 } from "./wiki-search.mjs";
+
+// The public search door fans out over the active WikiContext's levels; with no
+// context or a single level it is byte-identical to the single-tree scorer.
+export { searchMemoryFiltered } from "./wiki-search-fanout.mjs";
 
 export {
   disableDocument,

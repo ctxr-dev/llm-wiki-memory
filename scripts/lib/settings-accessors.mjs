@@ -121,6 +121,12 @@ export function recallRecentActivityDays() {
 export function recallPlanContextMax() {
   return settings().recall.planContextMax;
 }
+export function recallDepthBoostPerLevel() {
+  return settings().recall.depthBoostPerLevel;
+}
+export function recallSearchPerLevelCap() {
+  return settings().recall.searchPerLevelCap;
+}
 
 export function compileSlot() {
   return settings().compile.slot;

@@ -26,16 +26,38 @@ import { priorityRank } from "./datasets.mjs";
  */
 
 export const SEARCH_PER_HIT_CHARS = 600;
+// Per-level body budget. A federated (multi-level) response scales this by the
+// number of levels that returned hits (see `levelCount`), so fanning a query
+// over N trees isn't squeezed into one tree's budget. Depth NEVER reorders the
+// spend: bodies are still spent P0 > P1 > P2, and a hit is never dropped.
 export const SEARCH_TOTAL_BUDGET = 16000;
+
+// Levels that contributed hits, inferred from the fan-out `depth` tags (each
+// level owns a distinct depth). A single-tree response carries no `depth`, so
+// this is 1 and the budget is unchanged (byte-identical). An explicit
+// `opts.levels` wins when supplied.
+/**
+ * @param {ClampableHit[]} records
+ * @param {number} [explicit]
+ * @returns {number}
+ */
+function levelCount(records, explicit) {
+  if (explicit && explicit > 0) return explicit;
+  const depths = new Set();
+  for (const r of records) {
+    if (typeof r.depth === "number") depths.add(r.depth);
+  }
+  return Math.max(1, depths.size);
+}
 
 /**
  * @param {ClampableResponse | null | undefined} result
- * @param {{ maxChars?: number, fullContent?: boolean, sections?: string[], perHitDefault?: number }} [opts]
+ * @param {{ maxChars?: number, fullContent?: boolean, sections?: string[], perHitDefault?: number, levels?: number }} [opts]
  * @returns {ClampableResponse | null | undefined}
  */
 export function clampSearchResponse(
   result,
-  { maxChars, fullContent, sections, perHitDefault = SEARCH_PER_HIT_CHARS } = {},
+  { maxChars, fullContent, sections, perHitDefault = SEARCH_PER_HIT_CHARS, levels } = {},
 ) {
   if (!result || !Array.isArray(result.records)) return result;
   // Frontmatter-only view (sections=["frontmatter"]): the glance fields already
@@ -58,6 +80,7 @@ export function clampSearchResponse(
   const spendOrder = result.records
     .map((r, i) => ({ i, r }))
     .sort((a, b) => priorityRank(a.r.priority) - priorityRank(b.r.priority));
+  const totalBudget = SEARCH_TOTAL_BUDGET * levelCount(result.records, levels);
   /** @type {ClampableHit[]} */
   const decided = new Array(result.records.length);
   let total = 0;
@@ -66,7 +89,7 @@ export function clampSearchResponse(
     const full = String(r.content ?? "");
     let content = full;
     let truncated = false;
-    if (total >= SEARCH_TOTAL_BUDGET) {
+    if (total >= totalBudget) {
       content = ""; // total budget spent: keep the hit (name/score/id), drop the body
       truncated = full.length > 0;
     } else if (full.length > perHit) {

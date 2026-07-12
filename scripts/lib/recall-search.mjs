@@ -64,7 +64,10 @@ export async function searchMemory({
       errors.push({ datasetId: slot, message: err instanceof Error ? err.message : String(err) });
     }
   }
-  all.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+  // Rank by the fan-out's depth-boosted metric when present (deeper/more-local
+  // wins), else the honest cosine — byte-identical for a single-tree read.
+  const rankOf = (/** @type {SearchHit} */ r) => r.adjustedConfidence ?? r.score ?? -1;
+  all.sort((a, b) => rankOf(b) - rankOf(a));
   return {
     query,
     datasetsSearched: slots,

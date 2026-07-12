@@ -71,6 +71,9 @@ export function coerceSections(sections) {
   recall.priorityBand = coerceFloat01(recall.priorityBand, 0.05);
   recall.recentActivityDays = coerceNonNeg(recall.recentActivityDays, 3);
   recall.planContextMax = coerceNonNeg(recall.planContextMax, 2);
+  // 0 is a valid depthBoostPerLevel (disables the boost -> pure cosine ranking).
+  recall.depthBoostPerLevel = coerceNonNeg(recall.depthBoostPerLevel, 1);
+  recall.searchPerLevelCap = coercePos(recall.searchPerLevelCap, 20);
 
   if (typeof compile.slot !== "string") compile.slot = "knowledge";
   compile.searchLimit = coercePos(compile.searchLimit, 5);

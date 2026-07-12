@@ -117,6 +117,14 @@ recall:
   recentActivityDays: 3
   # SessionStart plan list: max plans to surface (unfinished preferred). 0 hides plans.
   planContextMax: 2
+  # Federated read fan-out: additive per-level ranking boost. A hit's
+  # adjustedConfidence = cosine + depth * depthBoostPerLevel, so with the default
+  # (>= 1 per level, which exceeds the [0,1] cosine spread) a DEEPER / more-local
+  # level's hits outrank a shallower level's ("per-repo memory is more
+  # authoritative than the global brain"). 0 disables the boost (pure cosine).
+  depthBoostPerLevel: 1
+  # Per-level cap on hits pulled from EACH tree before the fan-out merge.
+  searchPerLevelCap: 20
 
 compile:
   # Knowledge slot (the destination compile promotes daily atoms to).

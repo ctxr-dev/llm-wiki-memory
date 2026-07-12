@@ -57,6 +57,8 @@ import { DEFAULT_EMBED_MODEL } from "./settings.mjs";
  * @property {number} priorityBand
  * @property {number} recentActivityDays
  * @property {number} planContextMax
+ * @property {number} depthBoostPerLevel
+ * @property {number} searchPerLevelCap
  */
 
 /**
@@ -178,6 +180,13 @@ export function structuralDefaults() {
     recentActivityDays: 3,
     // SessionStart plan list: max plans to surface, unfinished preferred. 0 hides plans.
     planContextMax: 2,
+    // Federated read fan-out (Phase E): additive per-level ranking boost. A hit's
+    // adjustedConfidence = cosine + depth * depthBoostPerLevel, so with the default
+    // (>= 1 per level, exceeding the [0,1] cosine spread) a DEEPER/more-local level's
+    // hits outrank a shallower one's. 0 disables the boost (pure cosine ranking).
+    depthBoostPerLevel: 1,
+    // Per-level cap on hits pulled from EACH tree before the fan-out merge.
+    searchPerLevelCap: 20,
   };
   const compile = {
     slot: "knowledge",

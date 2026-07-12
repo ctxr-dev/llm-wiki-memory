@@ -25,6 +25,22 @@ function canonicalKey(filters) {
   return JSON.stringify(Object.fromEntries(Object.entries(filters).sort()));
 }
 
+// The depth-boosted ranking metric (fan-out) with a fall-back to the honest
+// cosine. Single-tree hits carry no adjustedConfidence, so this is `score` there
+// — recall's cross-scope ordering stays byte-identical when not federated.
+/** @param {SearchHit} r @returns {number} */
+function rankOf(r) {
+  return r.adjustedConfidence ?? r.score;
+}
+
+// Tree-namespaced identity: the same rel path in two DIFFERENT trees is two
+// distinct leaves, so key dedupe on (tree root, id). Single-tree hits carry no
+// resolvedRoot, collapsing this to the plain id (byte-identical).
+/** @param {SearchHit} r @returns {string} */
+function dedupKey(r) {
+  return r.resolvedRoot ? `${r.resolvedRoot}\0${r.documentId}` : r.documentId;
+}
+
 // Recall self-improvement lessons with a fall-back ladder: drop error_pattern ->
 // language -> task_type -> area -> project_module, broadening until >= min(3,limit)
 // distinct hits. project_module (the workspace) defaults so the base scope matches
@@ -117,8 +133,9 @@ export async function recallLessons({
     );
     let added = 0;
     for (const r of records) {
-      if (seen.has(r.documentId)) continue;
-      seen.add(r.documentId);
+      const key = dedupKey(r);
+      if (seen.has(key)) continue;
+      seen.add(key);
       lessonHits.push({ ...r, kind: "lesson", rungIndex: rungIdx });
       added += 1;
     }
@@ -128,7 +145,7 @@ export async function recallLessons({
   lessonHits.sort((a, b) => {
     const r = (a.rungIndex ?? 0) - (b.rungIndex ?? 0);
     if (r !== 0) return r;
-    return (b.score ?? -1) - (a.score ?? -1);
+    return rankOf(b) - rankOf(a);
   });
   // Priority breaks ties WITHIN a rung's cosine band only — rung (scope) stays
   // primary, cosine second, priority third. Reorder per-rung group so a band
@@ -139,7 +156,7 @@ export async function recallLessons({
     const rung = lessonHits[k].rungIndex ?? 0;
     let m = k + 1;
     while (m < lessonHits.length && (lessonHits[m].rungIndex ?? 0) === rung) m += 1;
-    reranked.push(...rerankWithinBands(lessonHits.slice(k, m), band));
+    reranked.push(...rerankWithinBands(lessonHits.slice(k, m), band, rankOf));
     k = m;
   }
   lessonHits.length = 0;

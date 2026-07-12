@@ -76,6 +76,12 @@
  * @property {string[]} [tags] - glance field.
  * @property {boolean} [truncated] - set by clampSearchResponse when the body was clipped.
  * @property {number} [fullChars] - the pre-clip body length (clampSearchResponse).
+ * @property {number} [cosine] - fan-out (Phase E): the honest cosine (== score); present only on a multi-level read.
+ * @property {number} [depth] - fan-out: the level's 0-based depth (brain = 0).
+ * @property {number} [depthBoost] - fan-out: depth * recall.depthBoostPerLevel.
+ * @property {number} [adjustedConfidence] - fan-out: cosine + depthBoost; the merge sort key (deeper wins).
+ * @property {string} [projectModule] - fan-out: the module identifier of the level the hit came from.
+ * @property {string} [resolvedRoot] - fan-out: the realpath of the level's wiki root, keying tree-namespaced dedupe.
  */
 
 /**

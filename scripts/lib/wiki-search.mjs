@@ -127,20 +127,25 @@ function metaMatchesFilters(memoryMeta, filters) {
 // only hits within `band` of each other are reordered P0 > P1 > P2 (Array.sort
 // is stable, so equal-priority ties keep cosine order). band <= 0 disables it.
 /**
+ * `scoreOf` selects the ranking metric the band walks over (default: cosine
+ * `score`). The fan-out read path passes `r => r.adjustedConfidence ?? r.score`
+ * so the band groups by the depth-boosted metric it actually sorted by; the
+ * single-tree callers keep the default, which is byte-identical to before.
  * @template {{ score: number, priority: string }} T
  * @param {T[]} sortedDesc
  * @param {number} band
+ * @param {(r: T) => number} [scoreOf]
  * @returns {T[]}
  */
-export function rerankWithinBands(sortedDesc, band) {
+export function rerankWithinBands(sortedDesc, band, scoreOf = (r) => r.score) {
   if (!(band > 0) || sortedDesc.length < 2) return sortedDesc;
   /** @type {T[]} */
   const out = [];
   let i = 0;
   while (i < sortedDesc.length) {
-    const lead = sortedDesc[i].score;
+    const lead = scoreOf(sortedDesc[i]);
     let j = i + 1;
-    while (j < sortedDesc.length && lead - sortedDesc[j].score <= band) j += 1;
+    while (j < sortedDesc.length && lead - scoreOf(sortedDesc[j]) <= band) j += 1;
     const group = sortedDesc.slice(i, j);
     group.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
     out.push(...group);
@@ -149,10 +154,15 @@ export function rerankWithinBands(sortedDesc, band) {
   return out;
 }
 
+// Rank a query against ONE wiki tree (the current `wikiRoot()`): filter by
+// frontmatter metadata, embed, score by cosine, priority-band rerank, slice to
+// `limit`. This is the single-tree scorer; the federated fan-out
+// (wiki-search-fanout.mjs → the public `searchMemoryFiltered`) runs it once per
+// level inside a `withWikiRoot` frame and merges the results.
 /**
  * @param {{ query?: string, datasetId?: string, limit?: number, filters?: SearchFilters, scoreThreshold?: number, withGlance?: boolean }} [opts]
  */
-export async function searchMemoryFiltered({
+export async function searchOneTree({
   query,
   datasetId,
   limit = 5,
