@@ -257,6 +257,11 @@ export function defaultProjectModule() {
   );
 }
 
+/** @returns {string} */
+export function workspaceBasename() {
+  return WORKSPACE_DIR ? path.basename(WORKSPACE_DIR) : "";
+}
+
 // ─── Strict env-var subset (provider switches; secrets via dotenv) ──────────
 // Base URL for OpenAI-compatible local endpoints (ollama at
 // http://localhost:11434/v1, vLLM, lm-studio, llama.cpp server, litellm proxy).

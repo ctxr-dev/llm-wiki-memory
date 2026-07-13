@@ -45,6 +45,29 @@ export async function handleMigrate(rest) {
 }
 
 /** @param {string[]} rest */
+export async function handleMigrateIdentity(rest) {
+  const { migrateProjectModuleIdentity } = await import("./migrate-identity.mjs");
+  const dryRun = rest.includes("--dry-run");
+  const check = rest.includes("--check");
+  /** @type {ReturnType<typeof migrateProjectModuleIdentity>} */
+  let res;
+  if (dryRun || check) {
+    res = migrateProjectModuleIdentity({ dryRun, check });
+  } else {
+    const { withWikiCommit } = await import("./lib/wiki-commit.mjs");
+    res = /** @type {ReturnType<typeof migrateProjectModuleIdentity>} */ (
+      withWikiCommit({ op: "migrate-identity", actor: "cli" }, () =>
+        migrateProjectModuleIdentity({}),
+      )
+    );
+  }
+  out(res);
+  if (res.mode === "check" && !res.ok) process.exit(3);
+  if (res.mode === "migrate" && !res.ok) process.exit(2);
+  return;
+}
+
+/** @param {string[]} rest */
 export async function handleDoctor(rest) {
   // Curated-wiki health scan: broken index refs, leaves missing from their
   // index, raw no-frontmatter strays, orphans. Layout-derived (see

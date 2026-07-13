@@ -16,6 +16,7 @@ import {
   handleGcEmbeddings,
   handleNest,
   handleMigrate,
+  handleMigrateIdentity,
   handleDoctor,
   handleBackfillPriority,
   handleMoveLeaf,
@@ -73,6 +74,8 @@ async function main() {
       return handleNest(rest);
     case "migrate":
       return handleMigrate(rest);
+    case "migrate-identity":
+      return handleMigrateIdentity(rest);
     case "doctor":
       return handleDoctor(rest);
     case "backfill-priority":
@@ -87,7 +90,7 @@ async function main() {
       return handleGateAudit(rest);
     default:
       out(
-        "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|doctor|move-leaf <from> <to>|monitor --title <t> [...] | --resolve <file>|monitoring-health|gate-audit [--limit N]|recall <q>|search <q>|redistill --leaf <path> | --session <id> | --all>",
+        "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|migrate-identity [--dry-run|--check]|doctor|move-leaf <from> <to>|monitor --title <t> [...] | --resolve <file>|monitoring-health|gate-audit [--limit N]|recall <q>|search <q>|redistill --leaf <path> | --session <id> | --all>",
       );
       process.exit(cmd ? 1 : 0);
   }
