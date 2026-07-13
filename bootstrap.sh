@@ -294,28 +294,26 @@ node "$SRC_DIR/scripts/wire-memory-surfaces.mjs" \
   "$SRC_DIR" "$WORKSPACE_DIR" "$HOME" "$SELF_OBS_ENABLED"
 log "Wired memory rules/skills as @-pointers (.agents/rules, .claude/rules, .claude/skills, .cursor/rules) and AGENTS.md/CLAUDE.md @-includes → ~/.llm-wiki-memory/src."
 
-# --- gitignore ---
+# --- gitignore (marker-fenced block, mechanically reversible by uninstall) ---
 GITIGNORE="$WORKSPACE_DIR/.gitignore"
-touch "$GITIGNORE"
+GI_BEGIN="# >>> llm-wiki-memory >>>"
+GI_END="# <<< llm-wiki-memory <<<"
 if [[ "$COMMIT_MEMORY" -eq 1 ]]; then
-  # Note on state paths: after the env.mjs refactor, compile state + lock +
-  # the embed-gc and consolidate state files live under <data>/state/, not
-  # <data>/src/. Ignore the whole `state/` directory so locks + journals +
-  # the consolidate/embed-gc bookkeeping never enter git, regardless of which
-  # subsystem owns them. Wiki index.md files are DERIVED (regenerated locally on
-  # init/clone-adopt via index-rebuild), so they are ignored too — this keeps a
-  # clone free of them, which is what makes init's missing-index recovery fire.
-  for line in "/.llm-wiki-memory/src/node_modules" "/.llm-wiki-memory/index" "/.llm-wiki-memory/settings/.env" "/.llm-wiki-memory/settings/.env.bak" "/.llm-wiki-memory/state" "/.llm-wiki-memory/monitoring" "/.llm-wiki-memory/settings/self-observability.enabled" "/.llm-wiki-memory/wiki/**/index.md"; do
-    grep -qxF "$line" "$GITIGNORE" || echo "$line" >> "$GITIGNORE"
-  done
-  log "Committing wiki content; ignoring node_modules / index / secrets only."
-  # Phase G mount primitives: when the wiki content rides inside the consuming
-  # repo AND its layout declares shared (ownership: repo) categories, provision
-  # the per-folder git surfaces (negated .gitignore, private personal git,
-  # host-ignore shadow check, chained sync-embeddings hook). A no-op — logged as
-  # skipped — when no shared category is declared, so a plain commit-memory
-  # install is byte-identical to before. The interactive repo-vs-personal FLOW
-  # is Phase J; this only wires the primitives.
+  # Commit the wiki content; ignore only derived/secret/local paths. state/ holds
+  # locks + journals + consolidate/embed-gc bookkeeping; wiki index.md files are
+  # DERIVED (regenerated on init/clone-adopt), so a clone stays free of them —
+  # which is what makes init's missing-index recovery fire.
+  printf '%s\n' \
+    "/.llm-wiki-memory/src/node_modules" \
+    "/.llm-wiki-memory/index" \
+    "/.llm-wiki-memory/settings/.env" \
+    "/.llm-wiki-memory/settings/.env.bak" \
+    "/.llm-wiki-memory/state" \
+    "/.llm-wiki-memory/monitoring" \
+    "/.llm-wiki-memory/settings/self-observability.enabled" \
+    "/.llm-wiki-memory/wiki/**/index.md" |
+    node "$SRC_DIR/scripts/merge-marker.mjs" "$GITIGNORE" "$GI_BEGIN" "$GI_END" -
+  log "Committing wiki content; ignoring node_modules / index / secrets only (fenced block)."
   MOUNT_OUT="$(node "$SRC_DIR/scripts/mount-init.mjs" "$WORKSPACE_DIR" 2>&1 || true)"
   if printf '%s' "$MOUNT_OUT" | grep -q '"skipped": "no-shared-categories"'; then
     :
@@ -324,10 +322,9 @@ if [[ "$COMMIT_MEMORY" -eq 1 ]]; then
     printf '%s' "$MOUNT_OUT" | grep -q '"ok": false' && log "$MOUNT_OUT"
   fi
 else
-  grep -qxF "/.llm-wiki-memory" "$GITIGNORE" || {
-    printf '\n# llm-wiki-memory (local memory; not committed)\n/.llm-wiki-memory\n' >> "$GITIGNORE"
-  }
-  log "Ignoring the whole /.llm-wiki-memory tree (use --commit-memory to commit the wiki)."
+  printf '/.llm-wiki-memory\n' |
+    node "$SRC_DIR/scripts/merge-marker.mjs" "$GITIGNORE" "$GI_BEGIN" "$GI_END" -
+  log "Ignoring the whole /.llm-wiki-memory tree in a fenced block (use --commit-memory to commit)."
 fi
 
 # --- optional scheduled cron-job (hourly, self-throttling, self-healing) ---

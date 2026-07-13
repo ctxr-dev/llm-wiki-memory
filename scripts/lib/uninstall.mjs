@@ -16,6 +16,8 @@ import {
   POINTER_PREFIX,
   DOC_MARKER_START,
   DOC_MARKER_END,
+  HASH_MARKER_START,
+  HASH_MARKER_END,
   MEMORY_DOCS,
   RULE_SURFACES,
 } from "./memory-surface-constants.mjs";
@@ -85,16 +87,16 @@ function isInertHook(content) {
 }
 
 /**
- * Strip our marker-fenced block (plus one preceding blank separator) from a
- * hook file's content. Returns the new content, or null when no marker present.
- * @param {string} content
+ * Strip a marker-fenced block (plus one preceding blank separator) from text.
+ * Returns the new content, or null when the start marker is absent.
+ * @param {string} content @param {string} startMarker @param {string} endMarker
  * @returns {string | null}
  */
-function stripMarkerBlock(content) {
+function stripFencedBlock(content, startMarker, endMarker) {
   const lines = content.split("\n");
-  const start = lines.findIndex((l) => l.trim() === MARKER_START);
+  const start = lines.findIndex((l) => l.trim() === startMarker);
   if (start === -1) return null;
-  let end = lines.findIndex((l, i) => i >= start && l.trim() === MARKER_END);
+  let end = lines.findIndex((l, i) => i >= start && l.trim() === endMarker);
   if (end === -1) end = lines.length - 1;
   let head = start;
   if (head > 0 && lines[head - 1].trim() === "") head -= 1;
@@ -119,7 +121,7 @@ export function removeSyncHookBlocks(repoDir) {
       results[event] = "absent";
       continue;
     }
-    const stripped = stripMarkerBlock(fs.readFileSync(target, "utf8"));
+    const stripped = stripFencedBlock(fs.readFileSync(target, "utf8"), MARKER_START, MARKER_END);
     if (stripped === null) {
       results[event] = "no-marker";
     } else if (isInertHook(stripped)) {
@@ -136,35 +138,37 @@ export function removeSyncHookBlocks(repoDir) {
 }
 
 /**
- * Strip our marker-fenced doc block (plus one preceding blank separator) from an
- * AGENTS.md/CLAUDE.md body. Returns the new content, or null when no marker.
- * @param {string} content
- * @returns {string | null}
- */
-function stripDocBlock(content) {
-  const lines = content.split("\n");
-  const start = lines.findIndex((l) => l.trim() === DOC_MARKER_START);
-  if (start === -1) return null;
-  let end = lines.findIndex((l, i) => i >= start && l.trim() === DOC_MARKER_END);
-  if (end === -1) end = lines.length - 1;
-  let head = start;
-  if (head > 0 && lines[head - 1].trim() === "") head -= 1;
-  return [...lines.slice(0, head), ...lines.slice(end + 1)].join("\n");
-}
-
-/**
- * Strip our fenced block from a doc: rewrite the file without it, or DELETE the
+ * Strip a fenced block from a file: rewrite it without the block, or DELETE the
  * file when the block was its entire content (we created it). Returns true when it
  * acted, false when the file is absent or carries no block.
- * @param {string} file @returns {boolean}
+ * @param {string} file @param {string} startMarker @param {string} endMarker
+ * @returns {boolean}
  */
-function stripBlockFromDoc(file) {
+function stripBlockFromFile(file, startMarker, endMarker) {
   if (!fs.existsSync(file)) return false;
-  const stripped = stripDocBlock(fs.readFileSync(file, "utf8"));
+  const stripped = stripFencedBlock(fs.readFileSync(file, "utf8"), startMarker, endMarker);
   if (stripped === null) return false;
   if (stripped.trim() === "") fs.rmSync(file, { force: true });
   else writeFileAtomic(file, stripped.endsWith("\n") ? stripped : `${stripped}\n`);
   return true;
+}
+
+/** @param {string} file @returns {boolean} */
+function stripBlockFromDoc(file) {
+  return stripBlockFromFile(file, DOC_MARKER_START, DOC_MARKER_END);
+}
+
+/**
+ * Remove our fenced block from the workspace `.gitignore` (E2). Reversible + exact
+ * (marker-scoped); other lines survive; a file that was only our block is removed.
+ * @param {string} workspaceDir @returns {boolean}
+ */
+export function removeGitignoreBlock(workspaceDir) {
+  return stripBlockFromFile(
+    path.join(workspaceDir, ".gitignore"),
+    HASH_MARKER_START,
+    HASH_MARKER_END,
+  );
 }
 
 /**
@@ -251,7 +255,6 @@ function removeByDiscovery(ws) {
 export function manualUninstallSteps(workspaceDir) {
   const dataDir = path.join(workspaceDir, MOUNT_DIRNAME);
   return [
-    `Revert the .gitignore edit: remove the '/.llm-wiki-memory' line (or the --commit-memory block) from ${path.join(workspaceDir, ".gitignore")}.`,
     `For a federated repo mount, remove the per-mount personal git repo: rm -rf ${path.join(dataDir, "personal", ".git")}`,
     `Delete the mount / memory data ONLY if you want to discard it (NOT done automatically): rm -rf ${dataDir}`,
     `Claude Code capture hooks in ${path.join(workspaceDir, ".claude", "settings.json")} and the codex MCP entry in ${path.join(workspaceDir, ".agents", "clients", "openai-codex.toml")} are left in place — remove them by hand if desired.`,
@@ -263,12 +266,13 @@ export function manualUninstallSteps(workspaceDir) {
  * defaults to the workspace itself (the repo whose hooks a mount install
  * chained into). Idempotent; never touches memory data.
  * @param {{ workspaceDir: string, repoDirs?: string[] }} opts
- * @returns {{ workspaceDir: string, mcp: { removed: string[] }, surfaces: { pointers: string[], docs: string[], kept: string[] }, hooks: Record<string, unknown>, manual: string[] }}
+ * @returns {{ workspaceDir: string, mcp: { removed: string[] }, surfaces: { pointers: string[], docs: string[], kept: string[] }, gitignore: boolean, hooks: Record<string, unknown>, manual: string[] }}
  */
 export function uninstall({ workspaceDir, repoDirs }) {
   const ws = path.resolve(workspaceDir);
   const mcp = removeMcpRegistration(ws);
   const surfaces = removeMemorySurfaces(ws);
+  const gitignore = removeGitignoreBlock(ws);
   /** @type {Record<string, unknown>} */
   const hooks = {};
   for (const repo of repoDirs && repoDirs.length ? repoDirs : [ws]) {
@@ -280,5 +284,5 @@ export function uninstall({ workspaceDir, repoDirs }) {
       `Kept ${surfaces.kept.length} pointer file(s) whose content no longer matches what was installed (edited or not ours): ${surfaces.kept.join(", ")}. Review and remove by hand if intended.`,
     );
   }
-  return { workspaceDir: ws, mcp, surfaces, hooks, manual };
+  return { workspaceDir: ws, mcp, surfaces, gitignore, hooks, manual };
 }

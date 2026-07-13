@@ -14,6 +14,7 @@ import {
   removeMcpRegistration,
   removeSyncHookBlocks,
   removeMemorySurfaces,
+  removeGitignoreBlock,
   manualUninstallSteps,
   uninstall,
 } from "../scripts/lib/uninstall.mjs";
@@ -173,33 +174,69 @@ test("removeSyncHookBlocks reports skipped on a non-repo dir", () => {
   assert.equal(res.skipped, "not-a-repo");
 });
 
-test("uninstall leaves memory data intact and reports manual steps", () => {
+test("uninstall leaves memory data intact, reverses the gitignore block, and reports manual steps", () => {
   const ws = gitRepo("uninstall-data");
   writeJson(ws, ".mcp.json", { mcpServers: { "llm-wiki-memory": { command: "node" } } });
   installSyncEmbeddingsHook(ws);
-  // Seed memory data that must survive.
+  fs.writeFileSync(
+    path.join(ws, ".gitignore"),
+    "node_modules\n\n# >>> llm-wiki-memory >>>\n/.llm-wiki-memory\n# <<< llm-wiki-memory <<<\n",
+  );
   const leaf = path.join(ws, ".llm-wiki-memory", "wiki", "knowledge", "keep.md");
   fs.mkdirSync(path.dirname(leaf), { recursive: true });
   fs.writeFileSync(leaf, "# keep me\n");
 
   const report = uninstall({ workspaceDir: ws });
   assert.ok(report.mcp.removed.includes(".mcp.json"));
+  assert.equal(report.gitignore, true, "the gitignore block was mechanically reversed");
+  const gi = fs.readFileSync(path.join(ws, ".gitignore"), "utf8");
+  assert.ok(!gi.includes("llm-wiki-memory"), "our fenced gitignore block is gone");
+  assert.match(gi, /node_modules/, "the user's own gitignore line survives");
   assert.ok(fs.existsSync(leaf), "memory data is never deleted by uninstall");
-  assert.ok(Array.isArray(report.manual) && report.manual.length >= 1, "manual steps reported");
   const manualText = report.manual.join("\n");
-  assert.match(manualText, /\.gitignore/, "manual step names the gitignore reversal");
+  assert.ok(!/gitignore/i.test(manualText), "gitignore is now automated, not a manual step");
   assert.match(manualText, /personal/, "manual step names the personal git repo");
-  assert.match(manualText, /rm -rf.*\.llm-wiki-memory/, "manual step names deleting the mount");
+  assert.match(manualText, /rm -rf.*\.llm-wiki-memory/, "data deletion stays a manual step");
 
-  // Idempotent end to end.
   const second = uninstall({ workspaceDir: ws });
   assert.deepEqual(second.mcp.removed, [], "second uninstall removes nothing new");
+  assert.equal(second.gitignore, false, "gitignore block already gone (idempotent)");
   assert.ok(fs.existsSync(leaf), "memory data still intact after re-run");
 });
 
-test("manualUninstallSteps enumerates the non-automated reversals", () => {
+test("removeGitignoreBlock: strips our fenced block, preserves other lines, idempotent", () => {
+  const ws = tmp("uninstall-gi");
+  fs.writeFileSync(
+    path.join(ws, ".gitignore"),
+    "*.log\n\n# >>> llm-wiki-memory >>>\n/.llm-wiki-memory\n/.llm-wiki-memory/state\n# <<< llm-wiki-memory <<<\n",
+  );
+  assert.equal(removeGitignoreBlock(ws), true, "block stripped");
+  const gi = fs.readFileSync(path.join(ws, ".gitignore"), "utf8");
+  assert.match(gi, /\*\.log/, "user line preserved");
+  assert.ok(!gi.includes("llm-wiki-memory"), "our block gone");
+  assert.equal(removeGitignoreBlock(ws), false, "idempotent: nothing left to strip");
+});
+
+test("removeGitignoreBlock: a .gitignore that was ONLY our block is deleted", () => {
+  const ws = tmp("uninstall-gi-only");
+  fs.writeFileSync(
+    path.join(ws, ".gitignore"),
+    "# >>> llm-wiki-memory >>>\n/.llm-wiki-memory\n# <<< llm-wiki-memory <<<\n",
+  );
+  removeGitignoreBlock(ws);
+  assert.ok(
+    !fs.existsSync(path.join(ws, ".gitignore")),
+    "a gitignore that was only our block is removed",
+  );
+});
+
+test("manualUninstallSteps enumerates the non-automated reversals (data manual, gitignore automated)", () => {
   const steps = manualUninstallSteps("/tmp/some-ws");
   assert.ok(steps.length >= 3);
-  assert.ok(steps.some((s) => s.includes(".gitignore")));
+  assert.ok(!steps.some((s) => /gitignore/i.test(s)), "gitignore is automated, not a manual step");
   assert.ok(steps.some((s) => s.includes("personal")));
+  assert.ok(
+    steps.some((s) => /rm -rf.*\.llm-wiki-memory/.test(s)),
+    "data deletion stays manual",
+  );
 });
