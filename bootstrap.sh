@@ -277,170 +277,22 @@ if [[ "$COMMIT_MEMORY" -eq 0 && -d "$DATA_DIR/wiki" && ! -e "$DATA_DIR/wiki/.git
   fi
 fi
 
-# --- render memory-discipline skill/rule files to all agent surfaces ---
-if [ -d "$SRC_DIR/templates/skills" ]; then
-  for dest in "$WORKSPACE_DIR/.agents/rules" "$WORKSPACE_DIR/.claude/skills" "$WORKSPACE_DIR/.cursor/rules"; do
-    mkdir -p "$dest"
-    # Plain copy (no placeholder substitution). Quoted glob expands per file.
-    for f in "$SRC_DIR"/templates/skills/*.md; do
-      [ -e "$f" ] && cp "$f" "$dest/"
-    done
-  done
-  log "Rendered memory rules to .agents/rules, .claude/skills, and .cursor/rules."
-fi
-
-# --- render process-rule files (e.g. release-docs discipline) to rule surfaces ---
-# Distinct from the skills render above: process rules belong on .claude/RULES
-# (auto-loaded by Claude Code as project instructions), not .claude/skills.
-# Package-shipped rules (templates/rules/) are HARD COPIES to each surface so
-# every install gets them. Workspace-canonical rules (e.g. planning-methodology
-# authored locally in .agents/rules/) are symlinked from .claude/rules/ and
-# .cursor/rules/ so a hand-edit propagates instantly.
-if [ -d "$SRC_DIR/templates/rules" ]; then
-  for dest in "$WORKSPACE_DIR/.agents/rules" "$WORKSPACE_DIR/.claude/rules" "$WORKSPACE_DIR/.cursor/rules"; do
-    mkdir -p "$dest"
-    for f in "$SRC_DIR"/templates/rules/*.md; do
-      [ -e "$f" ] && cp "$f" "$dest/"
-    done
-  done
-  log "Rendered shipped process rules to .agents/rules, .claude/rules, and .cursor/rules."
-fi
-
-# --- wire workspace-canonical rules into the client rule dirs ---
-# Rules authored locally in .agents/rules/ (e.g. planning-methodology.md —
-# workspace-specific, NOT shipped by the package) are the single source of
-# truth. .claude/rules/ and .cursor/rules/ reference them:
-#   - POSIX (Linux/Darwin): a relative SYMLINK, so a hand-edit propagates.
-#   - Windows / unknown OS: a HARD COPY (git's default core.symlinks=false
-#     renders a committed symlink as a plain text file containing the link
-#     TARGET PATH — which Claude Code would then ingest as "the rule". So on
-#     Windows we never rely on symlinks; we copy the content.)
-# Either branch also REPAIRS a "pseudo-symlink": a regular file whose entire
-# content is exactly the relative path to an existing .agents/rules file —
-# the corrupt artifact a Windows checkout produces from a committed symlink.
-# Without repair, a teammate on a mixed-OS team silently gets a path-string
-# where the rule should be.
-HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
-case "$HOST_OS" in
-  Linux|Darwin) RULE_WIRE_MODE="symlink" ;;
-  *)            RULE_WIRE_MODE="copy" ;;
-esac
-
-WORKSPACE_RULES_DIR="$WORKSPACE_DIR/.agents/rules"
-if [ -d "$WORKSPACE_RULES_DIR" ]; then
-  wired=0
-  for src_rule in "$WORKSPACE_RULES_DIR"/*.md; do
-    [ -e "$src_rule" ] || continue
-    rule_name="$(basename "$src_rule")"
-    # Skip rules ALSO shipped by the package — the hard-copy render above
-    # already materialised those in every client dir; symlinking them would
-    # shadow the shipped copy with a link to the (also-rendered) workspace one.
-    # self-observability.md is owned end-to-end by the opt-in wiring block below
-    # (independent pointers, never symlinks); keep this generic loop off it.
-    if [ -e "$SRC_DIR/templates/rules/$rule_name" ] || [ "$rule_name" = "self-observability.md" ]; then
-      continue
-    fi
-    relpath="../../.agents/rules/$rule_name"
-    for client_dir in "$WORKSPACE_DIR/.claude/rules" "$WORKSPACE_DIR/.cursor/rules"; do
-      mkdir -p "$client_dir"
-      target="$client_dir/$rule_name"
-      # Detect a checked-out pseudo-symlink: a regular (non-link) file whose
-      # sole content is the relpath string (optionally newline-terminated).
-      is_pseudo_symlink=0
-      if [ -f "$target" ] && [ ! -L "$target" ]; then
-        content="$(tr -d '\n' < "$target" 2>/dev/null)"
-        if [ "$content" = "$relpath" ]; then
-          is_pseudo_symlink=1
-        fi
-      fi
-      if [ "$RULE_WIRE_MODE" = "symlink" ]; then
-        # A correct symlink already in place: leave it.
-        if [ -L "$target" ]; then
-          continue
-        fi
-        # A hard copy or a pseudo-symlink: replace with a real symlink.
-        [ -e "$target" ] && rm -f "$target"
-        ln -s "$relpath" "$target"
-        wired=$((wired + 1))
-      else
-        # Windows / unknown: hard-copy the canonical content. Replace a
-        # pseudo-symlink, a stale copy, or a (non-functional) committed symlink.
-        if [ -L "$target" ] || [ "$is_pseudo_symlink" = "1" ] || ! cmp -s "$src_rule" "$target" 2>/dev/null; then
-          rm -f "$target"
-          cp "$src_rule" "$target"
-          wired=$((wired + 1))
-        fi
-      fi
-    done
-  done
-  if [ "$RULE_WIRE_MODE" = "symlink" ]; then
-    log "Wired workspace-canonical rules into .claude/rules and .cursor/rules (symlinks; $wired updated)."
-  else
-    log "Wired workspace-canonical rules into .claude/rules and .cursor/rules (hard copies on '$HOST_OS'; $wired updated)."
-  fi
-fi
-
-# --- self-observability (OPT-IN): reference the rule into the project rule dirs ---
-# Consent is a sentinel under settings/ so a flag-less re-bootstrap (the normal
-# AI-install-prompt update path) PRESERVES it; we never derive consent from the
-# pointer files themselves (a cloud-sync daemon can scramble those). The reference
-# is three INDEPENDENT pointer files (never symlinks — Drive breaks them), each
-# @-including the canonical rule in src so its content tracks engine updates.
+# --- wire memory rules/skills + AGENTS.md/CLAUDE.md as @-pointers (reference-only) ---
+# Every llm-wiki-memory rule/skill becomes a prefixed llm-wiki-memory-<name>.md
+# @-pointer into ~/.llm-wiki-memory/src (never a copy or symlink); AGENTS.md/CLAUDE.md
+# get one marker-fenced @-include. Self-observability stays opt-in via the sentinel,
+# so a flag-less re-bootstrap preserves consent. Logic: scripts/wire-memory-surfaces.mjs.
 SELF_OBS_SENTINEL="$DATA_DIR/settings/self-observability.enabled"
-SELF_OBS_CANON="$SRC_DIR/.agents/rules/self-observability.md"
 if [ "$SELF_OBS" = "on" ]; then
   : > "$SELF_OBS_SENTINEL"
 elif [ "$SELF_OBS" = "off" ]; then
   rm -f "$SELF_OBS_SENTINEL"
 fi
-if [ -f "$SELF_OBS_SENTINEL" ] && [ -f "$SELF_OBS_CANON" ]; then
-  for rdir in "$WORKSPACE_DIR/.agents/rules" "$WORKSPACE_DIR/.claude/rules" "$WORKSPACE_DIR/.cursor/rules"; do
-    mkdir -p "$rdir"
-    cat > "$rdir/self-observability.md" <<'EOF'
-# Self-observability (opt-in)
-
-Canonical rule (single source of truth; tracks engine updates):
-`.llm-wiki-memory/src/.agents/rules/self-observability.md`
-
-@../../.llm-wiki-memory/src/.agents/rules/self-observability.md
-
-If your client does not auto-resolve the `@`-include above, read the canonical
-file at the path named on the line before it.
-EOF
-  done
-  log "Self-observability ENABLED: rule referenced into .agents/rules, .claude/rules, .cursor/rules."
-else
-  # Disabled or never opted in: remove any stale pointers so the rule is truly off.
-  for rdir in "$WORKSPACE_DIR/.agents/rules" "$WORKSPACE_DIR/.claude/rules" "$WORKSPACE_DIR/.cursor/rules"; do
-    rm -f "$rdir/self-observability.md"
-  done
-fi
-
-# --- pointer block in AGENTS.md and CLAUDE.md (idempotent, marker-fenced) ---
-POINTER_CONTENT="$(cat <<'EOF'
-## Project memory (llm-wiki-memory)
-
-Project memory is available through the local `llm-wiki-memory` MCP server.
-The memory discipline rules live in `.agents/rules/` (also mirrored to
-`.claude/skills/`). Read them before doing non-trivial work.
-
-Cross-tool **process rules** (e.g. the planning methodology) live in
-`.claude/rules/` (Claude Code auto-loads them), mirrored to `.agents/rules/`
-and `.cursor/rules/`.
-
-Key tools:
-- `recall_lessons`: call BEFORE starting any non-trivial work.
-- `save_lesson`: WRITE-GATED. Propose ("Want me to save this as a lesson?") and only call after the user explicitly says yes in this turn, passing `userRequested:true`. Server refuses without the flag.
-- `save_to_dataset`: persist knowledge, plans, and investigations. `dataset="self_improvement"` is also write-gated (same `userRequested:true` rule); other datasets are not.
-- `search_memory`: query the wiki for relevant context.
-- `consolidate_memory`: system-maintenance. Daily cron + hook-less skill rule run it on a schedule. Invoke manually only when the user asks.
-EOF
-)"
-for doc in "$WORKSPACE_DIR/AGENTS.md" "$WORKSPACE_DIR/CLAUDE.md"; do
-  printf '%s' "$POINTER_CONTENT" | node "$SRC_DIR/scripts/merge-marker.mjs" \
-    "$doc" "<!-- BEGIN llm-wiki-memory -->" "<!-- END llm-wiki-memory -->" -
-done
-log "Updated AGENTS.md and CLAUDE.md memory pointer blocks."
+SELF_OBS_ENABLED=0
+[ -f "$SELF_OBS_SENTINEL" ] && SELF_OBS_ENABLED=1
+node "$SRC_DIR/scripts/wire-memory-surfaces.mjs" \
+  "$SRC_DIR" "$WORKSPACE_DIR" "$HOME" "$SELF_OBS_ENABLED"
+log "Wired memory rules/skills as @-pointers (.agents/rules, .claude/rules, .claude/skills, .cursor/rules) and AGENTS.md/CLAUDE.md @-includes → ~/.llm-wiki-memory/src."
 
 # --- gitignore ---
 GITIGNORE="$WORKSPACE_DIR/.gitignore"
