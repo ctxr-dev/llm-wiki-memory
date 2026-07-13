@@ -71,3 +71,25 @@ export function resolveProjectModuleIdentity(ctx, targetLevel, gitOrigin = gitOr
   if (chain.length === 0) return projectModuleSegment(targetLevel, gitOrigin);
   return chain.map((l) => projectModuleSegment(l, gitOrigin)).join("//");
 }
+
+/**
+ * @param {{ levels: IdentityLevel[] }} ctx
+ * @param {IdentityLevel} targetLevel
+ * @param {(dir: string) => (string | null)} [gitOrigin]
+ * @returns {{ ok: true } | { ok: false, conflicts: { mountDir: string, reason: string }[] }}
+ */
+export function validateProjectModuleIdentity(ctx, targetLevel, gitOrigin = gitOriginUrl) {
+  const idx = ctx.levels.indexOf(targetLevel);
+  const upto = idx === -1 ? ctx.levels : ctx.levels.slice(0, idx + 1);
+  const conflicts = [];
+  for (const l of upto) {
+    if (l.ownership !== "repo") continue;
+    if (projectModuleSegment(l, gitOrigin).startsWith("file://")) {
+      conflicts.push({
+        mountDir: l.mountDir,
+        reason: "repo-owned level has no portable identity (no project_id, no git origin)",
+      });
+    }
+  }
+  return conflicts.length ? { ok: false, conflicts } : { ok: true };
+}

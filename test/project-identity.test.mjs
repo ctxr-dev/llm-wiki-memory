@@ -9,6 +9,7 @@ import {
   gitOriginUrl,
   projectModuleSegment,
   resolveProjectModuleIdentity,
+  validateProjectModuleIdentity,
 } from "../scripts/lib/project-identity.mjs";
 
 test("canonicalRepoId folds ssh/https/.git/case/trailing-slash to the SAME org/repo", () => {
@@ -129,4 +130,38 @@ test("gitOriginUrl: reads a real repo's origin; null when there is none", () => 
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("validateProjectModuleIdentity: ok when every repo-owned level has a portable id", () => {
+  const brain = { mountDir: "/h/.lwm", ownership: "wiki" };
+  const withOrigin = { mountDir: "/h/a/.lwm", ownership: "repo" };
+  const withId = { mountDir: "/h/b/.lwm", ownership: "repo", projectId: "team/svc" };
+  const ctx = { levels: [brain, withOrigin, withId] };
+  const origin = (/** @type {string} */ d) =>
+    d === "/h/a/.lwm" ? "git@github.com:org/a.git" : null;
+  assert.deepEqual(validateProjectModuleIdentity(ctx, withId, origin), { ok: true });
+});
+
+test("validateProjectModuleIdentity: a wiki brain that resolves to file:// is NOT a conflict", () => {
+  const brain = { mountDir: "/h/.lwm", ownership: "wiki" };
+  assert.deepEqual(
+    validateProjectModuleIdentity({ levels: [brain] }, brain, () => null),
+    {
+      ok: true,
+    },
+  );
+});
+
+test("validateProjectModuleIdentity: a repo-owned level with no portable id is surfaced (fail-loud)", () => {
+  const brain = { mountDir: "/h/.lwm", ownership: "wiki" };
+  const ok = { mountDir: "/h/a/.lwm", ownership: "repo" };
+  const bad = { mountDir: "/h/b/.lwm", ownership: "repo" };
+  const ctx = { levels: [brain, ok, bad] };
+  const origin = (/** @type {string} */ d) =>
+    d === "/h/a/.lwm" ? "git@github.com:org/a.git" : null;
+  const r = validateProjectModuleIdentity(ctx, bad, origin);
+  assert.equal(r.ok, false);
+  assert.equal(r.conflicts.length, 1, "only the no-portable-id repo level is flagged");
+  assert.equal(r.conflicts[0].mountDir, "/h/b/.lwm");
+  assert.match(r.conflicts[0].reason, /portable identity/);
 });
