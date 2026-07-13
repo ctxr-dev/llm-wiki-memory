@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { wireMemorySurfaces } from "../scripts/wire-memory-surfaces.mjs";
+import { readManifest, manifestPath, sha256 } from "../scripts/lib/install-manifest.mjs";
 
 /** @type {string[]} */
 const tmps = [];
@@ -130,40 +131,94 @@ test("wire: is idempotent — a second run is byte-stable on every surface and d
     }
     m["AGENTS.md"] = read(path.join(ws, "AGENTS.md"));
     m["CLAUDE.md"] = read(path.join(ws, "CLAUDE.md"));
+    m["MANIFEST"] = read(manifestPath(ws));
     return m;
   };
   const before = snap();
   wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: true });
-  assert.deepEqual(snap(), before, "second run changes nothing");
+  assert.deepEqual(
+    snap(),
+    before,
+    "second run is byte-stable on every surface, both docs, and the manifest",
+  );
 });
 
-test("wire: migration removes an OLD unprefixed copy/symlink of one of our rules, keeps the user's own", () => {
+test("wire: writes an install manifest recording every artifact (files hashed, both docs as blocks)", () => {
+  const { home, srcDir, ws } = scaffold();
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  const m = readManifest(ws);
+  assert.ok(m, "manifest written");
+  const files = m.artifacts.filter((a) => a.kind === "file");
+  const blocks = m.artifacts.filter((a) => a.kind === "block");
+  assert.ok(files.length >= 8, "every pointer recorded as a file artifact");
+  assert.deepEqual(
+    blocks.map((b) => b.path).sort(),
+    ["AGENTS.md", "CLAUDE.md"],
+    "both docs recorded as block artifacts",
+  );
+  const f = files.find((a) => a.path.endsWith("llm-wiki-memory-consolidate.md"));
+  assert.ok(f, "a known pointer is recorded");
+  assert.equal(
+    f.sha256,
+    sha256(read(path.join(ws, f.path))),
+    "the recorded hash matches the on-disk body",
+  );
+});
+
+test("wire: both AGENTS.md and CLAUDE.md, when ABSENT, are CREATED with the include block", () => {
+  const { home, srcDir, ws } = scaffold();
+  assert.ok(
+    !fs.existsSync(path.join(ws, "AGENTS.md")) && !fs.existsSync(path.join(ws, "CLAUDE.md")),
+    "both docs absent to start",
+  );
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  for (const doc of ["AGENTS.md", "CLAUDE.md"]) {
+    const body = read(path.join(ws, doc));
+    assert.match(body, /BEGIN llm-wiki-memory/, `${doc} created with the block`);
+    assert.match(body, /@~\/.*agents-memory-instructions\.md/, `${doc} includes the instructions`);
+  }
+});
+
+test("wire: migration removes OUR old copy (canonical content or symlink) but PRESERVES a user's same-named file", () => {
   const { home, srcDir, ws } = scaffold();
   fs.mkdirSync(path.join(ws, ".claude/skills"), { recursive: true });
-  fs.writeFileSync(
-    path.join(ws, ".claude/skills", "consolidate.md"),
-    "# stale hard copy of a shipped skill\n",
-  );
   fs.mkdirSync(path.join(ws, ".claude/rules"), { recursive: true });
-  fs.writeFileSync(path.join(ws, ".claude/rules", "priority.md"), "# stale copy\n");
+  // An OLD hard copy = byte-identical to the shipped canonical → removed.
+  fs.copyFileSync(
+    path.join(srcDir, "templates/skills/consolidate.md"),
+    path.join(ws, ".claude/skills", "consolidate.md"),
+  );
+  // An OLD symlink (the pre-D .claude/.cursor wiring) → removed.
+  fs.symlinkSync(
+    "../../.agents/rules/plan-capture.md",
+    path.join(ws, ".claude/skills", "plan-capture.md"),
+  );
+  // A user's OWN file at a shipped basename, DIFFERENT content → PRESERVED.
+  fs.writeFileSync(path.join(ws, ".claude/rules", "priority.md"), "# MY own priority rule\n");
+  // A user's unrelated file → PRESERVED.
   fs.writeFileSync(path.join(ws, ".claude/rules", "my-own-rule.md"), "# keep me\n");
 
   wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
 
   assert.ok(
     !fs.existsSync(path.join(ws, ".claude/skills", "consolidate.md")),
-    "old unprefixed skill copy removed",
+    "our old hard copy (canonical content) removed",
   );
   assert.ok(
-    !fs.existsSync(path.join(ws, ".claude/rules", "priority.md")),
-    "old unprefixed rule copy removed",
+    !fs.existsSync(path.join(ws, ".claude/skills", "plan-capture.md")),
+    "our old symlink removed",
   );
   assert.ok(
     fs.existsSync(path.join(ws, ".claude/skills", "llm-wiki-memory-consolidate.md")),
     "replaced by the prefixed pointer",
   );
+  assert.equal(
+    fs.readFileSync(path.join(ws, ".claude/rules", "priority.md"), "utf8"),
+    "# MY own priority rule\n",
+    "a user's DIFFERENT-content file at a shipped basename is PRESERVED, not blind-deleted",
+  );
   assert.ok(
     fs.existsSync(path.join(ws, ".claude/rules", "my-own-rule.md")),
-    "the user's own file is untouched",
+    "user's unrelated file untouched",
   );
 });

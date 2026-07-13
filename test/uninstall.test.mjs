@@ -17,6 +17,7 @@ import {
   manualUninstallSteps,
   uninstall,
 } from "../scripts/lib/uninstall.mjs";
+import { writeManifest, sha256 } from "../scripts/lib/install-manifest.mjs";
 
 /** @type {string[]} */
 const tmps = [];
@@ -135,7 +136,35 @@ test("removeMemorySurfaces deletes prefixed @-pointers + strips the AGENTS/CLAUD
   assert.ok(!agents.includes("BEGIN llm-wiki-memory"), "our block gone");
 
   const second = removeMemorySurfaces(ws);
-  assert.deepEqual(second, { pointers: [], docs: [] }, "idempotent");
+  assert.deepEqual(second, { pointers: [], docs: [], kept: [] }, "idempotent");
+});
+
+test("removeMemorySurfaces (manifest): hash-verified — deletes exact matches, KEEPS a drifted file, idempotent", () => {
+  const w = tmp("uninstall-manifest");
+  fs.mkdirSync(path.join(w, ".claude/skills"), { recursive: true });
+  const okBody = "@~/a\n";
+  const okRel = ".claude/skills/llm-wiki-memory-a.md";
+  const driftRel = ".claude/skills/llm-wiki-memory-b.md";
+  fs.writeFileSync(path.join(w, okRel), okBody);
+  fs.writeFileSync(path.join(w, driftRel), "USER EDITED THIS\n");
+  writeManifest(w, [
+    { kind: "file", path: okRel, sha256: sha256(okBody) },
+    { kind: "file", path: driftRel, sha256: sha256("@~/original-b\n") },
+  ]);
+
+  const res = removeMemorySurfaces(w);
+  assert.deepEqual(res.pointers, [okRel], "the exact-match file is removed");
+  assert.deepEqual(
+    res.kept,
+    [driftRel],
+    "the drifted file is KEPT + surfaced, never blind-deleted",
+  );
+  assert.ok(!fs.existsSync(path.join(w, okRel)), "matched file gone");
+  assert.ok(fs.existsSync(path.join(w, driftRel)), "drifted file preserved");
+
+  const second = removeMemorySurfaces(w);
+  assert.deepEqual(second.pointers, [], "re-run removes nothing new");
+  assert.deepEqual(second.kept, [driftRel], "drifted file still tracked + kept (idempotent)");
 });
 
 test("removeSyncHookBlocks reports skipped on a non-repo dir", () => {

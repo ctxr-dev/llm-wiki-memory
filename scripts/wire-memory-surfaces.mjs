@@ -1,10 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  POINTER_PREFIX,
+  DOC_MARKER_START,
+  DOC_MARKER_END,
+  RULE_SURFACES,
+  MEMORY_DOCS,
+  MARKER_ID,
+} from "./lib/memory-surface-constants.mjs";
+import { sha256, writeManifest } from "./lib/install-manifest.mjs";
 
-const POINTER_PREFIX = "llm-wiki-memory-";
-const BEGIN = "<!-- BEGIN llm-wiki-memory -->";
-const END = "<!-- END llm-wiki-memory -->";
 const INSTRUCTIONS_REL = "templates/agents-memory-instructions.md";
 const SELF_OBS = "self-observability.md";
 
@@ -13,7 +19,6 @@ const SHIPPED_GROUPS = [
   { sub: "templates/rules", surfaces: [".agents/rules", ".claude/rules", ".cursor/rules"] },
 ];
 const SELF_OBS_SURFACES = [".agents/rules", ".claude/rules", ".cursor/rules"];
-const ALL_SURFACES = [".agents/rules", ".claude/skills", ".claude/rules", ".cursor/rules"];
 
 /** @param {string} home @param {string} abs @returns {string} */
 function homeRef(home, abs) {
@@ -44,12 +49,46 @@ function mdFiles(srcDir, sub) {
 
 /** @param {string} p @param {string} content */
 function writeIfChanged(p, content) {
+  let current = null;
   try {
-    if (fs.readFileSync(p, "utf8") === content) return;
+    current = fs.readFileSync(p, "utf8");
   } catch {
-    /* absent → write */
+    current = null;
   }
+  if (current === content) return;
   fs.writeFileSync(p, content);
+}
+
+/** @param {string} srcDir @returns {Map<string, string>} managed basename → canonical abs path */
+function managedCanonical(srcDir) {
+  /** @type {Map<string, string>} */
+  const map = new Map();
+  for (const g of SHIPPED_GROUPS) {
+    for (const n of mdFiles(srcDir, g.sub)) map.set(n, path.join(srcDir, g.sub, n));
+  }
+  const selfObs = path.join(srcDir, ".agents/rules", SELF_OBS);
+  if (fs.existsSync(selfObs)) map.set(SELF_OBS, selfObs);
+  return map;
+}
+
+/**
+ * A surface file is OUR old (pre-@-pointer) artifact only when it is a symlink (the
+ * old .claude/.cursor wiring) or byte-identical to the shipped canonical (the old
+ * hard-copy render). A consumer's own same-named file — different content, not a
+ * symlink — is never ours and must survive the migration.
+ * @param {string} surfacePath @param {string} canonicalAbs @returns {boolean}
+ */
+function isOurOldCopy(surfacePath, canonicalAbs) {
+  try {
+    if (fs.lstatSync(surfacePath).isSymbolicLink()) return true;
+  } catch {
+    return false;
+  }
+  try {
+    return fs.readFileSync(surfacePath, "utf8") === fs.readFileSync(canonicalAbs, "utf8");
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -79,24 +118,17 @@ function desiredPointers(srcDir, home, selfObsEnabled) {
   return bySurface;
 }
 
-/** @param {string} srcDir @returns {Set<string>} every canonical basename we manage (for migration) */
-function managedNames(srcDir) {
-  const set = new Set([SELF_OBS]);
-  for (const g of SHIPPED_GROUPS) for (const n of mdFiles(srcDir, g.sub)) set.add(n);
-  return set;
-}
-
 /** @param {string} file @param {string} ref */
 function wireInclude(file, ref) {
   const inner = `## Project memory (llm-wiki-memory)\n\n@${ref}\n\nIf your client does not resolve the @-include above, read:\n${ref}`;
-  const block = `${BEGIN}\n${inner}\n${END}`;
+  const block = `${DOC_MARKER_START}\n${inner}\n${DOC_MARKER_END}`;
   let existing = "";
   try {
     existing = fs.readFileSync(file, "utf8");
   } catch {
     existing = "";
   }
-  const re = new RegExp(`${escapeRe(BEGIN)}[\\s\\S]*?${escapeRe(END)}`);
+  const re = new RegExp(`${escapeRe(DOC_MARKER_START)}[\\s\\S]*?${escapeRe(DOC_MARKER_END)}`);
   const next = re.test(existing)
     ? existing.replace(re, block)
     : existing
@@ -106,34 +138,38 @@ function wireInclude(file, ref) {
 }
 
 /**
- * Reference-only wiring for the llm-wiki-memory surfaces: each shipped rule/skill
- * becomes a prefixed `@`-pointer FILE (never a copy or OS symlink) targeting the
- * single home install `~/.llm-wiki-memory/src/...`; AGENTS.md/CLAUDE.md gain one
- * marker-fenced `@`-include of the extracted instructions. Old unprefixed copies
- * and stale prefixed pointers (e.g. self-observability when disabled) are removed;
- * a re-run is byte-stable. The consuming project's OWN rule files are left alone.
  * @param {{ srcDir: string, workspaceDir: string, home: string, selfObsEnabled?: boolean }} opts
- * @returns {{ surfaces: number }}
+ * @returns {{ surfaces: number, artifacts: number }}
  */
 export function wireMemorySurfaces({ srcDir, workspaceDir, home, selfObsEnabled = false }) {
   const desired = desiredPointers(srcDir, home, selfObsEnabled);
-  const managed = managedNames(srcDir);
-  const managedPointers = new Set([...managed].map(pointerName));
-  for (const surface of ALL_SURFACES) {
+  const canonical = managedCanonical(srcDir);
+  const managedPointers = new Set([...canonical.keys()].map(pointerName));
+  /** @type {import("./lib/install-manifest.mjs").InstallArtifact[]} */
+  const artifacts = [];
+  for (const surface of RULE_SURFACES) {
     const dir = path.join(workspaceDir, surface);
     fs.mkdirSync(dir, { recursive: true });
     const want = desired.get(surface) || new Map();
     for (const entry of fs.readdirSync(dir)) {
-      const staleCopy = managed.has(entry);
+      const canon = canonical.get(entry);
+      const staleCopy = canon !== undefined && isOurOldCopy(path.join(dir, entry), canon);
       const stalePointer = managedPointers.has(entry) && !want.has(entry);
       if (staleCopy || stalePointer) fs.rmSync(path.join(dir, entry), { force: true });
     }
-    for (const [fname, ref] of want) writeIfChanged(path.join(dir, fname), pointerBody(ref));
+    for (const [fname, ref] of want) {
+      const body = pointerBody(ref);
+      writeIfChanged(path.join(dir, fname), body);
+      artifacts.push({ kind: "file", path: `${surface}/${fname}`, sha256: sha256(body) });
+    }
   }
   const instructionsRef = homeRef(home, path.join(srcDir, INSTRUCTIONS_REL));
-  wireInclude(path.join(workspaceDir, "AGENTS.md"), instructionsRef);
-  wireInclude(path.join(workspaceDir, "CLAUDE.md"), instructionsRef);
-  return { surfaces: ALL_SURFACES.length };
+  for (const doc of MEMORY_DOCS) {
+    wireInclude(path.join(workspaceDir, doc), instructionsRef);
+    artifacts.push({ kind: "block", path: doc, marker: MARKER_ID });
+  }
+  writeManifest(workspaceDir, artifacts);
+  return { surfaces: RULE_SURFACES.length, artifacts: artifacts.length };
 }
 
 const invokedAsCli = (() => {

@@ -12,18 +12,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { writeFileAtomic } from "./atomic-write.mjs";
 import { MARKER_START, MARKER_END, HOOK_EVENTS, hooksDirFor } from "./mount-git.mjs";
+import {
+  POINTER_PREFIX,
+  DOC_MARKER_START,
+  DOC_MARKER_END,
+  MEMORY_DOCS,
+  RULE_SURFACES,
+} from "./memory-surface-constants.mjs";
+import { readManifest, writeManifest, manifestPath, sha256 } from "./install-manifest.mjs";
 
 const SERVER_KEY = "llm-wiki-memory";
 const MOUNT_DIRNAME = ".llm-wiki-memory";
-
-// Reference-only install surfaces (bootstrap wires these as @-pointer files, D):
-// every rule/skill pointer is prefixed, and AGENTS.md/CLAUDE.md carry a marker-
-// fenced @-include. All are unambiguously ours, so uninstall reverses them.
-const POINTER_PREFIX = "llm-wiki-memory-";
-const SURFACE_DIRS = [".agents/rules", ".claude/rules", ".claude/skills", ".cursor/rules"];
-const DOC_MARKER_START = "<!-- BEGIN llm-wiki-memory -->";
-const DOC_MARKER_END = "<!-- END llm-wiki-memory -->";
-const MEMORY_DOCS = ["AGENTS.md", "CLAUDE.md"];
 
 // The JSON client configs bootstrap writes a `mcpServers.llm-wiki-memory` entry
 // into. Each is workspace-relative and may or may not exist.
@@ -154,18 +153,79 @@ function stripDocBlock(content) {
 }
 
 /**
- * Reverse the reference-only wiring (D): delete every prefixed `@`-pointer file
- * from the four rule/skill surfaces, and strip the marker-fenced `@`-include from
- * AGENTS.md/CLAUDE.md (deleting a doc that our block was the ENTIRE content of).
- * The consuming project's own rules/docs are untouched. Idempotent.
+ * Strip our fenced block from a doc: rewrite the file without it, or DELETE the
+ * file when the block was its entire content (we created it). Returns true when it
+ * acted, false when the file is absent or carries no block.
+ * @param {string} file @returns {boolean}
+ */
+function stripBlockFromDoc(file) {
+  if (!fs.existsSync(file)) return false;
+  const stripped = stripDocBlock(fs.readFileSync(file, "utf8"));
+  if (stripped === null) return false;
+  if (stripped.trim() === "") fs.rmSync(file, { force: true });
+  else writeFileAtomic(file, stripped.endsWith("\n") ? stripped : `${stripped}\n`);
+  return true;
+}
+
+/**
+ * Reverse the reference-only wiring (D). With an install MANIFEST present, remove
+ * EXACTLY the recorded artifacts: a file is deleted only if its content still hashes
+ * to what we wrote (a drifted / user-owned file is KEPT and surfaced, never
+ * blind-deleted); a doc block is stripped by marker. Kept files stay recorded so a
+ * re-run stays hash-aware; a clean removal drops the manifest. Without a manifest
+ * (legacy install) fall back to `llm-wiki-memory-` prefix + marker discovery.
+ * Idempotent.
  * @param {string} workspaceDir
- * @returns {{ pointers: string[], docs: string[] }}
+ * @returns {{ pointers: string[], docs: string[], kept: string[] }}
  */
 export function removeMemorySurfaces(workspaceDir) {
   const ws = path.resolve(workspaceDir);
-  /** @type {string[]} */
-  const pointers = [];
-  for (const surface of SURFACE_DIRS) {
+  const manifest = readManifest(ws);
+  return manifest ? removeFromManifest(ws, manifest) : removeByDiscovery(ws);
+}
+
+/**
+ * @param {string} ws @param {import("./install-manifest.mjs").InstallManifest} manifest
+ * @returns {{ pointers: string[], docs: string[], kept: string[] }}
+ */
+function removeFromManifest(ws, manifest) {
+  /** @type {string[]} */ const pointers = [];
+  /** @type {string[]} */ const docs = [];
+  /** @type {string[]} */ const kept = [];
+  /** @type {import("./install-manifest.mjs").InstallArtifact[]} */ const keptArtifacts = [];
+  for (const a of manifest.artifacts) {
+    if (a.kind === "file") {
+      const abs = path.join(ws, a.path);
+      let content = null;
+      try {
+        content = fs.readFileSync(abs, "utf8");
+      } catch {
+        content = null;
+      }
+      if (content === null) continue;
+      if (sha256(content) === a.sha256) {
+        fs.rmSync(abs, { force: true });
+        pointers.push(a.path);
+      } else {
+        kept.push(a.path);
+        keptArtifacts.push(a);
+      }
+    } else if (a.kind === "block") {
+      if (stripBlockFromDoc(path.join(ws, a.path))) docs.push(a.path);
+    }
+  }
+  if (keptArtifacts.length) writeManifest(ws, keptArtifacts);
+  else fs.rmSync(manifestPath(ws), { force: true });
+  return { pointers, docs, kept };
+}
+
+/**
+ * @param {string} ws
+ * @returns {{ pointers: string[], docs: string[], kept: string[] }}
+ */
+function removeByDiscovery(ws) {
+  /** @type {string[]} */ const pointers = [];
+  for (const surface of RULE_SURFACES) {
     const dir = path.join(ws, surface);
     if (!fs.existsSync(dir)) continue;
     for (const entry of fs.readdirSync(dir)) {
@@ -175,18 +235,11 @@ export function removeMemorySurfaces(workspaceDir) {
       }
     }
   }
-  /** @type {string[]} */
-  const docs = [];
+  /** @type {string[]} */ const docs = [];
   for (const doc of MEMORY_DOCS) {
-    const file = path.join(ws, doc);
-    if (!fs.existsSync(file)) continue;
-    const stripped = stripDocBlock(fs.readFileSync(file, "utf8"));
-    if (stripped === null) continue;
-    if (stripped.trim() === "") fs.rmSync(file, { force: true });
-    else writeFileAtomic(file, stripped.endsWith("\n") ? stripped : `${stripped}\n`);
-    docs.push(doc);
+    if (stripBlockFromDoc(path.join(ws, doc))) docs.push(doc);
   }
-  return { pointers, docs };
+  return { pointers, docs, kept: [] };
 }
 
 /**
@@ -210,7 +263,7 @@ export function manualUninstallSteps(workspaceDir) {
  * defaults to the workspace itself (the repo whose hooks a mount install
  * chained into). Idempotent; never touches memory data.
  * @param {{ workspaceDir: string, repoDirs?: string[] }} opts
- * @returns {{ workspaceDir: string, mcp: { removed: string[] }, surfaces: { pointers: string[], docs: string[] }, hooks: Record<string, unknown>, manual: string[] }}
+ * @returns {{ workspaceDir: string, mcp: { removed: string[] }, surfaces: { pointers: string[], docs: string[], kept: string[] }, hooks: Record<string, unknown>, manual: string[] }}
  */
 export function uninstall({ workspaceDir, repoDirs }) {
   const ws = path.resolve(workspaceDir);
@@ -221,5 +274,11 @@ export function uninstall({ workspaceDir, repoDirs }) {
   for (const repo of repoDirs && repoDirs.length ? repoDirs : [ws]) {
     hooks[repo] = removeSyncHookBlocks(repo);
   }
-  return { workspaceDir: ws, mcp, surfaces, hooks, manual: manualUninstallSteps(ws) };
+  const manual = manualUninstallSteps(ws);
+  if (surfaces.kept.length) {
+    manual.push(
+      `Kept ${surfaces.kept.length} pointer file(s) whose content no longer matches what was installed (edited or not ours): ${surfaces.kept.join(", ")}. Review and remove by hand if intended.`,
+    );
+  }
+  return { workspaceDir: ws, mcp, surfaces, hooks, manual };
 }
