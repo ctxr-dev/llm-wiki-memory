@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { canonicalRepoId, gitOriginUrl } from "./project-identity.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // scripts/lib/env.mjs -> project clone root is two levels up.
@@ -231,12 +232,26 @@ export function embedCacheFor(root, category) {
   return path.join(root, String(category), ".embeddings", "embeddings.json");
 }
 
+/** @type {string | undefined} */
+let cachedWorkspaceIdentity;
+export function workspaceIdentity() {
+  if (cachedWorkspaceIdentity === undefined) {
+    cachedWorkspaceIdentity =
+      canonicalRepoId(gitOriginUrl(WORKSPACE_DIR)) ||
+      (WORKSPACE_DIR ? `file://${WORKSPACE_DIR}` : "");
+  }
+  return cachedWorkspaceIdentity;
+}
+
 // Workspace identifier used to scope recall so two installs don't cross-leak.
-// Mirrors the boilerplate's COMPOSE_PROJECT_NAME / MEMORY_DEFAULT_PROJECT_MODULE.
+// An explicit env override wins; otherwise the workspace's canonical git origin
+// (org/repo), else file://<workspace> — a deterministic identity, not the mutable
+// directory basename.
 export function defaultProjectModule() {
   return (
     envValue("MEMORY_DEFAULT_PROJECT_MODULE", "") ||
     envValue("LLM_WIKI_MEMORY_PROJECT", "") ||
+    workspaceIdentity() ||
     path.basename(WORKSPACE_DIR) ||
     ""
   );
