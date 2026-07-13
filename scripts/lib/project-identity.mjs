@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+
 /**
  * @param {unknown} originUrl
  * @returns {string | null}
@@ -22,4 +24,50 @@ export function canonicalRepoId(originUrl) {
   path = path.replace(/\.git$/, "").replace(/^\/+|\/+$/g, "");
   if (!path.includes("/")) return null;
   return path;
+}
+
+/**
+ * @param {string} dir
+ * @returns {string | null}
+ */
+export function gitOriginUrl(dir) {
+  try {
+    const r = spawnSync("git", ["-C", dir, "remote", "get-url", "origin"], { encoding: "utf8" });
+    if (r.status !== 0) return null;
+    const out = (r.stdout || "").trim();
+    return out === "" ? null : out;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @typedef {{ mountDir: string, ownership?: string, projectId?: string, layout?: { project_id?: string } }} IdentityLevel
+ */
+
+/**
+ * @param {IdentityLevel} level
+ * @param {(dir: string) => (string | null)} [gitOrigin]
+ * @returns {string}
+ */
+export function projectModuleSegment(level, gitOrigin = gitOriginUrl) {
+  const declared = level.projectId ?? level.layout?.project_id;
+  if (declared) return String(declared);
+  const canon = canonicalRepoId(gitOrigin(level.mountDir));
+  if (canon) return canon;
+  return `file://${level.mountDir}`;
+}
+
+/**
+ * @param {{ levels: IdentityLevel[] }} ctx
+ * @param {IdentityLevel} targetLevel
+ * @param {(dir: string) => (string | null)} [gitOrigin]
+ * @returns {string}
+ */
+export function resolveProjectModuleIdentity(ctx, targetLevel, gitOrigin = gitOriginUrl) {
+  const idx = ctx.levels.indexOf(targetLevel);
+  const upto = idx === -1 ? ctx.levels : ctx.levels.slice(0, idx + 1);
+  const chain = upto.filter((l) => l.ownership === "repo");
+  if (chain.length === 0) return projectModuleSegment(targetLevel, gitOrigin);
+  return chain.map((l) => projectModuleSegment(l, gitOrigin)).join("//");
 }

@@ -1,6 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canonicalRepoId } from "../scripts/lib/project-identity.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import {
+  canonicalRepoId,
+  gitOriginUrl,
+  projectModuleSegment,
+  resolveProjectModuleIdentity,
+} from "../scripts/lib/project-identity.mjs";
 
 test("canonicalRepoId folds ssh/https/.git/case/trailing-slash to the SAME org/repo", () => {
   const sameRepo = [
@@ -42,5 +51,82 @@ test("canonicalRepoId returns null for malformed / single-segment / empty / non-
     {},
   ]) {
     assert.equal(canonicalRepoId(/** @type {any} */ (bad)), null, `${JSON.stringify(bad)} → null`);
+  }
+});
+
+test("projectModuleSegment: a declared project_id wins over git origin and file://", () => {
+  const seg = projectModuleSegment(
+    { mountDir: "/m", projectId: "acme/thing" },
+    () => "git@github.com:org/repo.git",
+  );
+  assert.equal(seg, "acme/thing");
+});
+
+test("projectModuleSegment: canonical git origin when there is no project_id", () => {
+  assert.equal(
+    projectModuleSegment({ mountDir: "/m" }, () => "git@github.com:Org/Repo.git"),
+    "org/repo",
+  );
+});
+
+test("projectModuleSegment: file://mountDir fallback when no id and no origin", () => {
+  assert.equal(
+    projectModuleSegment({ mountDir: "/some/dir" }, () => null),
+    "file:///some/dir",
+  );
+});
+
+test("resolveProjectModuleIdentity: a brain (wiki) target → its own segment (no repo chain)", () => {
+  const brain = { mountDir: "/home/.lwm", ownership: "wiki" };
+  assert.equal(
+    resolveProjectModuleIdentity({ levels: [brain] }, brain, () => null),
+    "file:///home/.lwm",
+  );
+});
+
+test("resolveProjectModuleIdentity: a single repo → its canonical id (chain of one)", () => {
+  const brain = { mountDir: "/h/.lwm", ownership: "wiki" };
+  const repo = { mountDir: "/h/repo/.lwm", ownership: "repo" };
+  const origin = (/** @type {string} */ d) =>
+    d === "/h/repo/.lwm" ? "git@github.com:org/repo.git" : null;
+  assert.equal(resolveProjectModuleIdentity({ levels: [brain, repo] }, repo, origin), "org/repo");
+});
+
+test("resolveProjectModuleIdentity: nested subrepo → full // chain, outermost→owning", () => {
+  const brain = { mountDir: "/h/.lwm", ownership: "wiki" };
+  const repo = { mountDir: "/h/acme/.lwm", ownership: "repo" };
+  const sub = { mountDir: "/h/acme/core/.lwm", ownership: "repo" };
+  const ctx = { levels: [brain, repo, sub] };
+  const origin = (/** @type {string} */ d) =>
+    d === "/h/acme/.lwm"
+      ? "git@github.com:org/acme.git"
+      : d === "/h/acme/core/.lwm"
+        ? "git@github.com:org2/core.git"
+        : null;
+  assert.equal(resolveProjectModuleIdentity(ctx, sub, origin), "org/acme//org2/core");
+  assert.equal(resolveProjectModuleIdentity(ctx, repo, origin), "org/acme");
+});
+
+test("resolveProjectModuleIdentity: a repo with no origin falls back to file:// in the chain", () => {
+  const brain = { mountDir: "/h/.lwm", ownership: "wiki" };
+  const repo = { mountDir: "/h/local/.lwm", ownership: "repo" };
+  assert.equal(
+    resolveProjectModuleIdentity({ levels: [brain, repo] }, repo, () => null),
+    "file:///h/local/.lwm",
+  );
+});
+
+test("gitOriginUrl: reads a real repo's origin; null when there is none", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-git-"));
+  try {
+    spawnSync("git", ["-C", dir, "init"], { encoding: "utf8" });
+    assert.equal(gitOriginUrl(dir), null, "no origin yet → null");
+    spawnSync("git", ["-C", dir, "remote", "add", "origin", "git@github.com:org/repo.git"], {
+      encoding: "utf8",
+    });
+    assert.equal(gitOriginUrl(dir), "git@github.com:org/repo.git");
+    assert.equal(canonicalRepoId(gitOriginUrl(dir)), "org/repo", "canonicalizes a real origin");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
