@@ -30,8 +30,11 @@ after(() => {
   }
 });
 
-test("initMount is a no-op (skipped) when the layout declares no shared category", () => {
+test("initMount is a no-op (skipped) when the layout declares no shared category — and installs NO hooks", () => {
   const m = mount("mi-none");
+  // A REAL git repo, so a regressed gate (early-return removed) WOULD install
+  // hooks here; asserting their absence pins the shared-category gate on disk.
+  spawnSync("git", ["-C", m, "init", "-q"], { encoding: "utf8" });
   writeLayout(m, "layout:\n  - path: knowledge\n    ownership: wiki\n");
   const res = initMount(m);
   assert.equal(res.skipped, "no-shared-categories");
@@ -40,6 +43,14 @@ test("initMount is a no-op (skipped) when the layout declares no shared category
     !fs.existsSync(path.join(m, ".llm-wiki-memory", "personal", ".git")),
     "no personal git",
   );
+  const hooksDir = path.join(m, ".git", "hooks");
+  for (const ev of HOOK_EVENTS) {
+    const p = path.join(hooksDir, ev);
+    assert.ok(
+      !fs.existsSync(p) || !fs.readFileSync(p, "utf8").includes(MARKER_START),
+      `${ev} has no sync-embeddings block (a private-brain mount installs no hooks)`,
+    );
+  }
 });
 
 test("initMount provisions gitignore + personal git + sync hook when a shared category exists", () => {

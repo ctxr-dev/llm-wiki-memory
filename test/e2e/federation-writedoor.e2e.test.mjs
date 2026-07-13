@@ -55,6 +55,22 @@ function freshHome(p) {
   tmps.push(home);
   return home;
 }
+
+// `MEMORY_DATA_DIR` is frozen at engine import time (env.mjs `export const`), and
+// settings resolve from it even inside a `withWikiRoot` frame. Each test uses its
+// OWN fresh brain (different templates) via `resolveWikiContext({ brainDataDir })`,
+// so the SETTINGS dir must be pinned HERE — before the imports below — to a
+// lexical, autoCommit workspace; otherwise in-process settings leak from whatever
+// dir the process was launched with (a non-deterministic backend / autoCommit).
+const SETTINGS_DATA_DIR = path.join(freshHome("lwm-wd-settings-"), ".llm-wiki-memory");
+process.env.MEMORY_DATA_DIR = SETTINGS_DATA_DIR;
+process.env.MEMORY_DEFAULT_PROJECT_MODULE = "brainmod";
+fs.mkdirSync(path.join(SETTINGS_DATA_DIR, "settings"), { recursive: true });
+fs.writeFileSync(
+  path.join(SETTINGS_DATA_DIR, "settings", "settings.yaml"),
+  "embed:\n  backend: lexical\nwiki:\n  autoCommit: true\nconsolidate:\n  enabled: false\n",
+);
+
 const store = await import("../../scripts/lib/wiki-store.mjs");
 const { withWikiCommit } = await import("../../scripts/lib/wiki-commit.mjs");
 const { resolveWikiContext, withWikiContext } = await import("../../scripts/lib/wiki-context.mjs");
@@ -69,8 +85,6 @@ const commitCount = (/** @type {string} */ repo) =>
 test("F3a: a KNOWLEDGE-ONLY brain rejects a default self_improvement / plans write (fail-loud, not silent)", () => {
   const home = freshHome("lwm-wd-a-");
   const brainData = path.join(home, ".llm-wiki-memory");
-  process.env.MEMORY_DATA_DIR = brainData;
-  process.env.MEMORY_DEFAULT_PROJECT_MODULE = "brainmod";
   initWikiAt(brainData, "repo"); // knowledge-only brain
   const ctx = resolveWikiContext([], { home, brainDataDir: brainData });
   const save = (/** @type {string} */ datasetId) =>
@@ -97,8 +111,6 @@ test("F3b: a layout.local.yaml-added flat category LANDS in that level's tree; a
   const home = freshHome("lwm-wd-b-");
   const brainData = path.join(home, ".llm-wiki-memory");
   const repo = path.join(home, "repo");
-  process.env.MEMORY_DATA_DIR = brainData;
-  process.env.MEMORY_DEFAULT_PROJECT_MODULE = "brainmod";
   initWikiAt(brainData);
   initWikiAt(path.join(repo, ".llm-wiki-memory"));
   spawnSync("git", ["-C", repo, "init", "-q"], { encoding: "utf8" });
@@ -135,8 +147,6 @@ test("F3d: a MIXED brain + shared write in ONE commit batch — brain git +1, sh
   const home = freshHome("lwm-wd-d-");
   const brainData = path.join(home, ".llm-wiki-memory");
   const shared = path.join(home, "shared");
-  process.env.MEMORY_DATA_DIR = brainData;
-  process.env.MEMORY_DEFAULT_PROJECT_MODULE = "brainmod";
   initWikiAt(brainData);
   initWikiAt(path.join(shared, ".llm-wiki-memory"));
   const brainWiki = path.join(brainData, "wiki");

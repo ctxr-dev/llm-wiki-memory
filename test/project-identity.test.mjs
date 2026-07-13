@@ -96,18 +96,35 @@ test("resolveProjectModuleIdentity: a single repo → its canonical id (chain of
 });
 
 test("resolveProjectModuleIdentity: nested subrepo → full // chain, outermost→owning", () => {
-  const brain = { mountDir: "/h/.lwm", ownership: "wiki" };
-  const repo = { mountDir: "/h/acme/.lwm", ownership: "repo" };
-  const sub = { mountDir: "/h/acme/core/.lwm", ownership: "repo" };
+  const brain = { mountDir: "/h", ownership: "wiki" };
+  const repo = { mountDir: "/h/acme", ownership: "repo" };
+  const sub = { mountDir: "/h/acme/core", ownership: "repo" };
   const ctx = { levels: [brain, repo, sub] };
   const origin = (/** @type {string} */ d) =>
-    d === "/h/acme/.lwm"
+    d === "/h/acme"
       ? "git@github.com:org/acme.git"
-      : d === "/h/acme/core/.lwm"
+      : d === "/h/acme/core"
         ? "git@github.com:org2/core.git"
         : null;
   assert.equal(resolveProjectModuleIdentity(ctx, sub, origin), "org/acme//org2/core");
   assert.equal(resolveProjectModuleIdentity(ctx, repo, origin), "org/acme");
+});
+
+test("resolveProjectModuleIdentity: SIBLING repos are NOT chained — a write to one is never stamped with the other's identity", () => {
+  const brain = { mountDir: "/h", ownership: "wiki" };
+  const alpha = { mountDir: "/h/p/alpha", ownership: "repo" };
+  const bravo = { mountDir: "/h/p/bravo", ownership: "repo" };
+  // Both in scope; alpha sorts before bravo (byDepthThenPath), so an index-based
+  // chain would wrongly prepend alpha to a write targeting bravo.
+  const ctx = { levels: [brain, alpha, bravo] };
+  const origin = (/** @type {string} */ d) =>
+    d === "/h/p/alpha"
+      ? "git@github.com:acme/alpha.git"
+      : d === "/h/p/bravo"
+        ? "git@github.com:acme/bravo.git"
+        : null;
+  assert.equal(resolveProjectModuleIdentity(ctx, bravo, origin), "acme/bravo");
+  assert.equal(resolveProjectModuleIdentity(ctx, alpha, origin), "acme/alpha");
 });
 
 test("resolveProjectModuleIdentity: a repo with no origin falls back to file:// in the chain", () => {
@@ -134,14 +151,13 @@ test("gitOriginUrl: reads a real repo's origin; null when there is none", () => 
   }
 });
 
-test("validateProjectModuleIdentity: ok when every repo-owned level has a portable id", () => {
-  const brain = { mountDir: "/h/.lwm", ownership: "wiki" };
-  const withOrigin = { mountDir: "/h/a/.lwm", ownership: "repo" };
-  const withId = { mountDir: "/h/b/.lwm", ownership: "repo", projectId: "team/svc" };
-  const ctx = { levels: [brain, withOrigin, withId] };
-  const origin = (/** @type {string} */ d) =>
-    d === "/h/a/.lwm" ? "git@github.com:org/a.git" : null;
-  assert.deepEqual(validateProjectModuleIdentity(ctx, withId, origin), { ok: true });
+test("validateProjectModuleIdentity: ok when every repo-owned ANCESTOR level has a portable id", () => {
+  const brain = { mountDir: "/h", ownership: "wiki" };
+  const outer = { mountDir: "/h/a", ownership: "repo" };
+  const inner = { mountDir: "/h/a/b", ownership: "repo", projectId: "team/svc" };
+  const ctx = { levels: [brain, outer, inner] };
+  const origin = (/** @type {string} */ d) => (d === "/h/a" ? "git@github.com:org/a.git" : null);
+  assert.deepEqual(validateProjectModuleIdentity(ctx, inner, origin), { ok: true });
 });
 
 test("validateProjectModuleIdentity: a wiki brain that resolves to file:// is NOT a conflict", () => {
@@ -154,33 +170,44 @@ test("validateProjectModuleIdentity: a wiki brain that resolves to file:// is NO
   );
 });
 
-test("validateProjectModuleIdentity: a repo-owned level with no portable id is surfaced (fail-loud)", () => {
-  const brain = { mountDir: "/h/.lwm", ownership: "wiki" };
-  const ok = { mountDir: "/h/a/.lwm", ownership: "repo" };
-  const bad = { mountDir: "/h/b/.lwm", ownership: "repo" };
-  const ctx = { levels: [brain, ok, bad] };
-  const origin = (/** @type {string} */ d) =>
-    d === "/h/a/.lwm" ? "git@github.com:org/a.git" : null;
-  const r = validateProjectModuleIdentity(ctx, bad, origin);
+test("validateProjectModuleIdentity: a repo-owned ANCESTOR with no portable id is surfaced (fail-loud)", () => {
+  const brain = { mountDir: "/h", ownership: "wiki" };
+  const outer = { mountDir: "/h/a", ownership: "repo" };
+  const inner = { mountDir: "/h/a/b", ownership: "repo" };
+  const ctx = { levels: [brain, outer, inner] };
+  const origin = (/** @type {string} */ d) => (d === "/h/a" ? "git@github.com:org/a.git" : null);
+  const r = validateProjectModuleIdentity(ctx, inner, origin);
   assert.equal(r.ok, false);
   assert.equal(r.conflicts.length, 1, "only the no-portable-id repo level is flagged");
-  assert.equal(r.conflicts[0].mountDir, "/h/b/.lwm");
+  assert.equal(r.conflicts[0].mountDir, "/h/a/b");
   assert.match(r.conflicts[0].reason, /portable identity/);
 });
 
-test("resolve/validate: a targetLevel NOT in ctx.levels falls back over ALL levels (idx === -1)", () => {
-  const brain = { mountDir: "/h/.lwm", ownership: "wiki" };
-  const repo = { mountDir: "/h/a/.lwm", ownership: "repo", projectId: "org/a" };
+test("validateProjectModuleIdentity: a SIBLING with no portable id does NOT taint the target", () => {
+  const brain = { mountDir: "/h", ownership: "wiki" };
+  const sibBad = { mountDir: "/h/p/alpha", ownership: "repo" };
+  const target = { mountDir: "/h/p/bravo", ownership: "repo", projectId: "acme/bravo" };
+  const ctx = { levels: [brain, sibBad, target] };
+  assert.deepEqual(
+    validateProjectModuleIdentity(ctx, target, () => null),
+    { ok: true },
+    "the unrelated sibling's missing identity is not the target's conflict",
+  );
+});
+
+test("resolve/validate: a targetLevel not nested under any ctx repo → its OWN segment (no unrelated inheritance)", () => {
+  const brain = { mountDir: "/h", ownership: "wiki" };
+  const repo = { mountDir: "/h/a", ownership: "repo", projectId: "org/a" };
   const ctx = { levels: [brain, repo] };
-  const foreign = { mountDir: "/elsewhere/.lwm", ownership: "repo", projectId: "x/y" };
+  const foreign = { mountDir: "/elsewhere", ownership: "repo", projectId: "x/y" };
   assert.equal(
     resolveProjectModuleIdentity(ctx, foreign, () => null),
-    "org/a",
-    "a foreign target considers every level's repo chain",
+    "x/y",
+    "a foreign target that is not nested under any ctx repo keeps its own identity",
   );
   assert.equal(
     validateProjectModuleIdentity(ctx, foreign, () => null).ok,
     true,
-    "the in-ctx repo level is portable → no conflict",
+    "no repo ANCESTOR lacks an id → no conflict",
   );
 });

@@ -94,6 +94,19 @@ test("syncEmbeddings full=true warms EVERY shared category with no changedPaths 
   assert.ok(fs.existsSync(path.join(wiki, "team", ".embeddings", "embeddings.json")));
 });
 
+test("syncEmbeddings full=true still EXCLUDES a personal (ownership==wiki) category (mixed layout)", async () => {
+  const { mount, wiki } = mountWith(SHARED_LAYOUT); // shared_notes: repo + self_improvement: wiki
+  writeLeaf(wiki, "shared_notes/a.md", "# A\n\nshared");
+  writeLeaf(wiki, "self_improvement/x.md", "# L\n\npersonal lesson");
+  const res = await syncEmbeddings({ mountDir: mount, full: true });
+  assert.deepEqual(res.warmed, ["shared_notes"], "a full warm covers ONLY the shared category");
+  assert.ok(fs.existsSync(path.join(wiki, "shared_notes", ".embeddings", "embeddings.json")));
+  assert.ok(
+    !fs.existsSync(path.join(wiki, "self_improvement", ".embeddings", "embeddings.json")),
+    "the personal category is never warmed, even on a degenerate full range",
+  );
+});
+
 /** @returns {{ d: string, git: (a: string[]) => import("node:child_process").SpawnSyncReturns<string> }} */
 function gitRepo() {
   const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "lwm-syncgit-")));
@@ -132,6 +145,28 @@ test("changedPathsFromGit: a 2-SHA argv uses shas[0]..shas[1] (post-checkout, F5
   const res = changedPathsFromGit(d, [prev, head]);
   assert.equal(res.full, false);
   assert.deepEqual(res.paths, ["b.txt"]);
+});
+
+test("changedPathsFromGit: a non-ASCII leaf path comes back RAW (not C-quoted) via -z, so its category resolves", () => {
+  const { d, git } = gitRepo();
+  const abs = path.join(d, ".llm-wiki-memory", "wiki", "shared_notes", "café.md");
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, "# c1\n");
+  git(["add", "-A"]);
+  git(["commit", "-qm", "c1"]);
+  fs.writeFileSync(abs, "# c2 updated\n");
+  git(["add", "-A"]);
+  git(["commit", "-qm", "c2"]);
+  const res = changedPathsFromGit(d, []);
+  assert.equal(res.full, false);
+  assert.equal(res.paths.length, 1, "the one changed leaf is listed");
+  // Without -z git C-quotes this to `".llm-wiki-memory/…/caf\303\251.md"` (leading
+  // quote → categoryFromMountPath fails). With -z the raw path leads with the dir.
+  assert.ok(!res.paths[0].startsWith('"'), "path is NOT C-quoted");
+  assert.ok(
+    res.paths[0].startsWith(".llm-wiki-memory/wiki/shared_notes/"),
+    "the accented leaf's category is recoverable from the raw path",
+  );
 });
 
 test("changedPathsFromGit: a root-commit-only repo (no HEAD~1, no ORIG_HEAD) → {full:true} (F5f/G2 fragility)", () => {

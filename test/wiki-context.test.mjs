@@ -184,7 +184,15 @@ test("resolveWikiContext (F4): a fully-broken DISCOVERED repo mount is SKIPPED (
 test("resolveWikiContext (F4): a fully-broken BRAIN layout is FATAL (a broken brain is never skipped)", () => {
   const home = makeHome();
   mkBrokenMount(home); // the BRAIN's own layout is unreadable
-  assert.throws(() => resolveWikiContext([], brainOpts(home)), "a broken brain fails loud");
+  // Pin the RETHROW path, not merely "some throw": if the skip guard were
+  // inverted (brain wrongly skipped), levels would be empty and the failure
+  // would instead be the schema "produced an invalid context" error. Asserting
+  // it is NOT that message proves the broken brain fails via the layout rethrow.
+  assert.throws(
+    () => resolveWikiContext([], brainOpts(home)),
+    (err) => err instanceof Error && !/produced an invalid context/.test(String(err.message)),
+    "a broken brain fails loud via the layout-load rethrow (not the schema fallback)",
+  );
 });
 
 test("resolveWikiContext: embedCacheFor returns the per-level, per-category cache path", () => {

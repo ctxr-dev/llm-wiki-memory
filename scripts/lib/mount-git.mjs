@@ -112,14 +112,21 @@ function chainHookFile(target, block) {
  * left untouched. The invocation is best-effort (the wrapper backgrounds and
  * exits 0), so it can never block or fail a merge/checkout.
  * @param {string} repoDir the (host) repo whose hooks fire on merge/checkout
- * @param {{ wrapper?: string }} [opts] override the wrapper path (tests)
+ * @param {{ wrapper?: string, mountDir?: string }} [opts] override the wrapper path and/or the mount dir to warm (tests / subpackage mounts)
  * @returns {{ ok: boolean, hooksDir?: string, results?: Record<string, string>, skipped?: string }}
  */
-export function installSyncEmbeddingsHook(repoDir, { wrapper = SYNC_WRAPPER } = {}) {
+export function installSyncEmbeddingsHook(
+  repoDir,
+  { wrapper = SYNC_WRAPPER, mountDir = repoDir } = {},
+) {
   const hooksDir = hooksDirFor(repoDir);
   if (!hooksDir) return { ok: false, skipped: "not-a-repo" };
   fs.mkdirSync(hooksDir, { recursive: true });
-  const block = `${MARKER_START}\n"${wrapper}" "$@" || true\n${MARKER_END}\n`;
+  // Pass the mount dir explicitly (absolute) so the hook warms THIS mount even
+  // when it lives below the git root — the hook's cwd is the worktree root, not
+  // the mount. `initMount` passes the real mount dir as `repoDir`, so the
+  // default is correct; the git args follow via "$@".
+  const block = `${MARKER_START}\n"${wrapper}" "${mountDir}" "$@" || true\n${MARKER_END}\n`;
   /** @type {Record<string, string>} */
   const results = {};
   for (const event of HOOK_EVENTS) {

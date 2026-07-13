@@ -102,17 +102,30 @@ export function changedPathsFromGit(cwd, argv) {
   const shas = argv.filter((a) => /^[0-9a-f]{7,40}$/i.test(a));
   const primary = shas.length >= 2 ? `${shas[0]}..${shas[1]}` : "ORIG_HEAD..HEAD";
   for (const range of [primary, "HEAD~1..HEAD"]) {
-    const r = spawnSync("git", ["-C", cwd, "diff", "--name-only", range], { encoding: "utf8" });
-    if (r.status === 0) return { paths: r.stdout.split(/\r?\n/).filter(Boolean), full: false };
+    // `-z` disables git's C-quoting of non-ASCII/space paths (NUL-separated raw
+    // bytes instead), so a changed leaf like `knowledge/café.md` parses to its
+    // real category rather than a quoted string that fails categoryFromMountPath.
+    const r = spawnSync("git", ["-C", cwd, "diff", "--name-only", "-z", range], {
+      encoding: "utf8",
+    });
+    if (r.status === 0) return { paths: r.stdout.split("\0").filter(Boolean), full: false };
   }
   return { paths: [], full: true };
 }
 
 async function mainCli() {
   try {
-    const cwd = process.cwd();
-    const { paths, full } = changedPathsFromGit(cwd, process.argv.slice(2));
-    await syncEmbeddings({ mountDir: cwd, changedPaths: paths, full });
+    // The installed hook prepends the mount dir as an ABSOLUTE first arg, so a
+    // subpackage mount BELOW the git root (git fires hooks with cwd = the
+    // worktree root, not the mount) is still warmed. Git never passes an
+    // absolute path as its own first hook arg (SHAs / flags / command names), so
+    // this is unambiguous; an old hook without it falls back to cwd (unchanged).
+    const argv = process.argv.slice(2);
+    const hasMountArg = argv[0] && path.isAbsolute(argv[0]);
+    const mountDir = hasMountArg ? argv[0] : process.cwd();
+    const gitArgs = hasMountArg ? argv.slice(1) : argv;
+    const { paths, full } = changedPathsFromGit(mountDir, gitArgs);
+    await syncEmbeddings({ mountDir, changedPaths: paths, full });
   } catch {
     /* best-effort: a sync hook must never fail a git operation */
   }

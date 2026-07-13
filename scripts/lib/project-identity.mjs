@@ -1,4 +1,20 @@
+import path from "node:path";
 import { spawnSync } from "node:child_process";
+
+/**
+ * Is `descendantDir` the same directory as, or nested under, `ancestorDir`?
+ * Both are canonical absolute paths (the scanner realpaths every mountDir), so a
+ * plain `path.relative` containment test is exact — `/h/a` contains `/h/a/b` but
+ * NOT the sibling `/h/ab`. This is what distinguishes a true ANCESTOR mount from
+ * an equal-depth SIBLING that merely sorts earlier in the resolved chain.
+ * @param {string} ancestorDir
+ * @param {string} descendantDir
+ * @returns {boolean}
+ */
+function isAncestorOrSelf(ancestorDir, descendantDir) {
+  const rel = path.relative(ancestorDir, descendantDir);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
 
 /**
  * @param {unknown} originUrl
@@ -67,9 +83,16 @@ export function projectModuleSegment(level, gitOrigin = gitOriginUrl) {
  * @returns {string}
  */
 export function resolveProjectModuleIdentity(ctx, targetLevel, gitOrigin = gitOriginUrl) {
-  const idx = ctx.levels.indexOf(targetLevel);
-  const upto = idx === -1 ? ctx.levels : ctx.levels.slice(0, idx + 1);
-  const chain = upto.filter((l) => l.ownership === "repo");
+  // The chain is the repo-owned levels that are ANCESTORS of (or are) the target
+  // — NOT every repo level that sorts before it. Two equal-depth SIBLINGS both
+  // precede the alphabetically-later one in `levels`, but neither owns the other,
+  // so an index-based slice would stamp a write to one sibling with the other's
+  // identity (leaking an unrelated repo's origin / local path). Filter by real
+  // path-ancestry instead. `levels` is already ordered outermost→deepest, and
+  // genuine ancestors nest, so the filtered order stays outermost→owning.
+  const chain = ctx.levels.filter(
+    (l) => l.ownership === "repo" && isAncestorOrSelf(l.mountDir, targetLevel.mountDir),
+  );
   if (chain.length === 0) return projectModuleSegment(targetLevel, gitOrigin);
   return chain.map((l) => projectModuleSegment(l, gitOrigin)).join("//");
 }
@@ -81,11 +104,10 @@ export function resolveProjectModuleIdentity(ctx, targetLevel, gitOrigin = gitOr
  * @returns {{ ok: true } | { ok: false, conflicts: { mountDir: string, reason: string }[] }}
  */
 export function validateProjectModuleIdentity(ctx, targetLevel, gitOrigin = gitOriginUrl) {
-  const idx = ctx.levels.indexOf(targetLevel);
-  const upto = idx === -1 ? ctx.levels : ctx.levels.slice(0, idx + 1);
   const conflicts = [];
-  for (const l of upto) {
+  for (const l of ctx.levels) {
     if (l.ownership !== "repo") continue;
+    if (!isAncestorOrSelf(l.mountDir, targetLevel.mountDir)) continue;
     if (projectModuleSegment(l, gitOrigin).startsWith("file://")) {
       conflicts.push({
         mountDir: l.mountDir,
