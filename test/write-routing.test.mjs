@@ -80,6 +80,7 @@ for (const d of [brainData, sharedData]) {
 git(sharedMount, ["init", "-q"]);
 git(sharedMount, ["config", "user.email", "t@t.local"]);
 git(sharedMount, ["config", "user.name", "tester"]);
+git(sharedMount, ["remote", "add", "origin", "git@github.com:acme/shared-repo.git"]);
 fs.writeFileSync(path.join(sharedMount, "repo.txt"), "tracked file\n");
 git(sharedMount, ["add", "repo.txt"]);
 git(sharedMount, ["commit", "-q", "-m", "init"]);
@@ -123,7 +124,11 @@ test("federation resolves brain(d0, wiki) under shared-repo(d1, repo)", () => {
   assert.equal(brainLevel.ownership, "wiki");
   assert.equal(sharedLevel.ownership, "repo");
   assert.equal(ctx.writeDefault, brainLevel, "writeDefault is the brain");
-  assert.equal(sharedLevel.projectModule, "shared-repo");
+  assert.equal(
+    sharedLevel.projectModule,
+    "acme/shared-repo",
+    "repo mount resolves to its canonical git org/repo identity",
+  );
 });
 
 // ─── resolveTargetLevel selector semantics ───────────────────────────────────

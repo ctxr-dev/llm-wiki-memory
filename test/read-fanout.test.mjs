@@ -240,17 +240,17 @@ test("per-level project_module: a mount leaf tagged with a DIFFERENT module is s
   const home = makeHome();
   const brain = mkMount(home, ["knowledge", "daily"]);
   const webhooks = mkMount(path.join(home, "webhooks"), ["knowledge", "daily"]);
-  writeLeaf(brain, "knowledge", "BrainFact.md", {
-    body: "platypus config note",
-    memory: { atom_type: "knowledge-fact", project_module: "brainmod" },
-  });
-  // Tagged with the mount's OWN module, NOT the brain default.
-  writeLeaf(webhooks, "knowledge", "RepoFact.md", {
-    body: "platypus config note",
-    memory: { atom_type: "knowledge-fact", project_module: "webhooks" },
-  });
 
   const ctx = resolveWikiContext([path.join(home, "webhooks")], brainOpts(home));
+  writeLeaf(brain, "knowledge", "BrainFact.md", {
+    body: "platypus config note",
+    memory: { atom_type: "knowledge-fact", project_module: ctx.levels[0].projectModule },
+  });
+  // Tagged with the mount's OWN resolved module (its file:// identity), NOT the brain default.
+  writeLeaf(webhooks, "knowledge", "RepoFact.md", {
+    body: "platypus config note",
+    memory: { atom_type: "knowledge-fact", project_module: ctx.levels[1].projectModule },
+  });
   // searchMemory auto-injects the brain default module; without per-level
   // re-scoping the "webhooks"-tagged leaf would be filtered out by "brainmod".
   const out = await withWikiContext(ctx, () =>
@@ -268,21 +268,25 @@ test("category-absence: a knowledge-only repo contributes knowledge and never br
   const brain = mkMount(home, ["knowledge", "self_improvement", "daily"]);
   // The repo declares NO self_improvement category and has no such dir.
   const proj = mkMount(path.join(home, "proj"), ["knowledge", "daily"]);
+
+  const ctx = resolveWikiContext([path.join(home, "proj")], brainOpts(home));
   writeLeaf(brain, "self_improvement", "L1.md", {
     body: "kangaroo lesson always validate inputs",
     memory: {
       atom_type: "self-improvement-lesson",
-      project_module: "brainmod",
+      project_module: ctx.levels[0].projectModule,
       task_type: "implementation",
       error_pattern: "kangaroo-trap",
     },
   });
   writeLeaf(proj, "knowledge", "K1.md", {
     body: "kangaroo root cause cache invalidation",
-    memory: { atom_type: "bug-root-cause", project_module: "proj", error_pattern: "kangaroo-trap" },
+    memory: {
+      atom_type: "bug-root-cause",
+      project_module: ctx.levels[1].projectModule,
+      error_pattern: "kangaroo-trap",
+    },
   });
-
-  const ctx = resolveWikiContext([path.join(home, "proj")], brainOpts(home));
   const out = await withWikiContext(ctx, () =>
     recallLessons({ query: "kangaroo validate cache", includeKnowledge: true }),
   );

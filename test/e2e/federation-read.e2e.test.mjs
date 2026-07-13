@@ -80,15 +80,18 @@ test("read: fan-out ranks a deeper hit above a shallower one, additively", async
   inRoot(repoWiki, seed);
   inRoot(subWiki, seed);
 
+  const repoId = `file://${path.join(home, "repo")}`;
+  const subId = `file://${path.join(home, "repo", "sub")}`;
+
   const ctx = resolveWikiContext([deepCwd]); // real defaults: home=$HOME, brain=MEMORY_DATA_DIR
   assert.deepEqual(
     ctx.levels.map((l) => [l.depth, l.ownership, l.projectModule]),
     [
       [0, "wiki", BRAIN_MODULE],
-      [1, "repo", "repo"],
-      [2, "repo", "sub"],
+      [1, "repo", repoId],
+      [2, "repo", subId],
     ],
-    "brain(0) + repo(1) + sub(2), shallowest-first",
+    "brain(0) + repo(1) + sub(2), shallowest-first; non-git mounts carry their file:// identity",
   );
 
   const { records } =
@@ -128,7 +131,7 @@ test("read: fan-out ranks a deeper hit above a shallower one, additively", async
   );
   assert.deepEqual(
     records.map((r) => r.projectModule),
-    ["sub", "repo", BRAIN_MODULE],
+    [subId, repoId, BRAIN_MODULE],
     "deepest → shallowest project modules",
   );
   const roots = new Set(records.map((r) => r.resolvedRoot));
@@ -228,7 +231,7 @@ test("config: layout.local.yaml adds categories/vocab; shared wins conflicts", (
   );
 
   const ctx = resolveWikiContext([mount], { home, brainDataDir: dataDir });
-  const repo = ctx.levels.find((l) => l.projectModule === "repo");
+  const repo = ctx.levels.find((l) => l.ownership === "repo");
   assert.ok(repo, "the mount level resolved");
   const merged =
     /** @type {{ layout: Array<{ path: string, purpose?: string }>, vocabularies: Record<string, string[]> }} */ (

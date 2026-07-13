@@ -11,7 +11,9 @@ import {
   guardScarcePriority,
 } from "./mcp-write-gate.mjs";
 import { withResolvedWriteTarget, annotateSharedWrite } from "./mcp-write-target.mjs";
-import { MCP_ACTOR } from "../scripts/lib/context/enums.mjs";
+import { MCP_ACTOR, OWNERSHIP } from "../scripts/lib/context/enums.mjs";
+import { getActiveWikiContext } from "../scripts/lib/wiki-context.mjs";
+import { resolveProjectModuleIdentity } from "../scripts/lib/project-identity.mjs";
 
 /** @typedef {import("../scripts/lib/types.mjs").MetadataInput} MetadataInput */
 /** @typedef {import("../scripts/lib/types.mjs").WriteResult} WriteResult */
@@ -46,6 +48,25 @@ export function gateRefusal(a) {
 }
 
 /**
+ * Stamp a repo-owned target's leaf with the deterministic project-module identity
+ * (the `//` chain of repo-owned levels at/above the target), so a shared-repo write
+ * carries the repo's stable `org/repo` (or `file://` fallback) rather than the brain
+ * default. A brain (wiki-owned) target is left to `defaultProjectModule`; a caller's
+ * explicit `project_module_override` wins.
+ * @param {import("../scripts/lib/wiki-context.mjs").WikiLevel} level
+ * @param {MetadataInput | undefined} metadata
+ * @returns {MetadataInput | undefined}
+ */
+function stampRepoIdentity(level, metadata) {
+  if (level.ownership !== OWNERSHIP.REPO) return metadata;
+  const md = metadata && typeof metadata === "object" ? metadata : {};
+  if (md.project_module_override) return metadata;
+  const ctx = getActiveWikiContext();
+  if (!ctx) return metadata;
+  return { ...md, project_module_override: resolveProjectModuleIdentity(ctx, level) };
+}
+
+/**
  * Dispatch a parsed WriteRequest (save_lesson / save_to_dataset / write_memory):
  * route into the already-resolved target, then INSIDE the target frame validate
  * topology, coerce a scarce priority, remap out-of-vocab facets against the target
@@ -69,8 +90,9 @@ export async function dispatchWrite(req, doWrite, cfg) {
     const { metadata: placed, remaps } = path
       ? { metadata: md, remaps: [] }
       : getImpl().remapUnknownPathFacets(dataset, md);
+    const stamped = stampRepoIdentity(level, placed);
     const result = /** @type {WriteResult} */ (
-      withWikiCommit({ op: cfg.op, actor: MCP_ACTOR }, () => doWrite(placed))
+      withWikiCommit({ op: cfg.op, actor: MCP_ACTOR }, () => doWrite(stamped))
     );
     if (gated) {
       auditGatedL3({

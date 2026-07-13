@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { resolveWikiContext } from "../scripts/lib/wiki-context.mjs";
 
 /** @type {string[]} */
@@ -35,7 +36,7 @@ test("enrichLevel: a mount layout's project_id overrides the basename projectMod
   assert.equal(ctx.levels[1].projectModule, "acme/widgets", "project_id wins over basename 'proj'");
 });
 
-test("enrichLevel: without project_id, projectModule stays the mount basename (no regression)", () => {
+test("enrichLevel: a non-git repo mount (no project_id) falls back to its file:// identity", () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "c4-noprojid-"));
   tmps.push(home);
   mkMount(home);
@@ -44,5 +45,29 @@ test("enrichLevel: without project_id, projectModule stays the mount basename (n
     home,
     brainDataDir: path.join(home, ".llm-wiki-memory"),
   });
-  assert.equal(ctx.levels[1].projectModule, "myrepo", "basename preserved when no project_id");
+  assert.equal(
+    ctx.levels[1].projectModule,
+    `file://${fs.realpathSync(proj)}`,
+    "no git origin and no project_id → file:// of the realpath'd mount dir, never the bare basename",
+  );
+});
+
+test("enrichLevel: a git repo mount (no project_id) resolves to its canonical org/repo identity", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "c4-gitid-"));
+  tmps.push(home);
+  mkMount(home);
+  const proj = mkMount(path.join(home, "gitrepo"));
+  const git = (/** @type {string[]} */ args) =>
+    spawnSync("git", ["-C", proj, ...args], { encoding: "utf8" });
+  git(["init", "-q"]);
+  git(["remote", "add", "origin", "git@github.com:acme/gitrepo.git"]);
+  const ctx = resolveWikiContext([proj], {
+    home,
+    brainDataDir: path.join(home, ".llm-wiki-memory"),
+  });
+  assert.equal(
+    ctx.levels[1].projectModule,
+    "acme/gitrepo",
+    "ssh origin folds to the host-agnostic org/repo identity",
+  );
 });

@@ -21,8 +21,9 @@ import { scanScopes } from "./scope-scanner.mjs";
 import { loadMergedLayout, readMergedLayout } from "./layout-merge.mjs";
 import { embedBackend } from "./settings.mjs";
 import { withWikiRoot, embedCacheFor as embedCacheForRoot } from "./env.mjs";
-import { OwnershipSchema } from "./context/enums.mjs";
+import { OwnershipSchema, OWNERSHIP } from "./context/enums.mjs";
 import { parseTarget } from "./context/target.mjs";
+import { projectModuleSegment } from "./project-identity.mjs";
 
 /**
  * One level of a federated wiki stack.
@@ -97,23 +98,38 @@ function resolveLevelLayout(layoutDir) {
 }
 
 /**
+ * @param {import("./scope-scanner.mjs").ScopeLevel} level
+ * @param {Record<string, unknown>} layout
+ * @returns {string}
+ */
+function levelProjectModule(level, layout) {
+  const declaredId = /** @type {{ project_id?: unknown }} */ (layout)?.project_id;
+  if (declaredId) return String(declaredId);
+  if (level.ownership === OWNERSHIP.REPO) {
+    return projectModuleSegment({ mountDir: level.mountDir, ownership: OWNERSHIP.REPO });
+  }
+  return level.projectModule;
+}
+
+/**
  * Enrich a scanner-emitted placement level into a full {@link WikiLevel}: attach
  * the merged (shared + local) layout, the process embed backend when available,
- * and a per-level embed-cache resolver.
+ * and a per-level embed-cache resolver. A repo-owned level's `projectModule` is
+ * resolved to its deterministic identity (declared project_id > canonical git
+ * origin > file:// of the mount dir); the wiki brain keeps the env default.
  * @param {import("./scope-scanner.mjs").ScopeLevel} level
  * @param {string} [backend]
  * @returns {WikiLevel}
  */
 function enrichLevel(level, backend) {
   const layout = resolveLevelLayout(path.join(level.root, ".layout"));
-  const declaredId = /** @type {{ project_id?: unknown }} */ (layout)?.project_id;
   /** @type {WikiLevel} */
   const enriched = {
     root: level.root,
     mountDir: level.mountDir,
     ownership: level.ownership,
     depth: level.depth,
-    projectModule: declaredId ? String(declaredId) : level.projectModule,
+    projectModule: levelProjectModule(level, layout),
     layout,
     embedCacheFor: (category) => embedCacheForRoot(level.root, category),
   };
