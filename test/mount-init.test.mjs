@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { initMount } from "../scripts/mount-init.mjs";
+import { MARKER_START, HOOK_EVENTS } from "../scripts/lib/mount-git.mjs";
+import { removeSyncHookBlocks } from "../scripts/lib/uninstall.mjs";
 
 /** @type {string[]} */
 const tmps = [];
@@ -60,7 +62,44 @@ test("initMount provisions gitignore + personal git + sync hook when a shared ca
 
   const hook = /** @type {{ ok: boolean }} */ (res.syncHook);
   assert.equal(hook.ok, true);
-  assert.ok(fs.existsSync(path.join(m, ".git", "hooks", "post-merge")), "sync hook installed");
+  // All THREE events are installed and carry our marker (not just post-merge).
+  const hooksDir = path.join(m, ".git", "hooks");
+  for (const ev of HOOK_EVENTS) {
+    const p = path.join(hooksDir, ev);
+    assert.ok(fs.existsSync(p), `${ev} installed`);
+    assert.ok(fs.readFileSync(p, "utf8").includes(MARKER_START), `${ev} carries the sync marker`);
+  }
+});
+
+test("hook lifecycle round-trip: initMount installs all 3 events → uninstall removes them; a user hook survives", () => {
+  const m = mount("mi-roundtrip");
+  spawnSync("git", ["-C", m, "init", "-q"], { encoding: "utf8" });
+  writeLayout(m, "layout:\n  - path: knowledge\n    ownership: repo\n");
+  const hooksDir = path.join(m, ".git", "hooks");
+  fs.mkdirSync(hooksDir, { recursive: true });
+  // A pre-existing USER hook on one event — our block chains after it and must survive uninstall.
+  fs.writeFileSync(path.join(hooksDir, "post-merge"), "#!/usr/bin/env bash\necho USER-HOOK\n", {
+    mode: 0o755,
+  });
+
+  const res = initMount(m);
+  assert.equal(/** @type {{ ok: boolean }} */ (res.syncHook).ok, true);
+  for (const ev of HOOK_EVENTS) {
+    assert.ok(
+      fs.readFileSync(path.join(hooksDir, ev), "utf8").includes(MARKER_START),
+      `${ev} has marker`,
+    );
+  }
+
+  const removed = removeSyncHookBlocks(m);
+  assert.equal(removed.ok, true);
+  assert.equal(removed.results?.["post-merge"], "stripped", "user hook kept, our block stripped");
+  assert.equal(removed.results?.["post-checkout"], "removed", "our-only hook deleted");
+  assert.equal(removed.results?.["post-rewrite"], "removed", "our-only hook deleted");
+  const pm = fs.readFileSync(path.join(hooksDir, "post-merge"), "utf8");
+  assert.match(pm, /echo USER-HOOK/, "the user's own hook body survives");
+  assert.ok(!pm.includes(MARKER_START), "our marker is gone from the user hook");
+  assert.ok(!fs.existsSync(path.join(hooksDir, "post-checkout")), "our-only hook file removed");
 });
 
 test("initMount seeds the knowledge-only repo template when the mount has no layout", () => {

@@ -207,6 +207,45 @@ test("removeSyncHookBlocks reports skipped on a non-repo dir", () => {
   assert.equal(res.skipped, "not-a-repo");
 });
 
+test("scripts/uninstall.mjs CLI (bootstrap --uninstall entrypoint): [ws] fallback tears down the workspace repo's hooks (F6f)", () => {
+  const repo = gitRepo("uninstall-cli");
+  installSyncEmbeddingsHook(repo);
+  assert.ok(fs.existsSync(path.join(repo, ".git", "hooks", "post-merge")), "hook installed");
+  const cli = path.resolve(
+    path.dirname(new URL(import.meta.url).pathname),
+    "..",
+    "scripts",
+    "uninstall.mjs",
+  );
+  const r = spawnSync("node", [cli, repo], { encoding: "utf8" });
+  assert.equal(r.status, 0, `CLI exited ${r.status}: ${r.stderr}`);
+  assert.match(r.stdout, /"ok": true/, "CLI reports ok");
+  for (const ev of ["post-merge", "post-checkout", "post-rewrite"]) {
+    assert.ok(
+      !fs.existsSync(path.join(repo, ".git", "hooks", ev)),
+      `${ev} removed via the CLI's [ws] fallback (empty repoDirs)`,
+    );
+  }
+});
+
+test("removeSyncHookBlocks honors core.hooksPath (husky) on UNINSTALL, not just install (F6e)", () => {
+  const repo = gitRepo("uninstall-hookspath");
+  spawnSync("git", ["-C", repo, "config", "core.hooksPath", "myhooks"], { encoding: "utf8" });
+  installSyncEmbeddingsHook(repo);
+  const hooksDir = path.join(repo, "myhooks");
+  assert.ok(fs.existsSync(path.join(hooksDir, "post-merge")), "installed into the husky dir");
+  assert.ok(
+    !fs.existsSync(path.join(repo, ".git", "hooks", "post-merge")),
+    "default .git/hooks left untouched",
+  );
+
+  const res = removeSyncHookBlocks(repo);
+  assert.equal(res.ok, true);
+  for (const ev of ["post-merge", "post-checkout", "post-rewrite"]) {
+    assert.ok(!fs.existsSync(path.join(hooksDir, ev)), `${ev} removed from the husky dir`);
+  }
+});
+
 test("uninstall leaves memory data intact, reverses the gitignore block, and reports manual steps", () => {
   const ws = gitRepo("uninstall-data");
   writeJson(ws, ".mcp.json", { mcpServers: { "llm-wiki-memory": { command: "node" } } });
@@ -654,6 +693,15 @@ test("uninstall(): multi-repo teardown + FIRST-run positive returns for agents/c
     Object.values(bResults).some((s) => s === "stripped" || s === "removed"),
     "sibling repo sync-hook block reversed",
   );
+  // On-disk end state (not just the report): both repos' our-only sync hooks are GONE (F6d).
+  for (const repo of [ws, repoB]) {
+    for (const ev of ["post-merge", "post-checkout", "post-rewrite"]) {
+      assert.ok(
+        !fs.existsSync(path.join(repo, ".git", "hooks", ev)),
+        `${ev} removed on disk from ${path.basename(repo)}`,
+      );
+    }
+  }
   assert.ok(
     report.agents.removed.includes(".agents/README.md"),
     "first-run agents README reported",

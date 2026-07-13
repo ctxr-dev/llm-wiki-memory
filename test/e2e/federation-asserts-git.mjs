@@ -79,6 +79,9 @@ export async function validateMount(mount, expected = {}) {
   assert.equal(r.personalGit?.created, true, "personal git created");
   assert.equal(r.hostIgnore?.ok, true, "host repo not shadowing the mount");
   assert.equal(r.syncHook?.ok, true, "sync hook installed");
+  // Verify the hook FILES on disk (not just the result flag): all 3 events present,
+  // executable, shebang'd, referencing our wrapper.
+  assertSyncHook(r.syncHook.hooksDir, { wrapperFragment: "sync-embeddings.sh" });
   await assertPersonalGitLocation(mount.dir);
   assertNoHostRepoPollution(mount.dir);
 }
