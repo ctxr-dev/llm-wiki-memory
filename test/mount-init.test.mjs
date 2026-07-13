@@ -113,6 +113,35 @@ test("hook lifecycle round-trip: initMount installs all 3 events → uninstall r
   assert.ok(!fs.existsSync(path.join(hooksDir, "post-checkout")), "our-only hook file removed");
 });
 
+test("hook install NEVER corrupts a non-shell user hook — a foreign interpreter is skipped and surfaced", () => {
+  const m = mount("mi-foreign");
+  spawnSync("git", ["-C", m, "init", "-q"], { encoding: "utf8" });
+  writeLayout(m, "layout:\n  - path: knowledge\n    ownership: repo\n");
+  const hooksDir = path.join(m, ".git", "hooks");
+  fs.mkdirSync(hooksDir, { recursive: true });
+  const pyHook = "#!/usr/bin/env python3\nimport sys\nprint('user py hook')\n";
+  fs.writeFileSync(path.join(hooksDir, "post-merge"), pyHook, { mode: 0o755 });
+
+  const res = initMount(m);
+  const hook = /** @type {{ results?: Record<string, string> }} */ (res.syncHook);
+  assert.equal(
+    hook.results?.["post-merge"],
+    "foreign-interpreter",
+    "a python hook is NOT chained (appending bash would break it)",
+  );
+  assert.equal(
+    fs.readFileSync(path.join(hooksDir, "post-merge"), "utf8"),
+    pyHook,
+    "the python hook is byte-identical — never corrupted with our block",
+  );
+  assert.ok(
+    !fs.readFileSync(path.join(hooksDir, "post-merge"), "utf8").includes(MARKER_START),
+    "no marker injected into the foreign hook",
+  );
+  // Events with no pre-existing hook are still created normally.
+  assert.equal(hook.results?.["post-checkout"], "created", "a fresh event installs as usual");
+});
+
 test("initMount seeds the knowledge-only repo template when the mount has no layout", () => {
   const m = mount("mi-seed");
   spawnSync("git", ["-C", m, "init", "-q"], { encoding: "utf8" });

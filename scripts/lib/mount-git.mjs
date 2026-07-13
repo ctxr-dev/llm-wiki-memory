@@ -89,14 +89,34 @@ export function hooksDirFor(repoDir) {
 }
 
 /**
+ * Is an existing hook body one our POSIX-sh invocation block can safely be
+ * appended to? A no-shebang hook is run by `sh` (our block is POSIX-sh), so yes;
+ * a shebang naming an sh-family interpreter is yes; a shebang naming a FOREIGN
+ * interpreter (python/node/perl/ruby/…) is NO — appending bash would corrupt it.
+ * @param {string} content
+ * @returns {boolean}
+ */
+function hookAcceptsShellBlock(content) {
+  const first = content.split(/\r?\n/, 1)[0] || "";
+  if (!first.startsWith("#!")) return true;
+  const tokens = first.slice(2).trim().split(/\s+/);
+  const head = (tokens[0] || "").split("/").pop() || "";
+  const interp = head === "env" ? tokens[1] || "" : head;
+  const base = interp.split("/").pop() || interp;
+  return /^(ba|da|z|k|a|mk)?sh$/.test(base);
+}
+
+/**
  * @param {string} target absolute hook-file path
  * @param {string} block the marker-fenced invocation block (newline-terminated)
- * @returns {"created" | "chained" | "present"}
+ * @returns {"created" | "chained" | "present" | "foreign-interpreter"}
  */
 function chainHookFile(target, block) {
   if (fs.existsSync(target)) {
     const content = fs.readFileSync(target, "utf8");
     if (content.includes(MARKER_START)) return "present";
+    // Never corrupt a user's non-shell hook by appending a bash block to it.
+    if (!hookAcceptsShellBlock(content)) return "foreign-interpreter";
     const sep = content.endsWith("\n") ? "\n" : "\n\n";
     writeFileAtomic(target, `${content}${sep}${block}`, { mode: 0o755 });
     return "chained";

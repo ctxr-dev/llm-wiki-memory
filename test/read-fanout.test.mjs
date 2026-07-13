@@ -261,6 +261,45 @@ test("per-level project_module: a mount leaf tagged with a DIFFERENT module is s
   assert.ok(names.includes("BrainFact.md"), "brain leaf under the default module is returned");
 });
 
+test("per-level project_module: a brain declaring its OWN project_id still re-scopes every level (auto-inject sentinel divergence)", async () => {
+  const home = makeHome();
+  // The brain layout pins a project_id that DIVERGES from defaultProjectModule()
+  // ("brainmod"). The read door injects the latter; a single-sentinel swap check
+  // would then miss it and silently drop BOTH levels' leaves.
+  const brainRoot = path.join(home, ".llm-wiki-memory", "wiki");
+  fs.mkdirSync(path.join(brainRoot, ".layout"), { recursive: true });
+  fs.writeFileSync(
+    path.join(brainRoot, ".layout", "layout.yaml"),
+    "project_id: pinned/brain\nlayout:\n  - path: knowledge\n  - path: daily\n",
+  );
+  const webhooks = mkMount(path.join(home, "webhooks"), ["knowledge", "daily"]);
+
+  const ctx = resolveWikiContext([path.join(home, "webhooks")], brainOpts(home));
+  assert.equal(ctx.levels[0].projectModule, "pinned/brain", "brain module honors its project_id");
+  writeLeaf(brainRoot, "knowledge", "BrainFact.md", {
+    body: "echidna config note",
+    memory: { atom_type: "knowledge-fact", project_module: ctx.levels[0].projectModule },
+  });
+  writeLeaf(webhooks, "knowledge", "RepoFact.md", {
+    body: "echidna config note",
+    memory: { atom_type: "knowledge-fact", project_module: ctx.levels[1].projectModule },
+  });
+  // searchMemory auto-injects defaultProjectModule() = "brainmod" ≠ the brain
+  // level's module ("pinned/brain"); the per-level swap must still fire for BOTH.
+  const out = await withWikiContext(ctx, () =>
+    searchMemory({ query: "echidna config", filters: { atom_type: "knowledge-fact" } }),
+  );
+  const names = out.records.map((r) => r.documentName);
+  assert.ok(
+    names.includes("RepoFact.md"),
+    "the repo leaf survives despite the brain's own project_id",
+  );
+  assert.ok(
+    names.includes("BrainFact.md"),
+    "the brain leaf (its project_id module) is returned too",
+  );
+});
+
 // ─── category absence: a knowledge-only repo doesn't break recall ────────────
 
 test("category-absence: a knowledge-only repo contributes knowledge and never breaks recall_lessons", async () => {
