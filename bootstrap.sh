@@ -6,7 +6,11 @@
 # Expected layout: this script lives at <workspace>/.llm-wiki-memory/src/bootstrap.sh
 #
 # Usage:
-#   ./.llm-wiki-memory/src/bootstrap.sh [--commit-memory] [--template <name>] [--provider claude|codex|anthropic|openai|openai-compatible|mock] [--schedule daily|off] [--enable-self-observability|--disable-self-observability]
+#   ./.llm-wiki-memory/src/bootstrap.sh [--commit-memory] [--template <name>] [--provider claude|codex|anthropic|openai|openai-compatible|mock] [--schedule daily|off] [--enable-self-observability|--disable-self-observability] [--upgrade] [--migrate] [--uninstall]
+#   --upgrade        fetch + fast-forward-merge the engine, then re-run this
+#                    script (idempotent re-wire) with --migrate. One deterministic
+#                    command instead of a prose runbook.
+#   --migrate        run idempotent data migrations (migrate-identity) after install.
 #   ./.llm-wiki-memory/src/bootstrap.sh --uninstall
 #
 #   --template       Layout template to install into a FRESH wiki (one of the
@@ -53,16 +57,21 @@ PROVIDER=""
 SCHEDULE=""
 TEMPLATE="default"
 UNINSTALL=0
+UPGRADE=0
+MIGRATE=0
 SELF_OBS=""   # "on" enables, "off" disables, "" leaves prior consent untouched
+REEXEC_ARGS=()   # every arg except --upgrade, replayed when --upgrade re-execs the fresh install
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --commit-memory) COMMIT_MEMORY=1; shift ;;
-    --template) TEMPLATE="${2:-}"; shift 2 ;;
-    --uninstall) UNINSTALL=1; shift ;;
-    --provider) PROVIDER="${2:-}"; shift 2 ;;
-    --schedule) SCHEDULE="${2:-}"; shift 2 ;;
-    --enable-self-observability)  SELF_OBS="on";  shift ;;
-    --disable-self-observability) SELF_OBS="off"; shift ;;
+    --commit-memory) COMMIT_MEMORY=1; REEXEC_ARGS+=("$1"); shift ;;
+    --template) TEMPLATE="${2:-}"; REEXEC_ARGS+=("$1" "${2:-}"); shift 2 ;;
+    --uninstall) UNINSTALL=1; REEXEC_ARGS+=("$1"); shift ;;
+    --provider) PROVIDER="${2:-}"; REEXEC_ARGS+=("$1" "${2:-}"); shift 2 ;;
+    --schedule) SCHEDULE="${2:-}"; REEXEC_ARGS+=("$1" "${2:-}"); shift 2 ;;
+    --enable-self-observability)  SELF_OBS="on";  REEXEC_ARGS+=("$1"); shift ;;
+    --disable-self-observability) SELF_OBS="off"; REEXEC_ARGS+=("$1"); shift ;;
+    --upgrade) UPGRADE=1; shift ;;
+    --migrate) MIGRATE=1; REEXEC_ARGS+=("$1"); shift ;;
     *) echo "unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -103,6 +112,24 @@ command -v node >/dev/null 2>&1 || die "node is required (>=20)."
 command -v git  >/dev/null 2>&1 || die "git is required."
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 [[ "$NODE_MAJOR" -ge 20 ]] || die "node >=20 required (found $(node -v))."
+
+# --- upgrade (deterministic: fetch + ff-merge, then re-exec the fresh install + migrate) ---
+# One command replaces the prose runbook: pull the new engine, then re-run the
+# freshly-merged bootstrap (idempotent re-wire) with --migrate (idempotent data
+# migrations). bash re-executes rather than sourcing the just-changed script.
+if [[ "$UPGRADE" -eq 1 ]]; then
+  log "Upgrade: fetching origin + fast-forward-merging into $SRC_DIR ..."
+  git -C "$SRC_DIR" fetch origin || die "git fetch failed."
+  if ! git -C "$SRC_DIR" merge --ff-only origin/main 2>/dev/null; then
+    # A cloud-sync daemon strips the exec bit (100755→100644) and blocks --ff-only.
+    git -C "$SRC_DIR" config core.fileMode false
+    git -C "$SRC_DIR" checkout -- . 2>/dev/null || true
+    git -C "$SRC_DIR" merge --ff-only origin/main ||
+      die "fast-forward merge failed (content diverged? resolve $SRC_DIR by hand)."
+  fi
+  log "Upgrade: re-running the freshly-merged bootstrap (idempotent re-wire + migrations) ..."
+  exec bash "$SRC_DIR/bootstrap.sh" --migrate "${REEXEC_ARGS[@]}"
+fi
 
 # --- install deps ---
 log "Installing dependencies in $SRC_DIR ..."
@@ -293,6 +320,15 @@ SELF_OBS_ENABLED=0
 node "$SRC_DIR/scripts/wire-memory-surfaces.mjs" \
   "$SRC_DIR" "$WORKSPACE_DIR" "$HOME" "$SELF_OBS_ENABLED"
 log "Wired memory rules/skills as @-pointers (.agents/rules, .claude/rules, .claude/skills, .cursor/rules) and AGENTS.md/CLAUDE.md @-includes → ~/.llm-wiki-memory/src."
+
+# --- data migrations (idempotent; run on --migrate / --upgrade) ---
+# migrate-identity restamps legacy basename project_module to the deterministic
+# git/file identity; a no-op on a fresh or already-migrated wiki.
+if [[ "$MIGRATE" -eq 1 ]]; then
+  log "Running data migrations (idempotent) ..."
+  ( cd "$SRC_DIR" && MEMORY_DATA_DIR="$DATA_DIR" node scripts/cli.mjs migrate-identity ) ||
+    log "WARNING: migrate-identity reported an issue (continuing)."
+fi
 
 # --- gitignore (marker-fenced block, mechanically reversible by uninstall) ---
 GITIGNORE="$WORKSPACE_DIR/.gitignore"
