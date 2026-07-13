@@ -21,6 +21,7 @@ fs.writeFileSync(
 const { searchMemoryFiltered, searchOneTree } = await import("../scripts/lib/wiki-store.mjs");
 const { recallLessons, searchMemory } = await import("../scripts/lib/recall.mjs");
 const { resolveWikiContext, withWikiContext } = await import("../scripts/lib/wiki-context.mjs");
+const { defaultProjectModule } = await import("../scripts/lib/env.mjs");
 const { clampSearchResponse, SEARCH_TOTAL_BUDGET } =
   await import("../scripts/lib/search-clamp.mjs");
 
@@ -261,11 +262,12 @@ test("per-level project_module: a mount leaf tagged with a DIFFERENT module is s
   assert.ok(names.includes("BrainFact.md"), "brain leaf under the default module is returned");
 });
 
-test("per-level project_module: a brain declaring its OWN project_id still re-scopes every level (auto-inject sentinel divergence)", async () => {
+test("per-level project_module: a brain layout project_id is IGNORED for the brain module (read == write == defaultProjectModule)", async () => {
   const home = makeHome();
-  // The brain layout pins a project_id that DIVERGES from defaultProjectModule()
-  // ("brainmod"). The read door injects the latter; a single-sentinel swap check
-  // would then miss it and silently drop BOTH levels' leaves.
+  // The brain layout declares a project_id. A real brain write (normaliseMeta)
+  // ALWAYS stamps defaultProjectModule(), never the project_id, so the brain's
+  // read-side module MUST also be defaultProjectModule() — otherwise the fan-out
+  // swaps the brain filter to the project_id and every brain leaf silently drops.
   const brainRoot = path.join(home, ".llm-wiki-memory", "wiki");
   fs.mkdirSync(path.join(brainRoot, ".layout"), { recursive: true });
   fs.writeFileSync(
@@ -275,29 +277,36 @@ test("per-level project_module: a brain declaring its OWN project_id still re-sc
   const webhooks = mkMount(path.join(home, "webhooks"), ["knowledge", "daily"]);
 
   const ctx = resolveWikiContext([path.join(home, "webhooks")], brainOpts(home));
-  assert.equal(ctx.levels[0].projectModule, "pinned/brain", "brain module honors its project_id");
+  assert.equal(
+    ctx.levels[0].projectModule,
+    defaultProjectModule(),
+    "the brain IGNORES its layout project_id — its module is the env default (== its write-stamp)",
+  );
+  assert.notEqual(
+    ctx.levels[0].projectModule,
+    "pinned/brain",
+    "the layout project_id is NOT adopted as the brain module",
+  );
+  // Stamp the brain leaf with the WRITE-side value a real write produces
+  // (defaultProjectModule()), NOT the read-side swap value — stamping the swap
+  // value was the false-green this test replaces.
   writeLeaf(brainRoot, "knowledge", "BrainFact.md", {
     body: "echidna config note",
-    memory: { atom_type: "knowledge-fact", project_module: ctx.levels[0].projectModule },
+    memory: { atom_type: "knowledge-fact", project_module: defaultProjectModule() },
   });
   writeLeaf(webhooks, "knowledge", "RepoFact.md", {
     body: "echidna config note",
     memory: { atom_type: "knowledge-fact", project_module: ctx.levels[1].projectModule },
   });
-  // searchMemory auto-injects defaultProjectModule() = "brainmod" ≠ the brain
-  // level's module ("pinned/brain"); the per-level swap must still fire for BOTH.
   const out = await withWikiContext(ctx, () =>
     searchMemory({ query: "echidna config", filters: { atom_type: "knowledge-fact" } }),
   );
   const names = out.records.map((r) => r.documentName);
   assert.ok(
-    names.includes("RepoFact.md"),
-    "the repo leaf survives despite the brain's own project_id",
-  );
-  assert.ok(
     names.includes("BrainFact.md"),
-    "the brain leaf (its project_id module) is returned too",
+    "the brain leaf (stamped defaultProjectModule) survives the fan-out",
   );
+  assert.ok(names.includes("RepoFact.md"), "the repo leaf is returned too");
 });
 
 // ─── category absence: a knowledge-only repo doesn't break recall ────────────

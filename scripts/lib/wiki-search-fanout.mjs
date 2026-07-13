@@ -19,7 +19,7 @@
 
 import fs from "node:fs";
 import { getActiveWikiContext } from "./wiki-context.mjs";
-import { withWikiRoot, defaultProjectModule } from "./env.mjs";
+import { withWikiRoot } from "./env.mjs";
 import { recallDepthBoostPerLevel, recallSearchPerLevelCap } from "./settings.mjs";
 import { searchOneTree } from "./wiki-search.mjs";
 
@@ -49,26 +49,23 @@ function realpathOr(p) {
 }
 
 // Scope a level's search to that level's OWN module. The read doors auto-inject
-// the workspace default module into `filters.project_module`; left untouched, a
+// the BRAIN's default module into `filters.project_module`; left untouched, a
 // mount whose leaves are tagged with a different module would be filtered out.
-// So when the incoming module was auto-injected, swap in the level's module; an
-// explicit non-default module the caller chose is preserved across every level.
-//
-// "Auto-injected" is detected against BOTH sentinels the two sources can produce:
-// `defaultProjectModule()` (what the recall/search doors actually inject) AND the
-// brain level's resolved module. These coincide normally, but DIVERGE when the
-// brain layout declares its own `project_id` — in which case a single-sentinel
-// check would miss the injected value and silently drop every repo level's leaves.
+// So when the incoming module IS the brain's default (i.e. it was auto-injected),
+// swap in the level's module; an explicit non-default module the caller chose is
+// preserved across every level. (The brain's module equals what the doors inject
+// AND what normaliseMeta stamps onto brain leaves — defaultProjectModule() — since
+// the brain never adopts a layout project_id; see wiki-context.levelProjectModule.)
 /**
  * @param {SearchFilters | undefined} filters
  * @param {WikiLevel} level
- * @param {Set<string>} injectedSentinels
+ * @param {string} brainModule
  * @returns {SearchFilters | undefined}
  */
-function perLevelFilters(filters, level, injectedSentinels) {
+function perLevelFilters(filters, level, brainModule) {
   if (!filters || typeof filters !== "object") return filters;
   if (!("project_module" in filters)) return filters;
-  if (!injectedSentinels.has(/** @type {string} */ (filters.project_module))) return filters;
+  if (filters.project_module !== brainModule) return filters;
   return { ...filters, project_module: level.projectModule };
 }
 
@@ -80,13 +77,11 @@ function perLevelFilters(filters, level, injectedSentinels) {
 async function fanOutSearch(opts, levels) {
   const perLevelCap = recallSearchPerLevelCap();
   const boostPerLevel = recallDepthBoostPerLevel();
-  const injectedSentinels = new Set(
-    [levels[0].projectModule, defaultProjectModule()].filter(Boolean),
-  );
+  const brainModule = levels[0].projectModule;
   /** @type {Map<string, SearchHit>} */
   const merged = new Map();
   for (const level of levels) {
-    const filters = perLevelFilters(opts.filters, level, injectedSentinels);
+    const filters = perLevelFilters(opts.filters, level, brainModule);
     const { records } = /** @type {{ records: SearchHit[] }} */ (
       await withWikiRoot(level.root, () => searchOneTree({ ...opts, limit: perLevelCap, filters }))
     );

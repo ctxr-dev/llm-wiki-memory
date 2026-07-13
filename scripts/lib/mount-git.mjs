@@ -101,7 +101,23 @@ function hookAcceptsShellBlock(content) {
   if (!first.startsWith("#!")) return true;
   const tokens = first.slice(2).trim().split(/\s+/);
   const head = (tokens[0] || "").split("/").pop() || "";
-  const interp = head === "env" ? tokens[1] || "" : head;
+  let interp = head;
+  if (head === "env") {
+    // Reach the real interpreter past env's own flags, incl. `-S bash -e` and the
+    // glued `-Sbash` (the portable way to pass interpreter flags in a shebang). A
+    // mis-parse errs toward "foreign" (skip, never corrupt) — the safe direction.
+    const rest = tokens.slice(1);
+    let i = 0;
+    for (; i < rest.length; i += 1) {
+      if (!rest[i].startsWith("-")) break;
+      const glued = rest[i].match(/^-S(.+)$/);
+      if (glued) {
+        rest[i] = glued[1];
+        break;
+      }
+    }
+    interp = rest[i] || "";
+  }
   const base = interp.split("/").pop() || interp;
   return /^(ba|da|z|k|a|mk)?sh$/.test(base);
 }

@@ -142,6 +142,29 @@ test("hook install NEVER corrupts a non-shell user hook — a foreign interprete
   assert.equal(hook.results?.["post-checkout"], "created", "a fresh event installs as usual");
 });
 
+test("hook install CHAINS onto an `env -S bash` user hook (shell interpreter past env flags)", () => {
+  const m = mount("mi-envs");
+  spawnSync("git", ["-C", m, "init", "-q"], { encoding: "utf8" });
+  writeLayout(m, "layout:\n  - path: knowledge\n    ownership: repo\n");
+  const hooksDir = path.join(m, ".git", "hooks");
+  fs.mkdirSync(hooksDir, { recursive: true });
+  // `#!/usr/bin/env -S bash -e` is a real, portable SHELL shebang — our POSIX
+  // block must chain onto it, not be skipped as "foreign".
+  const shHook = "#!/usr/bin/env -S bash -e\necho user env-S hook\n";
+  fs.writeFileSync(path.join(hooksDir, "post-merge"), shHook, { mode: 0o755 });
+
+  const res = initMount(m);
+  const hook = /** @type {{ results?: Record<string, string> }} */ (res.syncHook);
+  assert.equal(
+    hook.results?.["post-merge"],
+    "chained",
+    "the env -S bash hook is chained, not skipped",
+  );
+  const body = fs.readFileSync(path.join(hooksDir, "post-merge"), "utf8");
+  assert.match(body, /echo user env-S hook/, "the user's env -S bash body is preserved");
+  assert.ok(body.includes(MARKER_START), "our block is chained after it");
+});
+
 test("initMount seeds the knowledge-only repo template when the mount has no layout", () => {
   const m = mount("mi-seed");
   spawnSync("git", ["-C", m, "init", "-q"], { encoding: "utf8" });

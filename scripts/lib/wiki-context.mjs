@@ -103,11 +103,16 @@ function resolveLevelLayout(layoutDir) {
  * @returns {string}
  */
 function levelProjectModule(level, layout) {
-  const declaredId = /** @type {{ project_id?: unknown }} */ (layout)?.project_id;
-  if (declaredId) return String(declaredId);
   if (level.ownership === OWNERSHIP.REPO) {
+    const declaredId = /** @type {{ project_id?: unknown }} */ (layout)?.project_id;
+    if (declaredId) return String(declaredId);
     return projectModuleSegment({ mountDir: level.mountDir, ownership: OWNERSHIP.REPO });
   }
+  // The brain (wiki-owned) keeps the scanner's env-default module — which is
+  // EXACTLY what normaliseMeta stamps onto brain leaves (defaultProjectModule()).
+  // A layout `project_id` is a REPO-mount portable-identity concept and is NOT
+  // honored for the brain: doing so would diverge the brain's read-side module
+  // from its write-stamp and silently drop every brain leaf from federated recall.
   return level.projectModule;
 }
 
