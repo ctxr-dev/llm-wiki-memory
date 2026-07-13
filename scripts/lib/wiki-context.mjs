@@ -105,16 +105,16 @@ function resolveLevelLayout(layoutDir) {
  * @returns {WikiLevel}
  */
 function enrichLevel(level, backend) {
+  const layout = resolveLevelLayout(path.join(level.root, ".layout"));
+  const declaredId = /** @type {{ project_id?: unknown }} */ (layout)?.project_id;
   /** @type {WikiLevel} */
   const enriched = {
     root: level.root,
     mountDir: level.mountDir,
     ownership: level.ownership,
     depth: level.depth,
-    projectModule: level.projectModule,
-    layout: resolveLevelLayout(path.join(level.root, ".layout")),
-    // Per-category cache under this level's own wiki root
-    // (`<root>/<category>/.embeddings/embeddings.json`, Phase D).
+    projectModule: declaredId ? String(declaredId) : level.projectModule,
+    layout,
     embedCacheFor: (category) => embedCacheForRoot(level.root, category),
   };
   if (backend) enriched.embedBackend = backend;
