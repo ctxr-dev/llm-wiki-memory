@@ -109,8 +109,12 @@ DECISIONS:
   basenames + `llm-wiki-memory-` prefixed pointers). Your project's OWN authored rules
   (e.g. planning-methodology, team conventions) are left untouched. If one of your own
   rules shares a basename with a shipped one, surface it rather than deleting.
-- The `.mcp.json` merge preserves a company-mandated wrapper (e.g. a prompt_security
-  shim). If yours is gone after bootstrap, restore it and surface the regression.
+- The `.mcp.json` merge preserves a customized `llm-wiki-memory` server entry: if its
+  `command` differs from the shipped template (e.g. a company-mandated prompt_security
+  wrapper prepended to the launcher), the whole entry is kept verbatim and NOT reset to
+  the template on re-bootstrap. A non-customized entry (command === the template's
+  `node`) is refreshed normally. If you wrapped the server AND the src path moved, verify
+  the inner `index.mjs` arg by hand, since the wrapped entry is preserved as-is.
 
 VERIFICATION:
 

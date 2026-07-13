@@ -18,6 +18,8 @@ test("canonicalRepoId folds ssh/https/.git/case/trailing-slash to the SAME org/r
     "https://github.com/Org/Repo.git",
     "https://github.com/Org/Repo",
     "https://github.com/Org/Repo/",
+    "https://github.com/Org/Repo.git/",
+    "git@github.com:Org/Repo.git/",
     "ssh://git@github.com/Org/Repo.git",
     "ssh://git@github.com:22/Org/Repo.git",
     "HTTPS://GitHub.com/ORG/REPO.GIT",

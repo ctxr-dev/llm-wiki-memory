@@ -5,6 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import { wireMemorySurfaces } from "../scripts/wire-memory-surfaces.mjs";
 import { readManifest, manifestPath, sha256 } from "../scripts/lib/install-manifest.mjs";
+import { POINTER_FALLBACK_NOTE } from "../scripts/lib/memory-surface-constants.mjs";
+
+/** A realistic @-pointer body (matches wire's pointerBody). */
+const ptr = (/** @type {string} */ ref) => `@${ref}\n\n${POINTER_FALLBACK_NOTE}\n${ref}\n`;
 
 /** @type {string[]} */
 const tmps = [];
@@ -40,6 +44,72 @@ function scaffold() {
 function read(p) {
   return fs.readFileSync(p, "utf8");
 }
+
+test("wire: a user's FENCED example of our markers survives wireInclude (R4-2 F1 end-to-end)", () => {
+  const { home, srcDir, ws } = scaffold();
+  const fenced =
+    "# Doc\n\nExample of what it injects:\n```\n" +
+    "<!-- BEGIN llm-wiki-memory -->\n@~/example-only\n<!-- END llm-wiki-memory -->\n" +
+    "```\n\nmore user prose\n";
+  fs.writeFileSync(path.join(ws, "AGENTS.md"), fenced);
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  const agents = read(path.join(ws, "AGENTS.md"));
+  assert.match(agents, /Example of what it injects/, "user prose kept");
+  assert.match(agents, /@~\/example-only/, "the FENCED example's interior survives (not stripped)");
+  assert.match(agents, /more user prose/, "trailing user prose kept");
+  assert.equal(
+    (agents.match(/BEGIN llm-wiki-memory/g) || []).length,
+    2,
+    "the preserved fenced example + exactly one real appended block",
+  );
+  const once = read(path.join(ws, "AGENTS.md"));
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  assert.equal(
+    read(path.join(ws, "AGENTS.md")),
+    once,
+    "byte-stable — the fenced example is never consumed",
+  );
+});
+
+test("wire: an UNCLOSED code fence in AGENTS.md stays byte-stable across two wires (no accumulation, R5)", () => {
+  const { home, srcDir, ws } = scaffold();
+  fs.writeFileSync(path.join(ws, "AGENTS.md"), "# Doc\n\n```bash\necho hi (unclosed fence)\n");
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  const run1 = read(path.join(ws, "AGENTS.md"));
+  assert.equal((run1.match(/BEGIN llm-wiki-memory/g) || []).length, 1, "one block after run 1");
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  const run2 = read(path.join(ws, "AGENTS.md"));
+  assert.equal(
+    run2,
+    run1,
+    "byte-stable — an unclosed fence never hides our block, so no duplicate accumulates",
+  );
+  assert.equal((run2.match(/BEGIN llm-wiki-memory/g) || []).length, 1, "still exactly one block");
+});
+
+test("wire: a shipped basename in BOTH skills and rules warns (deterministic last-wins, GAP6)", () => {
+  const { home, srcDir, ws } = scaffold();
+  fs.writeFileSync(path.join(srcDir, "templates/skills", "dup.md"), "# skill dup\n");
+  fs.writeFileSync(path.join(srcDir, "templates/rules", "dup.md"), "# rule dup\n");
+  /** @type {string[]} */ const errs = [];
+  const orig = console.error;
+  console.error = (/** @type {unknown[]} */ ...a) => errs.push(a.join(" "));
+  try {
+    wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  } finally {
+    console.error = orig;
+  }
+  assert.ok(
+    errs.some((e) => /collision/.test(e) && /dup\.md/.test(e)),
+    "a shipped basename collision across groups is warned",
+  );
+  // Deterministic: the pointer is present on the shared surfaces + byte-stable on re-run.
+  const shared = path.join(ws, ".agents/rules", "llm-wiki-memory-dup.md");
+  assert.ok(fs.existsSync(shared), "the colliding pointer is written (last-wins, deterministic)");
+  const before = read(shared);
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  assert.equal(read(shared), before, "byte-stable across a re-wire");
+});
 
 test("wire: writes prefixed @-pointer FILES (never copies) to the right surfaces", () => {
   const { home, srcDir, ws } = scaffold();
@@ -221,4 +291,83 @@ test("wire: migration removes OUR old copy (canonical content or symlink) but PR
     fs.existsSync(path.join(ws, ".claude/rules", "my-own-rule.md")),
     "user's unrelated file untouched",
   );
+});
+
+test("wire: TWO pre-existing @-include blocks in a doc are COLLAPSED to one (M2 install side)", () => {
+  const { home, srcDir, ws } = scaffold();
+  fs.writeFileSync(
+    path.join(ws, "AGENTS.md"),
+    "# User doc\n\n<!-- BEGIN llm-wiki-memory -->\nstale one\n<!-- END llm-wiki-memory -->\n\n" +
+      "middle user text\n\n<!-- BEGIN llm-wiki-memory -->\nstale two\n<!-- END llm-wiki-memory -->\n",
+  );
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  const agents = read(path.join(ws, "AGENTS.md"));
+  assert.equal(
+    (agents.match(/BEGIN llm-wiki-memory/g) || []).length,
+    1,
+    "duplicate blocks collapse to exactly one",
+  );
+  assert.doesNotMatch(agents, /stale one|stale two/, "the stale block bodies are gone");
+  assert.match(agents, /# User doc/, "user content preserved");
+  assert.match(agents, /middle user text/, "interior user content preserved");
+  // and byte-stable on a second run
+  const once = read(path.join(ws, "AGENTS.md"));
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  assert.equal(read(path.join(ws, "AGENTS.md")), once, "byte-stable after collapse");
+});
+
+test("wire: an orphan prefixed pointer NOT in the desired set is PRUNED on install (a2-B1 install side)", () => {
+  const { home, srcDir, ws } = scaffold();
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  // Simulate a rule that USED to ship: a prefixed pointer with no canonical target.
+  const orphan = path.join(ws, ".claude/skills", "llm-wiki-memory-removed-rule.md");
+  fs.writeFileSync(orphan, ptr("~/.llm-wiki-memory/src/templates/skills/removed-rule.md"));
+  assert.ok(fs.existsSync(orphan));
+
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  assert.ok(!fs.existsSync(orphan), "the orphan prefixed pointer is pruned on re-wire");
+  assert.ok(
+    fs.existsSync(path.join(ws, ".claude/skills", "llm-wiki-memory-consolidate.md")),
+    "a still-shipped pointer stays",
+  );
+});
+
+test("wire: a USER file at a reserved prefix (real content, not a pointer) is NEVER pruned", () => {
+  const { home, srcDir, ws } = scaffold();
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  const userFile = path.join(ws, ".claude/skills", "llm-wiki-memory-my-notes.md");
+  fs.writeFileSync(userFile, "# my own notes, not a pointer\nlots of real content\n");
+
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  assert.ok(
+    fs.existsSync(userFile),
+    "a prefixed file whose body is real content (not our @-include) is preserved",
+  );
+  assert.equal(
+    read(userFile),
+    "# my own notes, not a pointer\nlots of real content\n",
+    "and its content is untouched",
+  );
+});
+
+test("wire: an orphan @-include block (START, END hand-deleted) never deletes user prose across runs (M2/F1)", () => {
+  const { home, srcDir, ws } = scaffold();
+  fs.writeFileSync(
+    path.join(ws, "AGENTS.md"),
+    "# Doc\n\n<!-- BEGIN llm-wiki-memory -->\n\nIMPORTANT USER PROSE THAT MUST SURVIVE\n\n" +
+      "more user prose\n",
+  );
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  const run1 = read(path.join(ws, "AGENTS.md"));
+  assert.match(run1, /IMPORTANT USER PROSE THAT MUST SURVIVE/, "user prose survives run 1");
+  assert.equal(
+    (run1.match(/BEGIN llm-wiki-memory/g) || []).length,
+    1,
+    "exactly one block after run 1",
+  );
+
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  const run2 = read(path.join(ws, "AGENTS.md"));
+  assert.match(run2, /IMPORTANT USER PROSE THAT MUST SURVIVE/, "user prose STILL survives run 2");
+  assert.equal(run2, run1, "byte-stable across runs (converged — no cross-block deletion)");
 });

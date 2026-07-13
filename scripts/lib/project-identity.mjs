@@ -21,7 +21,9 @@ export function canonicalRepoId(originUrl) {
   } else {
     path = s.slice(slash + 1);
   }
-  path = path.replace(/\.git$/, "").replace(/^\/+|\/+$/g, "");
+  // Trim surrounding slashes BEFORE stripping `.git`, so `…repo.git/` (a trailing
+  // slash git stores verbatim) folds to the same id as `…repo.git`, not `repo.git`.
+  path = path.replace(/^\/+|\/+$/g, "").replace(/\.git$/, "");
   if (!path.includes("/")) return null;
   return path;
 }

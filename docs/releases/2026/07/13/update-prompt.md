@@ -125,7 +125,8 @@ The upgrade is successful if and only if:
 - `( cd .llm-wiki-memory/src && npm test )` is fully green.
 - The discipline teaches the nested shape:
   `grep -q "INPUTS ARE ONE NESTED CONTEXT OBJECT" .llm-wiki-memory/src/scripts/lib/discipline.mjs`
-  and the rendered `.agents/rules/tool-scopes.md` / `.claude/rules/tool-scopes.md` are present.
+  and the wired `.agents/rules/llm-wiki-memory-tool-scopes.md` /
+  `.claude/rules/llm-wiki-memory-tool-scopes.md` @-pointers are present (prefixed per the v3 reference-only model).
 - Every tool registers a strict object: `grep -c ".strict()" .llm-wiki-memory/src/mcp-server/tools-*.mjs`
   is non-zero for each tool file.
 - Live wire round-trip (after restart):

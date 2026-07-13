@@ -1,8 +1,7 @@
 /**
- * @typedef {"knowledge"|"self_improvement"|"plans"|"investigations"|"issues"|"team"|"runbooks"} Category
+ * @typedef {"knowledge"|"self_improvement"|"plans"|"investigations"} Category
  * @typedef {{ atom_type?: string, area?: string, task_type?: string, error_pattern?: string, language?: string, subject?: string[] }} DocMeta
- * @typedef {{ tracker: string, prefix: string, number: number, lifecycle?: string, slug?: string }} TopologyFacets
- * @typedef {{ id: string, datasetId: Category, metadata: DocMeta, topology?: TopologyFacets, token: string, edge: string }} MockDoc
+ * @typedef {{ id: string, datasetId: Category, metadata: DocMeta, token: string, edge: string }} MockDoc
  * @typedef {"DEF"|"REPO"|"TRK"} LayoutKind
  * @typedef {string | { throws: RegExp } | { absentCategory: true }} PlacementOutcome
  */
@@ -79,42 +78,12 @@ export const MOCK_DOCS = {
     token: "forensictrace",
     edge: "subject-fallback",
   },
-  T1: {
-    id: "T1",
-    datasetId: "issues",
-    metadata: { atom_type: "reference" },
-    topology: { tracker: "JIRA", prefix: "DEV", number: 129957 },
-    token: "trackerfact",
-    edge: "topology-knowledge",
-  },
-  T2: {
-    id: "T2",
-    datasetId: "issues",
-    metadata: { atom_type: "plan" },
-    topology: {
-      tracker: "JIRA",
-      prefix: "DEV",
-      number: 42,
-      lifecycle: "in-progress",
-      slug: "fix-retry",
-    },
-    token: "trackerplan",
-    edge: "topology-plan",
-  },
-  G1: {
-    id: "G1",
-    datasetId: "team",
-    metadata: { atom_type: "reference" },
-    token: "teamnote",
-    edge: "category-present-some-levels",
-  },
-  L1: {
-    id: "L1",
-    datasetId: "runbooks",
-    metadata: { atom_type: "reference" },
-    token: "runbooknote",
-    edge: "local-added-category",
-  },
+  // NOTE: the topology (issues), category-present-some-levels (team), and
+  // local-added-category (runbooks) edges are NOT facet-placed by placementDirForMeta,
+  // so they don't belong in this pure-placement corpus. Their behaviors are covered by
+  // dedicated tests: topology bucket paths in topology-runtime.test / topology-override.test
+  // / cmd-init-template.test; local.yaml + team-category merges in layout-merge.test and
+  // federation-read.e2e.
 };
 
 const OUT_OF_VOCAB = { throws: /not in vocabulary/ };
@@ -154,12 +123,6 @@ export const EXPECTED_PLACEMENT = {
     TRK: "plans/infra/architecture/refactoring",
   },
   I1: { DEF: "investigations/infra/general", REPO: ABSENT, TRK: "investigations/infra/general" },
-};
-
-/** @type {Record<string, string>} */
-export const EXPECTED_TOPOLOGY_PATH = {
-  T1: "issues/JIRA/DEV/129/95/7/DEV-129957.md",
-  T2: "issues/JIRA/DEV/0/4/2/in-progress/DEV-42-fix-retry.plan.md",
 };
 
 /**

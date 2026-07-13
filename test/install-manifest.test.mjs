@@ -73,3 +73,19 @@ test("writeManifest: byte-stable regardless of input artifact order (determinist
   writeManifest(w, [b, a, c]);
   assert.equal(fs.readFileSync(manifestPath(w), "utf8"), s1, "another re-write stays byte-stable");
 });
+
+test("writeManifest: an IDENTICAL re-write is SKIPPED (inode unchanged) — not just byte-stable (GAP7)", () => {
+  const w = ws();
+  const arts = [{ kind: "file", path: "a.md", sha256: sha256("a") }];
+  writeManifest(w, arts);
+  const ino1 = fs.statSync(manifestPath(w)).ino;
+  writeManifest(w, arts);
+  assert.equal(
+    fs.statSync(manifestPath(w)).ino,
+    ino1,
+    "identical re-write is skipped — atomic-write would replace the inode, so a stable inode proves no write",
+  );
+  // A CHANGED write does replace the file.
+  writeManifest(w, [{ kind: "file", path: "b.md", sha256: sha256("b") }]);
+  assert.match(fs.readFileSync(manifestPath(w), "utf8"), /b\.md/, "a changed manifest IS written");
+});

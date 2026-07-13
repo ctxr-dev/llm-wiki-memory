@@ -62,6 +62,13 @@ export function writeManifest(workspaceDir, artifacts) {
     workspaceDir: path.resolve(workspaceDir),
     artifacts: sortArtifacts(artifacts),
   };
-  writeFileAtomic(p, `${JSON.stringify(manifest, null, 2)}\n`);
+  const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
+  let current = null;
+  try {
+    current = fs.readFileSync(p, "utf8");
+  } catch {
+    current = null;
+  }
+  if (current !== serialized) writeFileAtomic(p, serialized);
   return manifest;
 }

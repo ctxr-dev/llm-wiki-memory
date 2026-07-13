@@ -64,10 +64,10 @@ REEXEC_ARGS=()   # every arg except --upgrade, replayed when --upgrade re-execs 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --commit-memory) COMMIT_MEMORY=1; REEXEC_ARGS+=("$1"); shift ;;
-    --template) TEMPLATE="${2:-}"; REEXEC_ARGS+=("$1" "${2:-}"); shift 2 ;;
+    --template) [[ $# -ge 2 && "${2:-}" != --* ]] || { echo "--template requires a value" >&2; exit 1; }; TEMPLATE="$2"; REEXEC_ARGS+=("$1" "$2"); shift 2 ;;
     --uninstall) UNINSTALL=1; REEXEC_ARGS+=("$1"); shift ;;
-    --provider) PROVIDER="${2:-}"; REEXEC_ARGS+=("$1" "${2:-}"); shift 2 ;;
-    --schedule) SCHEDULE="${2:-}"; REEXEC_ARGS+=("$1" "${2:-}"); shift 2 ;;
+    --provider) [[ $# -ge 2 && "${2:-}" != --* ]] || { echo "--provider requires a value" >&2; exit 1; }; PROVIDER="$2"; REEXEC_ARGS+=("$1" "$2"); shift 2 ;;
+    --schedule) [[ $# -ge 2 && "${2:-}" != --* ]] || { echo "--schedule requires a value" >&2; exit 1; }; SCHEDULE="$2"; REEXEC_ARGS+=("$1" "$2"); shift 2 ;;
     --enable-self-observability)  SELF_OBS="on";  REEXEC_ARGS+=("$1"); shift ;;
     --disable-self-observability) SELF_OBS="off"; REEXEC_ARGS+=("$1"); shift ;;
     --upgrade) UPGRADE=1; shift ;;
@@ -128,7 +128,9 @@ if [[ "$UPGRADE" -eq 1 ]]; then
       die "fast-forward merge failed (content diverged? resolve $SRC_DIR by hand)."
   fi
   log "Upgrade: re-running the freshly-merged bootstrap (idempotent re-wire + migrations) ..."
-  exec bash "$SRC_DIR/bootstrap.sh" --migrate "${REEXEC_ARGS[@]}"
+  # bash 3.2 (macOS default) + `set -u`: expanding an EMPTY array as "${a[@]}" is an
+  # unbound-variable error, so guard it — bare `--upgrade` yields an empty REEXEC_ARGS.
+  exec bash "$SRC_DIR/bootstrap.sh" --migrate ${REEXEC_ARGS[@]+"${REEXEC_ARGS[@]}"}
 fi
 
 # --- install deps ---

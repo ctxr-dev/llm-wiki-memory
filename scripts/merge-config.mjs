@@ -6,12 +6,78 @@
 //
 //   node merge-config.mjs <targetFile> <templateFile> <topKey>
 import fs from "node:fs";
+import path from "node:path";
 import { writeFileAtomic } from "./lib/atomic-write.mjs";
 
 const [targetFile, templateFile, topKey] = process.argv.slice(2);
 if (!targetFile || !templateFile || !topKey) {
   console.error("usage: merge-config.mjs <targetFile> <templateFile> <topKey>");
   process.exit(1);
+}
+
+/**
+ * Merge our server entries WITHOUT clobbering a customized launcher. If the user
+ * wrapped our own entry (a mandated security shim → its `command` differs from the
+ * template's), preserve their entry verbatim; otherwise install/refresh ours. Other
+ * servers are never touched.
+ * @param {Record<string, unknown>} current @param {Record<string, unknown>} incoming
+ */
+function mergeServerEntries(current, incoming) {
+  for (const [k, v] of Object.entries(incoming)) {
+    const existing = /** @type {{ command?: unknown }} */ (current[k]);
+    if (
+      existing &&
+      typeof existing === "object" &&
+      !Array.isArray(existing) &&
+      v &&
+      typeof v === "object" &&
+      typeof existing.command === "string" &&
+      existing.command !== /** @type {{ command?: unknown }} */ (v).command
+    ) {
+      console.error(`merge-config: preserving customized "${k}" (command differs from template)`);
+      continue;
+    }
+    current[k] = v;
+  }
+}
+
+/**
+ * Merge our hook groups into each event's array, de-duped by the group's command
+ * set, so a user's own hooks on the same event survive and a re-run adds nothing
+ * new (idempotent).
+ * @param {Record<string, unknown>} current @param {Record<string, unknown>} incoming
+ */
+function mergeHookEvents(current, incoming) {
+  // Dedup identity = (matcher, the SET of command strings) — NOT the raw hook objects,
+  // so a user's edit to a hook's `timeout` (or a client reserializing the object keys)
+  // can't defeat dedup and duplicate our group on re-bootstrap.
+  /** @param {unknown} g @returns {string} */
+  const sig = (g) => {
+    if (g && typeof g === "object" && "hooks" in g) {
+      const grp = /** @type {{ matcher?: unknown, hooks?: unknown }} */ (g);
+      const cmds = Array.isArray(grp.hooks)
+        ? grp.hooks
+            .map((h) =>
+              h && typeof h === "object" && "command" in h
+                ? /** @type {{ command: unknown }} */ (h).command
+                : h,
+            )
+            .sort()
+        : grp.hooks;
+      return JSON.stringify({ matcher: grp.matcher, cmds });
+    }
+    return JSON.stringify(g);
+  };
+  for (const [event, groups] of Object.entries(incoming)) {
+    const ours = Array.isArray(groups) ? groups : [];
+    const prior = Array.isArray(current[event])
+      ? /** @type {unknown[]} */ (current[event])
+      : current[event] !== undefined
+        ? [current[event]]
+        : [];
+    const have = new Set(prior.map(sig));
+    current[event] = [...prior, ...ours.filter((g) => !have.has(sig(g)))];
+  }
 }
 
 /**
@@ -58,14 +124,20 @@ try {
 }
 const incoming = /** @type {Record<string, unknown>} */ (template[topKey] || {});
 
-target[topKey] = target[topKey] && typeof target[topKey] === "object" ? target[topKey] : {};
-// Shallow-merge per server / per hook-event: our keys win, the user's other
-// keys are preserved. We do NOT deep-merge hook arrays - a same-named event
-// is replaced wholesale by ours (idempotent re-runs stay stable).
-for (const [k, v] of Object.entries(incoming)) {
-  /** @type {Record<string, unknown>} */ (target[topKey])[k] = v;
+// Must be a PLAIN object: an array (`typeof [] === "object"`, truthy) would silently
+// swallow our string-keyed merge (JSON.stringify emits only an array's numeric indices).
+const existingTop = target[topKey];
+if (existingTop !== undefined && (typeof existingTop !== "object" || Array.isArray(existingTop))) {
+  console.error(
+    `merge-config: ${targetFile} "${topKey}" is not an object; resetting it to merge ${topKey}`,
+  );
 }
+target[topKey] =
+  existingTop && typeof existingTop === "object" && !Array.isArray(existingTop) ? existingTop : {};
+const current = /** @type {Record<string, unknown>} */ (target[topKey]);
+if (topKey === "hooks") mergeHookEvents(current, incoming);
+else mergeServerEntries(current, incoming);
 
-fs.mkdirSync(targetFile.replace(/\/[^/]*$/, "") || ".", { recursive: true });
+fs.mkdirSync(path.dirname(targetFile), { recursive: true });
 writeFileAtomic(targetFile, `${JSON.stringify(target, null, 2)}\n`);
 console.error(`merged ${topKey} into ${targetFile}`);

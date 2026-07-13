@@ -22,85 +22,23 @@ import {
   RULE_SURFACES,
 } from "./memory-surface-constants.mjs";
 import { readManifest, writeManifest, manifestPath, sha256 } from "./install-manifest.mjs";
+import { stripManagedBlocks } from "./marker-block.mjs";
+import { isOurPointer } from "./pointer-file.mjs";
+import {
+  removeMcpRegistration,
+  removeAgentsSurface,
+  removeClaudeHooks,
+  pruneEmptyDir,
+} from "./uninstall-configs.mjs";
 
-const SERVER_KEY = "llm-wiki-memory";
+export { removeMcpRegistration, removeAgentsSurface, removeClaudeHooks };
+
 const MOUNT_DIRNAME = ".llm-wiki-memory";
 
-// The JSON client configs bootstrap writes a `mcpServers.llm-wiki-memory` entry
-// into. Each is workspace-relative and may or may not exist.
-const MCP_JSON_RELPATHS = [
-  ".mcp.json",
-  ".agents/mcp.json",
-  ".agents/clients/cursor.json",
-  ".agents/clients/claude-desktop.json",
-  ".agents/clients/generic-mcp.json",
-];
-
-/**
- * Remove the `mcpServers.llm-wiki-memory` entry from one JSON config, preserving
- * every other server and top-level key. Returns true when the file changed.
- * @param {string} file
- * @returns {boolean}
- */
-function removeServerFromJson(file) {
-  let parsed;
-  try {
-    parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
-    // Absent or unparseable: leave a user's hand-broken JSON alone.
-    return false;
-  }
-  const servers =
-    parsed && typeof parsed === "object"
-      ? /** @type {Record<string, unknown>} */ (parsed.mcpServers)
-      : undefined;
-  if (!servers || typeof servers !== "object" || !(SERVER_KEY in servers)) return false;
-  delete servers[SERVER_KEY];
-  writeFileAtomic(file, `${JSON.stringify(parsed, null, 2)}\n`);
-  return true;
-}
-
-/**
- * Remove our MCP server registration from every JSON client config under the
- * workspace. Idempotent. The codex TOML config is left for the manual steps
- * (TOML table edits are surfaced, not automated).
- * @param {string} workspaceDir
- * @returns {{ removed: string[] }}
- */
-export function removeMcpRegistration(workspaceDir) {
-  /** @type {string[]} */
-  const removed = [];
-  for (const rel of MCP_JSON_RELPATHS) {
-    if (removeServerFromJson(path.join(workspaceDir, rel))) removed.push(rel);
-  }
-  return { removed };
-}
-
-// Content that "does nothing" once our block is gone: a bare shebang and blank
-// lines only. Such a hook file was created solely by us, so it is removed.
-/**
- * @param {string} content
- * @returns {boolean}
- */
+// Only a shebang + blank lines left once our block is gone → the hook was ours; remove it.
+/** @param {string} content @returns {boolean} */
 function isInertHook(content) {
   return content.split("\n").every((l) => l.trim() === "" || l.trim().startsWith("#!"));
-}
-
-/**
- * Strip a marker-fenced block (plus one preceding blank separator) from text.
- * Returns the new content, or null when the start marker is absent.
- * @param {string} content @param {string} startMarker @param {string} endMarker
- * @returns {string | null}
- */
-function stripFencedBlock(content, startMarker, endMarker) {
-  const lines = content.split("\n");
-  const start = lines.findIndex((l) => l.trim() === startMarker);
-  if (start === -1) return null;
-  let end = lines.findIndex((l, i) => i >= start && l.trim() === endMarker);
-  if (end === -1) end = lines.length - 1;
-  let head = start;
-  if (head > 0 && lines[head - 1].trim() === "") head -= 1;
-  return [...lines.slice(0, head), ...lines.slice(end + 1)].join("\n");
 }
 
 /**
@@ -121,16 +59,18 @@ export function removeSyncHookBlocks(repoDir) {
       results[event] = "absent";
       continue;
     }
-    const stripped = stripFencedBlock(fs.readFileSync(target, "utf8"), MARKER_START, MARKER_END);
-    if (stripped === null) {
+    const original = fs.readFileSync(target, "utf8");
+    const stripped = stripManagedBlocks(original, MARKER_START, MARKER_END);
+    if (stripped === original) {
       results[event] = "no-marker";
     } else if (isInertHook(stripped)) {
       fs.rmSync(target);
       results[event] = "removed";
     } else {
-      writeFileAtomic(target, stripped.endsWith("\n") ? stripped : `${stripped}\n`, {
-        mode: 0o755,
-      });
+      // Normalize trailing blanks (chainHookFile prepends a separator on each install;
+      // without this the hook would gain a blank line per install/uninstall cycle).
+      const normalized = stripped.replace(/\n{3,}/g, "\n\n").replace(/[ \t\n]+$/, "");
+      writeFileAtomic(target, `${normalized}\n`, { mode: 0o755 });
       results[event] = "stripped";
     }
   }
@@ -138,18 +78,24 @@ export function removeSyncHookBlocks(repoDir) {
 }
 
 /**
- * Strip a fenced block from a file: rewrite it without the block, or DELETE the
- * file when the block was its entire content (we created it). Returns true when it
- * acted, false when the file is absent or carries no block.
+ * Strip our marker-fenced block(s) from a file: rewrite it without them, or DELETE
+ * the file when nothing but our block was there (we created it). Returns true when
+ * it acted, false when the file is absent or carries no block. Never removes
+ * non-marker content (see marker-block.mjs).
  * @param {string} file @param {string} startMarker @param {string} endMarker
  * @returns {boolean}
  */
 function stripBlockFromFile(file, startMarker, endMarker) {
   if (!fs.existsSync(file)) return false;
-  const stripped = stripFencedBlock(fs.readFileSync(file, "utf8"), startMarker, endMarker);
-  if (stripped === null) return false;
-  if (stripped.trim() === "") fs.rmSync(file, { force: true });
-  else writeFileAtomic(file, stripped.endsWith("\n") ? stripped : `${stripped}\n`);
+  const content = fs.readFileSync(file, "utf8");
+  const stripped = stripManagedBlocks(content, startMarker, endMarker);
+  if (stripped === content) return false;
+  const normalized = stripped
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^\n+/, "")
+    .replace(/[ \t\n]+$/, "");
+  if (normalized === "") fs.rmSync(file, { force: true });
+  else writeFileAtomic(file, `${normalized}\n`);
   return true;
 }
 
@@ -185,7 +131,45 @@ export function removeGitignoreBlock(workspaceDir) {
 export function removeMemorySurfaces(workspaceDir) {
   const ws = path.resolve(workspaceDir);
   const manifest = readManifest(ws);
-  return manifest ? removeFromManifest(ws, manifest) : removeByDiscovery(ws);
+  const result = manifest ? removeFromManifest(ws, manifest) : removeByDiscovery(ws);
+  sweepOrphanPointers(ws, result);
+  for (const surface of RULE_SURFACES) pruneEmptyDir(path.join(ws, surface));
+  return result;
+}
+
+/** A manifest `path` must stay inside the workspace (never `../…` / absolute escape). */
+/** @param {string} ws @param {string} rel @returns {boolean} */
+function withinWs(ws, rel) {
+  const abs = path.resolve(ws, rel);
+  return abs === ws || abs.startsWith(ws + path.sep);
+}
+
+/**
+ * Remove any prefixed pointer the manifest never accounted for — e.g. one left by
+ * a renamed/removed shipped rule (the manifest records only the CURRENT set). Only
+ * files that pass `isOurPointer` are swept. Files the manifest tracked (removed OR
+ * kept-drifted) are excluded.
+ * @param {string} ws @param {{ pointers: string[], kept: string[] }} result
+ */
+function sweepOrphanPointers(ws, result) {
+  const tracked = new Set([...result.pointers, ...result.kept]);
+  for (const surface of RULE_SURFACES) {
+    const dir = path.join(ws, surface);
+    if (!fs.existsSync(dir)) continue;
+    for (const entry of fs.readdirSync(dir)) {
+      const rel = `${surface}/${entry}`;
+      const abs = path.join(dir, entry);
+      if (
+        entry.startsWith(POINTER_PREFIX) &&
+        entry.endsWith(".md") &&
+        !tracked.has(rel) &&
+        isOurPointer(abs)
+      ) {
+        fs.rmSync(abs, { force: true });
+        result.pointers.push(rel);
+      }
+    }
+  }
 }
 
 /**
@@ -198,15 +182,26 @@ function removeFromManifest(ws, manifest) {
   /** @type {string[]} */ const kept = [];
   /** @type {import("./install-manifest.mjs").InstallArtifact[]} */ const keptArtifacts = [];
   for (const a of manifest.artifacts) {
+    if (!a || typeof a !== "object" || typeof a.path !== "string" || !withinWs(ws, a.path)) {
+      continue; // malformed or path-escaping → never act on it (dropped from the rewrite)
+    }
     if (a.kind === "file") {
+      if (typeof a.sha256 !== "string") {
+        kept.push(a.path); // unverifiable → keep + track (so the sweep won't delete it)
+        keptArtifacts.push(a);
+        continue;
+      }
       const abs = path.join(ws, a.path);
       let content = null;
       try {
         content = fs.readFileSync(abs, "utf8");
-      } catch {
-        content = null;
+      } catch (err) {
+        if (/** @type {NodeJS.ErrnoException} */ (err)?.code !== "ENOENT") {
+          kept.push(a.path); // perm blip → keep tracked + surfaced (ENOENT → already gone, drop)
+          keptArtifacts.push(a);
+        }
+        continue;
       }
-      if (content === null) continue;
       if (sha256(content) === a.sha256) {
         fs.rmSync(abs, { force: true });
         pointers.push(a.path);
@@ -215,7 +210,12 @@ function removeFromManifest(ws, manifest) {
         keptArtifacts.push(a);
       }
     } else if (a.kind === "block") {
+      // stripManagedBlocks handles every marker arrangement (well-formed pair OR a
+      // stray orphan marker line); a false result means the doc has no marker left,
+      // i.e. the block is already gone — either way we stop tracking it.
       if (stripBlockFromDoc(path.join(ws, a.path))) docs.push(a.path);
+    } else {
+      keptArtifacts.push(a); // unknown/config kind → preserve, never silently drop
     }
   }
   if (keptArtifacts.length) writeManifest(ws, keptArtifacts);
@@ -233,8 +233,9 @@ function removeByDiscovery(ws) {
     const dir = path.join(ws, surface);
     if (!fs.existsSync(dir)) continue;
     for (const entry of fs.readdirSync(dir)) {
-      if (entry.startsWith(POINTER_PREFIX) && entry.endsWith(".md")) {
-        fs.rmSync(path.join(dir, entry), { force: true });
+      const abs = path.join(dir, entry);
+      if (entry.startsWith(POINTER_PREFIX) && entry.endsWith(".md") && isOurPointer(abs)) {
+        fs.rmSync(abs, { force: true });
         pointers.push(`${surface}/${entry}`);
       }
     }
@@ -243,6 +244,7 @@ function removeByDiscovery(ws) {
   for (const doc of MEMORY_DOCS) {
     if (stripBlockFromDoc(path.join(ws, doc))) docs.push(doc);
   }
+  fs.rmSync(manifestPath(ws), { force: true }); // converge with the manifest path's end state
   return { pointers, docs, kept: [] };
 }
 
@@ -257,7 +259,6 @@ export function manualUninstallSteps(workspaceDir) {
   return [
     `For a federated repo mount, remove the per-mount personal git repo: rm -rf ${path.join(dataDir, "personal", ".git")}`,
     `Delete the mount / memory data ONLY if you want to discard it (NOT done automatically): rm -rf ${dataDir}`,
-    `Claude Code capture hooks in ${path.join(workspaceDir, ".claude", "settings.json")} and the codex MCP entry in ${path.join(workspaceDir, ".agents", "clients", "openai-codex.toml")} are left in place — remove them by hand if desired.`,
   ];
 }
 
@@ -266,17 +267,24 @@ export function manualUninstallSteps(workspaceDir) {
  * defaults to the workspace itself (the repo whose hooks a mount install
  * chained into). Idempotent; never touches memory data.
  * @param {{ workspaceDir: string, repoDirs?: string[] }} opts
- * @returns {{ workspaceDir: string, mcp: { removed: string[] }, surfaces: { pointers: string[], docs: string[], kept: string[] }, gitignore: boolean, hooks: Record<string, unknown>, manual: string[] }}
+ * @returns {{ workspaceDir: string, mcp: { removed: string[] }, surfaces: { pointers: string[], docs: string[], kept: string[] }, gitignore: boolean, agents: { removed: string[] }, claudeHooks: { removed: number }, hooks: Record<string, unknown>, manual: string[] }}
  */
 export function uninstall({ workspaceDir, repoDirs }) {
   const ws = path.resolve(workspaceDir);
   const mcp = removeMcpRegistration(ws);
   const surfaces = removeMemorySurfaces(ws);
   const gitignore = removeGitignoreBlock(ws);
+  const agents = removeAgentsSurface(ws);
+  const claudeHooks = removeClaudeHooks(ws);
   /** @type {Record<string, unknown>} */
   const hooks = {};
   for (const repo of repoDirs && repoDirs.length ? repoDirs : [ws]) {
     hooks[repo] = removeSyncHookBlocks(repo);
+  }
+  // Prune emptied surface PARENTS (.agents/.claude/.cursor) at the tail — removeClaudeHooks
+  // can empty .claude only after removeMemorySurfaces; pruneEmptyDir skips a non-empty dir.
+  for (const parent of new Set(RULE_SURFACES.map((s) => path.dirname(s)))) {
+    pruneEmptyDir(path.join(ws, parent));
   }
   const manual = manualUninstallSteps(ws);
   if (surfaces.kept.length) {
@@ -284,5 +292,5 @@ export function uninstall({ workspaceDir, repoDirs }) {
       `Kept ${surfaces.kept.length} pointer file(s) whose content no longer matches what was installed (edited or not ours): ${surfaces.kept.join(", ")}. Review and remove by hand if intended.`,
     );
   }
-  return { workspaceDir: ws, mcp, surfaces, gitignore, hooks, manual };
+  return { workspaceDir: ws, mcp, surfaces, gitignore, agents, claudeHooks, hooks, manual };
 }

@@ -8,8 +8,12 @@ import {
   RULE_SURFACES,
   MEMORY_DOCS,
   MARKER_ID,
+  POINTER_FALLBACK_NOTE,
 } from "./lib/memory-surface-constants.mjs";
 import { sha256, writeManifest } from "./lib/install-manifest.mjs";
+import { writeFileAtomic } from "./lib/atomic-write.mjs";
+import { stripManagedBlocks } from "./lib/marker-block.mjs";
+import { isOurPointer } from "./lib/pointer-file.mjs";
 
 const INSTRUCTIONS_REL = "templates/agents-memory-instructions.md";
 const SELF_OBS = "self-observability.md";
@@ -31,13 +35,8 @@ function pointerName(name) {
 }
 
 /** @param {string} ref @returns {string} */
-function pointerBody(ref) {
-  return `@${ref}\n\nIf your client does not resolve the @-include above, read the canonical file at:\n${ref}\n`;
-}
-
-/** @param {string} s @returns {string} */
-function escapeRe(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export function pointerBody(ref) {
+  return `@${ref}\n\n${POINTER_FALLBACK_NOTE}\n${ref}\n`;
 }
 
 /** @param {string} srcDir @param {string} sub @returns {string[]} */
@@ -56,7 +55,7 @@ function writeIfChanged(p, content) {
     current = null;
   }
   if (current === content) return;
-  fs.writeFileSync(p, content);
+  writeFileAtomic(p, content);
 }
 
 /** @param {string} srcDir @returns {Map<string, string>} managed basename → canonical abs path */
@@ -64,7 +63,14 @@ function managedCanonical(srcDir) {
   /** @type {Map<string, string>} */
   const map = new Map();
   for (const g of SHIPPED_GROUPS) {
-    for (const n of mdFiles(srcDir, g.sub)) map.set(n, path.join(srcDir, g.sub, n));
+    for (const n of mdFiles(srcDir, g.sub)) {
+      if (map.has(n)) {
+        console.error(
+          `wire-memory-surfaces: shipped basename collision '${n}' across groups (last wins)`,
+        );
+      }
+      map.set(n, path.join(srcDir, g.sub, n));
+    }
   }
   const selfObs = path.join(srcDir, ".agents/rules", SELF_OBS);
   if (fs.existsSync(selfObs)) map.set(SELF_OBS, selfObs);
@@ -128,12 +134,11 @@ function wireInclude(file, ref) {
   } catch {
     existing = "";
   }
-  const re = new RegExp(`${escapeRe(DOC_MARKER_START)}[\\s\\S]*?${escapeRe(DOC_MARKER_END)}`);
-  const next = re.test(existing)
-    ? existing.replace(re, block)
-    : existing
-      ? `${existing.replace(/\s*$/, "")}\n\n${block}\n`
-      : `${block}\n`;
+  const withoutBlocks = stripManagedBlocks(existing, DOC_MARKER_START, DOC_MARKER_END)
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^\n+/, "")
+    .replace(/[ \t\n]+$/, "");
+  const next = withoutBlocks ? `${withoutBlocks}\n\n${block}\n` : `${block}\n`;
   writeIfChanged(file, next);
 }
 
@@ -144,7 +149,6 @@ function wireInclude(file, ref) {
 export function wireMemorySurfaces({ srcDir, workspaceDir, home, selfObsEnabled = false }) {
   const desired = desiredPointers(srcDir, home, selfObsEnabled);
   const canonical = managedCanonical(srcDir);
-  const managedPointers = new Set([...canonical.keys()].map(pointerName));
   /** @type {import("./lib/install-manifest.mjs").InstallArtifact[]} */
   const artifacts = [];
   for (const surface of RULE_SURFACES) {
@@ -152,10 +156,18 @@ export function wireMemorySurfaces({ srcDir, workspaceDir, home, selfObsEnabled 
     fs.mkdirSync(dir, { recursive: true });
     const want = desired.get(surface) || new Map();
     for (const entry of fs.readdirSync(dir)) {
+      const abs = path.join(dir, entry);
       const canon = canonical.get(entry);
-      const staleCopy = canon !== undefined && isOurOldCopy(path.join(dir, entry), canon);
-      const stalePointer = managedPointers.has(entry) && !want.has(entry);
-      if (staleCopy || stalePointer) fs.rmSync(path.join(dir, entry), { force: true });
+      const staleCopy = canon !== undefined && isOurOldCopy(abs, canon);
+      // A prefixed pointer we no longer want here is stale — including one left by a
+      // renamed/removed shipped rule — but only if it is actually OURS (isOurPointer
+      // guards a user's same-named file and a prefixed directory).
+      const stalePointer =
+        entry.startsWith(POINTER_PREFIX) &&
+        entry.endsWith(".md") &&
+        !want.has(entry) &&
+        isOurPointer(abs);
+      if (staleCopy || stalePointer) fs.rmSync(abs, { force: true });
     }
     for (const [fname, ref] of want) {
       const body = pointerBody(ref);
