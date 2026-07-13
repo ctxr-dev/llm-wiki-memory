@@ -54,19 +54,27 @@ async function warmCategory(wikiRootDir, category) {
 
 /**
  * Re-embed the SHARED (ownership: repo) categories that changed in a git event.
- * @param {{ mountDir?: string, changedPaths?: string[] }} [args]
+ * When `full` is set, warm EVERY shared category (used for a degenerate git range).
+ * @param {{ mountDir?: string, changedPaths?: string[], full?: boolean }} [args]
  * @returns {Promise<{ ok: boolean, warmed?: string[], skipped?: string }>}
  */
-export async function syncEmbeddings({ mountDir, changedPaths = [] } = {}) {
+export async function syncEmbeddings({ mountDir, changedPaths = [], full = false } = {}) {
   const wikiRootDir = path.join(String(mountDir || ""), ".llm-wiki-memory", "wiki");
   if (!mountDir || !fs.existsSync(wikiRootDir)) return { ok: false, skipped: "no-wiki" };
   const shared = new Set(sharedCategories(mergedLayoutForRoot(wikiRootDir)));
   if (shared.size === 0) return { ok: true, warmed: [] };
   /** @type {Set<string>} */
-  const changed = new Set();
-  for (const p of changedPaths || []) {
-    const cat = categoryFromMountPath(p);
-    if (cat && shared.has(cat)) changed.add(cat);
+  let changed;
+  if (full) {
+    // Degenerate git range (root/shallow/ORIG_HEAD-unset) — we can't tell what changed,
+    // so warm EVERY shared category rather than silently skip (embeddings must not go stale).
+    changed = shared;
+  } else {
+    changed = new Set();
+    for (const p of changedPaths || []) {
+      const cat = categoryFromMountPath(p);
+      if (cat && shared.has(cat)) changed.add(cat);
+    }
   }
   if (changed.size === 0) return { ok: true, warmed: [] };
   return withWikiRoot(wikiRootDir, async () => {
@@ -81,27 +89,30 @@ export async function syncEmbeddings({ mountDir, changedPaths = [] } = {}) {
 }
 
 /**
+ * Changed repo-relative paths for a git event. Returns `full:true` when NO range
+ * resolves (root commit / shallow clone / ORIG_HEAD unset|==HEAD) so the caller warms
+ * every shared category instead of silently missing changes; `full:false` with a
+ * (possibly empty) `paths` list when a range DID resolve — an empty list there is a
+ * legitimate "nothing shared changed".
  * @param {string} cwd
  * @param {string[]} argv git hook arguments (e.g. post-checkout prev/new SHAs)
- * @returns {string[]}
+ * @returns {{ paths: string[], full: boolean }}
  */
-function changedPathsFromGit(cwd, argv) {
+export function changedPathsFromGit(cwd, argv) {
   const shas = argv.filter((a) => /^[0-9a-f]{7,40}$/i.test(a));
   const primary = shas.length >= 2 ? `${shas[0]}..${shas[1]}` : "ORIG_HEAD..HEAD";
   for (const range of [primary, "HEAD~1..HEAD"]) {
     const r = spawnSync("git", ["-C", cwd, "diff", "--name-only", range], { encoding: "utf8" });
-    if (r.status === 0) return r.stdout.split(/\r?\n/).filter(Boolean);
+    if (r.status === 0) return { paths: r.stdout.split(/\r?\n/).filter(Boolean), full: false };
   }
-  return [];
+  return { paths: [], full: true };
 }
 
 async function mainCli() {
   try {
     const cwd = process.cwd();
-    await syncEmbeddings({
-      mountDir: cwd,
-      changedPaths: changedPathsFromGit(cwd, process.argv.slice(2)),
-    });
+    const { paths, full } = changedPathsFromGit(cwd, process.argv.slice(2));
+    await syncEmbeddings({ mountDir: cwd, changedPaths: paths, full });
   } catch {
     /* best-effort: a sync hook must never fail a git operation */
   }
