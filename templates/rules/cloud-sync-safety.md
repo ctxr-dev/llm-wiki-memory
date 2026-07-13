@@ -13,7 +13,7 @@ Observed failure modes (each cost a real recovery):
 |---|---|---|
 | Notes from sub-folders reappear at a category root | daemon "flattens" a move it replicated out of order | commit per step; `git checkout HEAD -- <nested>` + remove the stray |
 | `git merge --ff-only` fails on files that changed mode `100755 → 100644` | daemon strips the executable bit from `.sh` / hook scripts | `git config core.fileMode false`, then `git checkout -- .` and retry |
-| `.claude/` rules became plain copies that drift from `.agents/rules/` | daemon turned the rule symlinks into independent files | edit all surfaces, or re-run `bootstrap.sh` to re-render |
+| A rule/skill `@`-pointer file is scrambled / half-replicated | daemon replicated a pointer file mid-write | re-run `bootstrap.sh` (idempotent — rewrites every `llm-wiki-memory-*.md` pointer byte-stably) |
 | A leaf is truncated or NUL-padded | a write replicated mid-flight | recover from git (`git reset --hard HEAD`) |
 
 ## Rules
@@ -39,9 +39,15 @@ Observed failure modes (each cost a real recovery):
   `git config core.fileMode false` in the `src/` clone so mode-only changes stop
   blocking updates; if a hook silently stops firing, check `ls -l` for a lost
   `+x`.
-- **Symlinks break.** The rule mirrors (`.agents/rules/` canonical →
-  `.claude/`/`.cursor/` symlinks) are turned into independent copies. Edit every
-  copy, or re-run `bootstrap.sh` to re-sync.
+- **No symlinks on the rule/skill surfaces (by design, since 2026-07-13).**
+  llm-wiki-memory wires its rules/skills as plain `@`-pointer FILES
+  (`.agents/rules/`, `.claude/rules/`, `.claude/skills/`, `.cursor/rules/` each
+  hold `llm-wiki-memory-<name>.md` whose body is `@~/.llm-wiki-memory/src/…`) —
+  NOT OS symlinks — so the daemon can no longer turn them into drifting copies
+  (the old failure mode). The single source is `~/.llm-wiki-memory/src`: edit the
+  canonical file there, never the pointer. A scrambled pointer is recovered by
+  re-running `bootstrap.sh` (idempotent, byte-stable). The consuming project's
+  OWN authored rules are unaffected.
 - **Never trust the daemon's file moves.** The engine's atomic write path
   survives a partial replication; a manual `mv` during active sync does not.
 
