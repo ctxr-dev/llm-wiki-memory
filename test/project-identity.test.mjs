@@ -165,3 +165,20 @@ test("validateProjectModuleIdentity: a repo-owned level with no portable id is s
   assert.equal(r.conflicts[0].mountDir, "/h/b/.lwm");
   assert.match(r.conflicts[0].reason, /portable identity/);
 });
+
+test("resolve/validate: a targetLevel NOT in ctx.levels falls back over ALL levels (idx === -1)", () => {
+  const brain = { mountDir: "/h/.lwm", ownership: "wiki" };
+  const repo = { mountDir: "/h/a/.lwm", ownership: "repo", projectId: "org/a" };
+  const ctx = { levels: [brain, repo] };
+  const foreign = { mountDir: "/elsewhere/.lwm", ownership: "repo", projectId: "x/y" };
+  assert.equal(
+    resolveProjectModuleIdentity(ctx, foreign, () => null),
+    "org/a",
+    "a foreign target considers every level's repo chain",
+  );
+  assert.equal(
+    validateProjectModuleIdentity(ctx, foreign, () => null).ok,
+    true,
+    "the in-ctx repo level is portable → no conflict",
+  );
+});

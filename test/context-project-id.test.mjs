@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { resolveWikiContext } from "../scripts/lib/wiki-context.mjs";
+import { defaultProjectModule } from "../scripts/lib/env.mjs";
 
 /** @type {string[]} */
 const tmps = [];
@@ -69,5 +70,26 @@ test("enrichLevel: a git repo mount (no project_id) resolves to its canonical or
     ctx.levels[1].projectModule,
     "acme/gitrepo",
     "ssh origin folds to the host-agnostic org/repo identity",
+  );
+});
+
+test("enrichLevel: the brain (wiki) level keeps the env-default projectModule, never a file:// identity", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "c4-brain-"));
+  tmps.push(home);
+  mkMount(home);
+  const proj = mkMount(path.join(home, "r"));
+  const ctx = resolveWikiContext([proj], {
+    home,
+    brainDataDir: path.join(home, ".llm-wiki-memory"),
+  });
+  assert.equal(ctx.levels[0].ownership, "wiki", "level 0 is the wiki-owned brain");
+  assert.equal(
+    ctx.levels[0].projectModule,
+    defaultProjectModule() || path.basename(home),
+    "the brain uses the env default (scanner fallback), not a git/file:// mount identity",
+  );
+  assert.ok(
+    !ctx.levels[0].projectModule.startsWith("file://"),
+    "the brain is never a file:// identity",
   );
 });

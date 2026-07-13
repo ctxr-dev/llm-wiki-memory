@@ -43,16 +43,14 @@ function restamp(documentId, datasetId, existing, target) {
 }
 
 /**
- * @param {{ newId?: string, oldId?: string, dryRun?: boolean, check?: boolean }} [opts]
+ * Leaves whose stored `project_module` equals the legacy id, EXCLUDING topology
+ * categories (they nest by the path-compiler, not by this facet contract — the
+ * sibling `migrate` skips them the same way). A leaf that cannot be read is
+ * skipped so one bad leaf never aborts the migration.
+ * @param {string} legacy
+ * @returns {{ id: string, datasetId: string, meta: MetadataInput }[]}
  */
-export function migrateProjectModuleIdentity({ newId, oldId, dryRun = false, check = false } = {}) {
-  const target = normId(newId, defaultProjectModule());
-  const legacy = normId(oldId, workspaceBasename());
-  const mode = check ? "check" : dryRun ? "dry-run" : "migrate";
-  if (!target || target === legacy) {
-    return { ok: true, mode, migrated: 0, pending: 0, reason: "identity-unchanged" };
-  }
-
+function collectLegacyCandidates(legacy) {
   const { documents } = listDocuments({});
   /** @type {{ id: string, datasetId: string, meta: MetadataInput }[]} */
   const candidates = [];
@@ -68,6 +66,21 @@ export function migrateProjectModuleIdentity({ newId, oldId, dryRun = false, che
       candidates.push({ id: doc.id, datasetId: doc.datasetId, meta });
     }
   }
+  return candidates;
+}
+
+/**
+ * @param {{ newId?: string, oldId?: string, dryRun?: boolean, check?: boolean }} [opts]
+ */
+export function migrateProjectModuleIdentity({ newId, oldId, dryRun = false, check = false } = {}) {
+  const target = normId(newId, defaultProjectModule());
+  const legacy = normId(oldId, workspaceBasename());
+  const mode = check ? "check" : dryRun ? "dry-run" : "migrate";
+  if (!target || target === legacy) {
+    return { ok: true, mode, migrated: 0, pending: 0, reason: "identity-unchanged" };
+  }
+
+  const candidates = collectLegacyCandidates(legacy);
 
   if (check) {
     return {

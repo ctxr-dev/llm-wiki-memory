@@ -121,3 +121,34 @@ test("stamp: an explicit caller project_module_override still wins over the repo
     "a deliberate cross-project override is not clobbered by the auto-stamp",
   );
 });
+
+test("stamp: a repo-target write dispatched with NO active wiki context is not auto-stamped (defensive branch)", async () => {
+  const { svc, ctx } = await build();
+  const req = parseWriteRequest(ctx, {
+    kind: WRITE_KIND.DOCUMENT,
+    dataset: "knowledge",
+    name: "no-ctx.md",
+    text: "# no-ctx\n\nwritten with no active wiki context frame.",
+    metadata: { atom_type: "reference", area: "infra", subject: ["general"] },
+    target: svc.wikiRoot,
+  });
+  /** @type {import("../../scripts/lib/types.mjs").WriteResult} */
+  let saved;
+  // Deliberately NO withWikiContext wrapper → getActiveWikiContext() is null.
+  await dispatchWrite(
+    req,
+    (placed) => {
+      saved = store.saveDocument({
+        name: "no-ctx.md",
+        text: req.text,
+        datasetId: "knowledge",
+        metadata: placed,
+      });
+      return saved;
+    },
+    { tool: "save_to_dataset", op: "c7-noctx", okFromCreated: true },
+  );
+  const pm = pmOf(svc.wikiRoot, saved.created.document.id);
+  assert.notEqual(pm, "acme/svc", "with no active context, the repo chain is NOT stamped");
+  assert.equal(pm, defaultProjectModule().toLowerCase(), "falls back to the workspace default");
+});

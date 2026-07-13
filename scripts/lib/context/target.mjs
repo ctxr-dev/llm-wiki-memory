@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { BRAIN_TARGET, OWNERSHIP } from "./enums.mjs";
+import { ContextValidationError } from "./errors.mjs";
 
 /** @typedef {import("../wiki-context.mjs").WikiContext} WikiContext */
 /** @typedef {import("../wiki-context.mjs").WikiLevel} WikiLevel */
@@ -52,9 +53,10 @@ export function parseTarget(ctx, raw) {
   }
   const level = ctx.levels.find((l) => sameDir(l.root, wanted) || sameDir(l.mountDir, wanted));
   if (level) return { kind: TARGET_KIND.LEVEL, level, requested: wanted };
-  const known = ctx.levels.map((l) => l.projectModule || l.root).join(", ");
-  throw new Error(
-    `target ${JSON.stringify(raw)} is not one of the active context levels (${known}). ` +
-      `Pass a level's root or mount directory, or "${BRAIN_TARGET}".`,
-  );
+  const accepted = [...ctx.levels.flatMap((l) => [l.root, l.mountDir]), BRAIN_TARGET];
+  throw new ContextValidationError({
+    field: "target",
+    allowed: accepted,
+    reason: `${JSON.stringify(raw)} is not one of the active context levels; pass a level's root or mount directory, or "${BRAIN_TARGET}"`,
+  });
 }

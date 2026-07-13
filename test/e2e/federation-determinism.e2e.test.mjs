@@ -102,14 +102,29 @@ test("determinism: no target → the brain; an in-scope target → that level", 
   );
 });
 
-test("determinism: a target naming a real mount OUTSIDE the scope chain is REFUSED", () => {
+test("determinism: a target naming a real mount OUTSIDE the scope chain is REFUSED with an actionable envelope (C9)", () => {
   // The write can never escape the declared scopes: a real, initialised sibling
-  // wiki that the up-walk did not reach cannot be targeted.
-  assert.throws(
-    () => write({ target: outOfScopeTarget }),
-    /not one of the active context levels/i,
-    "an out-of-scope target is refused, not silently accepted",
-  );
+  // wiki that the up-walk did not reach cannot be targeted. The refusal carries
+  // the {field, allowed[], reason} envelope, and allowed[] lists ACCEPTED TOKENS
+  // (level roots/mountDirs + the brain sentinel), NOT module names (C9).
+  try {
+    write({ target: outOfScopeTarget });
+    assert.fail("expected a ContextValidationError on field 'target'");
+  } catch (err) {
+    assert.equal(err.name, "ContextValidationError", `got ${err.name}: ${err.message}`);
+    assert.equal(err.envelope?.field, "target", "the rejected field is 'target'");
+    assert.match(err.message, /not one of the active context levels/i);
+    const allowed = err.envelope?.allowed || [];
+    assert.ok(allowed.includes("brain"), "the brain sentinel is an accepted token");
+    assert.ok(
+      allowed.some((a) => a === repoLevel.root || a === repoLevel.mountDir),
+      "a level's root/mountDir is an accepted token",
+    );
+    assert.ok(
+      !allowed.includes(repoLevel.projectModule),
+      "module names are NOT offered as accepted tokens (C9)",
+    );
+  }
 });
 
 test("determinism: an undeclared dataset is rejected against the TARGET level's layout", () => {

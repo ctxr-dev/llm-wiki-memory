@@ -244,9 +244,6 @@ export function workspaceIdentity() {
 }
 
 // Workspace identifier used to scope recall so two installs don't cross-leak.
-// An explicit env override wins; otherwise the workspace's canonical git origin
-// (org/repo), else file://<workspace> — a deterministic identity, not the mutable
-// directory basename.
 export function defaultProjectModule() {
   return (
     envValue("MEMORY_DEFAULT_PROJECT_MODULE", "") ||
