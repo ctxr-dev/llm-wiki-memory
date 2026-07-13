@@ -3,7 +3,7 @@
     "llm-wiki-memory": {
       "command": "node",
       "args": [
-        "./.llm-wiki-memory/src/mcp-server/index.mjs"
+        "${HOME}/.llm-wiki-memory/src/mcp-server/index.mjs"
       ]
     }
   }

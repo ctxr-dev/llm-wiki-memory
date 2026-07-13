@@ -224,7 +224,7 @@ node "$SRC_DIR/scripts/merge-config.mjs" \
 # being moved/renamed: clients launch the stdio server with the project root as
 # cwd, and the server self-discovers its data dir from its own file location
 # (see scripts/lib/env.mjs), so no MEMORY_DATA_DIR env is needed here.
-INDEX_REL="./.llm-wiki-memory/src/mcp-server/index.mjs"
+INDEX_REL='${HOME}/.llm-wiki-memory/src/mcp-server/index.mjs'
 # Idempotent render: write the template on first install, but NEVER clobber a
 # file the user has since customized (e.g. wrapping the server with their
 # org's prompt_security shim). If the on-disk file differs from a pristine

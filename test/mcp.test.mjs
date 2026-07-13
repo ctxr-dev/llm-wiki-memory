@@ -40,9 +40,12 @@ function parse(res) {
   return JSON.parse(res.content[0].text);
 }
 
-test("claude-code mcp template has no unexpanded ${...} tokens", () => {
+test("claude-code mcp template uses ${HOME} and no OTHER ${...} tokens", () => {
   const raw = fs.readFileSync(path.join(SRC, "templates/mcp.json"), "utf8");
-  assert.ok(!/\$\{/.test(raw), "template must not contain ${...} (not expanded in MCP env)");
+  // D-f: the server path is home-based via ${HOME} (Claude Code interpolates it);
+  // any OTHER ${...} would be an accidental unexpanded token.
+  assert.match(raw, /\$\{HOME\}\/\.llm-wiki-memory\/src\/mcp-server\/index\.mjs/);
+  assert.ok(!/\$\{(?!HOME[}:])/.test(raw), "template must not contain a ${...} other than ${HOME}");
   const cfg = JSON.parse(raw);
   const server = cfg.mcpServers["llm-wiki-memory"];
   assert.ok(server, "llm-wiki-memory server present");

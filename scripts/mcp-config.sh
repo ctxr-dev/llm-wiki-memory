@@ -18,9 +18,10 @@ else
   WORKSPACE_DIR="$(cd "$SRC_DIR/.." && pwd -P)"
 fi
 DATA_DIR="$WORKSPACE_DIR/.llm-wiki-memory"
-# Path relative to the workspace root, for configs that live IN the project and
-# are launched with the project as cwd (Claude Code, Cursor/project, generic).
-INDEX_REL="./.llm-wiki-memory/src/mcp-server/index.mjs"
+# Home-based path (single install under $HOME) for project-scoped configs
+# (Claude Code, Cursor). ${HOME} is interpolated by the MCP client at launch;
+# a literal ~ is NOT expanded in JSON args, so never use it here.
+INDEX_REL='${HOME}/.llm-wiki-memory/src/mcp-server/index.mjs'
 
 # Project-scoped clients get a relative path (survives the workspace moving).
 # Global single-file clients (Claude Desktop, ~/.codex) have no project cwd, so

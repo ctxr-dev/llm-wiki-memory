@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/session-start.sh",
+            "command": "\"$HOME\"/.llm-wiki-memory/src/scripts/hooks/session-start.sh",
             "timeout": 15
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/pre-compact.sh",
+            "command": "\"$HOME\"/.llm-wiki-memory/src/scripts/hooks/pre-compact.sh",
             "timeout": 130
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/post-compact.sh",
+            "command": "\"$HOME\"/.llm-wiki-memory/src/scripts/hooks/post-compact.sh",
             "timeout": 130
           }
         ]
@@ -42,17 +42,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/session-end.sh",
+            "command": "\"$HOME\"/.llm-wiki-memory/src/scripts/hooks/session-end.sh",
             "timeout": 130
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/plan-frontmatter-sync.sh session-end",
+            "command": "\"$HOME\"/.llm-wiki-memory/src/scripts/hooks/plan-frontmatter-sync.sh session-end",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/embed-gc-session-end.sh",
+            "command": "\"$HOME\"/.llm-wiki-memory/src/scripts/hooks/embed-gc-session-end.sh",
             "timeout": 30
           }
         ]
@@ -64,7 +64,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/exit-plan-mode.sh",
+            "command": "\"$HOME\"/.llm-wiki-memory/src/scripts/hooks/exit-plan-mode.sh",
             "timeout": 30
           }
         ]
@@ -74,7 +74,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/plan-frontmatter-sync.sh post-tool-use",
+            "command": "\"$HOME\"/.llm-wiki-memory/src/scripts/hooks/plan-frontmatter-sync.sh post-tool-use",
             "timeout": 15
           }
         ]
@@ -86,7 +86,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/pretooluse-gate-memory-writes.sh",
+            "command": "\"$HOME\"/.llm-wiki-memory/src/scripts/hooks/pretooluse-gate-memory-writes.sh",
             "timeout": 10
           }
         ]
@@ -96,7 +96,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.llm-wiki-memory/src/scripts/hooks/pretooluse-deny-client-memory-path.sh",
+            "command": "\"$HOME\"/.llm-wiki-memory/src/scripts/hooks/pretooluse-deny-client-memory-path.sh",
             "timeout": 5
           }
         ]
