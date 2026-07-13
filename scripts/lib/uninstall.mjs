@@ -16,6 +16,15 @@ import { MARKER_START, MARKER_END, HOOK_EVENTS, hooksDirFor } from "./mount-git.
 const SERVER_KEY = "llm-wiki-memory";
 const MOUNT_DIRNAME = ".llm-wiki-memory";
 
+// Reference-only install surfaces (bootstrap wires these as @-pointer files, D):
+// every rule/skill pointer is prefixed, and AGENTS.md/CLAUDE.md carry a marker-
+// fenced @-include. All are unambiguously ours, so uninstall reverses them.
+const POINTER_PREFIX = "llm-wiki-memory-";
+const SURFACE_DIRS = [".agents/rules", ".claude/rules", ".claude/skills", ".cursor/rules"];
+const DOC_MARKER_START = "<!-- BEGIN llm-wiki-memory -->";
+const DOC_MARKER_END = "<!-- END llm-wiki-memory -->";
+const MEMORY_DOCS = ["AGENTS.md", "CLAUDE.md"];
+
 // The JSON client configs bootstrap writes a `mcpServers.llm-wiki-memory` entry
 // into. Each is workspace-relative and may or may not exist.
 const MCP_JSON_RELPATHS = [
@@ -128,6 +137,59 @@ export function removeSyncHookBlocks(repoDir) {
 }
 
 /**
+ * Strip our marker-fenced doc block (plus one preceding blank separator) from an
+ * AGENTS.md/CLAUDE.md body. Returns the new content, or null when no marker.
+ * @param {string} content
+ * @returns {string | null}
+ */
+function stripDocBlock(content) {
+  const lines = content.split("\n");
+  const start = lines.findIndex((l) => l.trim() === DOC_MARKER_START);
+  if (start === -1) return null;
+  let end = lines.findIndex((l, i) => i >= start && l.trim() === DOC_MARKER_END);
+  if (end === -1) end = lines.length - 1;
+  let head = start;
+  if (head > 0 && lines[head - 1].trim() === "") head -= 1;
+  return [...lines.slice(0, head), ...lines.slice(end + 1)].join("\n");
+}
+
+/**
+ * Reverse the reference-only wiring (D): delete every prefixed `@`-pointer file
+ * from the four rule/skill surfaces, and strip the marker-fenced `@`-include from
+ * AGENTS.md/CLAUDE.md (deleting a doc that our block was the ENTIRE content of).
+ * The consuming project's own rules/docs are untouched. Idempotent.
+ * @param {string} workspaceDir
+ * @returns {{ pointers: string[], docs: string[] }}
+ */
+export function removeMemorySurfaces(workspaceDir) {
+  const ws = path.resolve(workspaceDir);
+  /** @type {string[]} */
+  const pointers = [];
+  for (const surface of SURFACE_DIRS) {
+    const dir = path.join(ws, surface);
+    if (!fs.existsSync(dir)) continue;
+    for (const entry of fs.readdirSync(dir)) {
+      if (entry.startsWith(POINTER_PREFIX) && entry.endsWith(".md")) {
+        fs.rmSync(path.join(dir, entry), { force: true });
+        pointers.push(`${surface}/${entry}`);
+      }
+    }
+  }
+  /** @type {string[]} */
+  const docs = [];
+  for (const doc of MEMORY_DOCS) {
+    const file = path.join(ws, doc);
+    if (!fs.existsSync(file)) continue;
+    const stripped = stripDocBlock(fs.readFileSync(file, "utf8"));
+    if (stripped === null) continue;
+    if (stripped.trim() === "") fs.rmSync(file, { force: true });
+    else writeFileAtomic(file, stripped.endsWith("\n") ? stripped : `${stripped}\n`);
+    docs.push(doc);
+  }
+  return { pointers, docs };
+}
+
+/**
  * The reversals that are NOT automated because they either destroy data or need
  * a human decision. Returned as printable lines.
  * @param {string} workspaceDir
@@ -148,15 +210,16 @@ export function manualUninstallSteps(workspaceDir) {
  * defaults to the workspace itself (the repo whose hooks a mount install
  * chained into). Idempotent; never touches memory data.
  * @param {{ workspaceDir: string, repoDirs?: string[] }} opts
- * @returns {{ workspaceDir: string, mcp: { removed: string[] }, hooks: Record<string, unknown>, manual: string[] }}
+ * @returns {{ workspaceDir: string, mcp: { removed: string[] }, surfaces: { pointers: string[], docs: string[] }, hooks: Record<string, unknown>, manual: string[] }}
  */
 export function uninstall({ workspaceDir, repoDirs }) {
   const ws = path.resolve(workspaceDir);
   const mcp = removeMcpRegistration(ws);
+  const surfaces = removeMemorySurfaces(ws);
   /** @type {Record<string, unknown>} */
   const hooks = {};
   for (const repo of repoDirs && repoDirs.length ? repoDirs : [ws]) {
     hooks[repo] = removeSyncHookBlocks(repo);
   }
-  return { workspaceDir: ws, mcp, hooks, manual: manualUninstallSteps(ws) };
+  return { workspaceDir: ws, mcp, surfaces, hooks, manual: manualUninstallSteps(ws) };
 }

@@ -13,6 +13,7 @@ import { installSyncEmbeddingsHook, MARKER_START } from "../scripts/lib/mount-gi
 import {
   removeMcpRegistration,
   removeSyncHookBlocks,
+  removeMemorySurfaces,
   manualUninstallSteps,
   uninstall,
 } from "../scripts/lib/uninstall.mjs";
@@ -110,6 +111,31 @@ test("removeSyncHookBlocks strips our block, keeps user hook content, deletes in
   const again = removeSyncHookBlocks(repo);
   assert.equal(again.results?.["post-merge"], "no-marker");
   assert.equal(again.results?.["post-checkout"], "absent");
+});
+
+test("removeMemorySurfaces deletes prefixed @-pointers + strips the AGENTS/CLAUDE block, keeps user files", () => {
+  const ws = tmp("uninstall-surfaces");
+  fs.mkdirSync(path.join(ws, ".claude/skills"), { recursive: true });
+  fs.mkdirSync(path.join(ws, ".claude/rules"), { recursive: true });
+  fs.writeFileSync(path.join(ws, ".claude/skills/llm-wiki-memory-consolidate.md"), "@~/x\n");
+  fs.writeFileSync(path.join(ws, ".claude/rules/llm-wiki-memory-priority.md"), "@~/y\n");
+  fs.writeFileSync(path.join(ws, ".claude/rules/my-own.md"), "# mine\n");
+  fs.writeFileSync(
+    path.join(ws, "AGENTS.md"),
+    "# Proj\n\nnotes.\n\n<!-- BEGIN llm-wiki-memory -->\n@~/z\n<!-- END llm-wiki-memory -->\n",
+  );
+
+  const res = removeMemorySurfaces(ws);
+  assert.equal(res.pointers.length, 2, "both prefixed pointers removed");
+  assert.ok(res.docs.includes("AGENTS.md"), "AGENTS.md block stripped");
+  assert.ok(!fs.existsSync(path.join(ws, ".claude/skills/llm-wiki-memory-consolidate.md")));
+  assert.ok(fs.existsSync(path.join(ws, ".claude/rules/my-own.md")), "user file kept");
+  const agents = fs.readFileSync(path.join(ws, "AGENTS.md"), "utf8");
+  assert.match(agents, /# Proj/, "user content preserved");
+  assert.ok(!agents.includes("BEGIN llm-wiki-memory"), "our block gone");
+
+  const second = removeMemorySurfaces(ws);
+  assert.deepEqual(second, { pointers: [], docs: [] }, "idempotent");
 });
 
 test("removeSyncHookBlocks reports skipped on a non-repo dir", () => {
