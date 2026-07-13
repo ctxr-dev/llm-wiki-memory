@@ -150,7 +150,22 @@ function enrichLevel(level, backend) {
  */
 export function resolveWikiContext(scopes, opts = {}) {
   const backend = readEmbedBackend();
-  const levels = scanScopes(scopes, opts).map((level) => enrichLevel(level, backend));
+  /** @type {WikiLevel[]} */
+  const levels = [];
+  for (const level of scanScopes(scopes, opts)) {
+    try {
+      levels.push(enrichLevel(level, backend));
+    } catch (err) {
+      // A broken BRAIN layout (depth-0, wiki-owned) is fatal — nothing can operate
+      // without it. But a broken DISCOVERED repo sibling must not wedge an op that
+      // targets the brain or another level: skip it (surfaced), leaving it simply
+      // not addressable (targeting it then throws "not one of the active levels").
+      if (level.ownership !== OWNERSHIP.REPO) throw err;
+      console.error(
+        `resolveWikiContext: skipping mount with an unreadable layout: ${level.mountDir} (${/** @type {Error} */ (err)?.message || err})`,
+      );
+    }
+  }
   const brain = levels[0];
   /** @type {WikiContext} */
   const context = { levels, brain, writeDefault: brain };

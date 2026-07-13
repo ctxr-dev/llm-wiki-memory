@@ -8,6 +8,7 @@ import {
   withWikiContext,
   getActiveWikiContext,
   withBrainContext,
+  resolveTargetLevel,
   WikiLevelSchema,
 } from "../scripts/lib/wiki-context.mjs";
 
@@ -126,6 +127,64 @@ test("resolveWikiContext: a schema-incomplete repo mount layout does not wedge t
     ["issues", "knowledge"],
     "the schema-incomplete level stays usable via the tolerant read",
   );
+});
+
+function mkBrokenMount(dir) {
+  const layoutDir = path.join(dir, ".llm-wiki-memory", "wiki", ".layout");
+  fs.mkdirSync(layoutDir, { recursive: true });
+  // Unparseable YAML (unterminated quote) — the strict load AND the tolerant read
+  // both fail, so resolveLevelLayout throws.
+  fs.writeFileSync(
+    path.join(layoutDir, "layout.yaml"),
+    'layout: "unterminated string\n  - broken\n',
+  );
+  return dir;
+}
+
+test("resolveWikiContext (F4): a fully-broken DISCOVERED repo mount is SKIPPED (warned), never wedging the brain", () => {
+  const home = makeHome();
+  mkMount(home);
+  const good = mkMount(path.join(home, "good"));
+  const broken = mkBrokenMount(path.join(home, "broken"));
+  /** @type {string[]} */ const errs = [];
+  const orig = console.error;
+  console.error = (/** @type {unknown[]} */ ...a) => errs.push(a.join(" "));
+  let ctx;
+  try {
+    ctx = resolveWikiContext([good, broken], brainOpts(home));
+  } finally {
+    console.error = orig;
+  }
+  assert.ok(
+    errs.some((e) => /skipping mount with an unreadable layout/.test(e) && e.includes("broken")),
+    "the broken mount is surfaced as a warning",
+  );
+  assert.ok(
+    ctx.levels.every((l) => !l.root.startsWith(real(broken))),
+    "the broken mount is skipped — not in the chain",
+  );
+  assert.ok(
+    ctx.levels.some((l) => l.root.startsWith(real(good))),
+    "the VALID sibling survives",
+  );
+  assert.equal(
+    ctx.brain.ownership,
+    "wiki",
+    "the brain resolves normally despite the broken sibling",
+  );
+  // The skipped mount is not addressable — targeting it fails loud (no silent fallback).
+  const brokenRoot = path.join(real(broken), ".llm-wiki-memory", "wiki");
+  assert.throws(
+    () => resolveTargetLevel(ctx, brokenRoot),
+    /not one of the active context levels/,
+    "the skipped mount cannot be targeted",
+  );
+});
+
+test("resolveWikiContext (F4): a fully-broken BRAIN layout is FATAL (a broken brain is never skipped)", () => {
+  const home = makeHome();
+  mkBrokenMount(home); // the BRAIN's own layout is unreadable
+  assert.throws(() => resolveWikiContext([], brainOpts(home)), "a broken brain fails loud");
 });
 
 test("resolveWikiContext: embedCacheFor returns the per-level, per-category cache path", () => {
