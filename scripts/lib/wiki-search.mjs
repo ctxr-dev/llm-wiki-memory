@@ -114,6 +114,12 @@ function metaMatchesFilters(memoryMeta, filters) {
       if (!wantList.every((wt) => haveList.includes(wt))) return false;
       continue;
     }
+    if (key === "project_module") {
+      const chain = String(memoryMeta[key] || "").toLowerCase();
+      const want = String(val).toLowerCase();
+      if (chain !== want && !chain.endsWith(`//${want}`)) return false;
+      continue;
+    }
     const have = String(memoryMeta[key] || "").toLowerCase();
     const want = String(val).toLowerCase();
     if (have !== want) return false;
