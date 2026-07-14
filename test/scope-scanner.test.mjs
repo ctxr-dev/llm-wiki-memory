@@ -75,6 +75,49 @@ test("scanScopes: a nested repo yields brain + parent + child at depths 0/1/2 sh
   assert.equal(levels[2].mountDir, real(child));
 });
 
+test("scanScopes: two SIBLING repos share depth 1 (neither nested) — no alphabetical depth bias", () => {
+  const home = makeHome();
+  mkMount(home);
+  const a = mkMount(path.join(home, "aaa"));
+  const b = mkMount(path.join(home, "bbb"));
+  const levels = scanScopes([a, b], brainOpts(home));
+  assert.equal(levels.length, 3, "brain + two siblings");
+  assert.deepEqual(
+    levels.slice(1).map((l) => l.depth),
+    [1, 1],
+    "siblings both at depth 1 — equal fan-out boost, so recall ranks them by relevance",
+  );
+});
+
+test("scanScopes: reversed scope input yields an identical chain (order-independent determinism)", () => {
+  const home = makeHome();
+  mkMount(home);
+  const a = mkMount(path.join(home, "aaa"));
+  const b = mkMount(path.join(home, "bbb"));
+  const shape = (/** @type {ReturnType<typeof scanScopes>} */ ls) =>
+    ls.map((l) => ({ root: l.root, depth: l.depth, ownership: l.ownership }));
+  assert.deepEqual(
+    shape(scanScopes([b, a], brainOpts(home))),
+    shape(scanScopes([a, b], brainOpts(home))),
+    "same roots, depths, and ownership regardless of scope input order",
+  );
+});
+
+test("scanScopes: a nested child is depth 2 while its parent's SIBLING stays depth 1", () => {
+  const home = makeHome();
+  mkMount(home);
+  const parent = mkMount(path.join(home, "parent"));
+  const child = mkMount(path.join(parent, "child"));
+  const uncle = mkMount(path.join(home, "uncle")); // sibling of parent, not an ancestor of child
+  const levels = scanScopes([child, uncle], brainOpts(home));
+  const byName = Object.fromEntries(
+    levels.slice(1).map((l) => [path.basename(l.mountDir), l.depth]),
+  );
+  assert.equal(byName.parent, 1, "parent depth 1");
+  assert.equal(byName.uncle, 1, "uncle (parent's sibling) also depth 1 — not bumped by scan order");
+  assert.equal(byName.child, 2, "child (nested under parent) depth 2 — keeps the locality boost");
+});
+
 test("scanScopes: two scopes sharing an ancestor collect that mount once (dedupe)", () => {
   const home = makeHome();
   mkMount(home);

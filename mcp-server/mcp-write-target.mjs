@@ -60,11 +60,21 @@ export function annotateSharedWrite(level, result) {
   const created = /** @type {{ document?: { id?: string } }} */ (result?.created);
   const rel = created && created.document ? created.document.id : undefined;
   const repo = level.projectModule || level.mountDir;
-  return {
+  /** @type {Record<string, unknown>} */
+  const annotated = {
     ...result,
     sharedTarget: { repo, root: level.root, path: rel },
     message: rel
       ? `written to ${rel} in ${repo} — commit and push it in the repo to share it`
       : `written into ${repo} — commit and push it in the repo to share it`,
   };
+  // A repo with no git origin remote (and no declared project_id) resolves to a
+  // NON-PORTABLE file://<local-abs-path> identity. If this leaf is committed, that
+  // machine-specific path ships to teammates and won't match their clone. Warn so
+  // the user adds an origin remote (or a project_id in the mount layout) before
+  // sharing. Non-fatal — the write still succeeds (staged only, no git ran).
+  if (typeof level.projectModule === "string" && level.projectModule.startsWith("file://")) {
+    annotated.warning = `identity for this mount is a local path (${level.projectModule}) — it has no git origin remote or declared project_id, so the stamped project_module is machine-specific. Add an 'origin' remote or a layout project_id before committing this leaf to share it portably.`;
+  }
+  return annotated;
 }

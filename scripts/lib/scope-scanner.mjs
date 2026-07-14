@@ -157,6 +157,20 @@ function byDepthThenPath(a, b) {
 }
 
 /**
+ * True when `ancestor` is a STRICT path-ancestor of `descendant` (descendant is
+ * nested inside ancestor and they are not the same dir). Both are realpath'd
+ * mount dirs, so a plain relative check is exact.
+ * @param {string} ancestor
+ * @param {string} descendant
+ * @returns {boolean}
+ */
+function isStrictAncestorDir(ancestor, descendant) {
+  if (ancestor === descendant) return false;
+  const rel = path.relative(ancestor, descendant);
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+/**
  * Scan the given scope directories for federated-wiki mounts.
  *
  * @param {string[]} [scopes] directories to scope from (walked upward toward home)
@@ -188,9 +202,21 @@ export function scanScopes(scopes, { home = os.homedir(), brainDataDir = MEMORY_
     }
   }
 
-  const ordered = [brain, ...[...repos.values()].sort(byDepthThenPath)];
-  ordered.forEach((level, index) => {
-    level.depth = index;
-  });
+  const repoLevels = [...repos.values()].sort(byDepthThenPath);
+  const ordered = [brain, ...repoLevels];
+  // Depth reflects TRUE nesting, NOT scan order: the brain is 0; each repo mount's
+  // depth is 1 + the number of OTHER in-scope repo mounts that are strict
+  // path-ancestors of it. SIBLINGS (no repo mount between them) therefore share a
+  // depth and are ranked by relevance (cosine) rather than by alphabetical scan
+  // order; a nested chain (parent -> child) still increments, so the more-specific
+  // child keeps its locality boost in fan-out.
+  brain.depth = 0;
+  for (const level of repoLevels) {
+    let ancestors = 0;
+    for (const other of repoLevels) {
+      if (isStrictAncestorDir(other.mountDir, level.mountDir)) ancestors += 1;
+    }
+    level.depth = 1 + ancestors;
+  }
   return ordered;
 }

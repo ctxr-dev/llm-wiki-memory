@@ -308,6 +308,19 @@ if [[ "$COMMIT_MEMORY" -eq 0 && -d "$DATA_DIR/wiki" && ! -e "$DATA_DIR/wiki/.git
   fi
 fi
 
+# The inverse transition: a data dir first installed PRIVATE (which git-init'd
+# wiki/.git) and later re-bootstrapped with --commit-memory to SHARE it. A stale
+# standalone wiki/.git keeps gitUsable() true (the engine would keep auto-committing
+# into the nested repo) AND makes the enclosing workspace repo stage an embedded
+# gitlink instead of the wiki files — silently breaking sharing. Remove it so the
+# workspace repo tracks the wiki content; the wiki DATA is untouched (only the
+# standalone .git metadata + its separate auto-commit history is dropped, which IS
+# the intended private->shared transition). Never touches the enclosing repo's git.
+if [[ "$COMMIT_MEMORY" -eq 1 && -e "$DATA_DIR/wiki/.git" ]]; then
+  rm -rf "$DATA_DIR/wiki/.git"
+  log "Converted private wiki to shared: removed standalone $DATA_DIR/wiki/.git so the workspace repo tracks the wiki (standalone auto-commit history dropped; wiki data preserved)."
+fi
+
 # --- wire memory rules/skills + AGENTS.md/CLAUDE.md as @-pointers (reference-only) ---
 # Every llm-wiki-memory rule/skill becomes a prefixed llm-wiki-memory-<name>.md
 # @-pointer into ~/.llm-wiki-memory/src (never a copy or symlink); AGENTS.md/CLAUDE.md

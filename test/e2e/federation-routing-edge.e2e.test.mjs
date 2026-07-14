@@ -105,22 +105,50 @@ test("F1d: two DIFFERENT-origin repos in one parent, both in scope → distinct 
   );
 });
 
-test("F1e: equal-depth sibling mounts get SEQUENTIAL depths by alphabetical mountDir — reversed scope input is identical (determinism lock)", () => {
+test("F1e: sibling mounts (neither nested) get EQUAL depth — reversed scope input is identical (determinism lock)", () => {
   const A = path.join(home, "q", "aaa");
   const B = path.join(home, "q", "bbb");
   makeMount(A, "git@github.com:acme/aaa.git");
   makeMount(B, "git@github.com:acme/bbb.git");
-  const forward = resolveWikiContext([A, B], opts).levels.map((l) => l.root);
-  const reversed = resolveWikiContext([B, A], opts).levels.map((l) => l.root);
-  assert.deepEqual(reversed, forward, "input order does not change the chain (sorted by mountDir)");
-  const roots = forward.slice(1); // drop brain
-  assert.ok(
-    roots[0].includes(`${path.sep}aaa${path.sep}`),
-    "alphabetically-earlier sibling is depth 1",
+  const forward = resolveWikiContext([A, B], opts);
+  const reversed = resolveWikiContext([B, A], opts);
+  assert.deepEqual(
+    reversed.levels.map((l) => l.root),
+    forward.levels.map((l) => l.root),
+    "input order does not change the chain (sorted by mountDir)",
   );
-  assert.ok(
-    roots[1].includes(`${path.sep}bbb${path.sep}`),
-    "later sibling is depth 2 (higher fan-out boost)",
+  assert.deepEqual(
+    forward.levels.slice(1).map((l) => l.depth),
+    [1, 1],
+    "siblings share depth 1 — neither is nested in the other, so no alphabetical depth bias",
+  );
+});
+
+test("F1e2: sibling recall is ranked by RELEVANCE, not alphabetical scan order", async () => {
+  const A = path.join(home, "rank", "aaa"); // alphabetically EARLIER
+  const B = path.join(home, "rank", "bbb");
+  makeMount(A, "git@github.com:acme/rank-aaa.git");
+  makeMount(B, "git@github.com:acme/rank-bbb.git");
+  const ctx = resolveWikiContext([A, B], opts);
+  const [, la, lb] = ctx.levels;
+  assert.equal(la.depth, lb.depth, "siblings at equal depth");
+  // Denser term frequency in the EARLIER sibling → higher cosine. Under the old
+  // alphabetical-depth boost the LATER sibling (bbb, depth 2) would win regardless
+  // of relevance; with equal depth the cosine decides, so aaa's stronger hit ranks
+  // first. This test goes red if the sequential-depth behaviour is reintroduced.
+  saveTo(ctx, la.root, "strong.md", "siblingrank siblingrank siblingrank");
+  saveTo(ctx, lb.root, "weak.md", "siblingrank");
+  const out = await withWikiContext(ctx, () =>
+    searchMemoryFiltered({ query: "siblingrank", datasetId: "knowledge" }),
+  );
+  const ranked = out.records.filter(
+    (r) => r.documentName === "strong.md" || r.documentName === "weak.md",
+  );
+  assert.equal(ranked.length, 2, "both sibling hits surface");
+  assert.equal(
+    ranked[0].documentName,
+    "strong.md",
+    "the more-relevant sibling hit ranks first (not the alphabetically-later one)",
   );
 });
 
