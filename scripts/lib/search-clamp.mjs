@@ -32,10 +32,12 @@ export const SEARCH_PER_HIT_CHARS = 600;
 // spend: bodies are still spent P0 > P1 > P2, and a hit is never dropped.
 export const SEARCH_TOTAL_BUDGET = 16000;
 
-// Levels that contributed hits, inferred from the fan-out `depth` tags (each
-// level owns a distinct depth). A single-tree response carries no `depth`, so
-// this is 1 and the budget is unchanged (byte-identical). An explicit
-// `opts.levels` wins when supplied.
+// Levels that contributed hits, inferred from the fan-out `resolvedRoot` tag (each
+// level owns a distinct wiki root). Counting distinct ROOTS — not distinct depths —
+// is correct now that SIBLING levels share a depth (they are ranked by relevance,
+// so distinct depths would under-count them and shrink the body budget). A
+// single-tree response carries no `resolvedRoot`, so this is 1 and the budget is
+// unchanged (byte-identical). An explicit `opts.levels` wins when supplied.
 /**
  * @param {ClampableHit[]} records
  * @param {number} [explicit]
@@ -43,10 +45,16 @@ export const SEARCH_TOTAL_BUDGET = 16000;
  */
 function levelCount(records, explicit) {
   if (explicit && explicit > 0) return explicit;
+  const roots = new Set();
   const depths = new Set();
   for (const r of records) {
+    if (typeof r.resolvedRoot === "string" && r.resolvedRoot) roots.add(r.resolvedRoot);
     if (typeof r.depth === "number") depths.add(r.depth);
   }
+  // Prefer distinct ROOTS (real fan-out tags each hit with its level's root, and
+  // sibling levels share a depth but never a root). Fall back to distinct depths
+  // when roots aren't tagged. Neither present (single tree) → 1.
+  if (roots.size > 0) return roots.size;
   return Math.max(1, depths.size);
 }
 

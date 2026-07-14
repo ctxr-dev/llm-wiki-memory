@@ -30,7 +30,17 @@ export function listDocuments({ prefix, enabled, datasetId } = {}) {
     for (const leaf of walkLeaves(catAbs)) {
       const name = path.basename(leaf);
       if (prefix && !name.startsWith(prefix)) continue;
-      const { data } = readLeaf(leaf);
+      let data;
+      try {
+        ({ data } = readLeaf(leaf));
+      } catch (err) {
+        // Resilient to an unreadable leaf (invalid YAML frontmatter / git conflict
+        // in a shared leaf) — skip it, don't abort the whole listing.
+        console.error(
+          `[list] skipping unreadable leaf ${toRel(leaf)}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        continue;
+      }
       const active = isActive(data);
       if (enabled === "true" || enabled === true) {
         if (!active) continue;
@@ -184,7 +194,19 @@ export async function searchOneTree({
   for (const cat of cats) {
     const catAbs = path.join(root(), cat);
     for (const leaf of walkLeaves(catAbs)) {
-      const { data, body } = readLeaf(leaf);
+      let data, body;
+      try {
+        ({ data, body } = readLeaf(leaf));
+      } catch (err) {
+        // An unreadable leaf (invalid YAML frontmatter — e.g. a git merge conflict
+        // in a SHARED repo leaf that two teammates edited) must NOT abort the fan-out
+        // and blank recall for everyone with that repo in scope. Skip it with a
+        // breadcrumb; the brain + the rest of this tree still return.
+        console.error(
+          `[search] skipping unreadable leaf ${toRel(leaf)}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        continue;
+      }
       if (!isActive(data)) continue;
       const mem = leafMemory(data);
       if (!metaMatchesFilters(mem, filters)) continue;

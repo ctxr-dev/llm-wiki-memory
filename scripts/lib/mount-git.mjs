@@ -149,6 +149,16 @@ function chainHookFile(target, block) {
 }
 
 /**
+ * POSIX-sh single-quote a literal path so `$`, a backtick, a double-quote, or a
+ * space in it can't be interpreted by the shell that runs the git hook.
+ * @param {string} s
+ * @returns {string}
+ */
+function shSingleQuote(s) {
+  return `'${String(s).replace(/'/g, "'\\''")}'`;
+}
+
+/**
  * Install the sync-embeddings hook into a repo's git-hook path, chained AFTER
  * any existing hook (husky/core.hooksPath preserved — we append a marker-fenced
  * block, never overwrite). Idempotent: a hook already carrying our marker is
@@ -168,8 +178,10 @@ export function installSyncEmbeddingsHook(
   // Pass the mount dir explicitly (absolute) so the hook warms THIS mount even
   // when it lives below the git root — the hook's cwd is the worktree root, not
   // the mount. `initMount` passes the real mount dir as `repoDir`, so the
-  // default is correct; the git args follow via "$@".
-  const block = `${MARKER_START}\n"${wrapper}" "${mountDir}" "$@" || true\n${MARKER_END}\n`;
+  // default is correct; the git args follow via "$@". Single-quote the wrapper +
+  // mount paths (not "$@", which must expand) so a path containing `$`, a backtick,
+  // or a double-quote can't be re-interpreted by the sh that runs the hook.
+  const block = `${MARKER_START}\n${shSingleQuote(wrapper)} ${shSingleQuote(mountDir)} "$@" || true\n${MARKER_END}\n`;
   /** @type {Record<string, string>} */
   const results = {};
   for (const event of HOOK_EVENTS) {
