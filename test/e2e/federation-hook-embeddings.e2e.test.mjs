@@ -128,27 +128,24 @@ test("F5-G3: the INSTALLED post-rewrite hook fires on commit --amend and rebuild
   assert.ok(appeared, "the detached post-rewrite hook rebuilt the shared cache after an amend");
 });
 
-test("F5-G6: a hook command that EXITS NON-ZERO never breaks the git operation (the `|| true` shield)", () => {
-  const { mount, wiki, git } = gitMountRepo();
-  writeLeaf(wiki, "shared_notes/note.md", "# Note\n\nbody");
-  git(["add", "-A"]);
-  git(["commit", "-qm", "c1"]);
-  // Install with a wrapper that DETERMINISTICALLY fails (exit 17). The shipped
-  // hook block ends `... || true`, so git must still succeed. (Corrupting the
-  // layout tests nothing: sync-embeddings.mjs swallows that to exit 0 itself, so
-  // the merge would pass even if the `|| true` shield were removed.)
+test("F5-G6: the installed hook block's `|| true` makes the hook script exit 0 despite a non-zero wrapper", () => {
+  const { mount } = gitMountRepo();
+  // Install with a wrapper that deterministically fails (exit 17). git IGNORES a
+  // post-* hook's exit status, so asserting "the merge succeeds" would pass even
+  // if the shield were removed. To actually isolate the shipped block's trailing
+  // `|| true`, run the installed hook FILE directly and observe ITS exit code —
+  // it is 0 ONLY because of `|| true` (without it, the failing wrapper → exit 17).
   const failWrapper = path.join(mount, "fail-hook.sh");
   fs.writeFileSync(failWrapper, "#!/usr/bin/env bash\nexit 17\n", { mode: 0o755 });
-  installSyncEmbeddingsHook(mount, { wrapper: failWrapper });
-  const main = git(["rev-parse", "--abbrev-ref", "HEAD"]).stdout.trim();
-  git(["checkout", "-qb", "feat"]);
-  writeLeaf(wiki, "shared_notes/note.md", "# Note\n\nedited on feat");
-  git(["add", "-A"]);
-  git(["commit", "-qm", "c2"]);
-  git(["checkout", "-q", main]);
-  const m = git(["merge", "-q", "--no-ff", "-m", "merge feat", "feat"]);
-  assert.equal(m.status, 0, "the merge succeeds even though the hook command exits non-zero");
-  assert.equal(git(["rev-parse", "HEAD"]).status, 0, "HEAD is valid; the repo is not wedged");
+  const inst = installSyncEmbeddingsHook(mount, { wrapper: failWrapper });
+  assert.equal(inst.ok, true, "hook installed");
+  const hookFile = path.join(mount, ".git", "hooks", "post-merge");
+  const r = spawnSync("bash", [hookFile], { cwd: mount, encoding: "utf8" });
+  assert.equal(
+    r.status,
+    0,
+    "the hook script exits 0 despite the wrapper's exit 17 — the `|| true` shield holds",
+  );
 });
 
 test("F5-subdir: a mount BELOW the git root is warmed — the hook passes the mount dir, not cwd", async () => {

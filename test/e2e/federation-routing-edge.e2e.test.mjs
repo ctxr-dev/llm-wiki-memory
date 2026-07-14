@@ -200,9 +200,10 @@ test("F1i: a real repo with a MALFORMED single-segment origin falls back to file
     lvl.projectModule.startsWith("file://"),
     `single-segment origin → file:// (got ${lvl.projectModule})`,
   );
-  const conflicts = validateProjectModuleIdentity(ctx, lvl);
+  const result = validateProjectModuleIdentity(ctx, lvl);
+  assert.equal(result.ok, false, "a repo resolving to file:// is a surfaced conflict, not ok");
   assert.ok(
-    Array.isArray(conflicts) ? conflicts.length > 0 : conflicts,
-    "a repo resolving to file:// is surfaced",
+    result.conflicts.some((c) => c.mountDir === lvl.mountDir),
+    "the file:// level is named in the conflicts list",
   );
 });
