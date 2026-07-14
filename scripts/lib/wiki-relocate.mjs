@@ -266,7 +266,17 @@ export function backfillPriority({ dryRun = false } = {}) {
     if (cat === "daily") continue;
     const catAbs = path.join(root(), cat);
     for (const leaf of walkLeaves(catAbs)) {
-      const { data } = readLeaf(leaf);
+      let data;
+      try {
+        ({ data } = readLeaf(leaf));
+      } catch (err) {
+        // Resilient to an unreadable leaf (invalid YAML / git conflict in a shared
+        // leaf) — skip it so one bad leaf can't abort the whole backfill sweep.
+        console.error(
+          `[backfill-priority] skipping unreadable leaf ${toRel(leaf)}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        continue;
+      }
       const mem = leafMemory(data);
       if (normalisePriority(mem.priority)) continue; // already has a valid priority
       const priority = priorityForAtomType(mem.atom_type);

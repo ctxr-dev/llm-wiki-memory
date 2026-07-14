@@ -138,6 +138,24 @@ test("installSyncEmbeddingsHook honours core.hooksPath (husky) instead of .git/h
   );
 });
 
+test("installSyncEmbeddingsHook SKIPS a git-TRACKED core.hooksPath dir (never dirties shared history)", () => {
+  const repo = tmp("hookpath-tracked");
+  gitInit(repo);
+  spawnSync("git", ["-C", repo, "config", "core.hooksPath", ".husky"], { encoding: "utf8" });
+  // A committed husky setup: a TRACKED file under .husky/ (staged is enough for ls-files).
+  fs.mkdirSync(path.join(repo, ".husky"), { recursive: true });
+  fs.writeFileSync(path.join(repo, ".husky", "pre-commit"), "#!/bin/sh\necho lint\n");
+  spawnSync("git", ["-C", repo, "add", ".husky/pre-commit"], { encoding: "utf8" });
+  const res = installSyncEmbeddingsHook(repo);
+  assert.equal(res.ok, false);
+  assert.equal(res.skipped, "tracked-hooks-dir");
+  assert.ok(
+    !fs.existsSync(path.join(repo, ".husky", "post-merge")),
+    "no sync block written into the tracked hooks dir (would bake an absolute path into shared history)",
+  );
+  assert.match(String(res.message), /git-tracked/, "surfaces an actionable reason");
+});
+
 test("installSyncEmbeddingsHook skips a non-repo directory", () => {
   const dir = tmp("hook-norepo");
   const res = installSyncEmbeddingsHook(dir);

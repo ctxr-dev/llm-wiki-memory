@@ -60,6 +60,29 @@ test("syncEmbeddings warms the embedding cache for a changed SHARED category", a
   assert.ok(Array.isArray(entry.vector) && entry.vector.length > 0, "a vector was computed");
 });
 
+test("syncEmbeddings SKIPS a conflicted (invalid-YAML) shared leaf instead of aborting the warm", async () => {
+  const { mount, wiki } = mountWith(SHARED_LAYOUT);
+  writeLeaf(wiki, "shared_notes/good.md", "# Good\n\nclean shared note about kafka");
+  // A git-conflicted leaf: markers INSIDE the frontmatter → matter() throws on parse.
+  fs.writeFileSync(
+    path.join(wiki, "shared_notes", "bad.md"),
+    `---\nmemory:\n<<<<<<< HEAD\n  status: active\n=======\n  status: archived\n>>>>>>> x\n---\nconflicted body\n`,
+  );
+  const res = await syncEmbeddings({
+    mountDir: mount,
+    changedPaths: [
+      ".llm-wiki-memory/wiki/shared_notes/good.md",
+      ".llm-wiki-memory/wiki/shared_notes/bad.md",
+    ],
+  });
+  assert.equal(res.ok, true, "the warm resolves despite the conflicted leaf");
+  const cache = JSON.parse(
+    fs.readFileSync(path.join(wiki, "shared_notes", ".embeddings", "embeddings.json"), "utf8"),
+  );
+  assert.ok(cache.entries["shared_notes/good.md"], "the clean leaf is warmed");
+  assert.ok(!cache.entries["shared_notes/bad.md"], "the conflicted leaf is skipped, not warmed");
+});
+
 test("syncEmbeddings ignores a changed PERSONAL (ownership==wiki) category", async () => {
   const { mount, wiki } = mountWith(SHARED_LAYOUT);
   writeLeaf(wiki, "self_improvement/x.md", "# Lesson\n\npersonal lesson body");

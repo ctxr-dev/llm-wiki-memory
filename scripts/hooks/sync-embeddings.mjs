@@ -46,7 +46,18 @@ async function warmCategory(wikiRootDir, category) {
   const cache = loadCache(cachePath);
   let count = 0;
   for (const leaf of walkLeaves(path.join(wikiRootDir, category))) {
-    const { data, body } = readLeaf(leaf);
+    let data, body;
+    try {
+      ({ data, body } = readLeaf(leaf));
+    } catch (err) {
+      // Parity with searchOneTree: an unreadable leaf (git-conflicted YAML in a
+      // shared leaf) must not abort the whole warm — skip it with a breadcrumb
+      // (lazy embed-at-search time is the correctness net).
+      console.error(
+        `[sync-embeddings] skipping unreadable leaf ${toRel(leaf)}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      continue;
+    }
     if (!isActive(data)) continue;
     await cachedEmbedding(cache, toRel(leaf), body);
     count += 1;

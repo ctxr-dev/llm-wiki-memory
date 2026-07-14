@@ -159,6 +159,24 @@ function shSingleQuote(s) {
 }
 
 /**
+ * True when the resolved hooks dir is git-TRACKED. The default hooks dir lives
+ * under `.git/` (never tracked → safe). A committed custom `core.hooksPath` (e.g.
+ * husky's `.husky/`) lives in the worktree and IS tracked; appending our block
+ * there would dirty a tracked file and bake the installer's absolute path into the
+ * team's shared history. `ls-files --error-unmatch` exits 0 iff ≥1 tracked file
+ * sits under the dir.
+ * @param {string} repoDir
+ * @param {string} hooksDir
+ * @returns {boolean}
+ */
+function hooksDirIsTracked(repoDir, hooksDir) {
+  const r = spawnSync("git", ["-C", repoDir, "ls-files", "--error-unmatch", hooksDir], {
+    encoding: "utf8",
+  });
+  return r.status === 0;
+}
+
+/**
  * Install the sync-embeddings hook into a repo's git-hook path, chained AFTER
  * any existing hook (husky/core.hooksPath preserved — we append a marker-fenced
  * block, never overwrite). Idempotent: a hook already carrying our marker is
@@ -166,7 +184,7 @@ function shSingleQuote(s) {
  * exits 0), so it can never block or fail a merge/checkout.
  * @param {string} repoDir the (host) repo whose hooks fire on merge/checkout
  * @param {{ wrapper?: string, mountDir?: string }} [opts] override the wrapper path and/or the mount dir to warm (tests / subpackage mounts)
- * @returns {{ ok: boolean, hooksDir?: string, results?: Record<string, string>, skipped?: string }}
+ * @returns {{ ok: boolean, hooksDir?: string, results?: Record<string, string>, skipped?: string, message?: string }}
  */
 export function installSyncEmbeddingsHook(
   repoDir,
@@ -174,6 +192,18 @@ export function installSyncEmbeddingsHook(
 ) {
   const hooksDir = hooksDirFor(repoDir);
   if (!hooksDir) return { ok: false, skipped: "not-a-repo" };
+  // Never write into a git-TRACKED hooks dir (a committed core.hooksPath like
+  // husky's .husky/): it would dirty a tracked file and bake this installer's
+  // absolute path into the team's shared history. Skip + surface it; lazy
+  // embed-at-search remains the fallback, so proactive warming is the only loss.
+  if (hooksDirIsTracked(repoDir, hooksDir)) {
+    return {
+      ok: false,
+      skipped: "tracked-hooks-dir",
+      hooksDir,
+      message: `hooks dir ${hooksDir} is git-tracked (custom core.hooksPath) — not writing the sync-embeddings hook there to avoid committing an absolute path into shared history. Recall still lazily re-embeds changed leaves at search time.`,
+    };
+  }
   fs.mkdirSync(hooksDir, { recursive: true });
   // Pass the mount dir explicitly (absolute) so the hook warms THIS mount even
   // when it lives below the git root — the hook's cwd is the worktree root, not
