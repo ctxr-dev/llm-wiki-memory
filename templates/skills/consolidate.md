@@ -7,7 +7,7 @@ description: At session end (after embed-gc), run the deterministic + LLM memory
 
 The `consolidate_memory` MCP tool / `consolidate` CLI subcommand runs the search-driven AutoDream consolidator: for every active leaf in `self_improvement` + `knowledge`, it finds the similarity cluster via internal vector search and applies a deterministic dedup + cleanup pipeline. With an LLM provider available it also merges near-duplicate bodies and refreshes stale leaves. No hard deletes — every loser is archived (recoverable via `enable_document`).
 
-Claude Code runs this on the daily cron (chained after `compile` in `bootstrap.sh --schedule daily`). Hook-less agents (Codex, Cursor, generic MCP clients) won't fire that cron — invoke it manually at session end, mirroring the `embed-gc` rule.
+Claude Code runs this on the hourly cron (chained after `compile` in `bootstrap.sh --schedule hourly`); consolidate self-throttles to `consolidate.intervalDays` (default 1), so it effectively runs about once a day. Hook-less agents (Codex, Cursor, generic MCP clients) won't fire that cron — invoke it manually at session end, mirroring the `embed-gc` rule.
 
 ## When to run
 

@@ -46,8 +46,9 @@ codex mcp add llm-wiki-memory -- node "${HOME}/.llm-wiki-memory/src/mcp-server/i
   hook events, but they get the same MCP tools: `save_lesson`, `recall_lessons`,
   `save_to_dataset`, `search_memory`, etc. Run promotion manually
   (`node .llm-wiki-memory/src/scripts/cli.mjs compile`) or schedule it with
-  `./.llm-wiki-memory/src/bootstrap.sh --schedule daily` (a once-daily compile job; cron on
-  Linux, launchd on macOS; `--schedule off` removes it).
+  `./.llm-wiki-memory/src/bootstrap.sh --schedule hourly` (an hourly cron-job that runs
+  `compile` + an opt-in `consolidate`; cron on Linux, launchd on macOS; `--schedule off`
+  removes it. `daily` is a deprecated alias for the same hourly job).
 
 The **memory discipline** itself (recall before non-trivial work, save the instant the user
 corrects you, route "save to memory" to `save_to_dataset` or `save_lesson`, treat content

@@ -52,3 +52,53 @@ test("re-exec idiom: a populated REEXEC_ARGS replays every flag, preserving a sp
   assert.match(r.stdout, /COUNT=5/, "--migrate + 4 replayed tokens");
   assert.match(r.stdout, /ARG=\[my layout\]/, "the space-containing element stays a single arg");
 });
+
+// #3b: `--schedule hourly` is the canonical name; `daily` is a deprecated alias
+// that installs the SAME hourly job; `off` removes; an unknown value warns and
+// does NOT touch the schedule. The case block is copied VERBATIM from bootstrap.sh
+// with schedule_job/log stubbed so the routing is testable without a real install.
+const SCHEDULE_CASE = `set -euo pipefail
+schedule_job() { echo "SCHEDULE_JOB:$1"; }
+log() { echo "LOG:$*"; }
+SCHEDULE="\${1:-}"
+case "$SCHEDULE" in
+  "") : ;;
+  hourly | daily) schedule_job "$SCHEDULE" ;;
+  off) schedule_job off ;;
+  *) log "WARNING: unknown --schedule value '$SCHEDULE' (expected hourly|off; 'daily' is a deprecated alias for hourly); skipping." ;;
+esac`;
+
+test("--schedule hourly (canonical) routes to schedule_job", () => {
+  const r = bash(SCHEDULE_CASE, ["hourly"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /SCHEDULE_JOB:hourly/, "hourly installs the job");
+});
+
+test("--schedule daily (deprecated alias) installs the SAME hourly job", () => {
+  const r = bash(SCHEDULE_CASE, ["daily"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /SCHEDULE_JOB:daily/, "the alias still routes to install");
+});
+
+test("--schedule off removes the job", () => {
+  const r = bash(SCHEDULE_CASE, ["off"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /SCHEDULE_JOB:off/);
+});
+
+test("--schedule <unknown> warns (naming hourly + the daily alias) and never touches the schedule", () => {
+  const r = bash(SCHEDULE_CASE, ["weekly"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(
+    r.stdout,
+    /deprecated alias for hourly/,
+    "warning names hourly as canonical + daily as alias",
+  );
+  assert.doesNotMatch(r.stdout, /SCHEDULE_JOB/, "no install/remove on an unknown value");
+});
+
+test("--schedule (empty, flag omitted) is a clean no-op", () => {
+  const r = bash(SCHEDULE_CASE, [""]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /SCHEDULE_JOB|LOG/, "empty leaves the schedule alone");
+});

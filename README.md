@@ -37,7 +37,7 @@ Or run it yourself — fresh install:
 ```bash
 git clone https://github.com/ctxr-dev/llm-wiki-memory ./.llm-wiki-memory/src
 ./.llm-wiki-memory/src/bootstrap.sh                    # add --commit-memory to commit the wiki
-./.llm-wiki-memory/src/bootstrap.sh --schedule daily   # optional: hourly cron / launchd
+./.llm-wiki-memory/src/bootstrap.sh --schedule hourly  # optional: hourly cron / launchd
 ```
 
 Update an existing install:
@@ -63,7 +63,7 @@ The bootstrap is **idempotent** — re-running preserves your edits to `.env` an
 5. Writes `llm-wiki-memory-<name>.md` @-pointer files (referencing `~/.llm-wiki-memory/src` — no copies, no symlinks) into `.agents/rules/`, `.claude/skills/`, `.claude/rules/`, `.cursor/rules/`, plus one marker-fenced @-include block in `AGENTS.md`/`CLAUDE.md`, and records them all in an install-manifest.
 6. Materialises the hosted wiki at `./.llm-wiki-memory/wiki` (with the layout template that declares `consolidate: refine | none` per category) and validates it.
 7. Adds `/.llm-wiki-memory` to `.gitignore` (`--commit-memory` commits the wiki instead).
-8. Optionally installs the hourly cron (`compile` + an opt-in `consolidate`) via a wrapper script (`--schedule daily`); consolidation runs only when `consolidate.enabled: true` (default off).
+8. Optionally installs the hourly cron (`compile` + an opt-in `consolidate`) via a wrapper script (`--schedule hourly`; `daily` is a deprecated alias for the same hourly job); consolidation runs only when `consolidate.enabled: true` (default off).
 
 </details>
 
@@ -579,7 +579,7 @@ node scripts/cli.mjs redistill --all              # every pending stash
 Schedule the hourly cron (or remove it):
 
 ```bash
-./.llm-wiki-memory/src/bootstrap.sh --schedule daily   # cron on Linux, launchd on macOS, hourly
+./.llm-wiki-memory/src/bootstrap.sh --schedule hourly  # cron on Linux, launchd on macOS, fires at :00 ('daily' = deprecated alias)
 ./.llm-wiki-memory/src/bootstrap.sh --schedule off     # remove
 ```
 

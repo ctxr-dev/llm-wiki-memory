@@ -6,7 +6,7 @@
 # Expected layout: this script lives at <workspace>/.llm-wiki-memory/src/bootstrap.sh
 #
 # Usage:
-#   ./.llm-wiki-memory/src/bootstrap.sh [--commit-memory] [--template <name>] [--provider claude|codex|anthropic|openai|openai-compatible|mock] [--schedule daily|off] [--enable-self-observability|--disable-self-observability] [--upgrade] [--migrate] [--uninstall]
+#   ./.llm-wiki-memory/src/bootstrap.sh [--commit-memory] [--template <name>] [--provider claude|codex|anthropic|openai|openai-compatible|mock] [--schedule hourly|off] [--enable-self-observability|--disable-self-observability] [--upgrade] [--migrate] [--uninstall]
 #   --upgrade        fetch + fast-forward-merge the engine, then re-run this
 #                    script (idempotent re-wire) with --migrate. One deterministic
 #                    command instead of a prose runbook.
@@ -32,8 +32,10 @@
 #                    session-end. Consent persists in a settings sentinel across
 #                    re-runs; default: leave prior consent untouched (off when
 #                    never set).
-#   --schedule       daily: (re)install a daily compile job (launchd on macOS,
-#                    crontab on Linux). off: remove it. Default: do nothing.
+#   --schedule       hourly: (re)install the maintenance job (launchd on macOS,
+#                    crontab on Linux); it fires HOURLY at minute 0. off: remove
+#                    it. Default: do nothing. ('daily' is a deprecated alias for
+#                    hourly — it installs the SAME hourly job.)
 #   --provider       Explicit choice. Otherwise auto-detected in priority order:
 #                    1) `claude` CLI on PATH, 2) `codex` CLI on PATH,
 #                    3) $ANTHROPIC_API_KEY exported, 4) $OPENAI_API_KEY exported,
@@ -512,9 +514,9 @@ WRAPPER
 
 case "$SCHEDULE" in
   "") : ;;
-  daily) schedule_job daily ;;
-  off)   schedule_job off ;;
-  *) log "WARNING: unknown --schedule value '$SCHEDULE' (expected daily|off); skipping." ;;
+  hourly | daily) schedule_job "$SCHEDULE" ;; # 'daily' is a deprecated alias; the job fires HOURLY either way
+  off) schedule_job off ;;
+  *) log "WARNING: unknown --schedule value '$SCHEDULE' (expected hourly|off; 'daily' is a deprecated alias for hourly); skipping." ;;
 esac
 
 log "Done."
