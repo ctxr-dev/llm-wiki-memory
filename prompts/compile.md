@@ -4,7 +4,7 @@ You decide how to merge a NEW project-memory atom into the existing knowledge st
 
 You receive:
 - ONE new atom: `{ type, title, body, tags, metadata, evidence? }` where `metadata` carries `area`, `language`, `task_type`, and (for self-improvement-lesson and bug-root-cause) `error_pattern`.
-- Up to 5 existing entries from the same dataset, ALREADY filtered to the same `atom_type` and (when present) the same `area`, `language`, and `error_pattern`. Candidates carry `documentId`, `documentName`, `score`, `content`.
+- A small set (default 5, the `compile.searchLimit` setting) of existing entries from the same dataset, ALREADY filtered to the same `atom_type` and (when present) the same `area`, `language`, and `error_pattern`. Candidates carry `documentId`, `documentName`, `score`, and `content` (the body, truncated to ~800 chars — decide from what is shown).
 - Known areas in this memory: {{KNOWN_AREAS}}. Known error patterns by area:
 {{KNOWN_ERROR_PATTERNS}}
   When refining metadata, REUSE an existing slug when it fits; invent only for genuinely new ground.
@@ -35,7 +35,7 @@ The new atom adds no information beyond the existing entries.
 - Bias toward **update** when the new atom's title and tags overlap with an existing entry's title and content.
 - Bias toward **create** only when the new atom is a clearly distinct fact (different scope, different rule, different gotcha).
 - Bias toward **skip** when the new atom is a near-verbatim restatement.
-- For `self-improvement-lesson`: if the new atom and an existing candidate share the same `error_pattern`, STRONGLY prefer **update**. Lessons should converge into one canonical document per error pattern, not multiply. The candidate set has already been pre-filtered by error_pattern when one was provided, so the same-error_pattern signal is implicit when candidates exist. **Note:** `compile.mjs` enforces this rule deterministically - when the atom is a `self-improvement-lesson` with an `error_pattern` set AND at least one candidate is returned, the LLM is bypassed and the top candidate is forced-updated. This prompt's lesson-dedup guidance therefore only applies when no `error_pattern` is set (a malformed lesson that flush would already have dropped, or a `bug-root-cause` atom).
+- **Converge on `error_pattern`:** when the new atom and a candidate share the same `error_pattern`, STRONGLY prefer **update** — atoms with one error pattern should converge into a single canonical document, not multiply. **Where this actually applies:** for a `self-improvement-lesson` the engine enforces this DETERMINISTICALLY (in `compile-dedup.mjs`, not via you) — a lesson with an `error_pattern` and at least one candidate is force-updated onto the top candidate before the LLM is consulted, and a lesson with NO `error_pattern` never reaches you (flush drops it). So in practice YOU apply this prefer-update rule to `bug-root-cause` atoms — the other type that carries an `error_pattern` and that IS decided here.
 
 # Hard rules
 

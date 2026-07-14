@@ -25,7 +25,7 @@ node .llm-wiki-memory/src/scripts/cli.mjs consolidate --if-due
 or via the MCP tool:
 
 ```
-consolidate_memory({ ifDue: true })
+consolidate_memory({ scopes: ["."], consolidate: { ifDue: true } })
 ```
 
 Both return a JSON report shaped `{ ok, dryRun, llm, passes: { ... per-pass stats ... }, totals: { archived, touched, merged, refreshed, ... } }`. Surface the totals to the user only if they ASKED about consolidation; otherwise stay silent.

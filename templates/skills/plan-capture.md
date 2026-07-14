@@ -9,7 +9,7 @@ Plans live in TWO places: the local plan-mode file (`~/.claude/plans/<slug>.md`,
 
 For the broader "save to memory / wiki vs local file" decision, see the routing table in [`self-improvement.md`](./self-improvement.md). This skill is the plans-specific contract.
 
-> **Investigations have no auto-capture.** There is no `ExitInvestigationMode` tool, so investigation artefacts are NOT covered by any hook. Always use `save_to_dataset(dataset="investigations", name="<slug>.md", text, metadata)` manually.
+> **Investigations have no auto-capture.** There is no `ExitInvestigationMode` tool, so investigation artefacts are NOT covered by any hook. Always use `save_to_dataset({ scopes: ["."], target: "brain", write: { dataset: "investigations", name: "<slug>.md", text, metadata } })` manually.
 
 ## Auto-capture on ExitPlanMode approval
 
@@ -24,11 +24,11 @@ The project ships a `PostToolUse` hook (`scripts/hooks/exit-plan-mode.mjs`, invo
 
 Iterating on the SAME plan title overwrites the SAME wiki leaf: no duplicates accumulate. The hook skips cleanly (exit 0) with a stderr message on rejection (`approved !== true`), empty plans, or any wiki write failure.
 
-You do NOT need to manually save approved plans. The hook handles it. For a **tracker-bound** plan (a Jira/Linear/GitHub issue exists), promote the capture to the `issues` tree and disable/delete this `plans/` copy. The `issues` tree is a TOPOLOGY category: you MUST pass an explicit `path=` computed from `.layout/layout.yaml` (e.g. `save_to_dataset(dataset="issues", name="DEV-129957-fix.plan.md", path="issues/JIRA/DEV/129/95/7/in-progress", …)`) — a no-path or topology-mismatched save is refused. See the `topology-path-routing` rule for how to compute the path, and the planning-methodology rule for routing precedence.
+You do NOT need to manually save approved plans. The hook handles it. For a **tracker-bound** plan (a Jira/Linear/GitHub issue exists), promote the capture to the `issues` tree and disable/delete this `plans/` copy. The `issues` tree is a TOPOLOGY category: you MUST pass an explicit `path=` computed from `.layout/layout.yaml` (e.g. `save_to_dataset({ scopes: ["."], target: "brain", write: { dataset: "issues", name: "DEV-129957-fix.plan.md", path: "issues/JIRA/DEV/129/95/7/in-progress", … } })`) — a no-path or topology-mismatched save is refused. See the `topology-path-routing` rule for how to compute the path, and the planning-methodology rule for routing precedence.
 
 ## When to save manually
 
-Call `save_to_dataset(dataset="plans", name="plan-<slug>.md", text, metadata)` when:
+Call `save_to_dataset({ scopes: ["."], target: "brain", write: { dataset: "plans", name: "plan-<slug>.md", text, metadata } })` when:
 
 - The plan stabilises mid-iteration and you want it queryable BEFORE the user approves it (so a sibling agent or your future self can find it).
 - You are saving a stand-alone plan artefact OUTSIDE of plan mode (a roadmap, a release plan, a draft you want sharable).
@@ -40,9 +40,9 @@ Use a stable, descriptive slug (`plan-auth-rewrite.md`, not `plan-1.md`). The sl
 
 If the plan TITLE changes between iterations, the next approval writes a NEW wiki leaf under the new slug; the old slug stays. There is no `stale-plans` audit class in this system (`audit_memory` here supports only `duplicate-error-pattern` and `missing-metadata`), so clean up superseded slugs by hand:
 
-- Find candidates with `search_memory({ query: "<plan topic>", datasets: ["plans"], filters: { atom_type: "plan" } })` and look for an older slug that a newer one extends (e.g. `plan-auth` superseded by `plan-auth-rewrite`). The hits carry the leaf name and its document id.
-- **`delete_document(dataset="plans", documentId="<id>")`** (permanent). Recommended for the bare-rename case (you renamed `plan-auth` -> `plan-auth-rewrite`; the old slug is just noise). Closes the create-without-undo asymmetry the auto-capture would otherwise leave open.
-- **`disable_document(dataset="plans", documentId="<id>")`** (soft, reversible). Pick this if you want the old slug to stay in the wiki tree for audit but be excluded from `search_memory` / `recall_lessons`. Reversible via `enable_document`.
+- Find candidates with `search_memory({ scopes: ["."], query: "<plan topic>", datasets: ["plans"], filters: { atom_type: "plan" } })` and look for an older slug that a newer one extends (e.g. `plan-auth` superseded by `plan-auth-rewrite`). The hits carry the leaf name and its document id.
+- **`delete_document({ scopes: ["."], target: "brain", select: { dataset: "plans", documentId: "<id>" } })`** (permanent). Recommended for the bare-rename case (you renamed `plan-auth` -> `plan-auth-rewrite`; the old slug is just noise). Closes the create-without-undo asymmetry the auto-capture would otherwise leave open.
+- **`disable_document({ scopes: ["."], target: "brain", select: { dataset: "plans", documentId: "<id>" } })`** (soft, reversible). Pick this if you want the old slug to stay in the wiki tree for audit but be excluded from `search_memory` / `recall_lessons`. Reversible via `enable_document`.
 - **Tolerate it.** Old plans are ranked below the latest by recency and metadata, and `search_memory` with a tight `scoreThreshold` will surface the right one anyway. Skip cleanup until the category feels crowded.
 
 To intentionally supersede a prior version with new content (without renaming), write a NEW `save_to_dataset` call with the OLD slug and the new body. Same name overwrites the same leaf in place, no cleanup required.
@@ -65,7 +65,7 @@ After approving a plan, you have two breadcrumbs:
    exit-plan-mode.mjs: wrote <slug>.plan.md to plans [status=pending]
    ```
    If you see `skipped (...)` instead, the reason is in the parens. Common reasons: `not-approved`, `empty-plan`, `plan-too-large`, `disabled via settings.hook.exitPlanModeDisable=true`, or a wiki write failure (run `node .llm-wiki-memory/src/scripts/cli.mjs validate` to check the wiki is healthy; if the MCP server is not registered, see `./.llm-wiki-memory/src/scripts/mcp-config.sh <client>` or re-run `./.llm-wiki-memory/src/bootstrap.sh`).
-2. **A retrieval check** (no UI to open): call `search_memory({ query: "<plan title>", datasets: ["plans"], filters: { atom_type: "plan" } })` and assert at least one hit named `plan-<slug>.md`. `recall_lessons` works too. Iterating on the same titled plan overwrites the same leaf in place (no duplicates accumulate). If a save reports `metadataOk: false`, metadata lives directly in the leaf frontmatter (no separate schema-install step), so simply re-run the save.
+2. **A retrieval check** (no UI to open): call `search_memory({ scopes: ["."], query: "<plan title>", datasets: ["plans"], filters: { atom_type: "plan" } })` and assert at least one hit named `plan-<slug>.md`. `recall_lessons` works too. Iterating on the same titled plan overwrites the same leaf in place (no duplicates accumulate). If a save reports `metadataOk: false`, metadata lives directly in the leaf frontmatter (no separate schema-install step), so simply re-run the save.
 
 ## When NOT to save
 
@@ -75,4 +75,4 @@ After approving a plan, you have two breadcrumbs:
 
 ## How retrieval works
 
-`search_memory({ query, datasets: ["plans"], filters: { atom_type: "plan" }, scoreThreshold: 0.55 })` retrieves plans by query plus metadata filter. The leaf-name prefix `plan-` is also a useful free-text signal in the rank. If you set `project_module` on a manual save, you can scope further: `filters: { atom_type: "plan", project_module: "auth" }`.
+`search_memory({ scopes: ["."], query, datasets: ["plans"], filters: { atom_type: "plan" }, scoreThreshold: 0.55 })` retrieves plans by query plus metadata filter. The leaf-name prefix `plan-` is also a useful free-text signal in the rank. If you set an `area` on a manual save, you can scope further: `filters: { atom_type: "plan", area: "auth" }` (filter by `area` — the sub-module facet; a `project_module` filter would over-narrow to the workspace id and miss it).

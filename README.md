@@ -11,7 +11,7 @@ Claude Code, Cursor, Codex, and every other MCP client forget everything when a 
 <br/>
 <br/>
 
-[![tests](https://img.shields.io/badge/TESTS-1050_PASSING-0D0D14?style=for-the-badge&labelColor=5EFFC0)](#testing)
+[![tests](https://img.shields.io/badge/TESTS-1539_PASSING-0D0D14?style=for-the-badge&labelColor=5EFFC0)](#testing)
 [![node](https://img.shields.io/badge/NODE-%E2%89%A5_20-0D0D14?style=for-the-badge&logo=nodedotjs&logoColor=0D0D14&labelColor=5EF6FF)](https://nodejs.org)
 [![license](https://img.shields.io/badge/LICENSE-MIT-0D0D14?style=for-the-badge&labelColor=FCEE0A)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-STDIO_SERVER-0D0D14?style=for-the-badge&logo=anthropic&logoColor=0D0D14&labelColor=5EF6FF)](https://modelcontextprotocol.io)
@@ -60,7 +60,7 @@ The bootstrap is **idempotent** — re-running preserves your edits to `.env` an
 2. Auto-detects the LLM provider: `claude` CLI → `codex` CLI → `ANTHROPIC_API_KEY` → `OPENAI_API_KEY` → `MEMORY_LLM_BASE_URL` → ollama at `:11434` → `mock` (with a stderr warning).
 3. Writes `./.llm-wiki-memory/settings/.env` (preserves your edits on re-run).
 4. Merges hooks into `.claude/settings.json` and the stdio server into `.mcp.json`.
-5. Renders vendor-neutral configs into `.agents/` and discipline rules into `.agents/rules/`, `.claude/skills/`, `.claude/rules/`, `.cursor/rules/`.
+5. Writes `llm-wiki-memory-<name>.md` @-pointer files (referencing `~/.llm-wiki-memory/src` — no copies, no symlinks) into `.agents/rules/`, `.claude/skills/`, `.claude/rules/`, `.cursor/rules/`, plus one marker-fenced @-include block in `AGENTS.md`/`CLAUDE.md`, and records them all in an install-manifest.
 6. Materialises the hosted wiki at `./.llm-wiki-memory/wiki` (with the layout template that declares `consolidate: refine | none` per category) and validates it.
 7. Adds `/.llm-wiki-memory` to `.gitignore` (`--commit-memory` commits the wiki instead).
 8. Optionally installs the hourly cron (`compile` + an opt-in `consolidate`) via a wrapper script (`--schedule daily`); consolidation runs only when `consolidate.enabled: true` (default off).
@@ -402,7 +402,7 @@ Never hard-deletes — every archival uses `disableDocument` (status flip), reco
 | **Any MCP client** | ✗ | ✅ | instructions + server |
 ![](docs/assets/line-thin.svg)
 
-Hook-driven auto-capture is Claude Code only; every other client gets the same MCP tools + the same discipline. Hook-less clients invoke `cli.mjs cron-health` at session start (per the rule rendered into `.agents/rules/`) to surface unresolved cron failures.
+Hook-driven auto-capture is Claude Code only; every other client gets the same MCP tools + the same discipline. Hook-less clients invoke `cli.mjs cron-health` at session start (per the rule referenced via an @-pointer in `.agents/rules/`) to surface unresolved cron failures.
 
 The **LLM provider** that extracts typed atoms during capture / compile / consolidate is set in `.llm-wiki-memory/settings/.env` and is independent of the client:
 
@@ -432,7 +432,7 @@ The **LLM provider** that extracts typed atoms during capture / compile / consol
 | `validate_layout`, `validate_topology`, `test_path_compiler` | Layout + topology + placement-compiler sanity checks. |
 ![](docs/assets/line-thin.svg)
 
-**Every tool takes a required `scopes`.** Pass the directories you are working in, meaning your current directory plus any repositories in play, as `scopes: string[]` on every call. It is never optional: an empty or missing `scopes` is rejected before the tool runs, and the engine walks each scope up to your home wiki to resolve context. Claude Code seeds a default value at session start via its SessionStart hook; other clients compute it from the working directory and git. The shipped `scope-seeding` skill and `tool-scopes` rule (rendered by bootstrap) carry the procedure.
+**Every tool takes a required `scopes`.** Pass the directories you are working in, meaning your current directory plus any repositories in play, as `scopes: string[]` on every call. It is never optional: an empty or missing `scopes` is rejected before the tool runs, and the engine walks each scope up to your home wiki to resolve context. Claude Code seeds a default value at session start via its SessionStart hook; other clients compute it from the working directory and git. The shipped `scope-seeding` skill and `tool-scopes` rule (referenced via bootstrap's @-pointers) carry the procedure.
 
 **Every write names its destination — `target` is required.** `scopes` says which wikis a call concerns; the required `target` says which one a write goes into. Every write and every document mutation MUST pass `target` — the literal `"brain"` for your private memory tree, or a resolved level's wiki root / mount directory for a shared repo (discover them in `get_memory_config`'s `levels`). There is no implicit default: omitting `target` is rejected, so the destination is always deterministic (this matters when two identical clones of one repo are in scope — they share an identity and differ only by path, so only an explicit `target` picks one). The engine never writes to a shared repo (a mount inside a project checked into git) unless `target` names it. A shared write only stages the leaf in that repo's working tree and runs no git there, so it is not shared until a human commits and pushes it. The `tool-scopes` rule carries the full procedure.
 
@@ -440,7 +440,7 @@ Some read-only CLI counterparts have no MCP tool: `cli.mjs doctor` (a layout-der
 
 **Self-observability (opt-in).** Enable it with `bootstrap.sh --enable-self-observability` and the agent watches the memory system while you work: on a confirmed llm-wiki-memory bug it records a redacted forensic capture under `.llm-wiki-memory/monitoring/<yyyy>/<mm>/<dd>/` via `cli.mjs monitor` (reusing the same redaction + signature primitives as the cron escalation path), and at session-end it offers to review the open captures (`cli.mjs monitoring-health`) and plan fixes for `.llm-wiki-memory/src`. The capture tree lives outside the wiki: gitignored, never indexed, never auto-fixed. Opt out any time with `--disable-self-observability`. This is the interactive counterpart to the background cron self-healing path — distinct stores, shared signature vocabulary.
 
-> **Caveat — cloud-synced workspaces.** A sync daemon (Drive, Dropbox, iCloud, OneDrive) can relocate, revert, or half-replicate files mid-session and strip the executable bit from shell scripts. The wiki's own git repo is the source of truth: commit per step, recover with `git reset --hard HEAD`, run `cli.mjs doctor` after a suspected scramble, and set `git config core.fileMode false` in the `src/` clone so mode-only changes don't block `--ff-only` updates. The shipped `cloud-sync-safety` rule (rendered by bootstrap) carries the full checklist.
+> **Caveat — cloud-synced workspaces.** A sync daemon (Drive, Dropbox, iCloud, OneDrive) can relocate, revert, or half-replicate files mid-session and strip the executable bit from shell scripts. The wiki's own git repo is the source of truth: commit per step, recover with `git reset --hard HEAD`, run `cli.mjs doctor` after a suspected scramble, and set `git config core.fileMode false` in the `src/` clone so mode-only changes don't block `--ff-only` updates. The shipped `cloud-sync-safety` rule (referenced via bootstrap's @-pointer) carries the full checklist.
 
 ## Configuration
 ![](docs/assets/line-bold.svg)
@@ -448,7 +448,7 @@ Some read-only CLI counterparts have no MCP tool: `cli.mjs doctor` (a layout-der
 Settings live in **two** files in `./.llm-wiki-memory/settings/`:
 
 - **`.env`** — secrets, provider switches, deployment paths, workspace identity, test seams. Things that genuinely need shell precedence. See [`templates/env.example`](templates/env.example).
-- **`settings.yaml`** — every other knob, nested by concern: `consolidate`, `flush`, `hook`, `embed`, `recall`, `compile`, `gc`, `gate`, `providers`, `crossCuttingAreas`. See [`templates/settings.yaml`](templates/settings.yaml).
+- **`settings.yaml`** — every other knob, nested by concern: `consolidate`, `flush`, `hook`, `embed`, `recall`, `compile`, `gc`, `gate`, `wiki`, `providers`, plus the top-level `crossCuttingAreas` list. See [`templates/settings.yaml`](templates/settings.yaml).
 
 The `.env` file's strict subset overrides the YAML where it overlaps (e.g. `MEMORY_LLM_PROVIDER` collapses the YAML chain). **As of the [2026-06-03 v2 release](docs/releases/2026/06/03/v2/update-prompt.md)**, every `MEMORY_*` env var that's NOT on the strict allow-list is a silent no-op — application config moved into `settings.yaml`. The runbook covers the migration.
 
@@ -464,10 +464,12 @@ Strict-subset `.env` keys:
 | `MEMORY_LLM_BASE_URL` | (unset) | OpenAI-compatible local endpoint (ollama, vLLM, lm-studio, llama.cpp, litellm). |
 | `MEMORY_LLM_TIMEOUT_MS` | `120000` | Per-call CLI/API timeout. |
 | `MEMORY_DATA_DIR` / `LLM_WIKI_MEMORY_ROOT` / `MEMORY_EMBED_CACHE` / `MEMORY_SETTINGS_PATH` | derived | Deployment paths. |
-| `MEMORY_DEFAULT_PROJECT_MODULE` | basename(workspace) | Workspace identity (scopes recall). |
+| `MEMORY_DEFAULT_PROJECT_MODULE` | deterministic identity | Workspace identity (scopes recall): the canonical git origin as `org/repo`, else `file://<workspaceDir>`, with `basename(workspace)` only as a last resort. |
 | `MEMORY_LLM_MOCK_*` | (unset) | Test seams for the mock provider. |
 | `MEMORY_MCP_SERVER_NAME` | `llm-wiki-memory` | MCP server name advertised at initialize. |
 ![](docs/assets/line-thin.svg)
+
+Recall scoping is deterministic: `project_module` is derived from a declared `project_id` > the canonical git origin `org/repo` > `file://mountDir`, nested repos chain as `org/repo//sub`, the wiki brain ignores a layout `project_id`, and `cli.mjs migrate-identity` restamps legacy leaves.
 
 Highlights from `settings.yaml`:
 
@@ -503,7 +505,7 @@ Highlights from `settings.yaml`:
 <details>
 <summary><strong>Full schema</strong></summary>
 
-See [`templates/settings.yaml`](templates/settings.yaml) for the complete annotated set with every knob in each of the nine config sections plus the top-level `crossCuttingAreas` list.
+See [`templates/settings.yaml`](templates/settings.yaml) for the complete annotated set with every knob in each of the ten config sections plus the top-level `crossCuttingAreas` list.
 
 </details>
 
@@ -593,7 +595,7 @@ The cron entry calls a generated wrapper (`state/cron-daily.sh`) — safe across
 | `scripts/lib/wiki-store.mjs` | Storage seam: every document is a wiki leaf. Drives the skill for index-rebuild / validate / heal / rebuild. Hosts the `getConsolidateLayout()` reader. |
 | `scripts/lib/embed.mjs` | Transformer embeddings, cosine, content-hash cache (lexical fallback). The only retrieval engine. |
 | `scripts/lib/recall.mjs` | `recall_lessons` ladder, `search_memory`, `save_lesson`. |
-| `scripts/lib/llm.mjs` | LLM provider dispatch (claude / codex / anthropic / openai / openai-compatible / mock) + `health()` probe + `isLocalEndpoint` heuristic. |
+| `scripts/lib/llm.mjs` | LLM provider dispatch (claude / codex / cursor / anthropic / openai / openai-compatible / mock) + `health()` probe + `isLocalEndpoint` heuristic. |
 | `scripts/lib/llm-callJSON.mjs` | Prompt-file + variable-interpolation + zod-schema-validated LLM JSON-call wrapper. Used by compile + consolidate. |
 | `scripts/lib/maintenance-tag.mjs` | AsyncLocalStorage-backed `withSystemMaintenance` frame for the server-side gate exemption. |
 | `scripts/lib/discipline.mjs` | Single source of the memory discipline (MCP `instructions` + the SessionStart context). |
@@ -619,7 +621,7 @@ npm test           # unit suite
 npm run test:e2e   # full lifecycle against the real skill-llm-wiki CLI (LLM stubbed)
 ```
 
-**1050 tests** in total. The unit suite covers the chunker (header/paragraph/hard-cut boundaries, surrogate-safe cuts), the provider+model chain (model-not-found iteration, cross-provider fallback, provenance accumulation), the map-reduce flow (depth cap, shrink check, partial-failure stash, in-leaf recovery), the redistill CLI, the wiki auto-commit layer (batching, repo-safety probe, injection guards), and the entity-level self-healing pipeline (escalations, episode-versioned issue reports, log retention, provider-availability tracking: compile's EX_UNAVAILABLE exit, synthetic `system:` entities, the hybrid cron PATH builder), word-boundary truncation, the facet vocabulary collector, and the LLM-only cosine merge band. The e2e suite builds a wiki from scratch in a temp directory and asserts genesis, daily capture, lesson + knowledge + plan + investigation absorption, compile promotion + dedup, recall, tree-growth integrity, and idempotency — against the real `skill-llm-wiki` CLI with mocked LLM responses.
+**1539 tests** in total (1430 unit + 109 e2e). The unit suite covers the chunker (header/paragraph/hard-cut boundaries, surrogate-safe cuts), the provider+model chain (model-not-found iteration, cross-provider fallback, provenance accumulation), the map-reduce flow (depth cap, shrink check, partial-failure stash, in-leaf recovery), the redistill CLI, the wiki auto-commit layer (batching, repo-safety probe, injection guards), and the entity-level self-healing pipeline (escalations, episode-versioned issue reports, log retention, provider-availability tracking: compile's EX_UNAVAILABLE exit, synthetic `system:` entities, the hybrid cron PATH builder), word-boundary truncation, the facet vocabulary collector, and the LLM-only cosine merge band. The e2e suite builds a wiki from scratch in a temp directory and asserts genesis, daily capture, lesson + knowledge + plan + investigation absorption, compile promotion + dedup, recall, tree-growth integrity, and idempotency — against the real `skill-llm-wiki` CLI with mocked LLM responses.
 
 ## Requirements
 ![](docs/assets/line-bold.svg)

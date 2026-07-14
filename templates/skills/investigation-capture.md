@@ -35,14 +35,18 @@ Call `save_to_dataset` with the `investigations` category:
 
 ```
 save_to_dataset({
-  dataset: "investigations",
-  name: "investigation-<topic>.md",
-  text: <markdown body, see template below>,
-  metadata: {
-    project_module: "<auth | billing | infra | frontend | ... >",
-    task_type: "debugging",
-    tags: ["<scope>", "<failure-class>"],
-    error_pattern: "<short kebab-case slug if you can name the failure mode>"
+  scopes: ["."],
+  target: "brain",
+  write: {
+    dataset: "investigations",
+    name: "investigation-<topic>.md",
+    text: <markdown body, see template below>,
+    metadata: {
+      project_module: "<auth | billing | infra | frontend | ... >",
+      task_type: "debugging",
+      tags: "<scope>, <failure-class>",
+      error_pattern: "<short kebab-case slug if you can name the failure mode>"
+    }
   }
 })
 ```
@@ -103,7 +107,7 @@ The trap-to-avoid section is the highest-value part for future retrieval. If you
 After a successful `save_to_dataset` call the response carries `ok: true`, `documentOk: true`, and `metadataOk: true`. If `metadataOk: false`, the leaf landed but its frontmatter metadata didn't write: metadata is stored directly in the leaf frontmatter (there is no separate schema-install step), so simply re-call `save_to_dataset` with the same name and body.
 
 There is no UI to open. Verify with the memory tools and the CLI:
-- `search_memory({ query: "<investigation title>", datasets: ["investigations"] })` should return at least one hit named `investigation-<slug>.md`.
+- `search_memory({ scopes: ["."], query: "<investigation title>", datasets: ["investigations"] })` should return at least one hit named `investigation-<slug>.md`.
 - `node .llm-wiki-memory/src/scripts/cli.mjs validate` confirms the wiki tree is well-formed.
 
 ## Cleanup
@@ -111,7 +115,7 @@ There is no UI to open. Verify with the memory tools and the CLI:
 If you save an investigation under a slug that turned out to be wrong, or you want to retract an investigation that's been superseded:
 
 - Same-name overwrite: just call `save_to_dataset` again with the same `name` and new body. The prior body is replaced atomically (the wiki keeps the old version in git history).
-- Different name overwrite (rename): call `delete_document(dataset="investigations", documentId="<old id>")` after `save_to_dataset` with the new slug. The old slug otherwise lives on as a stale leaf.
-- Soft retraction: `disable_document(dataset="investigations", documentId="<id>")` hides the leaf from search but keeps it in the wiki tree for audit. Reversible via `enable_document`.
+- Different name overwrite (rename): call `delete_document({ scopes: ["."], target: "brain", select: { dataset: "investigations", documentId: "<old id>" } })` after `save_to_dataset` with the new slug. The old slug otherwise lives on as a stale leaf.
+- Soft retraction: `disable_document({ scopes: ["."], target: "brain", select: { dataset: "investigations", documentId: "<id>" } })` hides the leaf from search but keeps it in the wiki tree for audit. Reversible via `enable_document`.
 
-To confirm the metadata actually landed on the leaf, query the category by the fields you DID set (do NOT filter by `atom_type`, investigations don't carry one; the canonical atom_type set is the flush/compile types plus `plan`, none of which is "investigation"). For example `search_memory({ query: "<investigation title>", datasets: ["investigations"], filters: { task_type: "debugging", project_module: "<module>" } })` returns the leaf when its metadata wrote correctly and returns nothing (or an unfiltered hit) when a metadata write failed. Note that `audit_memory` here supports only two classes, `duplicate-error-pattern` and `missing-metadata`, and the `missing-metadata` class walks `knowledge` and `self_improvement`, not `investigations`, so this manual `search_memory` check is the verification path for investigations. There is no investigations-specific or plans-specific audit class; investigations don't suffer the title-drift issue because you, the agent, picked the slug deliberately.
+To confirm the metadata actually landed on the leaf, query the category by the fields you DID set (do NOT filter by `atom_type`, investigations don't carry one; the canonical atom_type set is the flush/compile types plus `plan`, none of which is "investigation"). For example `search_memory({ scopes: ["."], query: "<investigation title>", datasets: ["investigations"], filters: { task_type: "debugging", area: "<module>" } })` returns the leaf when its metadata wrote correctly (filter by `area`, not `project_module` — a sub-module value you save is stored under the `area` facet; `project_module` is always the workspace id on read) and returns nothing (or an unfiltered hit) when a metadata write failed. Note that `audit_memory` here supports only two classes, `duplicate-error-pattern` and `missing-metadata`, and the `missing-metadata` class walks `knowledge` and `self_improvement`, not `investigations`, so this manual `search_memory` check is the verification path for investigations. There is no investigations-specific or plans-specific audit class; investigations don't suffer the title-drift issue because you, the agent, picked the slug deliberately.

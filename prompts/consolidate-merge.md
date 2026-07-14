@@ -5,7 +5,7 @@ You are the merge-near-duplicates pass of llm-wiki-memory's consolidate orchestr
 ```
 {
   "action": "merge" | "keep-keeper-unchanged" | "skip",
-  "merged_body": "<required iff action='merge'; new body for the keeper; <= MEMORY_ATOM_BODY_MAX_CHARS>",
+  "merged_body": "<required iff action='merge'; new body for the keeper; <= {{ATOM_BODY_MAX_CHARS}} chars>",
   "keeper_id": "<MUST equal the input keeper.documentId>",
   "loser_id": "<MUST equal the input loser.documentId>",
   "reason": "<one sentence explaining the decision>"

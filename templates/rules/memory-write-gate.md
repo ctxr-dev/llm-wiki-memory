@@ -4,8 +4,9 @@ description: Memory is read-freely, write-gated. Never call save_lesson or save_
 ---
 
 <!-- CANONICAL SOURCE: .llm-wiki-memory/src/templates/rules/memory-write-gate.md
-     bootstrap.sh renders this to .agents/rules/, .claude/rules/, and .cursor/rules/.
-     Edit the template and re-render; do NOT hand-edit a rendered copy. -->
+     bootstrap.sh wires an @-pointer to this file into .agents/rules/, .claude/rules/,
+     and .cursor/rules/ (reference-only — no copies, no symlinks). Edit this canonical
+     template; do NOT hand-edit a pointer. -->
 
 # Memory write-gate (self_improvement is propose-then-confirm)
 
@@ -72,8 +73,8 @@ Set `gate.perLessonConsent: false` to restore turn-level consent (one save phras
 
 | You observed | You do | Server outcome |
 |---|---|---|
-| User explicitly says "save this as a lesson" | call `save_lesson({ ..., userRequested: true })` | Saved |
-| User said yes to your propose-then-confirm | call `save_lesson({ ..., userRequested: true })` | Saved |
+| User explicitly says "save this as a lesson" | call `save_lesson({ scopes, target, write:{...}, gate:{ userRequested: true } })` | Saved |
+| User said yes to your propose-then-confirm | call `save_lesson({ scopes, target, write:{...}, gate:{ userRequested: true } })` | Saved |
 | You think a lesson is warranted but the user hasn't asked | propose one line; wait for yes; do NOT call the tool until then | (no call made) |
 | You have several lessons to save | propose & confirm EACH one separately | each saved on its own yes; a 2nd+ write in one turn re-prompts (L2) |
 | Tool called without `userRequested:true` | (don't do this) | Refused with `error: "write-gate-refused"` |

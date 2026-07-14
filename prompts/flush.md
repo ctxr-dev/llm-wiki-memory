@@ -20,7 +20,7 @@ Produce a small set of typed atoms that will be useful to a different agent in a
         "task_type": "planning | implementation | debugging | refactor | review | deploy | docs | unknown",
         "error_pattern": "short kebab-case slug (only for self-improvement-lesson and bug-root-cause)"
       },
-      "evidence": "optional: 1-line excerpt or reference from the transcript that justifies this atom"
+      "evidence": "optional: a ≤240-char (auto-truncated) 1-line excerpt or reference from the transcript that justifies this atom"
     }
   ]
 }

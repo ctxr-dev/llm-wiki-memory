@@ -61,17 +61,21 @@ Do NOT invoke when:
 3. **Save the delta via the MCP tool.** Use `save_to_dataset`:
    ```json
    {
-     "dataset": "issues",
-     "name": "<KEY>.md",
-     "text": "<the full UPDATED knowledge file body — preserve everything
-              that was there, append your new notes>",
-     "metadata": {
-       "atom_type": "jira_issue",
-       "area": "<repo-or-area-the-issue-relates-to>",
-       "tags": "<comma-sep tags including the issue key lowercased>"
-     },
-     "path": "<the topology-computed dir, no trailing slash; e.g.
-              issues/JIRA/DEV/129/95/7>"
+     "scopes": ["."],
+     "target": "brain",
+     "write": {
+       "dataset": "issues",
+       "name": "<KEY>.md",
+       "text": "<the full UPDATED knowledge file body — preserve everything
+                that was there, append your new notes>",
+       "metadata": {
+         "atom_type": "jira_issue",
+         "area": "<repo-or-area-the-issue-relates-to>",
+         "tags": "<comma-sep tags including the issue key lowercased>"
+       },
+       "path": "<the topology-computed dir, no trailing slash; e.g.
+                issues/JIRA/DEV/129/95/7>"
+     }
    }
    ```
    `save_to_dataset` overwrites in place when `path` + `name` resolve to

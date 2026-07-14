@@ -4,8 +4,9 @@ description: Every llm-wiki-memory MCP tool takes a REQUIRED `scopes: string[]` 
 ---
 
 <!-- CANONICAL SOURCE: .llm-wiki-memory/src/templates/rules/tool-scopes.md
-     bootstrap.sh renders this to .agents/rules/, .claude/rules/, and .cursor/rules/.
-     Edit the template and re-render; do NOT hand-edit a rendered copy. -->
+     bootstrap.sh wires an @-pointer to this file into .agents/rules/, .claude/rules/,
+     and .cursor/rules/ (reference-only — no copies, no symlinks). Edit this canonical
+     template; do NOT hand-edit a pointer. -->
 
 # Every memory tool requires `scopes`
 
@@ -88,5 +89,5 @@ goes INTO. They are different arguments with different jobs.
 
 | Where should this write land? | Pass as `target` |
 |---|---|
-| Your private memory (the default) | omit `target` (or `"brain"`) |
+| Your private memory | `"brain"` (explicit; there is no default — omitting `target` is rejected) |
 | A shared repo, AFTER the user chose it | `"<that repo's root or mount dir>"` — then tell them to commit + push |

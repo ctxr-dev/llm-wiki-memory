@@ -42,11 +42,14 @@ Call `recall_lessons` with the task context you can infer from the user's reques
 
 ```
 recall_lessons({
+  scopes: ["."],
   query: "<short description of what you are about to do>",
-  project_module: "<auth | billing | infra | frontend | cli | ...>",
-  language: "<swift | python | typescript | bash | ... or omit>",
-  task_type: "<planning | implementation | debugging | refactor | review | deploy | docs>",
-  error_pattern: "<short kebab-case slug if you suspect a known trap, otherwise omit>"
+  filters: {
+    area: "<auth | billing | infra | frontend | cli | ...>",
+    language: "<swift | python | typescript | bash | ... or omit>",
+    task_type: "<planning | implementation | debugging | refactor | review | deploy | docs>",
+    error_pattern: "<short kebab-case slug if you suspect a known trap, otherwise omit>"
+  }
 })
 ```
 
@@ -72,18 +75,22 @@ Then:
 
 ```
 save_lesson({
-  title: "<imperative summary, <=80 chars: what to do (or not do) next time>",
-  body: "<lead with the rule, then 'Why:' and 'How to apply:' lines; flush truncates to settings.compile.atomBodyMaxChars (default 700)>",
-  userRequested: true,   // REQUIRED. Only set when the user explicitly said yes
-                         // in this turn. Server refuses without it.
-  metadata: {
-    project_module: "<inferred>",
-    task_type: "<inferred>",
-    error_pattern: "<short kebab-case slug naming the trap>",
-    language: "<optional>"
+  scopes: ["."],
+  target: "brain",
+  write: {
+    title: "<imperative summary, <=80 chars: what to do (or not do) next time>",
+    body: "<lead with the rule, then 'Why:' and 'How to apply:' lines; flush truncates to settings.compile.atomBodyMaxChars (default 700)>",
+    metadata: {
+      area: "<inferred>",
+      task_type: "<inferred>",
+      error_pattern: "<short kebab-case slug naming the trap>",
+      language: "<optional>"
+    },
+    tags: ["<scope>", "<area>"],
+    evidence: "<one-line excerpt of the user's correction, redact secrets>"
   },
-  tags: ["<scope>", "<area>"],
-  evidence: "<one-line excerpt of the user's correction, redact secrets>"
+  gate: { userRequested: true }   // REQUIRED. Only set when the user explicitly said yes
+                                  // in this turn. Server refuses without it.
 })
 ```
 
@@ -95,7 +102,7 @@ save_lesson({
 - `pr-comment-on-stale-head`
 - `wrong-test-import-path`
 
-A `save_lesson` call persists a lesson directly into `self_improvement/<project_module>/<task_type>/` (the MCP tool writes the `self_improvement` dataset, not `daily`). Lessons that instead surface from a session's auto-capture are extracted into `daily/<yyyy>/<mm>/<dd>/` by flush and promoted later by compile. Either way, when a future session hits the same trap, compile MERGEs the new lesson into the existing `self_improvement/...` leaf with the same `error_pattern` rather than multiplying it. Compile runs once per day automatically (PreCompact / PostCompact / SessionEnd hooks feed it); you can force it now with `node .llm-wiki-memory/src/scripts/cli.mjs compile`.
+A `save_lesson` call persists a lesson directly into `self_improvement/<area>/<task_type>/<subject…>/` (the layout's `placement_facets`; the MCP tool writes the `self_improvement` dataset, not `daily`, and auto-stamps `project_module` to the workspace). Lessons that instead surface from a session's auto-capture are extracted into `daily/<yyyy>/<mm>/<dd>/` by flush and promoted later by compile. Either way, when a future session hits the same trap, compile MERGEs the new lesson into the existing `self_improvement/...` leaf with the same `error_pattern` rather than multiplying it. Compile runs once per day automatically (PreCompact / PostCompact / SessionEnd hooks feed it); you can force it now with `node .llm-wiki-memory/src/scripts/cli.mjs compile`.
 
 ## Do NOT save a lesson when
 
@@ -115,6 +122,6 @@ A `save_lesson` call persists a lesson directly into `self_improvement/<project_
 ## Verifying the loop
 
 You have no UI to open; verify with the memory tools and the CLI:
-- After a `save_lesson`, call `recall_lessons({ query: "<lesson title>", error_pattern: "<slug>" })` (or `search_memory`) and assert at least one hit. Note: a fresh lesson lives in the day's `daily/` leaves until the next compile promotes and merges it into `self_improvement`, so search either category.
+- After a `save_lesson`, call `recall_lessons({ scopes: ["."], query: "<lesson title>", filters: { error_pattern: "<slug>" } })` (or `search_memory`) and assert at least one hit. Note: a fresh lesson lives in the day's `daily/` leaves until the next compile promotes and merges it into `self_improvement`, so search either category.
 - Run `node .llm-wiki-memory/src/scripts/cli.mjs validate` to confirm the wiki is well-formed.
 - If a save reports `metadataOk: false`, metadata is stored directly in the leaf frontmatter (there is no separate schema-install step), so simply re-call the save.

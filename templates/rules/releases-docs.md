@@ -1,6 +1,6 @@
 ---
 name: releases-docs
-description: Every BREAKING release of llm-wiki-memory (or any project using this rule) MUST ship a runbook at docs/releases/yyyy/mm/dd[/vN]/update-prompt.md. Shipped rule — bootstrap renders it to .agents/rules/, .claude/rules/, and .cursor/rules/.
+description: Every BREAKING release of llm-wiki-memory (or any project using this rule) MUST ship a runbook at docs/releases/yyyy/mm/dd[/vN]/update-prompt.md. Shipped rule — bootstrap wires an @-pointer to it into .agents/rules/, .claude/rules/, and .cursor/rules/ (reference-only).
 ---
 
 # Release docs discipline

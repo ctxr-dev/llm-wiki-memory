@@ -65,7 +65,7 @@ Do NOT invoke when:
 
 3. **Search the wiki.** Use the `search_memory` MCP tool:
    ```json
-   { "query": "<branch text or basename>", "maxResults": 8 }
+   { "scopes": ["."], "query": "<branch text or basename>", "maxResults": 8 }
    ```
    Top-K hits (with cosine scores) are your candidate context. If no
    hits return, gracefully report "no recent wiki context for this

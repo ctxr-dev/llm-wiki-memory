@@ -4,8 +4,9 @@ description: Every memory atom carries memory.priority (P0 hard-constraint / P1 
 ---
 
 <!-- CANONICAL SOURCE: .llm-wiki-memory/src/templates/rules/priority.md
-     bootstrap.sh renders this to .agents/rules/, .claude/rules/, and .cursor/rules/.
-     Edit the template and re-render; do NOT hand-edit a rendered copy. -->
+     bootstrap.sh wires an @-pointer to this file into .agents/rules/, .claude/rules/,
+     and .cursor/rules/ (reference-only — no copies, no symlinks). Edit this canonical
+     template; do NOT hand-edit a pointer. -->
 
 # Priority (apply-strength) on every atom
 

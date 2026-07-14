@@ -38,10 +38,14 @@ tree: `issues/<tracker>/<prefix>/<buckets>/<lifecycle>/…`) is different:
 
    ```
    save_to_dataset({
-     dataset: "issues",
-     name: "DEV-129957-fix-timeout.plan.md",
-     path: "issues/JIRA/DEV/129/95/7/in-progress",
-     text, metadata,
+     scopes,
+     target,
+     write: {
+       dataset: "issues",
+       name: "DEV-129957-fix-timeout.plan.md",
+       path: "issues/JIRA/DEV/129/95/7/in-progress",
+       text, metadata,
+     },
    })
    ```
 
