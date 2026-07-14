@@ -3,7 +3,7 @@ import path from "node:path";
 import { priorityForAtomType, normalisePriority, priorityRank } from "./datasets.mjs";
 import { embedCacheFor } from "./env.mjs";
 import { recallPriorityBand } from "./settings.mjs";
-import { loadCache, saveCache, cachedEmbedding, embed, cosine } from "./embed.mjs";
+import { loadCache, saveCache, cachedEmbeddings, embed, cosine } from "./embed.mjs";
 import {
   WikiStoreUnavailable,
   root,
@@ -137,16 +137,12 @@ function metaMatchesFilters(memoryMeta, filters) {
   return true;
 }
 
-// Filter leaves by frontmatter metadata, then rank by embedding similarity.
 // Stable within-band priority tie-break over a cosine-descending list. Cosine
 // stays dominant: a hit more than `band` below its group leader keeps its rank;
-// only hits within `band` of each other are reordered P0 > P1 > P2 (Array.sort
-// is stable, so equal-priority ties keep cosine order). band <= 0 disables it.
+// only hits within `band` reorder P0 > P1 > P2 (stable sort keeps cosine order
+// for equal priority). band <= 0 disables it. `scoreOf` selects the metric the
+// band walks (default cosine `score`; fan-out passes adjustedConfidence).
 /**
- * `scoreOf` selects the ranking metric the band walks over (default: cosine
- * `score`). The fan-out read path passes `r => r.adjustedConfidence ?? r.score`
- * so the band groups by the depth-boosted metric it actually sorted by; the
- * single-tree callers keep the default, which is byte-identical to before.
  * @template {{ score: number, priority: string }} T
  * @param {T[]} sortedDesc
  * @param {number} band
@@ -198,10 +194,9 @@ export async function searchOneTree({
       try {
         ({ data, body } = readLeaf(leaf));
       } catch (err) {
-        // An unreadable leaf (invalid YAML frontmatter — e.g. a git merge conflict
-        // in a SHARED repo leaf that two teammates edited) must NOT abort the fan-out
-        // and blank recall for everyone with that repo in scope. Skip it with a
-        // breadcrumb; the brain + the rest of this tree still return.
+        // An unreadable leaf (invalid YAML — e.g. a git merge conflict in a SHARED
+        // repo leaf) must NOT abort the search and blank recall for everyone with
+        // that repo in scope. Skip it with a breadcrumb; the rest still return.
         console.error(
           `[search] skipping unreadable leaf ${toRel(leaf)}: ${err instanceof Error ? err.message : String(err)}`,
         );
@@ -226,11 +221,9 @@ export async function searchOneTree({
   }
   if (candidates.length === 0) return { records: [] };
 
-  // Embed the query FIRST so the backend is resolved before any cache load:
-  // loadCache stamps against the RESOLVED backend + this dim, so a stale-dim or
-  // cross-backend category cache is dropped and re-embedded instead of scoring
-  // as all-zero. Each candidate's cache is its own category file, loaded once
-  // and reused (a multi-category search touches every relevant category cache).
+  // Embed the query FIRST so the backend is resolved before any cache load
+  // (loadCache stamps against the resolved backend + dim, dropping a stale or
+  // cross-backend category cache instead of scoring it as all-zero).
   const queryVec = await embed(String(query || ""));
   const wiki = root();
   /** @type {Map<string, import("./embed.mjs").EmbedCache>} */
@@ -244,17 +237,29 @@ export async function searchOneTree({
     }
     return c;
   };
-  const scored = [];
+  // Batch the cold-cache misses per category (one embedMany pass per category,
+  // not a serial call per candidate — the whole-category warm is the hot path);
+  // score in candidate order so the priority tie-break is unchanged.
+  /** @type {Map<string, { id: string, text: string }[]>} */
+  const itemsByCat = new Map();
   for (const c of candidates) {
-    const vec = await cachedEmbedding(cacheFor(c.datasetId), c.id, c.text);
-    scored.push({ ...c, score: cosine(queryVec, vec) });
+    const arr = itemsByCat.get(c.datasetId);
+    if (arr) arr.push({ id: c.id, text: c.text });
+    else itemsByCat.set(c.datasetId, [{ id: c.id, text: c.text }]);
   }
+  /** @type {Map<string, number[]>} */
+  const vecById = new Map();
+  for (const [cat, items] of itemsByCat) {
+    const vecs = await cachedEmbeddings(cacheFor(cat), items);
+    items.forEach((it, i) => vecById.set(`${cat}\0${it.id}`, vecs[i]));
+  }
+  const scored = candidates.map((c) => ({
+    ...c,
+    score: cosine(queryVec, vecById.get(`${c.datasetId}\0${c.id}`) ?? []),
+  }));
   for (const [cat, cache] of cacheByCat) {
-    // Best-effort persist: the vectors were already computed in-memory and used for
-    // scoring, so persistence is only a latency optimization. A READ-ONLY /
-    // unwritable shared-repo tree (a teammate consuming another owner's curated
-    // memory) must NOT make a search THROW — .embeddings/ is gitignored, so the
-    // first search would otherwise try to create it and abort recall for everyone.
+    // Best-effort persist: vectors are already scored in-memory, so this is only a
+    // latency optimization — a READ-ONLY shared tree must not make search throw.
     try {
       saveCache(embedCacheFor(wiki, cat), cache);
     } catch (err) {
@@ -265,10 +270,8 @@ export async function searchOneTree({
   }
   scored.sort((a, b) => b.score - a.score);
 
-  // Relevance is the gate (cosine sort + scoreThreshold). Priority is a
-  // within-band tie-break only: among near-equally-relevant hits a P0/P1 orders
-  // above a P2, but a clearly-more-relevant hit keeps its rank. Applied BEFORE
-  // the limit so a within-band P0 can make the cut over a tied P2.
+  // Relevance gates (cosine + scoreThreshold); priority only breaks near-ties,
+  // applied BEFORE the limit so a within-band P0 can make the cut over a P2.
   const eligible = scored.filter((r) => scoreThreshold == null || r.score >= scoreThreshold);
   const ranked = rerankWithinBands(eligible, recallPriorityBand());
   const records = ranked.slice(0, limit).map((r) => {

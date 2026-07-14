@@ -10,7 +10,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { withWikiRoot, embedCacheFor } from "../lib/env.mjs";
-import { loadCache, saveCache, cachedEmbedding } from "../lib/embed.mjs";
+import { loadCache, saveCache, cachedEmbeddings } from "../lib/embed.mjs";
 import { walkLeaves, readLeaf, isActive } from "../lib/wiki-core.mjs";
 import { toRel } from "../lib/wiki-identity.mjs";
 import { mergedLayoutForRoot, sharedCategories } from "../lib/wiki-ownership.mjs";
@@ -44,7 +44,8 @@ function categoryFromMountPath(p) {
 async function warmCategory(wikiRootDir, category) {
   const cachePath = embedCacheFor(wikiRootDir, category);
   const cache = loadCache(cachePath);
-  let count = 0;
+  /** @type {{ id: string, text: string }[]} */
+  const items = [];
   for (const leaf of walkLeaves(path.join(wikiRootDir, category))) {
     let data, body;
     try {
@@ -59,9 +60,12 @@ async function warmCategory(wikiRootDir, category) {
       continue;
     }
     if (!isActive(data)) continue;
-    await cachedEmbedding(cache, toRel(leaf), body);
-    count += 1;
+    items.push({ id: toRel(leaf), text: body });
   }
+  // One batched forward pass over all changed leaves in this category (bounded
+  // internally by embedMany's chunk size) instead of a serial call per leaf.
+  await cachedEmbeddings(cache, items);
+  const count = items.length;
   // Best-effort persist (parity with searchOneTree): a READ-ONLY / unwritable
   // shared-repo tree (a teammate consuming another owner's curated memory) must
   // not make the warm THROW — .embeddings/ is gitignored, so persisting would try

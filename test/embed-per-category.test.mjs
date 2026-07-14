@@ -129,6 +129,67 @@ test("doctor ignores the hidden per-category .embeddings/ dir (never a stray/orp
   );
 });
 
+test("embedMany returns vectors aligned to input order (batched == per-item)", async () => {
+  const texts = ["alpha alpha beta", "gamma delta", "epsilon zeta eta theta"];
+  const many = await embed.embedMany(texts);
+  assert.equal(many.length, 3, "one vector per input");
+  for (let i = 0; i < texts.length; i += 1) {
+    const single = await embed.embed(texts[i]);
+    assert.ok(embed.cosine(many[i], single) > 0.999, `row ${i} matches the single embed`);
+  }
+});
+
+test("embedMany([]) is [] (no model call)", async () => {
+  assert.deepEqual(await embed.embedMany([]), []);
+});
+
+test("embedMany chunks by batchSize and preserves order across chunk boundaries", async () => {
+  const texts = ["one uno", "two dos", "three tres", "four cuatro", "five cinco"];
+  const batched = await embed.embedMany(texts, 2); // 3 chunks: [2, 2, 1]
+  assert.equal(batched.length, 5);
+  for (let i = 0; i < texts.length; i += 1) {
+    const single = await embed.embed(texts[i]);
+    assert.ok(embed.cosine(batched[i], single) > 0.999, `chunked row ${i} preserved`);
+  }
+});
+
+test("cachedEmbeddings reuses hash-matching entries and embeds only the misses", async () => {
+  /** @type {import("../scripts/lib/embed.mjs").EmbedCache} */
+  const cache = { entries: {} };
+  const hit = { id: "knowledge/a.md", text: "reused body token" };
+  cache.entries[hit.id] = { hash: embed.contentHash(hit.text), vector: [0.5, 0.5] };
+  const items = [
+    hit,
+    { id: "knowledge/b.md", text: "fresh body one" },
+    { id: "knowledge/c.md", text: "fresh body two" },
+  ];
+  const vecs = await embed.cachedEmbeddings(cache, items);
+  assert.equal(vecs.length, 3, "aligned to items");
+  assert.deepEqual(
+    vecs[0],
+    [0.5, 0.5],
+    "the hash-matching entry is returned verbatim, not re-embedded",
+  );
+  assert.ok(cache.entries["knowledge/b.md"], "miss b stored in the cache");
+  assert.ok(cache.entries["knowledge/c.md"], "miss c stored in the cache");
+  assert.equal(
+    cache.entries["knowledge/b.md"].hash,
+    embed.contentHash("fresh body one"),
+    "the stored entry is keyed by the current content hash",
+  );
+});
+
+test("cachedEmbeddings re-embeds an entry whose content hash changed", async () => {
+  /** @type {import("../scripts/lib/embed.mjs").EmbedCache} */
+  const cache = { entries: {} };
+  cache.entries["knowledge/x.md"] = { hash: "STALE", vector: [9, 9] };
+  const [vec] = await embed.cachedEmbeddings(cache, [
+    { id: "knowledge/x.md", text: "brand new content" },
+  ]);
+  assert.notDeepEqual(vec, [9, 9], "the stale-hash entry is recomputed, not returned");
+  assert.equal(cache.entries["knowledge/x.md"].hash, embed.contentHash("brand new content"));
+});
+
 test("cosine guards a dimension mismatch (no bogus high score)", () => {
   // Same length still computes a real similarity.
   assert.ok(Math.abs(embed.cosine([1, 0, 0], [1, 0, 0]) - 1) < 1e-9, "identical vectors -> 1");

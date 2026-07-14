@@ -4,6 +4,9 @@ import crypto from "node:crypto";
 import { envValue } from "./env.mjs";
 import { embedBackend, embedModel, DEFAULT_EMBED_MODEL } from "./settings.mjs";
 import { writeFileAtomic } from "./atomic-write.mjs";
+import { lexicalVector } from "./embed-lexical.mjs";
+
+export { cosine } from "./embed-lexical.mjs";
 
 // Local recall engine. The skill-llm-wiki package has NO query/search command
 // (retrieval is "walk the index tree" by design), so ranking a free-text query
@@ -76,60 +79,19 @@ async function getExtractor() {
   return _extractorPromise;
 }
 
-// Deterministic lexical embedding: hashed bag-of-tokens into a fixed-width
-// vector. Not semantic, but stable and dependency-free; used only when the
-// transformer backend is unavailable.
-const LEXICAL_DIM = 256;
+// Model download / load failed: degrade to lexical for the rest of the process.
+// Surface once on stderr for forensics, then latch the backend.
 /**
- * @param {string} text
- * @returns {number[]}
+ * @param {unknown} err
+ * @returns {void}
  */
-function lexicalVector(text) {
-  const vec = new Array(LEXICAL_DIM).fill(0);
-  const tokens = String(text || "")
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((t) => t.length > 1);
-  for (const tok of tokens) {
-    const h = crypto.createHash("md5").update(tok).digest();
-    const idx = h.readUInt16BE(0) % LEXICAL_DIM;
-    vec[idx] += 1;
+function noteLexicalFallback(err) {
+  if (_backend !== "lexical") {
+    process.stderr.write(
+      `embed.mjs: transformer backend unavailable (${err instanceof Error ? err.message : err}); falling back to lexical similarity\n`,
+    );
   }
-  return l2normalize(vec);
-}
-
-/**
- * @param {number[]} vec
- * @returns {number[]}
- */
-function l2normalize(vec) {
-  let norm = 0;
-  for (const v of vec) norm += v * v;
-  norm = Math.sqrt(norm) || 1;
-  return vec.map((v) => v / norm);
-}
-
-/**
- * @param {number[]} a
- * @param {number[]} b
- * @returns {number}
- */
-export function cosine(a, b) {
-  // A length mismatch means the two vectors came from different backends/dims
-  // (e.g. a stale lexical-256 cache vector scored against a transformer query).
-  // Treat it as no-match rather than iterating to one length and computing a
-  // bogus partial dot product (which would also read `undefined` -> NaN).
-  if (!a || !b || a.length !== b.length) return 0;
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
-  }
-  if (na === 0 || nb === 0) return 0;
-  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+  _backend = "lexical";
 }
 
 // Embed a single string. Resolves the backend once and sticks with it.
@@ -150,15 +112,50 @@ export async function embed(text) {
     _backend = "transformers";
     return Array.from(out.data);
   } catch (err) {
-    // Model download / load failed: degrade to lexical for the rest of the
-    // process. Surface once on stderr for forensics.
-    if (_backend !== "lexical") {
-      process.stderr.write(
-        `embed.mjs: transformer backend unavailable (${err instanceof Error ? err.message : err}); falling back to lexical similarity\n`,
-      );
-    }
-    _backend = "lexical";
+    noteLexicalFallback(err);
     return lexicalVector(text);
+  }
+}
+
+// Batch-embed many strings through ONE model, returning vectors aligned to input
+// order. The transformer pipeline takes an array and runs each chunk as a single
+// padded forward pass — one model in memory, never duplicated (a worker pool
+// would load the ~340MB model once PER worker; see docs/embeddings.md). Chunking
+// bounds the working-set tensor; the batch is a throughput win of ~10% on
+// bge-large (the model dominates), larger on lighter models. Same backend
+// resolution + lexical fallback as embed().
+const EMBED_BATCH_SIZE = 32;
+/**
+ * @param {string[]} texts
+ * @param {number} [batchSize]
+ * @returns {Promise<number[][]>}
+ */
+export async function embedMany(texts, batchSize = EMBED_BATCH_SIZE) {
+  const list = Array.isArray(texts) ? texts.map((t) => String(t || "")) : [];
+  if (list.length === 0) return [];
+  const forced = configuredBackend();
+  if (forced === "lexical" || _backend === "lexical") {
+    _backend = "lexical";
+    return list.map(lexicalVector);
+  }
+  try {
+    const extractor = await getExtractor();
+    const size = batchSize > 0 ? batchSize : list.length;
+    /** @type {number[][]} */
+    const vectors = [];
+    for (let i = 0; i < list.length; i += size) {
+      const chunk = list.slice(i, i + size);
+      const out = await extractor(chunk, { pooling: "mean", normalize: true });
+      const dim = out.dims[out.dims.length - 1];
+      for (let r = 0; r < chunk.length; r += 1) {
+        vectors.push(Array.from(out.data.slice(r * dim, (r + 1) * dim)));
+      }
+    }
+    _backend = "transformers";
+    return vectors;
+  } catch (err) {
+    noteLexicalFallback(err);
+    return list.map(lexicalVector);
   }
 }
 
@@ -246,23 +243,44 @@ export function saveCache(cachePath, cache) {
   writeFileAtomic(cachePath, JSON.stringify(stamped));
 }
 
-// Return the embedding for `id`, recomputing only when the content hash
-// changed. Mutates `cache` in memory; caller persists.
+// Batched cache fill for ONE cache: reuse entries whose content hash is
+// unchanged, embed the MISSES in a single batched call (embedMany), store them,
+// and return vectors aligned to `items` order. Mutates `cache` in memory; the
+// caller persists. Batching the misses is what turns a cold N-leaf category warm
+// (or first search) from N serial model calls into ceil(N/batch) forward passes.
 /**
  * @param {EmbedCache} cache
- * @param {string} id
- * @param {string} text
- * @returns {Promise<number[]>}
+ * @param {{ id: string, text: string }[]} items
+ * @returns {Promise<number[][]>}
  */
-export async function cachedEmbedding(cache, id, text) {
-  const hash = contentHash(text);
-  const existing = cache.entries[id];
-  if (existing && existing.hash === hash && Array.isArray(existing.vector)) {
-    return existing.vector;
+export async function cachedEmbeddings(cache, items) {
+  const list = Array.isArray(items) ? items : [];
+  /** @type {number[][]} */
+  const out = new Array(list.length);
+  /** @type {{ idx: number, id: string, hash: string }[]} */
+  const misses = [];
+  /** @type {string[]} */
+  const missTexts = [];
+  for (let i = 0; i < list.length; i += 1) {
+    const { id, text } = list[i];
+    const hash = contentHash(text);
+    const existing = cache.entries[id];
+    if (existing && existing.hash === hash && Array.isArray(existing.vector)) {
+      out[i] = existing.vector;
+    } else {
+      misses.push({ idx: i, id, hash });
+      missTexts.push(text);
+    }
   }
-  const vector = await embed(text);
-  cache.entries[id] = { hash, vector };
-  return vector;
+  if (missTexts.length > 0) {
+    const vecs = await embedMany(missTexts);
+    for (let k = 0; k < misses.length; k += 1) {
+      const { idx, id, hash } = misses[k];
+      cache.entries[id] = { hash, vector: vecs[k] };
+      out[idx] = vecs[k];
+    }
+  }
+  return out;
 }
 
 /**
