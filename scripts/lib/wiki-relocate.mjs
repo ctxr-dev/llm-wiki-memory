@@ -63,12 +63,14 @@ export function updateDocMetadata({
   // priority recomputes it against the guard-dropped (empty) atom_type ->
   // DEFAULT_PRIORITY and would clobber the leaf's existing apply-strength (a
   // P0/P1 leaf silently downgraded to P2 on every consolidate stamp). Drop it
-  // unless the caller EXPLICITLY sets priority, so the merge keeps the current
-  // value (backfill-priority, which does pass priority, still updates it).
+  // unless the caller EXPLICITLY sets a VALID priority, so the merge keeps the
+  // current value (backfill-priority, which does pass priority, still updates it).
+  // An INVALID priority string counts as "not set" so it preserves the existing
+  // value rather than clobbering to DEFAULT_PRIORITY via the empty-atom_type rubric.
   const callerSetsPriority = Boolean(
     metadata &&
     typeof metadata === "object" &&
-    /** @type {Record<string, unknown>} */ (metadata).priority,
+    normalisePriority(/** @type {Record<string, unknown>} */ (metadata).priority),
   );
   if (!callerSetsPriority)
     delete (/** @type {Partial<import("./types.mjs").MemoryMetadata>} */ (incoming).priority);

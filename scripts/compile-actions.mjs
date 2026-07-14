@@ -4,6 +4,7 @@ import { callJSON } from "./lib/llm-callJSON.mjs";
 import {
   writeMemory,
   updateDocMetadata,
+  readDocument,
   WikiStoreUnavailable as DifyBridgeUnavailable,
 } from "./lib/wiki-store.mjs";
 import { metadataForDify } from "./lib/datasets.mjs";
@@ -105,6 +106,23 @@ function auditCompileLessonPromotion(atom, action, writeResult) {
   }
 }
 
+// Read the superseded leaf's stored metadata so an `update` can preserve its
+// apply-strength + workspace identity. Defensive: a missing/unreadable candidate
+// leaf falls back to atom-only metadata (never aborts the compile run).
+/**
+ * @param {SearchHit | undefined} candidate
+ * @param {string} datasetId
+ * @returns {import("./lib/types.mjs").MemoryMetadata | null}
+ */
+function readSupersededMetadata(candidate, datasetId) {
+  if (!candidate) return null;
+  try {
+    return readDocument({ documentId: candidate.documentId, datasetId })?.metadata || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * @param {DistilledAtom} atom
  * @param {CompileDecision} decision
@@ -164,12 +182,32 @@ export async function executeAction(atom, decision, candidates, targetDataset) {
         datasetId: targetDataset,
       };
     }
+    // An `update` REPLACES the superseded lesson (writeMemory + supersedes:disable),
+    // and metadataForDify carries only the NEW atom's fields. Preserve the
+    // superseded leaf's apply-strength + workspace identity so the merge doesn't
+    // rebuild a user-gated P0 lesson at the atom_type rubric default (P1) or reset a
+    // deliberately cross-project lesson to defaultProjectModule().
+    const metadata = metadataForDify(atom);
+    const superseded = readSupersededMetadata(candidate, targetDataset);
+    if (superseded) {
+      // priority: preserve unless the atom carries its own (metadataForDify only
+      // emits priority when the atom set one).
+      if (!metadata.priority && superseded.priority) metadata.priority = superseded.priority;
+      // project_module: preserve ONLY from a POST-SPLIT leaf (one carrying `area`,
+      // where project_module is the real workspace identity). A pre-split legacy
+      // leaf's project_module IS a sub-module alias — propagating it would mis-stamp
+      // it as the workspace, so fall through to defaultProjectModule() there. A
+      // compile atom has no channel to re-identify the workspace (it carries a
+      // sub-module, not a cross-project override), so this is the only signal.
+      if (!metadata.project_module_override && superseded.project_module && superseded.area)
+        metadata.project_module_override = superseded.project_module;
+    }
     const result = /** @type {CompileWriteResult} */ (
       await writeMemory({
         name,
         text,
         datasetId: targetDataset,
-        metadata: metadataForDify(atom),
+        metadata,
         supersedes: decision.supersedes,
         supersedesAction: "disable",
       })

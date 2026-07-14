@@ -134,6 +134,16 @@ test("updateDocMetadata still applies an EXPLICIT priority (backfill path)", () 
   assert.equal(metaOf(id).priority, "P1", "an explicit priority update is honoured");
 });
 
+test("updateDocMetadata treats an INVALID priority as not-set (preserves existing, no P2 clobber)", () => {
+  const id = seedKnowledge("badpri.md", { priority: "P0" });
+  updateDocMetadata({ documentId: id, metadata: { priority: "P9", stale: true } });
+  assert.equal(
+    metaOf(id).priority,
+    "P0",
+    "an invalid priority string does not clobber the existing P0",
+  );
+});
+
 // ─── the consolidate merge/refresh re-save mechanism (store.saveDocument) ─────
 
 test("a raw re-save clobbers a cross-project module; preserveIdentityOnResave prevents it", () => {
