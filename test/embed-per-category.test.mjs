@@ -179,6 +179,22 @@ test("cachedEmbeddings reuses hash-matching entries and embeds only the misses",
   );
 });
 
+test("tensorRows reshapes a batched [count,dim] tensor into ordered per-input rows", () => {
+  // Row-major [3,2]: rows [10,11],[20,21],[30,31]. Distinct per-row values so a
+  // transpose or wrong-offset slice (the untested transformer batch path) is RED.
+  const out = { dims: [3, 2], data: [10, 11, 20, 21, 30, 31] };
+  assert.deepEqual(embed.tensorRows(out, 3), [
+    [10, 11],
+    [20, 21],
+    [30, 31],
+  ]);
+});
+
+test("tensorRows handles a Float32Array tensor and a single-row (last-chunk) case", () => {
+  const out = { dims: [1, 4], data: Float32Array.from([1, 2, 3, 4]) };
+  assert.deepEqual(embed.tensorRows(out, 1), [[1, 2, 3, 4]]);
+});
+
 test("cachedEmbeddings re-embeds an entry whose content hash changed", async () => {
   /** @type {import("../scripts/lib/embed.mjs").EmbedCache} */
   const cache = { entries: {} };

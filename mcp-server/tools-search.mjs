@@ -5,12 +5,24 @@ import { jsonResponse, errorResponse } from "./mcp-responses.mjs";
 import { FilterSchema } from "./mcp-schemas.mjs";
 import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
 import { SectionSchema } from "../scripts/lib/context/enums.mjs";
+import { getActiveWikiContext } from "../scripts/lib/wiki-context.mjs";
+
+// The number of levels in the active scope chain, or undefined for a single
+// tree. recall_lessons projects to a minimal RecordRecall that DROPS the
+// per-hit `resolvedRoot` tag the clamp uses to size the federated body budget,
+// so it must pass this count explicitly — otherwise a multi-repo team recall
+// falls back to the single-tree budget and blanks lesson bodies too early.
+// (search_memory keeps `resolvedRoot` on its hits, so it infers this itself.)
+function activeLevelCount() {
+  const ctx = getActiveWikiContext();
+  return ctx && Array.isArray(ctx.levels) ? ctx.levels.length : undefined;
+}
 
 /** @typedef {import("@modelcontextprotocol/sdk/server/mcp.js").McpServer} McpServer */
 /**
  * Options accepted by `clampSearchResponse`. Declared locally so the MCP call
  * sites type-check while search-clamp.mjs is untyped; every field is optional.
- * @typedef {{ maxChars?: number, fullContent?: boolean, sections?: Array<"frontmatter" | "body">, perHitDefault?: number }} ClampOptions
+ * @typedef {{ maxChars?: number, fullContent?: boolean, sections?: Array<"frontmatter" | "body">, perHitDefault?: number, levels?: number }} ClampOptions
  */
 
 /** @param {McpServer} server */
@@ -110,6 +122,7 @@ function registerSearchTools(server) {
                 fullContent,
                 sections,
                 perHitDefault: 1500,
+                levels: activeLevelCount(),
               }),
             ),
           );

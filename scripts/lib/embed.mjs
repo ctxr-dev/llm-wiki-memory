@@ -4,9 +4,9 @@ import crypto from "node:crypto";
 import { envValue } from "./env.mjs";
 import { embedBackend, embedModel, DEFAULT_EMBED_MODEL } from "./settings.mjs";
 import { writeFileAtomic } from "./atomic-write.mjs";
-import { lexicalVector } from "./embed-lexical.mjs";
+import { lexicalVector, tensorRows } from "./embed-lexical.mjs";
 
-export { cosine } from "./embed-lexical.mjs";
+export { cosine, tensorRows } from "./embed-lexical.mjs";
 
 // Local recall engine. The skill-llm-wiki package has NO query/search command
 // (retrieval is "walk the index tree" by design), so ranking a free-text query
@@ -146,10 +146,7 @@ export async function embedMany(texts, batchSize = EMBED_BATCH_SIZE) {
     for (let i = 0; i < list.length; i += size) {
       const chunk = list.slice(i, i + size);
       const out = await extractor(chunk, { pooling: "mean", normalize: true });
-      const dim = out.dims[out.dims.length - 1];
-      for (let r = 0; r < chunk.length; r += 1) {
-        vectors.push(Array.from(out.data.slice(r * dim, (r + 1) * dim)));
-      }
+      vectors.push(...tensorRows(out, chunk.length));
     }
     _backend = "transformers";
     return vectors;

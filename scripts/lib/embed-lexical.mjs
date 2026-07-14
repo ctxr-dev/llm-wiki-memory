@@ -59,3 +59,22 @@ export function cosine(a, b) {
   if (na === 0 || nb === 0) return 0;
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
+
+// Reshape a batched feature-extraction tensor ([count, dim], row-major) into one
+// vector per input, in order. Isolated + exported so the transformer batch path's
+// row assembly is unit-testable with a synthetic tensor — the lexical test harness
+// short-circuits before the real pipeline, so this slice logic would otherwise be
+// untested and a row-transpose/offset bug would corrupt every vector silently.
+/**
+ * @param {{ dims: number[], data: ArrayLike<number> | ArrayLike<bigint> }} out
+ * @param {number} count
+ * @returns {number[][]}
+ */
+export function tensorRows(out, count) {
+  const dim = out.dims[out.dims.length - 1];
+  const flat = Array.from(out.data, Number);
+  /** @type {number[][]} */
+  const rows = [];
+  for (let r = 0; r < count; r += 1) rows.push(flat.slice(r * dim, (r + 1) * dim));
+  return rows;
+}

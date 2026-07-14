@@ -134,6 +134,30 @@ test("clamp: single-tree response (no depth tags) keeps the un-scaled budget", (
   );
 });
 
+test("clamp: explicit `levels` scales the budget for UNTAGGED records (the recall_lessons path)", () => {
+  // recall_lessons projects to a minimal record that DROPS resolvedRoot/depth, so
+  // the clamp can't infer the contributing-level count — the handler passes it
+  // explicitly. With bodies at the recall default width (1500), the inferred
+  // single-tree budget blanks the tail; an explicit levels=3 (a 3-repo team scope)
+  // must let strictly more lesson bodies survive. Guards the fall-back-to-1 bug.
+  const body = "y".repeat(1499); // < perHitDefault so no per-hit trim; pure budget test
+  const records = Array.from({ length: 22 }, (_, i) => ({
+    documentId: `r${i}`,
+    priority: "P1",
+    content: body,
+  }));
+  const alive = (o) => o.records.filter((r) => r.content.length > 0).length;
+  const single = clampSearchResponse({ records }, { perHitDefault: 1500 });
+  const team = clampSearchResponse({ records }, { perHitDefault: 1500, levels: 3 });
+  assert.equal(single.records.length, 22, "no hit dropped (inferred single-tree)");
+  assert.equal(team.records.length, 22, "no hit dropped (explicit 3-level)");
+  assert.ok(
+    alive(team) > alive(single),
+    `explicit levels=3 keeps more recall bodies than the inferred single-tree budget (team=${alive(team)}, single=${alive(single)})`,
+  );
+  assert.equal(alive(team), 22, "a 3-level budget (48000) fits all 22 lesson bodies");
+});
+
 // ─── §3f worked example: BANDED depth boost (comparable-deeper wins; a weak
 //     deeper hit does NOT bury a strongly-relevant shallower one) ─────────────
 
