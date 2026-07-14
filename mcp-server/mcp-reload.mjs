@@ -18,6 +18,7 @@ import { settingsPath } from "../scripts/lib/settings.mjs";
  *
  * @typedef {Object} Impl
  * @property {() => string[]} getCategories
+ * @property {() => string[]} scopedCategories
  * @property {() => { datasets: Array<{ name: string, id: string }>, declaredLocally: Array<{ name: string, configuredId: string }> }} listDatasets
  * @property {(category: string) => boolean} categoryHasTopology
  * @property {(categoryOrSlot: string, metadata?: MetadataInput) => { metadata: MetadataInput, remaps: Array<{ facet: string, from: string, to: string }> }} remapUnknownPathFacets

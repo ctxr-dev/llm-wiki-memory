@@ -14,6 +14,7 @@ import {
 } from "./wiki-core.mjs";
 import { toRel, toAbs } from "./wiki-identity.mjs";
 import { ensureLayoutLoaded, slotToCategory, getCategories } from "./wiki-layout-state.mjs";
+import { scopedCategories } from "./wiki-context.mjs";
 import { glanceFields } from "./wiki-render.mjs";
 
 /** @typedef {import("./types.mjs").MemoryMetadata} MemoryMetadata */
@@ -290,8 +291,8 @@ export async function searchOneTree({
 }
 
 export function listDatasets() {
-  ensureLayoutLoaded();
-  const cats = getCategories();
+  // Union across the scope chain — advertises a shared repo's brain-absent category.
+  const cats = scopedCategories();
   return {
     datasets: cats.map((name) => ({ name, id: name })),
     declaredLocally: cats.map((name) => ({ name, configuredId: name })),

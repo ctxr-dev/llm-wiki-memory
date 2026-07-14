@@ -50,7 +50,7 @@ function registerConfigTools(server) {
             embedBackend: activeBackend(),
             defaultProjectModule: defaultProjectModule(),
             levels: resolvedLevels(),
-            categories: getImpl().getCategories(),
+            categories: getImpl().scopedCategories(),
             llm: llmHealth,
           });
         } catch (error) {

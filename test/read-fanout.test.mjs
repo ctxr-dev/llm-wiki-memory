@@ -20,7 +20,8 @@ fs.writeFileSync(
 
 const { searchMemoryFiltered, searchOneTree } = await import("../scripts/lib/wiki-store.mjs");
 const { recallLessons, searchMemory } = await import("../scripts/lib/recall.mjs");
-const { resolveWikiContext, withWikiContext } = await import("../scripts/lib/wiki-context.mjs");
+const { resolveWikiContext, withWikiContext, scopedCategories } =
+  await import("../scripts/lib/wiki-context.mjs");
 const { defaultProjectModule } = await import("../scripts/lib/env.mjs");
 const { clampSearchResponse, SEARCH_TOTAL_BUDGET } =
   await import("../scripts/lib/search-clamp.mjs");
@@ -156,6 +157,20 @@ test("clamp: explicit `levels` scales the budget for UNTAGGED records (the recal
     `explicit levels=3 keeps more recall bodies than the inferred single-tree budget (team=${alive(team)}, single=${alive(single)})`,
   );
   assert.equal(alive(team), 22, "a 3-level budget (48000) fits all 22 lesson bodies");
+});
+
+test("scopedCategories: unions a shared repo's brain-absent category (multi-level enumeration)", () => {
+  const home = makeHome();
+  mkMount(home, ["knowledge", "self_improvement"]); // brain: no `issues`
+  const repo = path.join(home, "repos", "svc");
+  fs.mkdirSync(repo, { recursive: true });
+  mkMount(repo, ["knowledge", "issues"]); // shared repo declares `issues`
+  const ctx = resolveWikiContext([repo], brainOpts(home));
+  const cats = withWikiContext(ctx, () => scopedCategories());
+  // Brain-first, de-duped union — the repo-only `issues` is enumerated (the fix);
+  // before it, this returned only the brain's ["knowledge","self_improvement"].
+  assert.deepEqual(cats, ["knowledge", "self_improvement", "issues"]);
+  assert.ok(cats.includes("issues"), "a shared repo's brain-absent category is enumerated");
 });
 
 // ─── §3f worked example: BANDED depth boost (comparable-deeper wins; a weak

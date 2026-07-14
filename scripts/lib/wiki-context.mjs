@@ -24,6 +24,7 @@ import { withWikiRoot, embedCacheFor as embedCacheForRoot } from "./env.mjs";
 import { OwnershipSchema, OWNERSHIP } from "./context/enums.mjs";
 import { parseTarget } from "./context/target.mjs";
 import { projectModuleSegment } from "./project-identity.mjs";
+import { getCategories } from "./wiki-layout-state.mjs";
 
 /**
  * One level of a federated wiki stack.
@@ -210,6 +211,36 @@ export function withWikiContext(ctx, fn) {
  */
 export function getActiveWikiContext() {
   return contextStorage.getStore() || null;
+}
+
+/**
+ * The UNION of declared category names across every level in the active scope
+ * chain — brain (level 0) first, de-duplicated in first-seen order. So a
+ * category declared ONLY in a shared repo level (e.g. a tracker `issues` tree
+ * the brain's own layout doesn't declare) is enumerated: searchable by default,
+ * listable, and discoverable via get_memory_config — matching the write side,
+ * which already validates a category against the chosen TARGET level. With no
+ * active context or a single level this is byte-identical to the single-tree
+ * `getCategories()` (each level is read under its own `withWikiRoot`, so the
+ * per-root layout cache still applies).
+ * @returns {string[]}
+ */
+export function scopedCategories() {
+  const ctx = getActiveWikiContext();
+  const levels = ctx && Array.isArray(ctx.levels) ? ctx.levels : [];
+  if (levels.length <= 1) return getCategories();
+  /** @type {string[]} */
+  const union = [];
+  const seen = new Set();
+  for (const level of levels) {
+    for (const c of withWikiRoot(level.root, () => getCategories())) {
+      if (!seen.has(c)) {
+        seen.add(c);
+        union.push(c);
+      }
+    }
+  }
+  return union;
 }
 
 /**

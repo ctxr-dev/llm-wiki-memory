@@ -51,6 +51,12 @@ export {
 // context or a single level it is byte-identical to the single-tree scorer.
 export { searchMemoryFiltered } from "./wiki-search-fanout.mjs";
 
+// The UNION of category names across the active scope chain (falls back to the
+// single-tree getCategories with no/one level) — the enumeration surface that
+// keeps a shared repo's brain-absent category searchable + discoverable, so the
+// read/config side matches the target-scoped write side.
+export { scopedCategories } from "./wiki-context.mjs";
+
 export {
   disableDocument,
   enableDocument,

@@ -1,6 +1,6 @@
 import { defaultProjectModule } from "./env.mjs";
 import { recallScoreThreshold } from "./settings.mjs";
-import { searchMemoryFiltered, getCategories } from "./wiki-store.mjs";
+import { searchMemoryFiltered, scopedCategories } from "./wiki-store.mjs";
 
 /** @typedef {import("./types.mjs").SearchResponse} SearchResponse */
 /** @typedef {import("./types.mjs").SearchHit} SearchHit */
@@ -31,9 +31,11 @@ export async function searchMemory({
   const withGlance = Array.isArray(sections) && sections.includes("frontmatter");
   // Caller threshold wins; else the configured floor (settings.recall.scoreThreshold).
   const effectiveThreshold = scoreThreshold ?? recallScoreThreshold();
-  // getCategories() runs ensureLayoutLoaded() first, so fresh CLI invocations
-  // see the YAML-declared categories (including any custom ones like `issues`).
-  const slots = Array.isArray(datasets) && datasets.length ? datasets : getCategories();
+  // scopedCategories() is the UNION across the active scope chain, so a default
+  // (no-`datasets`) search covers a category declared only in a shared repo level
+  // (e.g. a tracker `issues` tree) — not just the brain's own categories. With no
+  // context / a single level it is the single-tree getCategories (unchanged).
+  const slots = Array.isArray(datasets) && datasets.length ? datasets : scopedCategories();
   const effectiveFilters = filters
     ? filters.project_module
       ? filters
