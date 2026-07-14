@@ -78,9 +78,9 @@ export async function recallLessons({
   const limit = maxResults || 5;
   const withGlance = Array.isArray(sections) && sections.includes("frontmatter");
   // Caller-supplied threshold wins; otherwise fall back to the configured
-  // floor (settings.recall.scoreThreshold, default 0 = don't over-prune).
-  // Before this the setting was dead config — wired into the loader, template,
-  // and migrator but read nowhere.
+  // floor (settings.recall.scoreThreshold, default 0.05 — a small floor that
+  // drops noise-level matches without over-pruning). Before this the setting was
+  // dead config — wired into the loader, template, and migrator but read nowhere.
   const threshold = scoreThreshold ?? recallScoreThreshold();
   // project_module defaults to the workspace, which every leaf carries, so the
   // default scope matches (no more 0-hit-by-default). Pass `area` to narrow to a

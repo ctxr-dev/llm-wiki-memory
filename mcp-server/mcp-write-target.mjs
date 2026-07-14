@@ -65,8 +65,8 @@ export function annotateSharedWrite(level, result) {
     ...result,
     sharedTarget: { repo, root: level.root, path: rel },
     message: rel
-      ? `written to ${rel} in ${repo} — commit and push it in the repo to share it`
-      : `written into ${repo} — commit and push it in the repo to share it`,
+      ? `written to ${rel} in ${repo} — commit and push the repo's staged memory changes (the leaf plus its regenerated index; a relocate also removes the old leaf) to share it; stage all of them (e.g. \`git add -A\` under the wiki dir), not just the named path`
+      : `written into ${repo} — commit and push the repo's staged memory changes to share it`,
   };
   // A repo with no git origin remote (and no declared project_id) resolves to a
   // NON-PORTABLE file://<local-abs-path> identity. If this leaf is committed, that

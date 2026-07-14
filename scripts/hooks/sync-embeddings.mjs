@@ -62,7 +62,18 @@ async function warmCategory(wikiRootDir, category) {
     await cachedEmbedding(cache, toRel(leaf), body);
     count += 1;
   }
-  saveCache(cachePath, cache);
+  // Best-effort persist (parity with searchOneTree): a READ-ONLY / unwritable
+  // shared-repo tree (a teammate consuming another owner's curated memory) must
+  // not make the warm THROW — .embeddings/ is gitignored, so persisting would try
+  // to create it and fail. The vectors are already cached in-memory for this run;
+  // lazy embed-at-search time is the correctness net.
+  try {
+    saveCache(cachePath, cache);
+  } catch (err) {
+    console.error(
+      `[sync-embeddings] embed-cache persist skipped for ${category} (unwritable tree?): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   return count;
 }
 

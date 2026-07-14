@@ -83,6 +83,40 @@ test("syncEmbeddings SKIPS a conflicted (invalid-YAML) shared leaf instead of ab
   assert.ok(!cache.entries["shared_notes/bad.md"], "the conflicted leaf is skipped, not warmed");
 });
 
+test("syncEmbeddings does NOT throw when the shared category tree is READ-ONLY (best-effort persist)", async () => {
+  // The "owner curates, teammate consumes read-only" model: the shared tree isn't
+  // writable, so .embeddings/ can't be created. The warm must resolve (ok:true),
+  // not throw out of the detached hook. Skip where 0o555 doesn't block writes.
+  const { mount, wiki } = mountWith(SHARED_LAYOUT);
+  writeLeaf(wiki, "shared_notes/ro.md", "# RO\n\nread only shared note about kafka");
+  const cat = path.join(wiki, "shared_notes");
+  fs.chmodSync(cat, 0o555);
+  let modeBlocks = false;
+  try {
+    fs.mkdirSync(path.join(cat, ".embeddings"));
+  } catch {
+    modeBlocks = true;
+  }
+  if (!modeBlocks) {
+    fs.chmodSync(cat, 0o755);
+    return; // root / a mode-ignoring FS → skip
+  }
+  try {
+    const res = await syncEmbeddings({
+      mountDir: mount,
+      changedPaths: [".llm-wiki-memory/wiki/shared_notes/ro.md"],
+    });
+    assert.equal(
+      res.ok,
+      true,
+      "the warm resolves despite an unwritable tree (persist is best-effort)",
+    );
+    assert.deepEqual(res.warmed, ["shared_notes"]);
+  } finally {
+    fs.chmodSync(cat, 0o755); // restore so after() can clean up
+  }
+});
+
 test("syncEmbeddings ignores a changed PERSONAL (ownership==wiki) category", async () => {
   const { mount, wiki } = mountWith(SHARED_LAYOUT);
   writeLeaf(wiki, "self_improvement/x.md", "# Lesson\n\npersonal lesson body");
