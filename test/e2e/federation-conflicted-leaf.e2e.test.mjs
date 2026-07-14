@@ -139,3 +139,41 @@ test("listDocuments is likewise resilient to a conflicted shared leaf", async ()
   assert.ok(names.includes("jconf-ok.md"), "the valid leaf is listed");
   assert.ok(!names.includes("jconf-bad.md"), "the conflicted leaf is skipped, not thrown on");
 });
+
+test("a READ-ONLY shared repo tree does not abort recall — embed-cache persist is best-effort", async () => {
+  // The "owner curates, teammate consumes read-only" model: the shared tree isn't
+  // writable, so the first search can't create .embeddings/. That write MUST NOT
+  // throw out of the fan-out and blank recall. Skip where 0o555 doesn't block writes
+  // (root / a mode-ignoring FS).
+  const probe = fs.mkdtempSync(path.join(home, "wprobe-"));
+  fs.chmodSync(probe, 0o555);
+  let modeBlocks = false;
+  try {
+    fs.writeFileSync(path.join(probe, "x"), "x");
+  } catch {
+    modeBlocks = true;
+  }
+  fs.chmodSync(probe, 0o755);
+  if (!modeBlocks) return; // running as root or a FS that ignores mode → skip
+
+  const svc3 = path.join(home, "svc3");
+  makeMount(svc3, "git@github.com:acme/svc3.git");
+  const ctx = resolveWikiContext([svc3], opts);
+  saveTo(ctx, ctx.levels[1].root, "jconf-ro-shared.md", "readonlyprobe");
+  saveTo(ctx, ctx.levels[0].root, "jconf-ro-brain.md", "readonlyprobe");
+  const sharedKnowledge = path.join(ctx.levels[1].root, "knowledge");
+  fs.chmodSync(sharedKnowledge, 0o555); // no write → .embeddings/ can't be created
+  try {
+    const out = await withWikiContext(ctx, () =>
+      searchMemoryFiltered({ query: "readonlyprobe", datasetId: "knowledge" }),
+    );
+    const names = out.records.map((r) => r.documentName);
+    assert.ok(names.includes("jconf-ro-brain.md"), "the brain leaf still returns");
+    assert.ok(
+      names.includes("jconf-ro-shared.md"),
+      "the read-only shared leaf still returns (scored from its in-memory vector)",
+    );
+  } finally {
+    fs.chmodSync(sharedKnowledge, 0o755); // restore so after() can clean up
+  }
+});

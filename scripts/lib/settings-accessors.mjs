@@ -124,6 +124,9 @@ export function recallPlanContextMax() {
 export function recallDepthBoostPerLevel() {
   return settings().recall.depthBoostPerLevel;
 }
+export function recallDepthBoostBand() {
+  return settings().recall.depthBoostBand;
+}
 export function recallSearchPerLevelCap() {
   return settings().recall.searchPerLevelCap;
 }

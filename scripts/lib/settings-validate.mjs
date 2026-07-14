@@ -67,12 +67,13 @@ export function coerceSections(sections) {
   if (typeof embed.backend !== "string") embed.backend = "transformers";
   if (typeof embed.model !== "string") embed.model = DEFAULT_EMBED_MODEL;
 
-  recall.scoreThreshold = coerceFloat01(recall.scoreThreshold, 0);
+  recall.scoreThreshold = coerceFloat01(recall.scoreThreshold, 0.05);
   recall.priorityBand = coerceFloat01(recall.priorityBand, 0.05);
   recall.recentActivityDays = coerceNonNeg(recall.recentActivityDays, 3);
   recall.planContextMax = coerceNonNeg(recall.planContextMax, 2);
   // 0 is a valid depthBoostPerLevel (disables the boost -> pure cosine ranking).
   recall.depthBoostPerLevel = coerceNonNeg(recall.depthBoostPerLevel, 1);
+  recall.depthBoostBand = coerceFloat01(recall.depthBoostBand, 0.15);
   recall.searchPerLevelCap = coercePos(recall.searchPerLevelCap, 20);
 
   if (typeof compile.slot !== "string") compile.slot = "knowledge";

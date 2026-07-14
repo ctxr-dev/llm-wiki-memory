@@ -58,6 +58,7 @@ import { DEFAULT_EMBED_MODEL } from "./settings.mjs";
  * @property {number} recentActivityDays
  * @property {number} planContextMax
  * @property {number} depthBoostPerLevel
+ * @property {number} depthBoostBand
  * @property {number} searchPerLevelCap
  */
 
@@ -170,7 +171,10 @@ export function structuralDefaults() {
     model: DEFAULT_EMBED_MODEL,
   };
   const recall = {
-    scoreThreshold: 0,
+    // A small relevance FLOOR: hits below this cosine are dropped before ranking,
+    // so noise-level matches (from any tree) can't be depth-boosted above a strong
+    // hit or crowd the results. Small by default; tune per embedding backend.
+    scoreThreshold: 0.05,
     // Cosine proximity within which priority breaks ties at recall (a relevant
     // P0/P1 orders above an equally-relevant P2). Relevance stays dominant: a
     // hit more than this far below the band leader keeps its cosine rank.
@@ -185,6 +189,13 @@ export function structuralDefaults() {
     // (>= 1 per level, exceeding the [0,1] cosine spread) a DEEPER/more-local level's
     // hits outrank a shallower one's. 0 disables the boost (pure cosine ranking).
     depthBoostPerLevel: 1,
+    // The depth boost is BANDED: a hit gets its per-level boost ONLY when its cosine
+    // is within depthBoostBand of the best hit for the query. So a repo hit that is
+    // COMPARABLY relevant still outranks the brain (repo-preference preserved), but a
+    // clearly-less-relevant deeper hit can no longer bury a strongly-relevant
+    // shallower one. 0 = only exact-top-cosine hits are boosted; a large value
+    // restores the old always-boost behaviour.
+    depthBoostBand: 0.15,
     // Per-level cap on hits pulled from EACH tree before the fan-out merge.
     searchPerLevelCap: 20,
   };

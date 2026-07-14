@@ -134,33 +134,34 @@ test("clamp: single-tree response (no depth tags) keeps the un-scaled budget", (
   );
 });
 
-// ─── §3f worked example: additive depth boost, deeper wins ───────────────────
+// ─── §3f worked example: BANDED depth boost (comparable-deeper wins; a weak
+//     deeper hit does NOT bury a strongly-relevant shallower one) ─────────────
 
-test("§3f worked example: a DEEPER level's hits outrank a shallower one's (order W2,W1,R1,H1)", async () => {
+test("§3f banded boost: a COMPARABLY-relevant deeper hit outranks the brain, but a WEAK deeper hit does not bury a strong brain hit", async () => {
   const home = makeHome();
   const brain = mkMount(home, ["knowledge", "daily"]);
-  const repos = mkMount(path.join(home, "repos"), ["knowledge", "daily"]);
   const webhooks = mkMount(path.join(home, "repos", "webhooks"), ["knowledge", "daily"]);
   const mem = { atom_type: "knowledge-fact" };
-  // All four match the query to SOME degree; within the deepest level W2 matches
-  // better than W1. Depth dominates cross-level, so the final order inverts the
-  // pure-cosine order (which would be W2, H1, R1, W1).
-  writeLeaf(brain, "knowledge", "H1.md", { body: "octopus garden brain note alpha", memory: mem });
-  writeLeaf(repos, "knowledge", "R1.md", {
-    body: "octopus garden repos note beta gamma",
+  // H1 (brain) and W2 (deepest) match the query EQUALLY strongly → both at the top
+  // cosine → both boost-eligible, so the deeper W2 wins (repo-preference on
+  // comparable relevance). W1 (deepest) matches WEAKLY (only "octopus", diluted by
+  // fillers) → its cosine is far below the top, so the band STRIPS its depth boost
+  // and it can't bury the strong brain hit H1.
+  writeLeaf(brain, "knowledge", "H1.md", { body: "octopus garden octopus garden", memory: mem });
+  writeLeaf(webhooks, "knowledge", "W2.md", {
+    body: "octopus garden octopus garden",
     memory: mem,
   });
   writeLeaf(webhooks, "knowledge", "W1.md", {
-    body: "octopus filler webhook note delta epsilon zeta",
+    body: "octopus zulu yankee xray whiskey victor uniform",
     memory: mem,
   });
-  writeLeaf(webhooks, "knowledge", "W2.md", { body: "octopus garden", memory: mem });
 
   const ctx = resolveWikiContext([path.join(home, "repos", "webhooks")], brainOpts(home));
   assert.deepEqual(
     ctx.levels.map((l) => l.depth),
-    [0, 1, 2],
-    "brain(d0), repos(d1), webhooks(d2)",
+    [0, 1],
+    "brain(d0), webhooks(d1)",
   );
 
   const out = await withWikiContext(ctx, () =>
@@ -168,21 +169,17 @@ test("§3f worked example: a DEEPER level's hits outrank a shallower one's (orde
   );
   assert.deepEqual(
     out.records.map((r) => r.documentName),
-    ["W2.md", "W1.md", "R1.md", "H1.md"],
-    "deeper wins: both webhooks hits, then repos, then brain",
+    ["W2.md", "H1.md", "W1.md"],
+    "comparable deeper (W2) wins; strong brain (H1) beats the WEAK deeper (W1)",
   );
-  // adjustedConfidence is strictly descending and equals cosine + depth*boost.
-  for (const r of out.records) {
-    assert.equal(r.cosine, r.score, "score stays the honest cosine");
-    assert.equal(r.depthBoost, r.depth * 1, "default depthBoostPerLevel = 1");
-    assert.equal(r.adjustedConfidence, r.cosine + r.depthBoost, "additive ranking");
-  }
-  const adj = out.records.map((r) => r.adjustedConfidence);
-  for (let i = 1; i < adj.length; i += 1) {
-    assert.ok(adj[i - 1] >= adj[i], "sorted by adjustedConfidence DESC");
-  }
-  assert.equal(out.records[0].depth, 2, "top hit is the deepest level");
-  assert.equal(out.records[3].depth, 0, "the brain hit is last despite a mid cosine");
+  const byName = Object.fromEntries(out.records.map((r) => [r.documentName, r]));
+  assert.equal(byName["W2.md"].depthBoost, 1, "comparable deeper hit KEEPS its depth boost");
+  assert.equal(byName["W1.md"].depthBoost, 0, "weak deeper hit's boost is BANDED OFF");
+  assert.equal(byName["H1.md"].depthBoost, 0, "brain is depth 0 (no boost)");
+  assert.ok(
+    byName["H1.md"].adjustedConfidence > byName["W1.md"].adjustedConfidence,
+    "the strong brain hit is NOT buried by the weak deeper hit",
+  );
 });
 
 // ─── regression: single level is byte-identical to the single-tree scorer ────

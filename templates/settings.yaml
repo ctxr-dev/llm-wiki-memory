@@ -106,8 +106,10 @@ embed:
   model: Xenova/bge-large-en-v1.5
 
 recall:
-  # Cosine score below which a hit is dropped. 0 keeps every hit.
-  scoreThreshold: 0
+  # A small relevance FLOOR: hits below this cosine are dropped before ranking, so
+  # noise-level matches (from any tree) can't be depth-boosted above a strong hit or
+  # crowd the results. 0 keeps every hit; tune per embedding backend.
+  scoreThreshold: 0.05
   # Cosine proximity within which `priority` (P0/P1/P2) breaks ties at recall.
   # Relevance stays dominant: a hit more than this far below the band leader keeps
   # its cosine rank; only near-equally-relevant hits are ordered P0 > P1 > P2.
@@ -123,6 +125,12 @@ recall:
   # level's hits outrank a shallower level's ("per-repo memory is more
   # authoritative than the global brain"). 0 disables the boost (pure cosine).
   depthBoostPerLevel: 1
+  # The depth boost is BANDED: a hit earns its per-level boost ONLY when its cosine
+  # is within depthBoostBand of the best hit for the query. So a COMPARABLY-relevant
+  # deeper (repo) hit still outranks the brain, but a clearly-less-relevant deeper
+  # hit can't bury a strongly-relevant shallower one. Larger = more boost (toward the
+  # old always-boost); 0 = only exact-top-cosine hits are boosted.
+  depthBoostBand: 0.15
   # Per-level cap on hits pulled from EACH tree before the fan-out merge.
   searchPerLevelCap: 20
 

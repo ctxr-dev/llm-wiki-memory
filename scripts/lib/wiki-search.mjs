@@ -249,7 +249,20 @@ export async function searchOneTree({
     const vec = await cachedEmbedding(cacheFor(c.datasetId), c.id, c.text);
     scored.push({ ...c, score: cosine(queryVec, vec) });
   }
-  for (const [cat, cache] of cacheByCat) saveCache(embedCacheFor(wiki, cat), cache);
+  for (const [cat, cache] of cacheByCat) {
+    // Best-effort persist: the vectors were already computed in-memory and used for
+    // scoring, so persistence is only a latency optimization. A READ-ONLY /
+    // unwritable shared-repo tree (a teammate consuming another owner's curated
+    // memory) must NOT make a search THROW — .embeddings/ is gitignored, so the
+    // first search would otherwise try to create it and abort recall for everyone.
+    try {
+      saveCache(embedCacheFor(wiki, cat), cache);
+    } catch (err) {
+      console.error(
+        `[search] embed-cache persist skipped for ${cat} (unwritable tree?): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
   scored.sort((a, b) => b.score - a.score);
 
   // Relevance is the gate (cosine sort + scoreThreshold). Priority is a
