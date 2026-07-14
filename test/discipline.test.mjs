@@ -24,6 +24,22 @@ test("INSTRUCTIONS names the core discipline tools", () => {
   }
 });
 
+test("INSTRUCTIONS is single-sourced from templates/agents-memory-instructions.md (not hardcoded in discipline.mjs)", () => {
+  const md = fs.readFileSync(path.join(SRC, "templates/agents-memory-instructions.md"), "utf8");
+  const disc = fs.readFileSync(path.join(SRC, "scripts/lib/discipline.mjs"), "utf8");
+  // The numbered rules live in the .md, NOT restated in the .mjs.
+  assert.ok(md.includes("1. Before any non-trivial task"), "the .md carries rule 1");
+  assert.ok(md.includes("15. DELEGATE THE CONTEXT-HEAVY READS"), "the .md carries rule 15");
+  assert.ok(
+    !disc.includes("1. Before any non-trivial task"),
+    "discipline.mjs no longer hardcodes the numbered rules",
+  );
+  assert.ok(disc.includes("readFileSync"), "discipline.mjs reads the canonical .md");
+  // INSTRUCTIONS is exactly the .md body with the maintainer HTML comment stripped.
+  const expected = md.replace(/<!--[\s\S]*?-->\s*/g, "").trim();
+  assert.equal(INSTRUCTIONS, expected, "INSTRUCTIONS === the comment-stripped .md body");
+});
+
 test("INSTRUCTIONS encodes the topology-path discipline (rule 10)", () => {
   assert.match(INSTRUCTIONS, /topology:` block/i);
   assert.match(INSTRUCTIONS, /MUST pass `path=`/);
