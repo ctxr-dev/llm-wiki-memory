@@ -88,6 +88,12 @@ export function hooksDirFor(repoDir) {
   return path.join(path.isAbsolute(gitDir) ? gitDir : path.join(repoDir, gitDir), "hooks");
 }
 
+// env flags that do NOT consume a following token — safe to skip past to reach
+// the interpreter. Any OTHER flag (a value-consuming one like `-u NAME` / `-C DIR`,
+// or an unknown flag) makes the interpreter position ambiguous, so we bail to
+// "foreign" — a mis-parse must never let us append our block to a non-shell hook.
+const ENV_NONCONSUMING_FLAG = /^(-S|--split-string|-i|--ignore-environment|-0|-v|--debug)$/;
+
 /**
  * Is an existing hook body one our POSIX-sh invocation block can safely be
  * appended to? A no-shebang hook is run by `sh` (our block is POSIX-sh), so yes;
@@ -104,19 +110,20 @@ function hookAcceptsShellBlock(content) {
   let interp = head;
   if (head === "env") {
     // Reach the real interpreter past env's own flags, incl. `-S bash -e` and the
-    // glued `-Sbash` (the portable way to pass interpreter flags in a shebang). A
-    // mis-parse errs toward "foreign" (skip, never corrupt) — the safe direction.
-    const rest = tokens.slice(1);
-    let i = 0;
-    for (; i < rest.length; i += 1) {
-      if (!rest[i].startsWith("-")) break;
-      const glued = rest[i].match(/^-S(.+)$/);
-      if (glued) {
-        rest[i] = glued[1];
+    // glued `-Sbash` (the portable way to pass interpreter flags in a shebang).
+    interp = "";
+    for (const t of tokens.slice(1)) {
+      if (!t.startsWith("-")) {
+        interp = t;
         break;
       }
+      const glued = t.match(/^-S(.+)$/);
+      if (glued) {
+        interp = glued[1];
+        break;
+      }
+      if (!ENV_NONCONSUMING_FLAG.test(t)) return false;
     }
-    interp = rest[i] || "";
   }
   const base = interp.split("/").pop() || interp;
   return /^(ba|da|z|k|a|mk)?sh$/.test(base);

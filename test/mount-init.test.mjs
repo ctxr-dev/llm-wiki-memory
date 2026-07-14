@@ -165,6 +165,31 @@ test("hook install CHAINS onto an `env -S bash` user hook (shell interpreter pas
   assert.ok(body.includes(MARKER_START), "our block is chained after it");
 });
 
+test("hook install SKIPS a pathological `env -S -u sh python3` hook (value-consuming flag → foreign, never corrupt)", () => {
+  const m = mount("mi-envtrap");
+  spawnSync("git", ["-C", m, "init", "-q"], { encoding: "utf8" });
+  writeLayout(m, "layout:\n  - path: knowledge\n    ownership: repo\n");
+  const hooksDir = path.join(m, ".git", "hooks");
+  fs.mkdirSync(hooksDir, { recursive: true });
+  // `-u sh` unsets a var named `sh`, then runs python3 — the interpreter is
+  // python3, NOT the `sh` argument. The value-consuming flag makes the position
+  // ambiguous, so we must treat it as foreign (skip), never chain a bash block.
+  const trap = "#!/usr/bin/env -S -u sh python3\nprint('py')\n";
+  fs.writeFileSync(path.join(hooksDir, "post-merge"), trap, { mode: 0o755 });
+  const res = initMount(m);
+  const hook = /** @type {{ results?: Record<string, string> }} */ (res.syncHook);
+  assert.equal(
+    hook.results?.["post-merge"],
+    "foreign-interpreter",
+    "a value-consuming env flag before the candidate → foreign (safe direction)",
+  );
+  assert.equal(
+    fs.readFileSync(path.join(hooksDir, "post-merge"), "utf8"),
+    trap,
+    "the python hook is byte-identical — never corrupted",
+  );
+});
+
 test("initMount seeds the knowledge-only repo template when the mount has no layout", () => {
   const m = mount("mi-seed");
   spawnSync("git", ["-C", m, "init", "-q"], { encoding: "utf8" });
