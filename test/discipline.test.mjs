@@ -92,6 +92,23 @@ test("scopes discipline is mirrored on the template rule + skill surfaces", () =
   assert.match(skill, /provider-agnostic/i, "skill documents the provider-agnostic constraint");
 });
 
+test("INSTRUCTIONS encodes the recall-delegation discipline (rule 15)", () => {
+  assert.match(INSTRUCTIONS, /DELEGATE THE CONTEXT-HEAVY READS TO A SUBAGENT/);
+  assert.match(INSTRUCTIONS, /`recall_lessons` or `search_memory`/);
+  assert.match(INSTRUCTIONS, /DISTILLED digest/);
+  assert.match(INSTRUCTIONS, /NEVER delegate a gated SAVE/);
+  assert.match(INSTRUCTIONS, /WITHOUT subagents/);
+});
+
+test("recall-delegation discipline is mirrored on the template rule surface", () => {
+  const rule = fs.readFileSync(path.join(SRC, "templates/rules/recall-delegation.md"), "utf8");
+  assert.match(rule, /name: recall-delegation/, "rule has its frontmatter name");
+  assert.match(rule, /recall_lessons/, "rule names the delegated reads");
+  assert.match(rule, /distilled digest/i, "rule states the digest contract");
+  assert.match(rule, /never a subagent/i, "rule keeps gated saves in the main chat");
+  assert.match(rule, /without subagents/i, "rule gives the provider-agnostic fallback");
+});
+
 test("every MCP tool description carries the required-scopes clause (all three surfaces move together)", () => {
   const files = [
     "tools-config",
