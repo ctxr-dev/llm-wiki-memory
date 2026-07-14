@@ -145,6 +145,28 @@ export function normaliseMeta(metadata = {}, extra = {}) {
 }
 
 /**
+ * Re-supply an existing leaf's workspace identity as `project_module_override` so
+ * a maintenance RE-SAVE preserves it. normaliseMeta derives `project_module` from
+ * `project_module_override || defaultProjectModule()` and NEVER from the raw
+ * `project_module` (that key is the legacy `area` alias), so a re-save that
+ * re-emits a leaf's own memory WITHOUT the override would rewrite a deliberately
+ * cross-project leaf's identity to the workspace default. When the caller already
+ * re-identifies (a non-empty override) or the leaf never had an identity, the
+ * metadata is returned unchanged.
+ * @param {MetadataInput | null | undefined} metadata
+ * @param {{ project_module?: string } | null | undefined} existingMemory
+ * @returns {MetadataInput}
+ */
+export function preserveIdentityOnResave(metadata, existingMemory) {
+  const md = metadata && typeof metadata === "object" ? metadata : {};
+  const reidentifies =
+    typeof md.project_module_override === "string" && md.project_module_override.trim() !== "";
+  const existing = existingMemory && existingMemory.project_module;
+  if (reidentifies || !existing) return md;
+  return { ...md, project_module_override: existing };
+}
+
+/**
  * @param {MetadataInput | null | undefined} metadata
  * @returns {string[]}
  */

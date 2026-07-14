@@ -8,6 +8,7 @@ import { PROMPTS_DIR } from "./lib/env.mjs";
 import { consolidateLlmMaxRetries, atomBodyMaxChars } from "./lib/settings.mjs";
 import { truncateAtWordBoundary } from "./lib/slug.mjs";
 import { saveDocument } from "./lib/wiki-store.mjs";
+import { preserveIdentityOnResave } from "./lib/wiki-identity.mjs";
 import { callJSON } from "./lib/llm-callJSON.mjs";
 import { LLMOutputInvalid } from "./lib/llm.mjs";
 import { toIso } from "./consolidate-time.mjs";
@@ -136,7 +137,7 @@ export async function llmMergeNearDuplicates({ candidates, ctx, now, dryRun }) {
               name: keeper.name,
               text: body,
               datasetId: keeper.category,
-              metadata: keeperMem,
+              metadata: preserveIdentityOnResave(keeperMem, keeper.memory),
               placementOverride: keeperDir,
             });
             stampLeafMetadata(keeper.documentId, { consolidated_at: toIso(now) });

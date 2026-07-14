@@ -95,7 +95,12 @@ export function migrate({ dryRun = false, check = false } = {}) {
     const res = updateDocMetadata({
       datasetId: c.datasetId,
       documentId: c.id,
-      metadata: { area: c.area },
+      // RE-IDENTIFY: this is the legacy split — the leaf's current project_module
+      // is a stale sub-module value being moved to `area`, so pass the workspace
+      // explicitly as the override. updateDocMetadata now PRESERVES a leaf's
+      // existing project_module on a re-stamp unless the caller re-identifies via
+      // an explicit override, so migrate must opt in here (mirrors migrate-identity).
+      metadata: { area: c.area, project_module_override: workspace },
     });
     if (res && res.ok) {
       migrated += 1;

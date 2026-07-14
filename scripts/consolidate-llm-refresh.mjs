@@ -20,6 +20,7 @@ import {
   disableDocument,
   saveDocument,
 } from "./lib/wiki-store.mjs";
+import { preserveIdentityOnResave } from "./lib/wiki-identity.mjs";
 import { callJSON } from "./lib/llm-callJSON.mjs";
 import { LLMOutputInvalid } from "./lib/llm.mjs";
 import { toIso } from "./consolidate-time.mjs";
@@ -247,7 +248,7 @@ export async function llmSemanticRefresh({ ctx, now, dryRun }) {
           name: leaf.name,
           text: body,
           datasetId: leaf.category,
-          metadata: leaf.memory || {},
+          metadata: preserveIdentityOnResave(leaf.memory || {}, leaf.memory),
           placementOverride: leafDir,
         });
         stampLeafMetadata(leaf.documentId, {

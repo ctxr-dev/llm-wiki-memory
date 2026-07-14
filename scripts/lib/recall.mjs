@@ -259,6 +259,13 @@ export function saveLesson({ title, body, metadata = {}, tags, evidence } = {}) 
     task_type: metadata.task_type,
     error_pattern: metadata.error_pattern,
   };
+  // A repo-TARGET lesson carries the target's identity as project_module_override
+  // (stamped by dispatchWrite before this call). fullMetadata is rebuilt from
+  // scratch, so pass the override through explicitly — otherwise the lesson is
+  // stamped with the writing workspace's defaultProjectModule() instead of the
+  // target repo's identity and never gathers under that repo on recall.
+  if (metadata.project_module_override)
+    fullMetadata.project_module_override = metadata.project_module_override;
   if (metadata.language) fullMetadata.language = metadata.language;
   if (tagList.length) fullMetadata.tags = tagList.join(",");
   // Gated lesson: honour the user-picked priority (P0 allowed here); normaliseMeta

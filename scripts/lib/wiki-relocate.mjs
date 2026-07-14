@@ -6,7 +6,13 @@ import { pruneEmptyAncestors } from "./fs-prune.mjs";
 import { recordWikiChange } from "./wiki-commit.mjs";
 import { priorityForAtomType, normalisePriority } from "./datasets.mjs";
 import { WikiStoreUnavailable, root, readLeaf, leafMemory, walkLeaves } from "./wiki-core.mjs";
-import { toAbs, toRel, normaliseMeta, normalizeLeafNamePreservingCase } from "./wiki-identity.mjs";
+import {
+  toAbs,
+  toRel,
+  normaliseMeta,
+  preserveIdentityOnResave,
+  normalizeLeafNamePreservingCase,
+} from "./wiki-identity.mjs";
 import { stringifyLeaf } from "./wiki-render.mjs";
 import {
   ensureLayoutLoaded,
@@ -40,13 +46,33 @@ export function updateDocMetadata({
   if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
   if (!metadata || Object.keys(metadata).length === 0) return { ok: true, warning: "no metadata" };
   const { data, body } = readLeaf(abs);
-  const incoming = normaliseMeta(metadata, { status: leafMemory(data).status });
+  const existingMem = leafMemory(data);
+  const incoming = normaliseMeta(preserveIdentityOnResave(metadata, existingMem), {
+    status: existingMem.status,
+  });
   // normaliseMeta always emits atom_type (never stripped); on a PARTIAL update
   // that omits it, that empty string would clobber the leaf's existing
-  // atom_type. Drop it so a partial merge keeps the current value.
+  // atom_type. Drop it so a partial merge keeps the current value. project_module
+  // is the OTHER always-emitted field: preserveIdentityOnResave re-supplies the
+  // leaf's existing identity as the override above so a re-stamp cannot rewrite a
+  // cross-project leaf to defaultProjectModule().
   if (!incoming.atom_type)
     delete (/** @type {Partial<import("./types.mjs").MemoryMetadata>} */ (incoming).atom_type);
-  const merged = { ...leafMemory(data), ...incoming };
+  // priority is the THIRD always-emitted field: normaliseMeta fills the rubric
+  // default by atom_type and never strips it, so a partial update that omits
+  // priority recomputes it against the guard-dropped (empty) atom_type ->
+  // DEFAULT_PRIORITY and would clobber the leaf's existing apply-strength (a
+  // P0/P1 leaf silently downgraded to P2 on every consolidate stamp). Drop it
+  // unless the caller EXPLICITLY sets priority, so the merge keeps the current
+  // value (backfill-priority, which does pass priority, still updates it).
+  const callerSetsPriority = Boolean(
+    metadata &&
+    typeof metadata === "object" &&
+    /** @type {Record<string, unknown>} */ (metadata).priority,
+  );
+  if (!callerSetsPriority)
+    delete (/** @type {Partial<import("./types.mjs").MemoryMetadata>} */ (incoming).priority);
+  const merged = { ...existingMem, ...incoming };
   const rendered = stringifyLeaf(body, { ...data, memory: merged });
 
   const rel = String(documentId).split("/");
