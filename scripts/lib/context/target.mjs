@@ -6,7 +6,7 @@ import { ContextValidationError } from "./errors.mjs";
 /** @typedef {import("../wiki-context.mjs").WikiContext} WikiContext */
 /** @typedef {import("../wiki-context.mjs").WikiLevel} WikiLevel */
 
-export const TARGET_KIND = Object.freeze({ DEFAULT: "default", BRAIN: "brain", LEVEL: "level" });
+export const TARGET_KIND = Object.freeze({ BRAIN: "brain", LEVEL: "level" });
 
 /**
  * @typedef {(typeof TARGET_KIND)[keyof typeof TARGET_KIND]} TargetKind
@@ -32,11 +32,12 @@ function sameDir(a, b) {
 
 /**
  * Parse a raw write/mutate `target` selector against a resolved context into a
- * typed ResolvedTarget. An empty target selects the write-default (brain) as
- * `default`; the literal "brain" selects the wiki-owned level; a root/mountDir
- * match selects that level; any other non-empty value throws (never a silent
- * brain fallback — R11). The returned `.level` is the SAME WikiLevel reference
- * the context holds, so callers can compare by identity.
+ * typed ResolvedTarget. `target` is REQUIRED and explicit: an empty/missing value
+ * throws (no implicit brain default — that non-determinism is deliberately gone,
+ * G1). The literal "brain" selects the wiki-owned level; a root/mountDir match
+ * selects that level; any other non-empty value throws (never a silent brain
+ * fallback — R11). The returned `.level` is the SAME WikiLevel reference the
+ * context holds, so callers can compare by identity.
  * @param {WikiContext | null | undefined} ctx
  * @param {string | null | undefined} raw
  * @returns {ResolvedTarget}
@@ -46,7 +47,14 @@ export function parseTarget(ctx, raw) {
     throw new Error("parseTarget: no resolved wiki context");
   }
   const wanted = typeof raw === "string" ? raw.trim() : "";
-  if (wanted === "") return { kind: TARGET_KIND.DEFAULT, level: ctx.writeDefault, requested: null };
+  if (wanted === "") {
+    const accepted = [...ctx.levels.flatMap((l) => [l.root, l.mountDir]), BRAIN_TARGET];
+    throw new ContextValidationError({
+      field: "target",
+      allowed: accepted,
+      reason: `target is REQUIRED and must be explicit — pass a level's root or mount directory, or "${BRAIN_TARGET}" for private memory (there is no implicit default)`,
+    });
+  }
   if (wanted === BRAIN_TARGET) {
     const level = ctx.levels.find((l) => l.ownership === OWNERSHIP.WIKI) || ctx.brain;
     return { kind: TARGET_KIND.BRAIN, level, requested: BRAIN_TARGET };

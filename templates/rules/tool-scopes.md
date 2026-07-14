@@ -57,16 +57,18 @@ goes INTO. They are different arguments with different jobs.
 
 > Every write (`save_to_dataset`, `save_lesson`, `write_memory`) and every
 > document mutation (`disable_document`, `enable_document`, `delete_document`,
-> `move_document`) DEFAULTS to your **brain** — your private memory tree. To
-> write into a **shared repo** (a `.llm-wiki-memory` mount that lives inside a
-> project checked into git), you MUST **ask the user first**, then pass
-> `target=<that repo's scope>` (its wiki root or mount directory, or the literal
-> `"brain"` for the private tree).
+> `move_document`) REQUIRES an explicit `target` — there is **no default**. Pass
+> the literal `"brain"` for your private memory tree, or a **shared repo**'s
+> scope (its wiki root or mount directory) to write there. The available targets
+> are the `levels` array returned by `get_memory_config`.
 
+- **`target` is required; omitting it is rejected.** There is no implicit brain
+  default — this keeps the destination deterministic, which matters when two
+  identical clones of one repo are in scope (they share a project identity and
+  differ only by path, so only an explicit `target` path can pick one).
 - **Never write to a shared repo without the user choosing it.** A shared repo
-  being present in `scopes` does NOT make it a write target — an unspecified
-  `target` always resolves to the brain. The engine will not silently write to a
-  shared level.
+  being present in `scopes` does NOT make it a write target — you must name it in
+  `target`, and you must ask the user first.
 - **A shared write is working-tree only.** The engine writes the leaf into the
   shared repo's working tree and runs **no git** there. It is not committed and
   not shared until a human commits and pushes it. After a shared write, tell the

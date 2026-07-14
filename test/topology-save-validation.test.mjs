@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { setupWorkspace, cleanup, SRC, scopeClient } from "./harness.mjs";
+import { setupWorkspace, cleanup, SRC, scopeClient, brainTargetClient } from "./harness.mjs";
 
 const ISSUES_TOPOLOGY = `
   - path: issues
@@ -169,6 +169,7 @@ before(async () => {
   });
   await client.connect(transport);
   scopeClient(client, [wsB.dataDir]);
+  brainTargetClient(client);
 });
 after(async () => {
   try {

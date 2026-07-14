@@ -66,6 +66,7 @@ function write(over = {}) {
     dataset: "knowledge",
     name: "det.md",
     text: "# det\n\nbody",
+    target: "brain",
     ...over,
   });
 }
@@ -93,8 +94,19 @@ test("determinism: the scope chain is brain(0)+repo(1); the sibling mount is OUT
   );
 });
 
-test("determinism: no target → the brain; an in-scope target → that level", () => {
-  assert.equal(write().target.level, brainLevel, "default write lands in the brain");
+test("determinism: an OMITTED target is REJECTED; 'brain' → the brain; an in-scope target → that level", () => {
+  assert.throws(
+    () =>
+      engine.parseWriteRequest(ctx, {
+        kind: engine.WRITE_KIND.DOCUMENT,
+        dataset: "knowledge",
+        name: "det.md",
+        text: "# det\n\nbody",
+      }),
+    (err) => err.envelope?.field === "target",
+    "no target is rejected — required, no brain default",
+  );
+  assert.equal(write().target.level, brainLevel, "explicit 'brain' → the brain level");
   assert.equal(
     write({ target: inScopeTarget }).target.level,
     repoLevel,

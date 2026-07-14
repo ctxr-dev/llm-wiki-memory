@@ -1,10 +1,10 @@
 // Phase F write/mutate routing for the MCP tools.
 //
-// A write defaults to the BRAIN (the context's write-default); an explicit
-// `target` routes it into a chosen level. This module composes the resolved
-// `WikiContext` (bound by `withToolScopes`) with the per-operation
-// `withWikiRoot` frame, so the leaf write, its index rebuild, and its
-// commit-flush all resolve against the chosen level's root — never a silent
+// A write names its destination via a REQUIRED, explicit `target` (G1 — there is
+// no brain default): "brain" or a chosen level's root/mountDir. This module
+// composes the resolved `WikiContext` (bound by `withToolScopes`) with the
+// per-operation `withWikiRoot` frame, so the leaf write, its index rebuild, and
+// its commit-flush all resolve against the chosen level's root — never a silent
 // shared write, never a silent brain write for an intended-shared target (R11).
 
 import { getActiveWikiContext, resolveTargetLevel } from "../scripts/lib/wiki-context.mjs";
@@ -16,10 +16,9 @@ import { OWNERSHIP } from "../scripts/lib/context/enums.mjs";
 /**
  * Resolve the `target` selector against the active context and run `fn` inside a
  * `withWikiRoot` frame pinned to the chosen level's root, passing that level to
- * `fn`. With no target the write-default (brain) is chosen, so `wikiRoot()`
- * stays exactly what `withToolScopes` already set (single-tree behaviour is
- * byte-identical). A target naming no context level throws (surfaced as an MCP
- * errorResponse by the caller).
+ * `fn`. `target` is REQUIRED and explicit: an empty/missing target throws (no
+ * implicit brain default — G1), as does a target naming no context level (both
+ * surfaced as an MCP errorResponse by the caller). Pass "brain" for private memory.
  * @template T
  * @param {string | null | undefined} target
  * @param {(level: WikiLevel) => T} fn

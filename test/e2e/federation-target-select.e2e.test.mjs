@@ -102,8 +102,8 @@ test("F2a: a 3-level chain routes a save to THIS repo vs the SUBFOLDER repo vs t
   assert.ok(!fs.existsSync(abs(lvlA.root, idB)), "NOT in repoA");
   assert.ok(!fs.existsSync(abs(brain.root, idB)), "NOT in the brain");
 
-  const idBrain = saveTo(ctx, undefined, "to-brain.md");
-  assert.ok(fs.existsSync(abs(brain.root, idBrain)), "omitted target → the brain");
+  const idBrain = saveTo(ctx, "brain", "to-brain.md");
+  assert.ok(fs.existsSync(abs(brain.root, idBrain)), "target='brain' → the brain");
   assert.ok(
     !fs.existsSync(abs(lvlA.root, idBrain)) && !fs.existsSync(abs(lvlB.root, idBrain)),
     "NOT in either repo",

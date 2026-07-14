@@ -41,15 +41,34 @@ test("MUTATE_OP carries the four document operations", () => {
 test("disable/enable/delete parse to a frozen typed request with the resolved target", () => {
   const { ctx, brain } = makeCtx();
   for (const op of [MUTATE_OP.DISABLE, MUTATE_OP.ENABLE, MUTATE_OP.DELETE]) {
-    const req = parseMutateRequest(ctx, { op, dataset: "knowledge", documentId: "k/a.md" });
+    const req = parseMutateRequest(ctx, {
+      op,
+      dataset: "knowledge",
+      documentId: "k/a.md",
+      target: "brain",
+    });
     assert.equal(req.op, op);
     assert.equal(req.dataset, "knowledge");
     assert.equal(req.documentId, "k/a.md");
     assert.equal(req.toPath, undefined);
-    assert.equal(req.target.kind, TARGET_KIND.DEFAULT);
-    assert.equal(req.target.level, brain, "no target -> brain writeDefault");
+    assert.equal(req.target.kind, TARGET_KIND.BRAIN);
+    assert.equal(req.target.level, brain, 'explicit "brain" -> the wiki-owned level');
     assert.ok(Object.isFrozen(req), "request is frozen");
   }
+});
+
+test("a mutate with NO target is REJECTED (target is required, no brain default)", () => {
+  const { ctx } = makeCtx();
+  assert.throws(
+    () =>
+      parseMutateRequest(ctx, {
+        op: MUTATE_OP.DISABLE,
+        dataset: "knowledge",
+        documentId: "k/a.md",
+      }),
+    (err) => err.envelope?.field === "target",
+    "an omitted target throws the actionable envelope",
+  );
 });
 
 test("an explicit target resolves the request against that level (not the brain)", () => {
@@ -70,6 +89,7 @@ test("move parses toPath and keeps an optional (omitted) dataset", () => {
     op: MUTATE_OP.MOVE,
     documentId: "Notes/a.md",
     toPath: "Notes/Testing/a.md",
+    target: "brain",
   });
   assert.equal(req.op, MUTATE_OP.MOVE);
   assert.equal(req.dataset, undefined, "move dataset is optional");

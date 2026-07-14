@@ -35,7 +35,12 @@ function makeCtx() {
   };
 }
 
-const baseArgs = (over) => ({ kind: WRITE_KIND.DOCUMENT, dataset: "knowledge", ...over });
+const baseArgs = (over) => ({
+  kind: WRITE_KIND.DOCUMENT,
+  dataset: "knowledge",
+  target: "brain",
+  ...over,
+});
 
 test("isGatedWrite: the OR of both signals (C4 — both bypass directions closed)", () => {
   assert.equal(isGatedWrite("self_improvement", undefined), true);

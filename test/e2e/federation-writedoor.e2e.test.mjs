@@ -82,14 +82,14 @@ const commitCount = (/** @type {string} */ repo) =>
     }).stdout.trim() || "0",
   );
 
-test("F3a: a KNOWLEDGE-ONLY brain rejects a default self_improvement / plans write (fail-loud, not silent)", () => {
+test("F3a: a KNOWLEDGE-ONLY brain rejects a self_improvement / plans write to the brain (fail-loud, not silent)", () => {
   const home = freshHome("lwm-wd-a-");
   const brainData = path.join(home, ".llm-wiki-memory");
   initWikiAt(brainData, "repo"); // knowledge-only brain
   const ctx = resolveWikiContext([], { home, brainDataDir: brainData });
   const save = (/** @type {string} */ datasetId) =>
     withWikiContext(ctx, () =>
-      withWriteTarget(undefined, () =>
+      withWriteTarget("brain", () =>
         withWikiCommit({ op: "wd", actor: "test" }, () =>
           store.saveDocument({
             name: "x.md",
@@ -172,7 +172,7 @@ test("F3d: a MIXED brain + shared write in ONE commit batch — brain git +1, sh
   const meta = { atom_type: "reference", area: "infra", subject: ["general"] };
   withWikiContext(ctx, () =>
     withWikiCommit({ op: "mixed", actor: "test" }, () => {
-      withWriteTarget(undefined, () =>
+      withWriteTarget("brain", () =>
         store.saveDocument({
           name: "b.md",
           text: "# b\n\nbrain leaf",

@@ -216,10 +216,10 @@ export function getActiveWikiContext() {
  * Resolve a write/mutate `target` selector against a resolved context's levels
  * to the SAME WikiLevel reference the context holds. Delegates to `parseTarget`
  * (context/target.mjs), which owns the selection rules: a level's `root` or
- * `mountDir`, the literal `"brain"` (the wiki-owned level), or null/undefined/""
- * (the context's `writeDefault`, the brain). Throws when a non-empty target
- * names no level — a write directed elsewhere must surface as an error, never
- * fall back silently to the brain (R11).
+ * `mountDir`, or the literal `"brain"` (the wiki-owned level). `target` is
+ * REQUIRED — an empty/missing target throws (no brain default, G1), as does a
+ * non-empty target naming no level; a write directed elsewhere must surface as
+ * an error, never fall back silently to the brain (R11).
  * @param {WikiContext} ctx
  * @param {string | null | undefined} target
  * @returns {WikiLevel}

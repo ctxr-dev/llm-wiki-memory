@@ -13,12 +13,12 @@ import { MCP_OPS, MCP_ACTOR } from "../scripts/lib/context/enums.mjs";
 /** @typedef {import("../scripts/lib/context/mutate.mjs").MutateOp} MutateOp */
 
 // A mutate resolves its RELATIVE `documentId` against the chosen `target`
-// level's root (via the resolved-target withWikiRoot frame), NOT the brain
-// default. Omitted -> the brain (writeDefault), so single-tree behaviour is
-// byte-identical.
-const TargetSchema = z.string().trim().min(1).optional();
+// level's root (via the resolved-target withWikiRoot frame). `target` is
+// REQUIRED and explicit (G1): pass "brain" or a level's root/mountDir; an
+// omitted target is rejected, never defaulted.
+const TargetSchema = z.string().trim().min(1);
 const TARGET_DESCRIPTION =
-  ' Optional top-level `target` selects which scope the relative `select.documentId` resolves against: a context level\'s wiki root or mount directory, or "brain". Omitted, it resolves against your brain (private memory). Inputs are a single nested context object; unknown keys are rejected.';
+  ' REQUIRED top-level `target` selects which scope the relative `select.documentId` resolves against — always explicit (no default): pass "brain" for private memory, or a context level\'s wiki root or mount directory (discover them via get_memory_config `levels`). Omitting it is rejected. Inputs are a single nested context object; unknown keys are rejected.';
 
 // The leaf a mutate acts on. disable/enable/delete need `dataset` + `documentId`;
 // move needs `documentId` + `toPath` and an OPTIONAL `dataset`.

@@ -6,8 +6,8 @@
 // the working tree and STOPS (R11: "commit and push it yourself"). Facet
 // placement pre-validates the note's `subject` against the TARGET level's merged
 // layout and remaps an out-of-vocab domain to `general` instead of throwing
-// (R2). Mutations resolve the RELATIVE documentId against the chosen level, not
-// the brain default, and fall back to the brain when the scope is omitted (R4).
+// (R2). Mutations resolve the RELATIVE documentId against the chosen (required,
+// explicit) target level — "brain" or a level's root/mountDir (G1: no default).
 //
 // The federation is built under a controlled temp HOME (so the scope scanner,
 // which walks up to home, discovers the shared repo) with the LEXICAL backend.
@@ -133,10 +133,14 @@ test("federation resolves brain(d0, wiki) under shared-repo(d1, repo)", () => {
 
 // ─── resolveTargetLevel selector semantics ───────────────────────────────────
 
-test("resolveTargetLevel: omitted / null / '' resolve to the brain (writeDefault)", () => {
-  assert.equal(resolveTargetLevel(ctx, undefined), brainLevel);
-  assert.equal(resolveTargetLevel(ctx, null), brainLevel);
-  assert.equal(resolveTargetLevel(ctx, ""), brainLevel);
+test("resolveTargetLevel: omitted / null / '' are REJECTED — target is required (no brain default)", () => {
+  for (const raw of [undefined, null, ""]) {
+    assert.throws(
+      () => resolveTargetLevel(ctx, raw),
+      (err) => err.envelope?.field === "target",
+      `${JSON.stringify(raw)} must be rejected, never default to brain`,
+    );
+  }
 });
 
 test("resolveTargetLevel: the literal 'brain' selects the wiki-owned level", () => {
@@ -157,25 +161,28 @@ test("resolveTargetLevel: a target naming no context level throws (never a silen
   );
 });
 
-// ─── default routing: brain, never a silent shared write ─────────────────────
+// ─── required target: never a silent brain OR shared write ───────────────────
 
-test("a write with no target lands in the brain, not the shared repo", () => {
-  const res = saveTo(undefined, {
-    name: "default-lands-brain.md",
-    text: "# Default\n\nbody about the default write target.",
-    datasetId: "knowledge",
-    metadata: { atom_type: "reference", area: "routing", subject: ["general"] },
-  });
+test("a write with NO target is REJECTED — never a silent brain OR shared write", () => {
   const rel = "knowledge/routing/reference/general/default-lands-brain.md";
-  assert.equal(res.created.document.id, rel);
-  assert.ok(fs.existsSync(abs(brainRoot, rel)), "leaf materialised under the brain tree");
+  assert.throws(
+    () =>
+      saveTo(undefined, {
+        name: "default-lands-brain.md",
+        text: "# Default\n\nbody about the default write target.",
+        datasetId: "knowledge",
+        metadata: { atom_type: "reference", area: "routing", subject: ["general"] },
+      }),
+    "an omitted target is rejected before any write happens",
+  );
+  assert.ok(!fs.existsSync(abs(brainRoot, rel)), "nothing written under the brain tree");
   assert.ok(!fs.existsSync(abs(sharedRoot, rel)), "nothing written under the shared tree");
 });
 
-test("a normal save with the shared level MERELY IN SCOPE still goes to the brain", () => {
-  // The shared repo is part of the resolved context, but with no explicit
-  // target the engine must never write to it.
-  saveTo(undefined, {
+test("an explicit brain target lands in the brain even with a shared level MERELY IN SCOPE", () => {
+  // The shared repo is part of the resolved context; an explicit "brain" target
+  // must still land in the brain and never leak into the shared repo.
+  saveTo("brain", {
     name: "in-scope-not-target.md",
     text: "# In scope\n\nthe shared repo is in context but not the target.",
     datasetId: "knowledge",
@@ -310,7 +317,7 @@ test("delete_document with an explicit scope deletes the SHARED leaf, not the br
   assert.ok(fs.existsSync(abs(brainRoot, rel)), "brain leaf at the same relpath untouched");
 });
 
-test("delete_document with the scope OMITTED resolves against the brain (back-compat)", () => {
+test("delete_document with target='brain' resolves the relative id against the brain tree", () => {
   const rel = "knowledge/routing/reference/general/dup-omit.md";
   const args = (name) => ({
     name,
@@ -322,7 +329,7 @@ test("delete_document with the scope OMITTED resolves against the brain (back-co
   saveTo(sharedLevel.root, args("dup-omit.md"));
 
   withWikiContext(ctx, () =>
-    withWriteTarget(undefined, () =>
+    withWriteTarget("brain", () =>
       withWikiCommit({ op: "test-del", actor: "test" }, () =>
         store.deleteDocument({ documentId: rel, datasetId: "knowledge" }),
       ),

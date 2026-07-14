@@ -84,8 +84,8 @@ function namesUnder(root, enabled) {
   );
 }
 
-// §6.4 — a no-target write defaults to the brain; the brain's own git advances --
-test("write: default (no target) lands in the brain and advances the brain's git by one", () => {
+// §6.4 — an explicit brain-target write lands in the brain; the brain's own git advances --
+test("write: an explicit brain target lands in the brain and advances the brain's git by one", () => {
   gitInit(brainWiki);
   gitCommitAll(brainWiki, "brain baseline");
   _resetGitProbeCache();
@@ -96,7 +96,7 @@ test("write: default (no target) lands in the brain and advances the brain's git
 
   const res = /** @type {{ created?: { document?: { id?: string } } }} */ (
     withToolScopes({ scopes: [repoDir] }, () =>
-      withWriteTarget(undefined, () =>
+      withWriteTarget("brain", () =>
         withWikiCommit({ op: "e2e-brain-write", actor: "test" }, () =>
           store.saveDocument({
             name: "brain-note.md",

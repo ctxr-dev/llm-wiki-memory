@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { setupWorkspace, cleanup, SRC, scopeClient } from "./harness.mjs";
+import { setupWorkspace, cleanup, SRC, scopeClient, brainTargetClient } from "./harness.mjs";
 
 const { dataDir } = setupWorkspace();
 
@@ -25,6 +25,7 @@ before(async () => {
   await client.connect(transport);
   callToolRaw = client.callTool.bind(client);
   scopeClient(client, [dataDir]);
+  brainTargetClient(client);
 });
 
 after(async () => {
@@ -97,7 +98,7 @@ test("validate_layout validates the wiki's contract and never crashes the server
   assert.equal(missing.ok, false, "missing layout reports ok:false");
 });
 
-test("get_memory_config reports the wiki + categories", async () => {
+test("get_memory_config reports the wiki + categories + resolved levels", async () => {
   const cfg = parse(await client.callTool({ name: "get_memory_config", arguments: {} }));
   assert.ok(cfg.wikiRoot.includes(".llm-wiki-memory") || cfg.wikiRoot.includes("wiki"));
   assert.deepEqual(cfg.categories, [
@@ -107,6 +108,17 @@ test("get_memory_config reports the wiki + categories", async () => {
     "investigations",
     "daily",
   ]);
+  // G2: the resolved scope chain is exposed so a caller can pick an explicit
+  // target by path (the ONLY way to distinguish two same-identity siblings).
+  assert.ok(Array.isArray(cfg.levels) && cfg.levels.length >= 1, "levels array present");
+  const brain = cfg.levels.find((l) => l.ownership === "wiki");
+  assert.ok(brain, "the wiki-owned brain level is listed");
+  assert.equal(brain.depth, 0, "the brain is depth 0");
+  for (const l of cfg.levels) {
+    for (const k of ["root", "mountDir", "projectModule", "ownership", "depth"]) {
+      assert.ok(k in l, `each level carries ${k}`);
+    }
+  }
 });
 
 test("save_lesson then recall_lessons round-trips through the server", async () => {
@@ -373,10 +385,55 @@ test("A6 hard-cut: a LEGACY FLAT save_to_dataset call is rejected (no nested `wr
   assert.equal(res.isError, true, "flat payload rejected by the strict nested schema");
 });
 
+test("G1: a write with NO `target` is rejected at the wire; the same write with `target:'brain'` succeeds", async () => {
+  // Raw handle so neither scopeClient nor brainTargetClient backfills anything —
+  // scopes are supplied so the ONLY missing field is the now-required `target`.
+  const base = {
+    scopes: [dataDir],
+    write: {
+      dataset: "knowledge",
+      name: "needs-target.md",
+      text: "# needs target\n\nbody long enough to pass validation",
+      metadata: { atom_type: "reference", project_module: "testproj" },
+    },
+  };
+  const missing = await callToolRaw({ name: "save_to_dataset", arguments: base });
+  assert.equal(
+    missing.isError,
+    true,
+    "an omitted target is rejected by the required-target schema",
+  );
+  assert.match(missing.content[0].text, /target|Invalid arguments|Input validation/i);
+  const ok = parse(
+    await callToolRaw({ name: "save_to_dataset", arguments: { ...base, target: "brain" } }),
+  );
+  assert.equal(ok.ok, true, "the same write with an explicit brain target is accepted");
+});
+
+test("G1: a MUTATE with NO `target` is rejected at the wire (same required-target contract)", async () => {
+  // Raw handle so brainTargetClient doesn't backfill target; scopes supplied so
+  // the ONLY missing field is the now-required `target`.
+  const res = await callToolRaw({
+    name: "disable_document",
+    arguments: { scopes: [dataDir], select: { dataset: "knowledge", documentId: "k/whatever.md" } },
+  });
+  assert.equal(
+    res.isError,
+    true,
+    "an omitted target on a mutate is rejected by the required schema",
+  );
+  assert.match(res.content[0].text, /target|Invalid arguments|Input validation/i);
+});
+
 test("A6 strict wire: an unknown TOP-LEVEL key (typo'd target) is rejected, never dropped to brain", async () => {
-  const res = await client.callTool({
+  // Raw client so brainTargetClient can't backfill `target`; supply a VALID
+  // target so the ONLY problem is the unknown key. A non-strict schema would
+  // DROP `targett` and write to the brain (isError:false) — that must not happen.
+  const res = await callToolRaw({
     name: "save_to_dataset",
     arguments: {
+      scopes: [dataDir],
+      target: "brain",
       write: { dataset: "knowledge", name: "typo-top.md", text: "# x\n\nbody" },
       targett: "/somewhere",
     },

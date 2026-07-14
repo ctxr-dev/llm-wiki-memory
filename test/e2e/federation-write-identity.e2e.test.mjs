@@ -101,7 +101,7 @@ test("stamp: a repo-target write lands with project_module = the resolved org/re
 
 test("stamp: a brain-target write keeps the workspace default, not the repo identity", async () => {
   const { built, ctx } = await build();
-  const rel = await writeVia(ctx, undefined, "brain-note.md");
+  const rel = await writeVia(ctx, "brain", "brain-note.md");
   assert.equal(
     pmOf(built.brainWiki, rel),
     defaultProjectModule().toLowerCase(),

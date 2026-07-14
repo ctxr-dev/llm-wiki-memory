@@ -154,6 +154,31 @@ export function scopeClient(client, scopes) {
 // OUTSIDE scopeClient — nestClient(scopeClient(client, dirs)) — so scopes stays a
 // top-level sibling. Idempotent: a payload that already carries `write` passes
 // through untouched.
+// Inject an explicit `target: "brain"` into write/mutate tool calls that omit it
+// (G1 made `target` required). Mirrors scopeClient: keeps brain-write test
+// payloads terse without restating the now-required target at every call site.
+// A call that already carries `target` keeps it; read tools are untouched.
+export function brainTargetClient(client) {
+  const TARGETED = new Set([
+    "save_lesson",
+    "save_to_dataset",
+    "write_memory",
+    "disable_document",
+    "enable_document",
+    "delete_document",
+    "move_document",
+  ]);
+  const call = client.callTool.bind(client);
+  client.callTool = (params, ...rest) => {
+    const a = params && typeof params === "object" ? params.arguments : undefined;
+    if (a && typeof a === "object" && TARGETED.has(params.name) && a.target === undefined) {
+      return call({ ...params, arguments: { ...a, target: "brain" } }, ...rest);
+    }
+    return call(params, ...rest);
+  };
+  return client;
+}
+
 export function nestClient(client) {
   const WRITE_TOOLS = new Set(["save_lesson", "save_to_dataset", "write_memory"]);
   const call = client.callTool.bind(client);
@@ -164,7 +189,9 @@ export function nestClient(client) {
       const nested = {
         write,
         ...(scopes !== undefined ? { scopes } : {}),
-        ...(target !== undefined ? { target } : {}),
+        // `target` is REQUIRED now (G1); the gate suites are brain writes, so
+        // default an omitted target to "brain" rather than rewriting each call.
+        target: target !== undefined ? target : "brain",
         ...(userRequested !== undefined ? { gate: { userRequested } } : {}),
       };
       return call({ ...params, arguments: nested }, ...rest);

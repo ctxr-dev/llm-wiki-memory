@@ -181,7 +181,7 @@ test("F1f: the SAME identity at two depths in ONE chain — both trees survive t
   assert.ok(ii < oi, "the DEEPER (inner, higher depth boost) hit ranks before the shallower one");
 });
 
-test("F1h: default (no-target) save is shared via the BRAIN — the same brain tree backs both repo scopes", async () => {
+test("F1h: an explicit brain save is shared via the BRAIN — the same brain tree backs both repo scopes", async () => {
   const A = path.join(home, "s", "svc-a");
   const B = path.join(home, "s", "svc-b");
   makeMount(A, "git@github.com:acme/svc-a.git");
@@ -189,8 +189,8 @@ test("F1h: default (no-target) save is shared via the BRAIN — the same brain t
   const ctxA = resolveWikiContext([A], opts);
   const ctxB = resolveWikiContext([B], opts);
   assert.equal(ctxA.brain.root, ctxB.brain.root, "both repo scopes resolve the SAME shared brain");
-  const id = saveTo(ctxA, undefined, "shared-default.md", "brainshare");
-  assert.ok(fs.existsSync(abs(ctxA.brain.root, id)), "default save landed in the brain");
+  const id = saveTo(ctxA, "brain", "shared-default.md", "brainshare");
+  assert.ok(fs.existsSync(abs(ctxA.brain.root, id)), "brain-target save landed in the brain");
   const out = await withWikiContext(ctxB, () =>
     searchMemoryFiltered({ query: "brainshare", datasetId: "knowledge" }),
   );

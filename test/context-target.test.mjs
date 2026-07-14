@@ -36,17 +36,27 @@ function makeCtx() {
 /** @param {unknown} v @returns {WikiContext} */
 const asCtx = (v) => /** @type {WikiContext} */ (v);
 
-test("TARGET_KIND carries the three discriminants", () => {
-  assert.deepEqual({ ...TARGET_KIND }, { DEFAULT: "default", BRAIN: "brain", LEVEL: "level" });
+test("TARGET_KIND carries the two discriminants (no DEFAULT — target is required)", () => {
+  assert.deepEqual({ ...TARGET_KIND }, { BRAIN: "brain", LEVEL: "level" });
 });
 
-test("empty / null / undefined / blank target resolves to default (writeDefault)", () => {
-  const { ctx, brain } = makeCtx();
+test("empty / null / undefined / blank target is REJECTED (required + explicit, no brain default)", () => {
+  const { ctx, brain, repo } = makeCtx();
   for (const raw of [undefined, null, "", "   "]) {
-    const r = parseTarget(ctx, raw);
-    assert.equal(r.kind, TARGET_KIND.DEFAULT);
-    assert.equal(r.level, brain, "same writeDefault reference");
-    assert.equal(r.requested, null);
+    let err;
+    try {
+      parseTarget(ctx, raw);
+    } catch (e) {
+      err = e;
+    }
+    assert.ok(err, `raw ${JSON.stringify(raw)} must throw, never default to brain`);
+    assert.equal(err.envelope.field, "target", "the actionable envelope names the target field");
+    assert.ok(
+      err.envelope.allowed.includes("brain") &&
+        err.envelope.allowed.includes(brain.root) &&
+        err.envelope.allowed.includes(repo.root),
+      "allowed lists every level's root/mountDir plus brain",
+    );
   }
 });
 
@@ -83,7 +93,7 @@ test("a missing or empty context throws", () => {
 
 test("resolveTargetLevel delegates to parseTarget (identical level reference)", () => {
   const { ctx, repo, brain } = makeCtx();
-  for (const raw of [undefined, null, "", "brain", repo.root, repo.mountDir, brain.mountDir]) {
+  for (const raw of ["brain", repo.root, repo.mountDir, brain.mountDir]) {
     assert.equal(resolveTargetLevel(ctx, raw), parseTarget(ctx, raw).level);
   }
 });

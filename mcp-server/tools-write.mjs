@@ -15,16 +15,17 @@ import {
 
 /** @typedef {import("@modelcontextprotocol/sdk/server/mcp.js").McpServer} McpServer */
 
-// Shared OPTIONAL write target: the scope/root a write lands in. Omitted -> the
-// brain (writeDefault). Accepts a context level's `root` or `mountDir`, or "brain".
-const TargetSchema = z.string().trim().min(1).optional();
+// Shared REQUIRED write target: the scope/root a write lands in. Explicit by
+// design (no implicit brain default — G1): pass a context level's `root` or
+// `mountDir`, or "brain" for private memory. Discoverable via get_memory_config.
+const TargetSchema = z.string().trim().min(1);
 // The consent envelope. `userRequested` attests an in-turn user OK; the L3 gate
 // refuses a self_improvement write without it. Required for save_lesson (always
 // gated), optional for the other writes (gated only for self_improvement).
 const GateSchema = z.object({ userRequested: z.boolean() }).strict();
 
 const TARGET_DESCRIPTION =
-  ' Optional top-level `target` routes the write into a chosen scope: pass a context level\'s wiki root or mount directory, or "brain". Omitted, the write lands in your brain (private memory). NEVER write to a shared repo without the user choosing it: ASK first, then pass that repo as `target`; a shared write is only staged in the repo working tree (the engine runs no git) — tell the user to commit and push it.';
+  ' REQUIRED top-level `target` — the write destination is always explicit (there is no default): pass "brain" for your private memory, or a context level\'s wiki root or mount directory for a project (discover the available levels via get_memory_config `levels`). Omitting it is rejected. NEVER write to a shared repo without the user choosing it: ASK first, then pass that repo as `target`; a shared write is only staged in the repo working tree (the engine runs no git) — tell the user to commit and push it.';
 
 const NESTED_NOTE = " Inputs are a single nested context object; unknown keys are rejected.";
 
