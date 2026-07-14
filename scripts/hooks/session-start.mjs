@@ -14,8 +14,10 @@ import {
   buildScopeSeedSection,
   buildWorkContextSection,
   buildRecentActivitySection,
+  computeSessionScopes,
 } from "../lib/work-context.mjs";
 import { withBrainContextSafe } from "../lib/wiki-context.mjs";
+import { withScopeContext } from "../cli-scopes.mjs";
 import { migrate as migrateSettings } from "../migrate-settings.mjs";
 
 // Self-heal a "live upgrade": an operator who git-pulls a new src/ and just
@@ -122,10 +124,14 @@ try {
 // string and we ship the discipline context alone.
 let workContext = "";
 try {
-  // The hook's own wiki reads run brain-scoped (brain-only context). Resolving
-  // wikiRoot() INSIDE the frame so the search targets the brain wiki.
-  // Behavior-neutral in the single-tree case; a resolve failure falls through.
-  workContext = await withBrainContextSafe(async () => {
+  // Run the work-context search under the SESSION SCOPE CHAIN (cwd + repo up to
+  // the brain), not brain-only: the active branch's in-progress plan often lives
+  // in the SHARED REPO's wiki, not the private brain. withScopeContext fans the
+  // search across levels; each hit is tagged with its level's `resolvedRoot`, so
+  // buildWorkContextSection reads plan progress from the tree the hit came from.
+  // Falls through to single-tree on an unresolvable scope. `wikiRoot()` is the
+  // brain-root fallback for an untagged (single-tree) hit.
+  workContext = await withScopeContext(computeSessionScopes(process.cwd()), async () => {
     const { searchMemory } = await import("../lib/recall.mjs");
     return buildWorkContextSection({
       cwd: process.cwd(),

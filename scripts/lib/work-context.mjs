@@ -196,18 +196,25 @@ export async function buildWorkContextSection({
   // Plan hits get their progress surfaced, but the list is capped to planMax and
   // unfinished plans are preferred, so a pile of related plans (or finished ones)
   // can't crowd out the plan you're actually working on. Non-plan hits are kept.
-  const isPlanId = (/** @type {unknown} */ id) =>
-    wikiRoot && typeof id === "string" && id.endsWith(".plan.md");
+  // A federated hit carries its level's `resolvedRoot` (fan-out tag), so a
+  // SHARED-REPO plan resolves against the repo wiki, not the brain; an untagged
+  // (single-tree) hit falls back to the injected `wikiRoot`.
+  const planRootFor = (/** @type {SearchHit} */ r) => {
+    if (typeof r.resolvedRoot === "string" && r.resolvedRoot) return r.resolvedRoot;
+    return typeof wikiRoot === "string" && wikiRoot ? wikiRoot : null;
+  };
+  const isPlanId = (/** @type {SearchHit} */ r) =>
+    typeof r.documentId === "string" &&
+    r.documentId.endsWith(".plan.md") &&
+    planRootFor(r) !== null;
   /** @type {Map<string, ReadPlanProgressResult | null>} */
   const planProgress = new Map();
   /** @type {SearchHit[]} */
   const planHits = [];
   for (const r of records) {
-    if (isPlanId(r.documentId)) {
-      planProgress.set(
-        r.documentId,
-        readPlanProgress(path.join(/** @type {string} */ (wikiRoot), r.documentId)),
-      );
+    if (isPlanId(r)) {
+      const rootDir = /** @type {string} */ (planRootFor(r));
+      planProgress.set(r.documentId, readPlanProgress(path.join(rootDir, r.documentId)));
       planHits.push(r);
     }
   }
@@ -226,7 +233,7 @@ export async function buildWorkContextSection({
   /** @type {string[]} */
   const bullets = [];
   for (const r of records) {
-    const plan = isPlanId(r.documentId);
+    const plan = isPlanId(r);
     if (plan && !keepPlans.has(r.documentId)) continue;
     const score = typeof r.score === "number" ? r.score.toFixed(3) : "?";
     let extra = "";
