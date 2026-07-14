@@ -142,10 +142,19 @@ test("F1a: same-repo clone ISOLATION — a save into clone A's tree is unreachab
     searchMemoryFiltered({ query: "isolatok", datasetId: "knowledge" }),
   );
   assert.ok(
-    !out.records.some((r) => r.resolvedRoot === la.root),
-    "shared identity does NOT cross the scope boundary — A's leaf is unreachable from B alone",
+    !out.records.some((r) => r.documentName === "only-in-a.md"),
+    "resolving clone B alone never surfaces clone A's leaf (outside B's scope)",
   );
   assert.ok(fs.existsSync(abs(la.root, idA)), "the leaf does exist in A's own tree");
+  // Positive control: the SAME query DOES surface it when clone A is in scope, so
+  // the negative above is real isolation, not a query that matches nothing anywhere.
+  const found = await withWikiContext(ctxA, () =>
+    searchMemoryFiltered({ query: "isolatok", datasetId: "knowledge" }),
+  );
+  assert.ok(
+    found.records.some((r) => r.documentName === "only-in-a.md" && r.resolvedRoot === la.root),
+    "the same query finds A's leaf when clone A IS in scope (control)",
+  );
 });
 
 test("F1f: the SAME identity at two depths in ONE chain — both trees survive the fan-out, deeper ranks first", async () => {

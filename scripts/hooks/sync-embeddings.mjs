@@ -25,10 +25,13 @@ function categoryFromMountPath(p) {
   const segs = String(p || "")
     .split(/[\\/]+/)
     .filter((s) => s && s !== ".");
-  const i = segs.indexOf("wiki");
-  if (i < 1 || i + 1 >= segs.length) return "";
-  if (segs[i - 1] !== ".llm-wiki-memory") return "";
-  return segs[i + 1];
+  // Anchor on the mount marker `.llm-wiki-memory`, NOT a bare `wiki` segment: a
+  // repo can have its own `wiki/` dir on the path to the mount (e.g. a subpackage
+  // mount at `<repo>/wiki/.llm-wiki-memory/…`), and `indexOf("wiki")` would then
+  // match that spurious leading segment and mis-detect (or miss) the category.
+  const i = segs.indexOf(".llm-wiki-memory");
+  if (i < 0 || segs[i + 1] !== "wiki" || i + 2 >= segs.length) return "";
+  return segs[i + 2];
 }
 
 /**
@@ -99,7 +102,7 @@ export async function syncEmbeddings({ mountDir, changedPaths = [], full = false
  * @returns {{ paths: string[], full: boolean }}
  */
 export function changedPathsFromGit(cwd, argv) {
-  const shas = argv.filter((a) => /^[0-9a-f]{7,40}$/i.test(a));
+  const shas = argv.filter((a) => /^[0-9a-f]{7,64}$/i.test(a));
   const primary = shas.length >= 2 ? `${shas[0]}..${shas[1]}` : "ORIG_HEAD..HEAD";
   for (const range of [primary, "HEAD~1..HEAD"]) {
     // `-z` disables git's C-quoting of non-ASCII/space paths (NUL-separated raw

@@ -126,6 +126,11 @@ test("F5-G3: the INSTALLED post-rewrite hook fires on commit --amend and rebuild
   git(["commit", "-q", "--amend", "-m", "c2 amended"]); // post-rewrite fires; HEAD~1..HEAD spans the leaf
   const appeared = await waitForFile(cachePath(wiki), 20000);
   assert.ok(appeared, "the detached post-rewrite hook rebuilt the shared cache after an amend");
+  const cache = JSON.parse(fs.readFileSync(cachePath(wiki), "utf8"));
+  assert.ok(
+    cache.entries["shared_notes/note.md"],
+    "the amended shared leaf is embedded, not just touched",
+  );
 });
 
 test("F5-G6: the installed hook block's `|| true` makes the hook script exit 0 despite a non-zero wrapper", () => {

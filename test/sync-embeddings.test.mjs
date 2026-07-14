@@ -70,6 +70,25 @@ test("syncEmbeddings ignores a changed PERSONAL (ownership==wiki) category", asy
   assert.deepEqual(res.warmed, [], "personal category is not warmed by the shared-sync hook");
 });
 
+test("syncEmbeddings resolves the category via the .llm-wiki-memory anchor even under a `wiki/` dir", async () => {
+  // The mount holder is literally named `wiki`, so the repo-relative changed path
+  // leads with a spurious `wiki` segment; anchoring on `.llm-wiki-memory` (not the
+  // first `wiki`) must still resolve the real category.
+  const outer = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "lwm-wikidir-")));
+  tmps.push(outer);
+  const mount = path.join(outer, "wiki");
+  const wiki = path.join(mount, ".llm-wiki-memory", "wiki");
+  fs.mkdirSync(path.join(wiki, ".layout"), { recursive: true });
+  fs.writeFileSync(path.join(wiki, ".layout", "layout.yaml"), SHARED_LAYOUT);
+  writeLeaf(wiki, "shared_notes/note.md", "# n\n\nbody about kafka");
+  const res = await syncEmbeddings({
+    mountDir: mount,
+    changedPaths: ["wiki/.llm-wiki-memory/wiki/shared_notes/note.md"],
+  });
+  assert.deepEqual(res.warmed, ["shared_notes"], "category resolves despite the leading wiki/ dir");
+  assert.ok(fs.existsSync(path.join(wiki, "shared_notes", ".embeddings", "embeddings.json")));
+});
+
 test("syncEmbeddings skips cleanly when the mount has no wiki", async () => {
   const res = await syncEmbeddings({ mountDir: path.join(os.tmpdir(), "lwm-does-not-exist-xyz") });
   assert.equal(res.ok, false);
