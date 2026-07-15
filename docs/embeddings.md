@@ -13,12 +13,25 @@ The skill-llm-wiki package has no query/search command (retrieval is "walk the
 index tree" by design), so ranking a free-text query against existing leaves is
 this engine's job. Two things get embedded:
 
-- **Every active leaf's body** — lazily, the first time a search touches its
-  category, and again only when its content hash changes.
-- **The search query** — once per search.
+- **Every active leaf** — from a **curated header** prepended to the body:
+  `title · tags · subject`, then a blank line, then the body. Only the
+  semantically useful frontmatter is included — the `focus` (title) line, the
+  merged tag list, and the hierarchical `subject` path. Everything else in the
+  frontmatter (`id`, `updated`, `source.hash`, `parents`, `covers`, the internal
+  `memory` bookkeeping) is **deliberately excluded** — it is machinery, not
+  meaning, and would only dilute the vector. Embedded lazily, the first time a
+  search touches its category, and again only when its content hash changes.
+- **The search query** — once per search, embedded **verbatim** (no header):
+  the header enriches the stored leaf, not the user's free text.
 
 Ranking is cosine similarity between the query vector and each candidate leaf
 vector, after a frontmatter-metadata filter narrows the candidate set.
+
+The one place a leaf is used *as* a query is the consolidate cluster probe (it
+searches for a leaf's near-duplicates). That probe composes the **same**
+`title · tags · subject` header, so both sides of the comparison see the same
+shape. The header lives in one helper (`embedTextForLeaf`), so leaf-side and
+consolidate-side can never drift apart.
 
 ### Backends
 
@@ -31,8 +44,9 @@ The backend is resolved once per process and latched: a mid-run
 transformer→lexical fallback sticks for the rest of the process, and the cache
 records which backend produced its vectors (see caching).
 
-Change the model with `MEMORY_EMBED_MODEL` (e.g. a lighter
-`Xenova/bge-small-en-v1.5`). A model change invalidates the vector cache (it is
+Change the model with `embed.model` in `settings.yaml` (e.g. a lighter
+`Xenova/bge-small-en-v1.5`); the old `MEMORY_EMBED_MODEL` env var was folded into
+settings and is now ignored. A model change invalidates the vector cache (it is
 stamped with the model), so vectors recompute on the next search.
 
 ---
@@ -41,8 +55,10 @@ stamped with the model), so vectors recompute on the next search.
 
 Vectors are cached per category at
 `<wikiRoot>/<category>/.embeddings/embeddings.json` (gitignored). Each entry is
-keyed by the leaf's relative id and carries the **content hash** of the body it
-was computed from, so an unchanged leaf is never re-embedded.
+keyed by the leaf's relative id and carries the **content hash** of the embedded
+text (the `title · tags · subject` header **plus** the body) it was computed
+from, so an unchanged leaf is never re-embedded — and editing a leaf's title,
+tags, or subject re-embeds it once, automatically, on the next search.
 
 The cache file is **stamped** with `{ model, backend, dim }`. On load, a stamp
 mismatch (different model, different backend, or a different vector dimension)
@@ -145,7 +161,7 @@ baseline across every batch size** (B=8 → 64). One model, regardless of batch.
    operation re-embeds only the handful of leaves whose content changed.
 4. **The biggest single speed lever is model size**, not parallelism. `bge-large`
    is the heavy end (~45–87 ms/doc); a quantized `bge-small`/MiniLM is ~3–5×
-   faster per doc at a small quality cost — set `MEMORY_EMBED_MODEL` to switch.
+   faster per doc at a small quality cost — set `embed.model` in `settings.yaml` to switch.
    The default stays `bge-large` for retrieval quality.
 
 ### Reproducing

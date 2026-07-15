@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { withWikiRoot, embedCacheFor } from "../lib/env.mjs";
 import { loadCache, saveCache, cachedEmbeddings } from "../lib/embed.mjs";
-import { walkLeaves, readLeaf, isActive } from "../lib/wiki-core.mjs";
+import { walkLeaves, readLeaf, isActive, embedTextForLeaf } from "../lib/wiki-core.mjs";
 import { toRel } from "../lib/wiki-identity.mjs";
 import { mergedLayoutForRoot, sharedCategories } from "../lib/wiki-ownership.mjs";
 
@@ -60,7 +60,7 @@ async function warmCategory(wikiRootDir, category) {
       continue;
     }
     if (!isActive(data)) continue;
-    items.push({ id: toRel(leaf), text: body });
+    items.push({ id: toRel(leaf), text: embedTextForLeaf(data, body) });
   }
   // One batched forward pass over all changed leaves in this category (bounded
   // internally by embedMany's chunk size) instead of a serial call per leaf.

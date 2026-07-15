@@ -9,6 +9,7 @@ import {
   listActiveLeavesForConsolidate,
   readLeafForConsolidate,
   searchMemoryFiltered,
+  embedTextForLeaf,
 } from "./lib/wiki-store.mjs";
 import { passEnabled } from "./consolidate-report.mjs";
 import {
@@ -98,7 +99,7 @@ export async function runConsolidate({ allowed, dryRun, now, ctx }) {
     try {
       cluster = await searchMemoryFiltered(
         /** @type {SearchOptions} */ ({
-          query: String(leaf.text).slice(0, 1024),
+          query: embedTextForLeaf(leaf.frontmatter, leaf.text).slice(0, 1024),
           datasetId: leaf.category,
           limit: consolidateClusterTopK(),
           scoreThreshold: consolidateClusterScoreThreshold(),

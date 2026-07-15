@@ -11,6 +11,7 @@ import {
   leafMemory,
   isActive,
   walkLeaves,
+  embedTextForLeaf,
 } from "./wiki-core.mjs";
 import { toRel, toAbs } from "./wiki-identity.mjs";
 import { ensureLayoutLoaded, slotToCategory, getCategories } from "./wiki-layout-state.mjs";
@@ -195,9 +196,8 @@ export async function searchOneTree({
       try {
         ({ data, body } = readLeaf(leaf));
       } catch (err) {
-        // An unreadable leaf (invalid YAML — e.g. a git merge conflict in a SHARED
-        // repo leaf) must NOT abort the search and blank recall for everyone with
-        // that repo in scope. Skip it with a breadcrumb; the rest still return.
+        // An unreadable leaf (invalid YAML — e.g. a git merge conflict in a shared
+        // repo leaf) must NOT abort the search and blank recall. Skip with a breadcrumb.
         console.error(
           `[search] skipping unreadable leaf ${toRel(leaf)}: ${err instanceof Error ? err.message : String(err)}`,
         );
@@ -209,6 +209,7 @@ export async function searchOneTree({
       candidates.push({
         id: toRel(leaf),
         text: body,
+        embedText: embedTextForLeaf(data, body),
         documentName: path.basename(leaf),
         datasetId: cat,
         // Lazy-default legacy leaves that predate the priority field by the
@@ -238,15 +239,14 @@ export async function searchOneTree({
     }
     return c;
   };
-  // Batch the cold-cache misses per category (one embedMany pass per category,
-  // not a serial call per candidate — the whole-category warm is the hot path);
-  // score in candidate order so the priority tie-break is unchanged.
+  // Batch cold-cache misses per category (one embedMany pass, not a serial call
+  // per candidate); score in candidate order so the priority tie-break holds.
   /** @type {Map<string, { id: string, text: string }[]>} */
   const itemsByCat = new Map();
   for (const c of candidates) {
     const arr = itemsByCat.get(c.datasetId);
-    if (arr) arr.push({ id: c.id, text: c.text });
-    else itemsByCat.set(c.datasetId, [{ id: c.id, text: c.text }]);
+    if (arr) arr.push({ id: c.id, text: c.embedText });
+    else itemsByCat.set(c.datasetId, [{ id: c.id, text: c.embedText }]);
   }
   /** @type {Map<string, number[]>} */
   const vecById = new Map();

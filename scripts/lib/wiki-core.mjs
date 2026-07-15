@@ -46,6 +46,60 @@ export function isActive(data) {
   return status !== "archived";
 }
 
+/**
+ * @param {LeafFrontmatter | null | undefined} data
+ * @param {MemoryMetadata} mem
+ * @returns {string[]}
+ */
+function leafTags(data, mem) {
+  const raw = [
+    ...(data && Array.isArray(data.tags) ? data.tags : []),
+    ...String(mem.tags || "").split(","),
+  ];
+  const seen = new Set();
+  /** @type {string[]} */
+  const out = [];
+  for (const t of raw) {
+    const s = String(t).trim();
+    if (!s) continue;
+    const k = s.toLowerCase();
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+// The text we EMBED for a leaf: a curated `title · tags · subject` header
+// (the semantically useful frontmatter) prepended to the body. Ids, timestamps,
+// source hashes, parents and cover boilerplate are deliberately excluded. The
+// consolidate cluster probe embeds a leaf AS its query, so it uses this too —
+// both sides see the same shape; the user's free-text query does NOT.
+/**
+ * @param {LeafFrontmatter | null | undefined} data
+ * @param {string} body
+ * @returns {string}
+ */
+export function embedTextForLeaf(data, body) {
+  const mem = leafMemory(data);
+  /** @type {string[]} */
+  const parts = [];
+  const title = String((data && data.focus) || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (title) parts.push(title);
+  const tags = leafTags(data, mem);
+  if (tags.length) parts.push(tags.join(", "));
+  const subject = Array.isArray(mem.subject)
+    ? mem.subject.map((s) => String(s).trim()).filter(Boolean)
+    : [];
+  if (subject.length) parts.push(subject.join(" / "));
+  const header = parts.join(" · ");
+  const text = String(body || "");
+  return header ? `${header}\n\n${text}` : text;
+}
+
 // Recursively collect leaf files (not index.md) under a directory. Entries
 // are sorted lex-ascending so two runs over the same tree iterate in
 // identical order regardless of filesystem (APFS preserves insertion order,

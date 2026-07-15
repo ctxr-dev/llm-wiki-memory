@@ -9,7 +9,7 @@
 // mutable array to import — importing one snapshots a stale empty binding
 // before the lazy load runs (that bug once made CLI search return zero hits).
 
-export { WikiStoreUnavailable } from "./wiki-core.mjs";
+export { WikiStoreUnavailable, embedTextForLeaf } from "./wiki-core.mjs";
 
 export {
   resetLayoutCache,

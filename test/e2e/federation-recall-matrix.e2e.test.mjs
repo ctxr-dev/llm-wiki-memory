@@ -113,7 +113,10 @@ test("recall boost=2: depthBoost === depth*2 and the ranking is doubled-DESC by 
     );
   }
   const spread = records[0].adjustedConfidence - records[2].adjustedConfidence;
-  assert.equal(spread, 4, "sub(depth2) - brain(depth0) separation = (2-0)*2 = 4");
+  assert.ok(
+    Math.abs(spread - 4) < 1e-9,
+    `sub(depth2) - brain(depth0) separation ≈ (2-0)*2 = 4 (got ${spread})`,
+  );
 });
 
 test("recall boost knob contrast: boost=1 separates by depth, boost=0 collapses that", async () => {
@@ -121,6 +124,9 @@ test("recall boost knob contrast: boost=1 separates by depth, boost=0 collapses 
   const b0 = await searchAtBoost(0);
   const sepB1 = b1[0].adjustedConfidence - b1[b1.length - 1].adjustedConfidence;
   const sepB0 = b0[0].adjustedConfidence - b0[b0.length - 1].adjustedConfidence;
-  assert.equal(sepB1, 2, "boost=1 → deepest-vs-shallowest separation = depth spread (2)");
+  assert.ok(
+    Math.abs(sepB1 - 2) < 1e-9,
+    `boost=1 → deepest-vs-shallowest separation ≈ depth spread (2) (got ${sepB1})`,
+  );
   assert.equal(sepB0, 0, "boost=0 → no separation (pure cosine)");
 });

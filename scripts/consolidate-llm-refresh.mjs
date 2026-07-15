@@ -19,6 +19,7 @@ import {
   searchMemoryFiltered,
   disableDocument,
   saveDocument,
+  embedTextForLeaf,
 } from "./lib/wiki-store.mjs";
 import { preserveIdentityOnResave } from "./lib/wiki-identity.mjs";
 import { callJSON } from "./lib/llm-callJSON.mjs";
@@ -142,7 +143,7 @@ export async function llmSemanticRefresh({ ctx, now, dryRun }) {
     try {
       cluster = await searchMemoryFiltered(
         /** @type {SearchFilteredArgs} */ ({
-          query: String(leaf.text).slice(0, 1024),
+          query: embedTextForLeaf(leaf.frontmatter, leaf.text).slice(0, 1024),
           datasetId: leaf.category,
           limit: consolidateClusterTopK(),
           scoreThreshold: consolidateClusterScoreThreshold(),
