@@ -119,7 +119,16 @@ test("install into a path with SPACES wires everything (Join-Path / arg quoting 
   );
   const wrapper = path.join(h.dataDir, "state", "cron-hourly.cmd");
   assert.ok(exists(wrapper), "schedule wrapper written");
-  assert.ok(read(wrapper).includes(h.dataDir), "wrapper pins the spaced data-dir path verbatim");
+  const body = read(wrapper);
+  // The point is that the space doesn't break the quoted line — match the shape,
+  // not the exact path (bootstrap.ps1's Resolve-Path form differs from Node's
+  // realpathSync h.dataDir: 8.3 short names / drive-case, same dir).
+  assert.ok(body.split(/\r?\n/).length >= 4, "wrapper multi-line despite the space");
+  assert.match(
+    body,
+    /^set "MEMORY_DATA_DIR=.+\.llm-wiki-memory"\s*$/m,
+    "MEMORY_DATA_DIR is a single well-formed quoted line (the space stayed inside the quotes)",
+  );
 });
 
 test("install into a NON-ASCII path succeeds; the schedule wrapper is not mangled to '?' (H2)", () => {
