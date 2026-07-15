@@ -40,17 +40,7 @@ test("fresh default install: drives the REAL bootstrap.ps1 and writes only under
     command: "node",
     args: ["${HOME}/.llm-wiki-memory/src/mcp-server/index.mjs"],
   });
-  const settingsPath = path.join(h.home, ".claude", "settings.json");
-  if (!exists(settingsPath)) {
-    const claudeDir = path.join(h.home, ".claude");
-    const listing = exists(claudeDir) ? fs.readdirSync(claudeDir).join(",") : "(.claude absent)";
-    const tmpl = path.join(dataDir, "src", "templates", "claude", "settings.json");
-    assert.fail(
-      `settings.json absent. .claude=[${listing}] tmplExists=${exists(tmpl)} ` +
-        `claudeJson=${exists(path.join(h.home, ".claude.json"))}\nSTDOUT:\n${r.stdout}\nSTDERR:\n${r.stderr}`,
-    );
-  }
-  const globalHooks = JSON.parse(read(settingsPath));
+  const globalHooks = JSON.parse(read(path.join(h.home, ".claude", "settings.json")));
   assert.ok(globalHooks.hooks.SessionStart, "global hooks registered");
 });
 

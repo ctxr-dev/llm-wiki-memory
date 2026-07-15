@@ -114,3 +114,16 @@ test("removeStalePerRepo on a BRAIN (workspace === home): strips per-repo .mcp.j
   );
   fs.rmSync(home, { recursive: true, force: true });
 });
+
+test("removeStalePerRepo on a BRAIN passed as an equivalent-but-different path form (Windows: Resolve-Path vs USERPROFILE): hooks kept", () => {
+  const home = fs.realpathSync(tmpHome());
+  registerGlobalMcp({ home, platform: "linux" });
+  const before = fs.readFileSync(path.join(home, ".claude", "settings.json"), "utf8");
+  const alias = fs.mkdtempSync(path.join(os.tmpdir(), "unreg-alias-")) + "-l";
+  fs.symlinkSync(home, alias, process.platform === "win32" ? "junction" : undefined);
+  const r = removeStalePerRepo({ workspace: alias, home });
+  assert.equal(r.hooks, 0, "a path that resolves to home IS the brain — global hooks NOT stripped");
+  assert.equal(fs.readFileSync(path.join(home, ".claude", "settings.json"), "utf8"), before);
+  fs.rmSync(alias, { force: true });
+  fs.rmSync(home, { recursive: true, force: true });
+});

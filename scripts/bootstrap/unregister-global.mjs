@@ -10,6 +10,7 @@ import {
   pruneEmptyDir,
 } from "../lib/uninstall-configs.mjs";
 import { mcpClients } from "./mcp-clients.mjs";
+import { samePath } from "../lib/path-equal.mjs";
 
 // Global-only teardown + migration, the inverse of register-global. Every step
 // is entry/key-scoped (never a blind delete of a user config) and idempotent.
@@ -48,7 +49,7 @@ export function removeStalePerRepo({ workspace, home }) {
   const mcp = removeMcpRegistration(ws).removed;
   const agents = removeAgentsSurface(ws).removed;
   let hooks = 0;
-  if (ws !== path.resolve(home)) hooks = removeClaudeHooks(ws).removed;
+  if (!samePath(ws, home)) hooks = removeClaudeHooks(ws).removed;
   pruneEmptyDir(path.join(ws, ".claude"));
   return { mcp, agents, hooks };
 }
