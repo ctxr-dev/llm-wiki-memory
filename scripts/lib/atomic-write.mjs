@@ -2,6 +2,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
+const RENAME_RETRY_CODES = new Set(["EPERM", "EACCES", "EBUSY", "EEXIST"]);
+
+// Windows transiently fails a rename-over-existing while AV / indexer / a reader
+// holds a handle; a valid POSIX rename never hits these codes.
+/** @param {string} tmp @param {string} dest @param {(a: string, b: string) => void} [rename] @returns {void} */
+export function renameWithRetry(tmp, dest, rename = fs.renameSync) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return rename(tmp, dest);
+    } catch (err) {
+      const code = /** @type {{ code?: string }} */ (err)?.code;
+      if (attempt >= 10 || !code || !RENAME_RETRY_CODES.has(code)) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5 * (attempt + 1));
+    }
+  }
+}
+
 // Crash-safe file write: write to a sibling temp file, fsync it, then
 // rename onto the final path. A POSIX rename within the same directory is
 // atomic, so a reader (or a crash) never observes a half-written or
@@ -48,7 +65,7 @@ export function writeFileAtomic(filePath, data, { mode = 0o644 } = {}) {
     // openSync's mode is masked by umask; force the exact bits (matters for
     // the 0600 secret-bearing files: stash, .env, .env.bak).
     fs.chmodSync(tmp, mode);
-    fs.renameSync(tmp, filePath);
+    renameWithRetry(tmp, filePath);
     // Best-effort fsync of the containing directory so the rename (the
     // directory entry) is itself durable across power loss — POSIX does not
     // guarantee that without it. Strictly best-effort: it must never fail the

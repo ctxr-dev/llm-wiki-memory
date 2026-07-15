@@ -106,28 +106,34 @@ function walkScope(scope, homeReal, brainRootKey, out) {
   } catch {
     return;
   }
-  while (withinHome(dir, homeReal)) {
+  /** @param {string} d @returns {boolean} */
+  const collect = (d) => {
     let mounted = false;
     try {
-      mounted = hasMount(dir);
+      mounted = hasMount(d);
     } catch (err) {
-      // ENOENT / ENOTDIR: no mount at this level, keep climbing. EACCES / EPERM:
-      // a permission wall we cannot see past, so stop this scope's walk.
-      if (isAccessError(err)) break;
+      if (isAccessError(err)) return false;
     }
-    if (mounted) {
-      const root = wikiRootFor(dir);
-      const key = realpathOr(root);
-      if (key !== brainRootKey && !out.has(key)) {
-        out.set(key, {
-          mountDir: dir,
-          root,
-          ownership: OWNERSHIP.REPO,
-          projectModule: path.basename(dir),
-          depth: 0,
-        });
-      }
+    if (!mounted) return false;
+    const root = wikiRootFor(d);
+    const key = realpathOr(root);
+    if (key !== brainRootKey && !out.has(key)) {
+      out.set(key, {
+        mountDir: d,
+        root,
+        ownership: OWNERSHIP.REPO,
+        projectModule: path.basename(d),
+        depth: 0,
+      });
     }
+    return true;
+  };
+  if (!withinHome(dir, homeReal)) {
+    collect(dir);
+    return;
+  }
+  while (withinHome(dir, homeReal)) {
+    collect(dir);
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;

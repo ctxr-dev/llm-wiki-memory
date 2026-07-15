@@ -129,15 +129,21 @@ test("scanScopes: two scopes sharing an ancestor collect that mount once (dedupe
   assert.equal(levels[1].mountDir, real(mono));
 });
 
-test("scanScopes: a scope outside home is ignored but the brain is still returned at depth 0", () => {
+test("scanScopes: an explicitly-scoped mount OUTSIDE home is honored (its own mount), ancestors not walked", () => {
   const home = makeHome();
   mkMount(home);
-  const outside = makeHome();
+  const outside = mkMount(makeHome());
   const proj = mkMount(path.join(outside, "proj"));
   const levels = scanScopes([proj], brainOpts(home));
-  assert.equal(levels.length, 1);
-  assert.equal(levels[0].ownership, "wiki");
-  assert.equal(levels[0].depth, 0);
+  assert.equal(levels.length, 2, "brain + the off-home scope's own mount");
+  assert.ok(
+    levels.some((l) => real(l.mountDir) === real(proj)),
+    "the off-home scope's own mount is collected",
+  );
+  assert.ok(
+    !levels.some((l) => real(l.mountDir) === real(outside)),
+    "its off-home ANCESTOR mount is NOT walked",
+  );
 });
 
 test("scanScopes: a scope under home with no mounts anywhere returns the brain only", () => {

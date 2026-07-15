@@ -29,9 +29,39 @@ export function buildBootstrapHome(prefix, tmps) {
       return rel === "" || !SKIP_COPY.has(rel.split(path.sep)[0]);
     },
   });
-  fs.symlinkSync(path.join(SRC, "node_modules"), path.join(srcCopy, "node_modules"));
+  // 'junction' on Windows: a plain dir symlink needs admin/developer-mode there.
+  fs.symlinkSync(
+    path.join(SRC, "node_modules"),
+    path.join(srcCopy, "node_modules"),
+    process.platform === "win32" ? "junction" : undefined,
+  );
   writeLexicalSettings(dataDir);
   return { home, dataDir, srcCopy };
+}
+
+/**
+ * Drive the REAL bootstrap.ps1 (Windows only) in the same throwaway home.
+ * @param {{ srcCopy: string, home: string }} h
+ * @param {string[]} [args]
+ * @returns {{ status: number | null, stdout: string, stderr: string }}
+ */
+export function runBootstrapPs({ srcCopy, home }, args = []) {
+  const r = spawnSync(
+    "pwsh",
+    ["-NoProfile", "-NonInteractive", "-File", path.join(srcCopy, "bootstrap.ps1"), ...args],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        USERPROFILE: home, // os.homedir() on Windows reads USERPROFILE
+        HOME: home,
+        LWM_BOOTSTRAP_SKIP_NPM: "1",
+        LWM_BOOTSTRAP_SKIP_SCHED_OS: "1",
+        MEMORY_EMBED_BACKEND: "lexical",
+      },
+    },
+  );
+  return { status: r.status, stdout: r.stdout || "", stderr: r.stderr || "" };
 }
 
 /**

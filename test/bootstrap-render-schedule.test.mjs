@@ -7,6 +7,8 @@ import {
   renderWrapper,
   renderCronLine,
   filterCrontab,
+  deriveWindowsScheduleIds,
+  renderCmdWrapper,
 } from "../scripts/bootstrap/render-schedule.mjs";
 
 test("xmlEscape order: & first, then < > \" '", () => {
@@ -128,4 +130,22 @@ test("filterCrontab drops ALL blank lines (interior too) and can append a line",
 
 test("filterCrontab of an all-ours/all-blank input yields empty", () => {
   assert.equal(filterCrontab('0 * * * * "/w" # t\n\n', "# t"), "");
+});
+
+// ── Windows (Task Scheduler) renderer ───────────────────────────────────────
+
+test("deriveWindowsScheduleIds: stable task name from wsHash + a .cmd wrapper under state/", () => {
+  const ids = deriveWindowsScheduleIds({ wsHash: "abc123def456", dataDir: "/d" });
+  assert.equal(ids.taskName, "llm-wiki-memory-abc123def456");
+  assert.ok(ids.wrapperPath.endsWith("cron-hourly.cmd"), ids.wrapperPath);
+  assert.ok(/state/.test(ids.wrapperPath), "wrapper lives under state/");
+});
+
+test("renderCmdWrapper: CRLF .cmd sets MEMORY_DATA_DIR + runs node cli.mjs cron-job (absolute, no PATH override)", () => {
+  const w = renderCmdWrapper({ dataDir: "C:\\d", nodeBin: "C:\\node.exe", cliPath: "C:\\cli.mjs" });
+  assert.ok(w.startsWith("@echo off"), "cmd stub");
+  assert.ok(w.includes('set "MEMORY_DATA_DIR=C:\\d"'), "sets data dir");
+  assert.ok(w.includes('"C:\\node.exe" "C:\\cli.mjs" cron-job'), "absolute node runs cron-job");
+  assert.ok(!/set "PATH=/.test(w), "no PATH override — inherits the task's PATH");
+  assert.ok(w.includes("\r\n"), "cmd.exe needs CRLF line endings");
 });
