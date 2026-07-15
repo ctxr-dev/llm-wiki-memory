@@ -4,7 +4,7 @@
 // print-time absolute path (never committed). No config ships a MEMORY_DATA_DIR
 // override (the server self-discovers its data dir — see scripts/lib/env.mjs).
 
-import { test } from "node:test";
+import { test } from "./skip-windows.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";

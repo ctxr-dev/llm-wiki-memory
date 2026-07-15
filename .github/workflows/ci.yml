@@ -6,7 +6,16 @@ on:
 
 jobs:
   gates:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # Windows runners ship git-bash; forcing bash makes the find/awk/grep/rm
+    # steps portable across both legs.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,13 +35,18 @@ jobs:
           git config --global user.name "ci"
       - name: Typecheck (tsc --checkJs --strict, zero any)
         run: npm run typecheck
+      # The style/size/comment gates are OS-independent — run them once (Ubuntu).
       - name: Lint (eslint, zero warnings)
+        if: matrix.os == 'ubuntu-latest'
         run: npx eslint . --max-warnings 0
       - name: Format check (prettier)
+        if: matrix.os == 'ubuntu-latest'
         run: npm run format:check
       - name: Dead code (knip)
+        if: matrix.os == 'ubuntu-latest'
         run: npm run deadcode
       - name: Max 300 lines per module
+        if: matrix.os == 'ubuntu-latest'
         run: |
           over=$(find scripts mcp-server -name '*.mjs' -exec wc -l {} + \
             | awk '$2 != "total" && $1 > 300 { print $1 "  " $2 }')
@@ -40,6 +54,7 @@ jobs:
             echo "Files over 300 lines:"; echo "$over"; exit 1
           fi
       - name: No decorative comment banners/dividers
+        if: matrix.os == 'ubuntu-latest'
         run: |
           hits=$(grep -rnE '^[[:space:]]*//[[:space:]]*[-=*]{3,}|^[[:space:]]*/\*[[:space:]]*[-=*]{3,}' \
             scripts mcp-server test --include='*.mjs' || true)
@@ -51,7 +66,7 @@ jobs:
         run: npm test
       - name: E2E suite
         run: |
-          rm -rf /tmp/lwm-* || true
+          rm -rf "${TMPDIR:-/tmp}"/lwm-* 2>/dev/null || true
           npm run test:e2e
         env:
           MEMORY_EMBED_BACKEND: lexical

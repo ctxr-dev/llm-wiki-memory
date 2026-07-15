@@ -5,7 +5,7 @@
 // real src) and is intentionally NOT driven here; these isolated idiom checks + `bash -n`
 // are its automated coverage. The idioms are copied verbatim from bootstrap.sh.
 
-import { test } from "node:test";
+import { test } from "./skip-windows.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 

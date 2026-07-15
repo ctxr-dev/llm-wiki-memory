@@ -1,4 +1,5 @@
-import { test, after } from "node:test";
+import { after } from "node:test";
+import { test } from "../skip-windows.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";

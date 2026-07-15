@@ -113,13 +113,32 @@ export async function health() {
   }
 }
 
-// Resolve a command on PATH without invoking a shell. `which` lives at
-// different paths on different platforms — /usr/bin/which on macOS + glibc
-// Linux, /bin/which on Alpine, sometimes only available as a shell builtin
-// — so we try each absolute path in turn, then fall back to a tiny
-// `sh -c 'command -v ...'` (only when the cmd matches a safe regex, no
-// shell-quoting risk). Returns false on every failure path.
-const WHICH_PATHS = ["/usr/bin/which", "/bin/which"];
+// Resolve a command on PATH without invoking a shell. Cross-platform: Windows
+// has `where` (found via PATH); POSIX `which` lives at different paths
+// (/usr/bin/which on macOS + glibc Linux, /bin/which on Alpine, sometimes only a
+// shell builtin), so we try each in turn, then fall back to `sh -c command -v`.
+// Returns false on every failure path.
+const WHICH_BINS = process.platform === "win32" ? ["where"] : ["/usr/bin/which", "/bin/which"];
+
+/** @param {string} bin @param {string} cmd @returns {Promise<boolean | null>} true=found, false=ran-but-missing, null=this-which-absent */
+function runWhich(bin, cmd) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (/** @type {boolean | null} */ v) => {
+      if (!settled) {
+        settled = true;
+        resolve(v);
+      }
+    };
+    try {
+      const child = spawn(bin, [cmd], { stdio: "ignore" });
+      child.on("close", (code) => done(code === 0));
+      child.on("error", () => done(null)); // the which/where binary itself is absent
+    } catch {
+      done(null);
+    }
+  });
+}
 
 /**
  * @param {string} cmd
@@ -127,33 +146,15 @@ const WHICH_PATHS = ["/usr/bin/which", "/bin/which"];
  */
 async function isCmdAvailable(cmd) {
   if (typeof cmd !== "string" || !/^[A-Za-z0-9._/-]+$/.test(cmd)) return false;
-  for (const whichBin of WHICH_PATHS) {
-    const ok = await new Promise((resolve) => {
-      let settled = false;
-      try {
-        const child = spawn(whichBin, [cmd], { stdio: "ignore" });
-        child.on("close", (code) => {
-          if (!settled) {
-            settled = true;
-            resolve(code === 0);
-          }
-        });
-        child.on("error", () => {
-          if (!settled) {
-            settled = true;
-            resolve(null);
-          } // ENOENT on the which binary itself
-        });
-      } catch {
-        resolve(null);
-      }
-    });
+  for (const whichBin of WHICH_BINS) {
+    const ok = await runWhich(whichBin, cmd);
     if (ok === true) return true;
-    if (ok === false) return false; // which ran but cmd missing
-    // ok === null -> this `which` binary not present; try the next
+    if (ok === false) return false; // which/where ran but cmd missing
+    // ok === null -> this binary not present; try the next
   }
-  // Fallback: `sh -c 'command -v <cmd>'`. The regex guard above already
-  // restricted cmd to a safe charset, so shell interpolation is safe.
+  // POSIX-only fallback: `sh -c command -v`. Skip on Windows (no /bin/sh; `where`
+  // above is authoritative). The regex guard restricts cmd to a safe charset.
+  if (process.platform === "win32") return false;
   return await new Promise((resolve) => {
     try {
       const child = spawn("/bin/sh", ["-c", `command -v ${cmd}`], { stdio: "ignore" });
