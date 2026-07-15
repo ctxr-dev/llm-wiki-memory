@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { detectProvider, realHasCommand } from "../scripts/bootstrap/detect-provider.mjs";
 
 const none = () => false;
-const base = { env: {}, hasCommand: none, probeOllama: none };
+// platform:"linux" pins the non-Windows path so the CLI-ladder assertions test
+// the ladder itself (the claude/codex CLIs are deliberately NOT selected on
+// win32 — covered by the dedicated win32 test below), independent of the CI host.
+const base = { env: {}, hasCommand: none, probeOllama: none, platform: "linux" };
 
 test("explicit provider short-circuits the ladder (no probing)", () => {
   assert.deepEqual(detectProvider({ ...base, explicit: "mock", hasCommand: () => true }), {
@@ -50,12 +53,17 @@ test("priority order: a CLI beats an env key, an env key beats the ollama probe"
       env: { ANTHROPIC_API_KEY: "x" },
       hasCommand: (c) => c === "claude",
       probeOllama: () => true,
+      platform: "linux",
     }).provider,
     "claude",
   );
   assert.equal(
-    detectProvider({ env: { OPENAI_API_KEY: "x" }, hasCommand: none, probeOllama: () => true })
-      .provider,
+    detectProvider({
+      env: { OPENAI_API_KEY: "x" },
+      hasCommand: none,
+      probeOllama: () => true,
+      platform: "linux",
+    }).provider,
     "openai",
   );
 });
