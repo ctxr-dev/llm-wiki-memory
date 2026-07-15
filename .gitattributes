@@ -1,0 +1,6 @@
+# Normalize every text file to LF in the working tree on ALL platforms. Windows
+# checkouts must NOT get CRLF: the POSIX shell scripts (bootstrap.sh, the git
+# hooks) require LF to run, the YAML/template/.env parsers and the marker-block
+# tooling are LF-based, and the test suite asserts exact LF bytes. `text=auto`
+# still auto-detects and leaves genuine binaries untouched.
+* text=auto eol=lf

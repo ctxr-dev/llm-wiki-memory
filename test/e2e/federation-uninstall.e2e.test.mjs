@@ -11,10 +11,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { wireMemorySurfaces } from "../../scripts/wire-memory-surfaces.mjs";
 import { uninstall } from "../../scripts/lib/uninstall.mjs";
 
-const SRC = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
+const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const HOME = path.dirname(path.dirname(SRC));
 
 /** @type {string[]} */

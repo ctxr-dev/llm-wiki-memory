@@ -26,7 +26,11 @@ test("writeMonitoringCapture: date-sharded path, epoch-ms, status:open, title si
     now,
   });
   assert.equal(r.ok, true, JSON.stringify(r));
-  assert.match(r.path, /\/monitoring\/2026\/06\/11\/[a-z0-9-]+-\d+\.md$/, "date-shard + epoch-ms");
+  assert.match(
+    r.path,
+    /[/\\]monitoring[/\\]2026[/\\]06[/\\]11[/\\][a-z0-9-]+-\d+\.md$/,
+    "date-shard + epoch-ms",
+  );
   assert.ok(/^[a-z0-9-]+$/.test(r.signature), `kebab signature, got ${r.signature}`);
   // Signature is derived from the TITLE only (stable), error class survives.
   assert.match(r.signature, /llmoutputinvalid/, "error class kept in signature");

@@ -198,7 +198,14 @@ export function recordWikiChange({ action, leafRelPath, reason = "", extraPaths 
  */
 function toRel(p, base) {
   const s = String(p || "");
-  return path.isAbsolute(s) ? path.relative(base || wikiRoot(), s) : s;
+  // A leaf's wiki-relative path is a forward-slash id on every OS (it becomes a
+  // git pathspec); path.relative emits backslashes on Windows.
+  return path.isAbsolute(s)
+    ? path
+        .relative(base || wikiRoot(), s)
+        .split(path.sep)
+        .join("/")
+    : s;
 }
 
 /**

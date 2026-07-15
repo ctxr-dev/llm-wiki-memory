@@ -175,6 +175,10 @@ async function waitForWorker(sid, timeoutMs = 20000) {
 
 test("wrapped flush worker writes its daily leaf into the brain wiki (placement unchanged)", async () => {
   const sid = "brainctx-flush";
+  // Guarantee the workspace dir exists right before writing into it — the
+  // module-load dataDir can be transiently absent under CI's concurrent
+  // per-file test processes, and a stale reference must never ENOENT the write.
+  fs.mkdirSync(dataDir, { recursive: true });
   const transcript = path.join(dataDir, "brainctx.jsonl");
   const turns = [
     { role: "user", text: "Prefer atomic writes for durable artifacts." },

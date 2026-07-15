@@ -137,19 +137,27 @@ test("multiple stashes for one session: findStashForSession picks the newest by 
   assert.equal(flush.findStashForSession(sessionId), expected, "newest stash wins");
 });
 
-test("stash write failure: no throw, falsy return (double-failure path stays survivable)", () => {
-  fs.chmodSync(STATE_DIR, 0o555);
-  try {
-    const out = flush.writeFailedDistillStash({
-      source: makeSource("body that cannot be stashed", "unwritable-session"),
-      errors: [{ index: 0, error: "boom" }],
-      sessionId: "unwritable-session",
-    });
-    assert.ok(!out, "returns falsy instead of throwing when the state dir is unwritable");
-  } finally {
-    fs.chmodSync(STATE_DIR, 0o755);
-  }
-});
+test(
+  "stash write failure: no throw, falsy return (double-failure path stays survivable)",
+  {
+    skip:
+      process.platform === "win32" &&
+      "POSIX file-mode/permission semantics not emulable on Windows",
+  },
+  () => {
+    fs.chmodSync(STATE_DIR, 0o555);
+    try {
+      const out = flush.writeFailedDistillStash({
+        source: makeSource("body that cannot be stashed", "unwritable-session"),
+        errors: [{ index: 0, error: "boom" }],
+        sessionId: "unwritable-session",
+      });
+      assert.ok(!out, "returns falsy instead of throwing when the state dir is unwritable");
+    } finally {
+      fs.chmodSync(STATE_DIR, 0o755);
+    }
+  },
+);
 
 test("redistill of a whitespace-only body does not crash", async () => {
   const sessionId = "whitespace-body-session";

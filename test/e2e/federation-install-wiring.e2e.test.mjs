@@ -10,13 +10,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { wireMemorySurfaces } from "../../scripts/wire-memory-surfaces.mjs";
 import { uninstall } from "../../scripts/lib/uninstall.mjs";
 import { HASH_MARKER_START, HASH_MARKER_END } from "../../scripts/lib/memory-surface-constants.mjs";
 import { manifestPath } from "../../scripts/lib/install-manifest.mjs";
 
-const SRC = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
+const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const HOME = path.dirname(path.dirname(SRC)); // SRC = <home>/.llm-wiki-memory/src
 
 /** @type {string[]} */

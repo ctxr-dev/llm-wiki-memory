@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { installSyncEmbeddingsHook, MARKER_START } from "../scripts/lib/mount-git.mjs";
 import {
@@ -212,7 +213,7 @@ test("scripts/uninstall.mjs CLI (bootstrap --uninstall entrypoint): [ws] fallbac
   installSyncEmbeddingsHook(repo);
   assert.ok(fs.existsSync(path.join(repo, ".git", "hooks", "post-merge")), "hook installed");
   const cli = path.resolve(
-    path.dirname(new URL(import.meta.url).pathname),
+    path.dirname(fileURLToPath(import.meta.url)),
     "..",
     "scripts",
     "uninstall.mjs",

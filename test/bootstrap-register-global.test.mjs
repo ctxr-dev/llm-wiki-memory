@@ -51,9 +51,10 @@ test("a present client dir IS registered; codex uses an ABSOLUTE index, cursor $
     "${HOME}/.llm-wiki-memory/src/mcp-server/index.mjs",
   );
   const codex = fs.readFileSync(path.join(home, ".codex", "config.toml"), "utf8");
-  assert.match(
-    codex,
-    new RegExp(`args = \\["${home}/\\.llm-wiki-memory/src/mcp-server/index\\.mjs"\\]`),
+  const codexIndexArg = path.join(home, ".llm-wiki-memory", "src", "mcp-server", "index.mjs");
+  assert.ok(
+    codex.includes(`args = ["${codexIndexArg}"]`),
+    `codex config must register the absolute index arg; got:\n${codex}`,
   );
   fs.rmSync(home, { recursive: true, force: true });
 });

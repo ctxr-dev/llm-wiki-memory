@@ -81,13 +81,21 @@ test("two concurrent-style writes to the SAME path both complete with valid cont
   assert.deepEqual(fs.readdirSync(dir), ["shared.json"]);
 });
 
-test("enforces exact mode bits regardless of umask (0600 secret files)", () => {
-  const dir = tmpDir();
-  const target = path.join(dir, "secret.env");
-  writeFileAtomic(target, "ANTHROPIC_API_KEY=sk-xxx\n", { mode: 0o600 });
-  const mode = fs.statSync(target).mode & 0o777;
-  assert.equal(mode, 0o600, `expected 0600, got ${mode.toString(8)}`);
-});
+test(
+  "enforces exact mode bits regardless of umask (0600 secret files)",
+  {
+    skip:
+      process.platform === "win32" &&
+      "POSIX file-mode/permission semantics not emulable on Windows",
+  },
+  () => {
+    const dir = tmpDir();
+    const target = path.join(dir, "secret.env");
+    writeFileAtomic(target, "ANTHROPIC_API_KEY=sk-xxx\n", { mode: 0o600 });
+    const mode = fs.statSync(target).mode & 0o777;
+    assert.equal(mode, 0o600, `expected 0600, got ${mode.toString(8)}`);
+  },
+);
 
 test("a directory-fsync failure is swallowed and NEVER fails the write (Windows-style unopenable dir)", () => {
   // The dir fsync (durability of the rename) is strictly best-effort: the data

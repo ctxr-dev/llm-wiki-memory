@@ -58,26 +58,34 @@ function makeSource(body) {
   };
 }
 
-test("writeFailedDistillStash: persists owner-only stash with full body + audit", () => {
-  const source = makeSource("### User\n\nhello\n\n### Assistant\n\nworld");
-  const stashPath = flush.writeFailedDistillStash({
-    source,
-    errors: [{ provider: "anthropic", model: "fixture-m", error: "boom" }],
-    sessionId: source.sessionId,
-    audit: { chunks_total: 1, chunks_succeeded: 0, failed_chunks: [0] },
-  });
-  assert.ok(stashPath, "stash file should be returned");
-  assert.ok(fs.existsSync(stashPath), `stash should exist at ${stashPath}`);
-  const json = JSON.parse(fs.readFileSync(stashPath, "utf8"));
-  assert.equal(json.source.body, source.body);
-  assert.equal(json.errors[0].provider, "anthropic");
-  assert.equal(json.audit.chunks_total, 1);
-  assert.equal(json.redistill_attempts, 0);
-  // 0600 mode on POSIX hosts.
-  const mode = fs.statSync(stashPath).mode & 0o777;
-  assert.equal(mode, 0o600, `stash should be owner-only, got ${mode.toString(8)}`);
-  fs.rmSync(stashPath, { force: true });
-});
+test(
+  "writeFailedDistillStash: persists owner-only stash with full body + audit",
+  {
+    skip:
+      process.platform === "win32" &&
+      "POSIX file-mode/permission semantics not emulable on Windows",
+  },
+  () => {
+    const source = makeSource("### User\n\nhello\n\n### Assistant\n\nworld");
+    const stashPath = flush.writeFailedDistillStash({
+      source,
+      errors: [{ provider: "anthropic", model: "fixture-m", error: "boom" }],
+      sessionId: source.sessionId,
+      audit: { chunks_total: 1, chunks_succeeded: 0, failed_chunks: [0] },
+    });
+    assert.ok(stashPath, "stash file should be returned");
+    assert.ok(fs.existsSync(stashPath), `stash should exist at ${stashPath}`);
+    const json = JSON.parse(fs.readFileSync(stashPath, "utf8"));
+    assert.equal(json.source.body, source.body);
+    assert.equal(json.errors[0].provider, "anthropic");
+    assert.equal(json.audit.chunks_total, 1);
+    assert.equal(json.redistill_attempts, 0);
+    // 0600 mode on POSIX hosts.
+    const mode = fs.statSync(stashPath).mode & 0o777;
+    assert.equal(mode, 0o600, `stash should be owner-only, got ${mode.toString(8)}`);
+    fs.rmSync(stashPath, { force: true });
+  },
+);
 
 test("listFailedDistillStashes + findStashForSession resolve newest stash by id", () => {
   const sessA = "unit-listing-a";

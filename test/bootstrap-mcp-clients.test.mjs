@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
 import {
   SERVER_NAME,
   SERVER_INDEX_REL,
@@ -27,10 +28,10 @@ test("codexTomlBlock renders the [mcp_servers.<name>] table", () => {
 
 test("mcpClients maps each client to its user-home global config path", () => {
   const c = mcpClients("/home/u", "linux");
-  assert.equal(c["claude-code"].file, "/home/u/.claude.json");
+  assert.equal(c["claude-code"].file, path.join("/home/u", ".claude.json"));
   assert.equal(c["claude-code"].mcpKey, "mcpServers");
-  assert.equal(c.cursor.file, "/home/u/.cursor/mcp.json");
-  assert.equal(c.codex.file, "/home/u/.codex/config.toml");
+  assert.equal(c.cursor.file, path.join("/home/u", ".cursor", "mcp.json"));
+  assert.equal(c.codex.file, path.join("/home/u", ".codex", "config.toml"));
   assert.equal(c.codex.format, "toml");
   assert.equal(c.codex.tomlTable, `mcp_servers.${SERVER_NAME}`);
 });
@@ -38,17 +39,17 @@ test("mcpClients maps each client to its user-home global config path", () => {
 test("claude-desktop config path is platform-specific", () => {
   assert.equal(
     mcpClients("/home/u", "darwin")["claude-desktop"].file,
-    "/home/u/Library/Application Support/Claude/claude_desktop_config.json",
+    path.join("/home/u", "Library", "Application Support", "Claude", "claude_desktop_config.json"),
   );
   assert.equal(
     mcpClients("/home/u", "linux")["claude-desktop"].file,
-    "/home/u/.config/Claude/claude_desktop_config.json",
+    path.join("/home/u", ".config", "Claude", "claude_desktop_config.json"),
   );
 });
 
 test("every client target is under the given home (no absolute machine leak)", () => {
   for (const c of Object.values(mcpClients("/home/u", "linux"))) {
-    assert.ok(c.file.startsWith("/home/u/"), `${c.file} must be under home`);
+    assert.ok(c.file.startsWith(path.join("/home/u")), `${c.file} must be under home`);
   }
 });
 

@@ -8,6 +8,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import matter from "gray-matter";
 import { recallRecentActivityDays } from "./settings.mjs";
 import { buildBrief } from "./brief.mjs";
@@ -147,7 +148,9 @@ export function buildRecentActivitySection({ wikiRoot, days } = {}) {
       label = `${label.slice(0, RECENT_BRIEF_CHARS).replace(/\s+\S*$/, "")}…`;
     }
     // Clickable absolute file:// link so the note can actually be opened.
-    return `- **${stampLabel(e)}** — ${label} → [${path.basename(e.abs)}](file://${e.abs})`;
+    // pathToFileURL builds a valid file:// URL on every OS (a raw Windows path
+    // like `file://C:\…` is malformed — file URLs are always forward-slash).
+    return `- **${stampLabel(e)}** — ${label} → [${path.basename(e.abs)}](${pathToFileURL(e.abs).href})`;
   });
   // Non-breaking space after the emoji so the gap survives markdown space-collapse and
   // never renders glued to the wide glyph. No "…and N more" line: a dropped-count the

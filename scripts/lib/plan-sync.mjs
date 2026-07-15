@@ -150,7 +150,9 @@ async function syncPlanFileInner(absPath, { wikiRoot, now } = {}) {
     // already updated.
     return out;
   }
-  const rel = path.relative(wikiRoot, absPath);
+  // Wiki-relative paths + topology patterns are forward-slash on every OS;
+  // path.relative emits backslashes on Windows, which parsePath can't match.
+  const rel = path.relative(wikiRoot, absPath).split(path.sep).join("/");
   const parsed = parsePath(topo, rel);
   if (!parsed || !parsed.facets || parsed.facets.lifecycle === undefined) {
     return out; // not a lifecycle-aware path

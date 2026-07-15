@@ -73,23 +73,32 @@ test("enrichLevel: a git repo mount (no project_id) resolves to its canonical or
   );
 });
 
-test("enrichLevel: the brain (wiki) level keeps the env-default projectModule, never a file:// identity", () => {
+test("enrichLevel: the brain (wiki) level keeps the env-default projectModule, not a mount identity", () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "c4-brain-"));
   tmps.push(home);
-  mkMount(home);
-  const proj = mkMount(path.join(home, "r"));
-  const ctx = resolveWikiContext([proj], {
-    home,
-    brainDataDir: path.join(home, ".llm-wiki-memory"),
-  });
-  assert.equal(ctx.levels[0].ownership, "wiki", "level 0 is the wiki-owned brain");
-  assert.equal(
-    ctx.levels[0].projectModule,
-    defaultProjectModule() || path.basename(home),
-    "the brain uses the env default (scanner fallback), not a git/file:// mount identity",
-  );
-  assert.ok(
-    !ctx.levels[0].projectModule.startsWith("file://"),
-    "the brain is never a file:// identity",
-  );
+  // Pin the env default so the assertion is deterministic across environments —
+  // without this, defaultProjectModule() resolves the AMBIENT checkout (a git
+  // origin locally, but a plain file:// path in a flat CI checkout), which is a
+  // legitimate value yet makes the test flap. The real invariant is that the
+  // brain adopts the env default, never a git/file:// identity scanned off a mount.
+  const prev = process.env.MEMORY_DEFAULT_PROJECT_MODULE;
+  process.env.MEMORY_DEFAULT_PROJECT_MODULE = "acme/brain-default";
+  try {
+    mkMount(home);
+    const proj = mkMount(path.join(home, "r"));
+    const ctx = resolveWikiContext([proj], {
+      home,
+      brainDataDir: path.join(home, ".llm-wiki-memory"),
+    });
+    assert.equal(ctx.levels[0].ownership, "wiki", "level 0 is the wiki-owned brain");
+    assert.equal(
+      ctx.levels[0].projectModule,
+      "acme/brain-default",
+      "the brain adopts the env default, not the mount's git/file:// identity",
+    );
+    assert.equal(defaultProjectModule(), "acme/brain-default");
+  } finally {
+    if (prev === undefined) delete process.env.MEMORY_DEFAULT_PROJECT_MODULE;
+    else process.env.MEMORY_DEFAULT_PROJECT_MODULE = prev;
+  }
 });

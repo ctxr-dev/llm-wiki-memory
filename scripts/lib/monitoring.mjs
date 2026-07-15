@@ -241,9 +241,10 @@ export function monitoringHealth({ limit = 5 } = {}) {
     const s = readStatus(abs);
     return s !== "triaged" && s !== "resolved";
   });
-  const recent = open
-    .slice(-limit)
-    .map((abs) => ({ path: path.relative(MEMORY_DATA_DIR, abs), signature: sigFromName(abs) }));
+  const recent = open.slice(-limit).map((abs) => ({
+    path: path.relative(MEMORY_DATA_DIR, abs).split(path.sep).join("/"),
+    signature: sigFromName(abs),
+  }));
   const sigs = [...new Set(recent.map((r) => r.signature))].slice(0, 3);
   const summary =
     open.length === 0

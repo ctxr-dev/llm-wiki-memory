@@ -24,6 +24,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { setupWorkspace, cleanup, SRC, scopeClient, nestClient } from "./harness.mjs";
@@ -525,7 +526,7 @@ test("(6) cosine lexical warning fires exactly once per run", () => {
           [
             `process.env.MEMORY_DATA_DIR = ${JSON.stringify(gcDir)};`,
             `process.env.LLM_WIKI_NO_PROMPT = "1";`,
-            `const s = await import(${JSON.stringify(path.join(SRC, "scripts/lib/wiki-store.mjs"))});`,
+            `const s = await import(${JSON.stringify(pathToFileURL(path.join(SRC, "scripts/lib/wiki-store.mjs")).href)});`,
             `s.saveDocument({`,
             `  name: ${JSON.stringify(`lesson-warn-${i}-2026-06-01-000000000.md`)},`,
             `  text: ${JSON.stringify(`# Warn ${i}\\n\\nLeaf ${i} body.\\nWhy: warn-once.`)},`,

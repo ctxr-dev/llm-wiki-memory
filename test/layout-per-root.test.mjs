@@ -14,6 +14,7 @@
 import { test, afterEach, after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { getCategories, resetLayoutCache } from "../scripts/lib/wiki-store.mjs";
 import { ensureLayoutLoaded } from "../scripts/lib/wiki-layout-state.mjs";
@@ -30,7 +31,7 @@ const CREATED = [];
  * @returns {string}
  */
 function mkWiki(prefix, sharedYaml, localYaml = null) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join("/tmp", `lwm-perroot-${prefix}-`)));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `lwm-perroot-${prefix}-`)));
   CREATED.push(root);
   fs.mkdirSync(path.join(root, ".layout"), { recursive: true });
   fs.writeFileSync(path.join(root, ".layout", "layout.yaml"), sharedYaml);

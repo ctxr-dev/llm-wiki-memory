@@ -52,17 +52,21 @@ function withMinimalEnv(t, home) {
   });
 }
 
-test("runtime healing: a CLI reachable only via ~/.local/bin spawns under a minimal launchd PATH", async (t) => {
-  writeStub(path.join(TMP_HOME, ".local", "bin"));
-  withMinimalEnv(t, TMP_HOME);
-  const { result, provenance } = await callLLMChain({
-    systemPrompt: "s",
-    userPrompt: "u",
-    configOverride: chainConfig(["cursor"]),
-  });
-  assert.deepEqual(result, { ok: "stub" });
-  assert.equal(provenance.final_provider, "cursor:(default)");
-});
+test(
+  "runtime healing: a CLI reachable only via ~/.local/bin spawns under a minimal launchd PATH",
+  { skip: process.platform === "win32" && "POSIX ~/.local/bin PATH semantics" },
+  async (t) => {
+    writeStub(path.join(TMP_HOME, ".local", "bin"));
+    withMinimalEnv(t, TMP_HOME);
+    const { result, provenance } = await callLLMChain({
+      systemPrompt: "s",
+      userPrompt: "u",
+      configOverride: chainConfig(["cursor"]),
+    });
+    assert.deepEqual(result, { ok: "stub" });
+    assert.equal(provenance.final_provider, "cursor:(default)");
+  },
+);
 
 test("negative control: a CLI outside every curated dir still ENOENTs under the minimal PATH", async (t) => {
   // Host assumption: no REAL cursor-agent in any absolute curated dir —

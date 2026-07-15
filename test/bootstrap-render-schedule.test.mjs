@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test } from "./skip-windows.mjs";
 import assert from "node:assert/strict";
 import {
   xmlEscape,

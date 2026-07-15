@@ -127,17 +127,21 @@ export function buildDirset(rootDir, entries) {
   const specs = new Set();
   for (const e of entries) {
     for (const raw of [e.leafRelPath, ...(e.extraPaths || [])]) {
-      const rel = path.normalize(String(raw || ""));
-      if (!rel || rel === "." || rel.startsWith("..") || path.isAbsolute(rel)) continue;
-      const dir = path.dirname(rel);
+      // Wiki-relative paths AND git pathspecs are ALWAYS forward-slash on every
+      // OS — normalize with path.posix. Plain path.normalize/dirname/join emit
+      // backslashes on Windows, which `git add -- <spec>` fails to match, so
+      // nothing gets staged and the commit silently becomes a no-op.
+      const rel = path.posix.normalize(String(raw || "").replace(/\\/g, "/"));
+      if (!rel || rel === "." || rel.startsWith("..") || rel.startsWith("/")) continue;
+      const dir = path.posix.dirname(rel);
       if (dir === "." || dir === "") {
         specs.add(rel);
       } else {
         specs.add(dir);
-        let up = path.dirname(dir);
+        let up = path.posix.dirname(dir);
         while (up && up !== "." && up !== "/") {
-          specs.add(path.join(up, "index.md"));
-          up = path.dirname(up);
+          specs.add(path.posix.join(up, "index.md"));
+          up = path.posix.dirname(up);
         }
       }
       specs.add("index.md");
