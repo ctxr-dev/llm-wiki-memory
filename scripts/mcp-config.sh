@@ -28,7 +28,13 @@ INDEX_REL='${HOME}/.llm-wiki-memory/src/mcp-server/index.mjs'
 # node) instead. POSIX keeps the portable ${HOME} form.
 case "$(uname -s 2>/dev/null || true)" in
   MINGW* | MSYS* | CYGWIN*)
-    if command -v cygpath >/dev/null 2>&1; then INDEX_REL="$(cygpath -m "$INDEX")"; fi
+    # Convert BOTH forms to a Windows mixed path (C:/... — the POSIX /c/... that
+    # `pwd -P` yields is unresolvable by a Windows-native client). On Windows the
+    # ${HOME} form never resolves, so the "rel" clients use the absolute path too.
+    if command -v cygpath >/dev/null 2>&1; then
+      INDEX="$(cygpath -m "$INDEX")"
+      INDEX_REL="$INDEX"
+    fi
     ;;
 esac
 

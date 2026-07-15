@@ -53,8 +53,8 @@ test("a present client dir IS registered; codex uses an ABSOLUTE index, cursor $
   const codex = fs.readFileSync(path.join(home, ".codex", "config.toml"), "utf8");
   const codexIndexArg = path.join(home, ".llm-wiki-memory", "src", "mcp-server", "index.mjs");
   assert.ok(
-    codex.includes(`args = ['${codexIndexArg}']`),
-    `codex config must register the absolute index arg as a TOML literal string; got:\n${codex}`,
+    codex.includes(`args = ["${codexIndexArg.replace(/\\/g, "\\\\")}"]`),
+    `codex config must register the absolute index arg as an escaped TOML basic string; got:\n${codex}`,
   );
   fs.rmSync(home, { recursive: true, force: true });
 });

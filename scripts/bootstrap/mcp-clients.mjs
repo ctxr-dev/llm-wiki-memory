@@ -21,10 +21,12 @@ export function serverEntry(indexArg = SERVER_INDEX_REL) {
  * @returns {string}
  */
 export function codexTomlBlock(indexArg = SERVER_INDEX_REL) {
-  // Single-quoted TOML LITERAL string: a Windows absolute index path contains
-  // backslashes, and a double-quoted BASIC string would read `\U`/`\.` as
-  // invalid escapes and reject the whole config.toml. Paths never contain `'`.
-  return `[mcp_servers.${SERVER_NAME}]\ncommand = "node"\nargs = ['${indexArg}']\n`;
+  // TOML BASIC string with backslashes escaped: a Windows absolute index path
+  // has backslashes (a raw basic string reads `\U`/`\.` as invalid escapes) AND
+  // a profile name can contain an apostrophe (`C:\Users\O'Brien` — which a
+  // single-quoted LITERAL string cannot escape). A basic string with `\\`
+  // handles both; Windows paths can never contain a `"`.
+  return `[mcp_servers.${SERVER_NAME}]\ncommand = "node"\nargs = ["${indexArg.replace(/\\/g, "\\\\")}"]\n`;
 }
 
 /**

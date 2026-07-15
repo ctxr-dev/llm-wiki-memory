@@ -69,9 +69,10 @@ if ($Uninstall) {
     $wsHash = & node (Join-Path $SrcDir "scripts\bootstrap\ws-hash.mjs") $WorkspaceDir
     $ids = (& node (Join-Path $SrcDir "scripts\bootstrap\render-schedule.mjs") "win-ids" $wsHash $DataDir) -split "`t"
     $taskName = $ids[0]
-    # Guard the delete on a real name: a failed derivation must not schtasks /tn ""
-    # (a no-op that leaves the real task orphaned) — warn and let a re-run clean it.
-    if ($taskName) {
+    # Guard the delete on a real name: an empty wsHash yields the truthy-but-wrong
+    # "llm-wiki-memory-" (orphaning the real task), and an empty id must not
+    # schtasks /tn "" — require both, warn, and let a re-run clean it up.
+    if ($wsHash -and $taskName) {
       & schtasks /delete /tn $taskName /f *> $null
       Log "Removed scheduled task if present ($taskName)."
     } else {
@@ -199,6 +200,7 @@ if ($CommitMemory -or $wikiIsShared -eq "1") {
     "/.llm-wiki-memory/wiki/**/index.md"
   ) -join "`n"
   $lines | & node $mergeMarker $gitignore $giBegin $giEnd "-"
+  if ($LASTEXITCODE -ne 0) { Die "failed to write the .gitignore block (settings/.env secrets could leak into git)." }
   Log "Git-tracking wiki content (you commit it; the engine never does); ignoring node_modules / index / secrets only."
   $mountOut = (& node (Join-Path $SrcDir "scripts\mount-init.mjs") $WorkspaceDir 2>&1 | Out-String)
   if ($mountOut -notmatch '"skipped": "no-shared-categories"') {
@@ -207,6 +209,7 @@ if ($CommitMemory -or $wikiIsShared -eq "1") {
   }
 } else {
   "/.llm-wiki-memory" | & node $mergeMarker $gitignore $giBegin $giEnd "-"
+  if ($LASTEXITCODE -ne 0) { Die "failed to write the .gitignore block (the whole memory tree could be committed)." }
   Log "Ignoring the whole /.llm-wiki-memory tree in a fenced block (use -CommitMemory to git-track it as a shared wiki)."
 }
 
