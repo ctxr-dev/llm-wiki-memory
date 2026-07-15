@@ -284,7 +284,7 @@ automatically.
 ./.llm-wiki-memory/src/bootstrap.sh --uninstall
 ```
 
-This removes the cron/launchd entry and strips the marker-fenced sync-embeddings
+This removes the cron/launchd/Task Scheduler entry and strips the marker-fenced sync-embeddings
 block from the three git hooks. It **never** deletes your memory data or commits
 anything. Deleting the shared knowledge itself, and the `personal/.git`, are
 deliberately **manual** steps (the engine won't destroy data for you) — the

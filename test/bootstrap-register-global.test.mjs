@@ -59,6 +59,24 @@ test("a present client dir IS registered; codex uses an ABSOLUTE index, cursor $
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test("on win32 the claude-code + cursor index arg is ABSOLUTE (${HOME} may be unset in the client env)", () => {
+  const home = tmpHome();
+  fs.mkdirSync(path.join(home, ".cursor"), { recursive: true });
+  registerGlobalMcp({ home, platform: "win32" });
+  const abs = path.join(home, ".llm-wiki-memory", "src", "mcp-server", "index.mjs");
+  assert.equal(
+    readJson(path.join(home, ".claude.json")).mcpServers["llm-wiki-memory"].args[0],
+    abs,
+    "claude-code uses the absolute index on win32",
+  );
+  assert.equal(
+    readJson(path.join(home, ".cursor", "mcp.json")).mcpServers["llm-wiki-memory"].args[0],
+    abs,
+    "cursor uses the absolute index on win32",
+  );
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
 test("idempotent: a second run is byte-stable for claude.json + settings.json", () => {
   const home = tmpHome();
   registerGlobalMcp({ home, platform: "linux" });

@@ -1,4 +1,4 @@
-import { test, after } from "node:test";
+import { test, after, mock } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -228,6 +228,31 @@ test("deleteDocument removes the leaf and keeps wiki valid", () => {
   assert.ok(!fs.existsSync(path.join(wiki, id.split("/").join(path.sep))), "leaf file gone");
   const v = cli.validate(wiki);
   assert.equal(v.ok, true, `validate clean after delete: ${JSON.stringify(v)}`);
+});
+
+test("deleteDocument retries a transient Windows-style lock on the hard delete (H1)", () => {
+  const res = store.saveDocument({
+    name: "plan-locked.md",
+    text: "# Locked\n\ntransiently locked on delete",
+    datasetId: "plans",
+    metadata: { atom_type: "plan" },
+  });
+  const id = res.created.document.id;
+  const abs = path.join(wiki, id.split("/").join(path.sep));
+  const realRm = fs.rmSync;
+  let rmCalls = 0;
+  const spy = mock.method(fs, "rmSync", (/** @type {any} */ p, /** @type {any} */ opts) => {
+    rmCalls++;
+    if (rmCalls === 1) throw Object.assign(new Error("EBUSY: locked"), { code: "EBUSY" });
+    return realRm(p, opts);
+  });
+  try {
+    store.deleteDocument({ documentId: id, datasetId: "plans" });
+  } finally {
+    spy.mock.restore();
+  }
+  assert.ok(rmCalls >= 2, "the hard delete retried past the transient lock");
+  assert.ok(!fs.existsSync(abs), "leaf gone after the retry");
 });
 
 test("deleteDocument prunes the dir it emptied (no orphan index.md left)", () => {

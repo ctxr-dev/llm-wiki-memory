@@ -18,6 +18,7 @@ import { loadTopology, pathFor, parsePath } from "./topology-runtime.mjs";
 import { ensureIndexes, indexRebuildOne } from "./wiki-cli.mjs";
 // Shared with wiki-store's relocation paths; single source of truth in fs-prune.
 import { pruneEmptyAncestors } from "./fs-prune.mjs";
+import { withFsRetry } from "./fs-retry.mjs";
 import { recordWikiChange, withWikiCommit } from "./wiki-commit.mjs";
 export { pruneEmptyAncestors } from "./fs-prune.mjs";
 
@@ -178,8 +179,8 @@ async function syncPlanFileInner(absPath, { wikiRoot, now } = {}) {
   // empty of this leaf) and destination dir (so the skill re-renders
   // both indexes).
   try {
-    fs.mkdirSync(path.dirname(picked.path), { recursive: true });
-    fs.renameSync(absPath, picked.path);
+    withFsRetry(() => fs.mkdirSync(path.dirname(picked.path), { recursive: true }));
+    withFsRetry(() => fs.renameSync(absPath, picked.path));
   } catch (err) {
     out.error = `move failed: ${/** @type {Error} */ (err).message}`;
     return out;

@@ -3,6 +3,7 @@ import path from "node:path";
 import { writeFileAtomic } from "./atomic-write.mjs";
 import { ensureIndexes, indexRebuildOne } from "./wiki-cli.mjs";
 import { pruneEmptyAncestors } from "./fs-prune.mjs";
+import { withFsRetry } from "./fs-retry.mjs";
 import { recordWikiChange } from "./wiki-commit.mjs";
 import { root, readLeaf, leafMemory } from "./wiki-core.mjs";
 import { toAbs, toRel } from "./wiki-identity.mjs";
@@ -103,7 +104,7 @@ export function truncateArchivedBody({ documentId, max, nowIso } = {}) {
 export function deleteDocument({ documentId, datasetId: _datasetId } = {}) {
   const abs = toAbs(documentId);
   if (!fs.existsSync(abs)) return { ok: false, reason: `leaf not found: ${documentId}` };
-  fs.rmSync(abs);
+  withFsRetry(() => fs.rmSync(abs, { force: true }));
   removeEmbedding(/** @type {string} */ (documentId));
   // Refresh indexes from the (now-deleted leaf's) parent dir up to the wiki
   // root so the entry disappears from every ancestor index, not just the

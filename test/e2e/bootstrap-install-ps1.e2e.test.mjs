@@ -36,9 +36,12 @@ test("fresh default install: drives the REAL bootstrap.ps1 and writes only under
   // GLOBAL-ONLY: server + hooks in the user-home config; nothing per-repo.
   assert.ok(!exists(path.join(h.home, ".mcp.json")), "no per-repo .mcp.json");
   const globalMcp = JSON.parse(read(path.join(h.home, ".claude.json")));
+  // On Windows the index arg is ABSOLUTE: Claude Code's spawn env may not set
+  // ${HOME} (it uses USERPROFILE), so a literal "${HOME}" would never resolve
+  // and the server would fail to launch.
   assert.deepEqual(globalMcp.mcpServers["llm-wiki-memory"], {
     command: "node",
-    args: ["${HOME}/.llm-wiki-memory/src/mcp-server/index.mjs"],
+    args: [path.join(h.home, ".llm-wiki-memory", "src", "mcp-server", "index.mjs")],
   });
   const globalHooks = JSON.parse(read(path.join(h.home, ".claude", "settings.json")));
   assert.ok(globalHooks.hooks.SessionStart, "global hooks registered");
@@ -81,8 +84,13 @@ test("-Schedule hourly: renders the Task Scheduler .cmd wrapper under state/ (OS
   const wrapper = path.join(h.dataDir, "state", "cron-hourly.cmd");
   assert.ok(exists(wrapper), "the hourly .cmd wrapper is written");
   const body = read(wrapper);
-  assert.match(body, /set "MEMORY_DATA_DIR=/, "wrapper pins MEMORY_DATA_DIR");
-  assert.match(body, /cli\.mjs" cron-job/, "wrapper runs cli.mjs cron-job");
+  // The lines must survive as SEPARATE lines — a naive `& node | Set-Content
+  // -NoNewline` concatenates the PowerShell output array into one unrunnable
+  // command, yet still contains these substrings, so anchor on line starts.
+  assert.ok(body.split(/\r?\n/).length >= 4, "wrapper is multi-line, not concatenated");
+  assert.match(body, /^@echo off\s*$/m, "@echo off on its own first line");
+  assert.match(body, /^set "MEMORY_DATA_DIR=/m, "wrapper pins MEMORY_DATA_DIR on its own line");
+  assert.match(body, /"\s+".*cli\.mjs" cron-job\s*$/m, "cron-job invocation on its own line");
 });
 
 test("uninstall: strips the global server + hooks, leaves the wiki DATA intact", () => {
@@ -96,5 +104,60 @@ test("uninstall: strips the global server + hooks, leaves the wiki DATA intact",
   assert.ok(
     exists(path.join(h.dataDir, "wiki", ".layout", "layout.yaml")),
     "wiki data intact after uninstall",
+  );
+});
+
+test("install into a path with SPACES wires everything (Join-Path / arg quoting / schtasks /tr)", () => {
+  const h = buildBootstrapHome("has spaces here", tmps);
+  assert.ok(h.home.includes(" "), "precondition: the home path contains a space");
+  const r = runBootstrapPs(h, ["-Provider", "mock", "-Schedule", "hourly"]);
+  assert.equal(r.status, 0, `bootstrap.ps1 failed:\n${r.stdout}\n${r.stderr}`);
+  assert.ok(exists(path.join(h.dataDir, "wiki", ".layout", "layout.yaml")), "wiki materialised");
+  assert.ok(
+    JSON.parse(read(path.join(h.home, ".claude.json"))).mcpServers["llm-wiki-memory"],
+    "server registered despite the space",
+  );
+  const wrapper = path.join(h.dataDir, "state", "cron-hourly.cmd");
+  assert.ok(exists(wrapper), "schedule wrapper written");
+  assert.ok(read(wrapper).includes(h.dataDir), "wrapper pins the spaced data-dir path verbatim");
+});
+
+test("install into a NON-ASCII path succeeds; the schedule wrapper is not mangled to '?' (H2)", () => {
+  const h = buildBootstrapHome("café-münchen", tmps);
+  const r = runBootstrapPs(h, ["-Provider", "mock", "-Schedule", "hourly"]);
+  assert.equal(r.status, 0, `bootstrap.ps1 failed:\n${r.stdout}\n${r.stderr}`);
+  const wrapper = path.join(h.dataDir, "state", "cron-hourly.cmd");
+  assert.ok(exists(wrapper), "wrapper written");
+  if ([...h.home].some((ch) => ch.charCodeAt(0) > 127)) {
+    // Read as latin1 so OEM bytes map to chars (not U+FFFD). The old `-Encoding
+    // ascii` replaced the non-ASCII path char with '?' (0x3F); a path never
+    // contains '?', so its presence in the data-dir line would prove H2.
+    const raw = fs.readFileSync(wrapper, "latin1");
+    const line = raw.split(/\r?\n/).find((l) => l.startsWith('set "MEMORY_DATA_DIR='));
+    assert.ok(line && !line.includes("?"), "non-ASCII data-dir preserved (oem, not ascii)");
+  }
+});
+
+test("re-running bootstrap.ps1 is idempotent (one gitignore block, one server entry, one @-include)", () => {
+  const h = buildBootstrapHome("ps-idempotent", tmps);
+  assert.equal(runBootstrapPs(h, ["-Provider", "mock"]).status, 0);
+  assert.equal(runBootstrapPs(h, ["-Provider", "mock"]).status, 0);
+  const gi = read(path.join(h.home, ".gitignore"));
+  assert.equal(
+    (gi.match(/# >>> llm-wiki-memory >>>/g) || []).length,
+    1,
+    "exactly one gitignore block",
+  );
+  const mcp = JSON.parse(read(path.join(h.home, ".claude.json")));
+  assert.equal(
+    Object.keys(mcp.mcpServers).filter((k) => k === "llm-wiki-memory").length,
+    1,
+    "server entry not duplicated",
+  );
+  const agents = read(path.join(h.home, "AGENTS.md"));
+  assert.equal(
+    (agents.match(/BEGIN llm-wiki-memory/g) || []).length,
+    1,
+    "exactly one AGENTS.md @-include block",
   );
 });

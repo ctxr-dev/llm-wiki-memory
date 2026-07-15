@@ -33,7 +33,7 @@ export function writeFileAtomic(filePath, data, { mode = 0o644 } = {}) {
   );
   let fd;
   try {
-    fs.mkdirSync(dir, { recursive: true });
+    withFsRetry(() => fs.mkdirSync(dir, { recursive: true }));
     // wx: fail if the temp somehow exists (unique name makes that a real bug).
     fd = withFsRetry(() => fs.openSync(tmp, "wx", mode));
     // Loop writeSync until every byte lands: a single writeSync can short-write

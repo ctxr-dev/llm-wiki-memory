@@ -7,6 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { writeFileAtomic } from "./atomic-write.mjs";
+import { withFsRetry } from "./fs-retry.mjs";
 
 const SERVER_KEY = "llm-wiki-memory";
 const AGENTS_README = ".agents/README.md";
@@ -79,7 +80,7 @@ function isEmptyMcpJson(file) {
 /** @param {string} dir remove it only when it exists and is empty (rmSync EISDIRs on a dir) */
 export function pruneEmptyDir(dir) {
   try {
-    if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+    if (fs.readdirSync(dir).length === 0) withFsRetry(() => fs.rmdirSync(dir));
   } catch {
     return;
   }
@@ -106,7 +107,7 @@ export function stripCodexServer(file) {
   let head = start;
   if (head > 0 && lines[head - 1].trim() === "") head -= 1;
   const rest = [...lines.slice(0, head), ...lines.slice(end)].join("\n");
-  if (rest.trim() === "") fs.rmSync(file, { force: true });
+  if (rest.trim() === "") withFsRetry(() => fs.rmSync(file, { force: true }));
   else writeFileAtomic(file, rest.endsWith("\n") ? rest : `${rest}\n`);
   return true;
 }
@@ -123,13 +124,13 @@ export function removeAgentsSurface(workspaceDir) {
   /** @type {string[]} */ const removed = [];
   const readme = path.join(ws, AGENTS_README);
   if (fs.existsSync(readme)) {
-    fs.rmSync(readme, { force: true });
+    withFsRetry(() => fs.rmSync(readme, { force: true }));
     removed.push(AGENTS_README);
   }
   for (const rel of MCP_JSON_RELPATHS) {
     if (rel === ".mcp.json") continue;
     if (isEmptyMcpJson(path.join(ws, rel))) {
-      fs.rmSync(path.join(ws, rel), { force: true });
+      withFsRetry(() => fs.rmSync(path.join(ws, rel), { force: true }));
       removed.push(rel);
     }
   }
@@ -180,7 +181,7 @@ export function removeClaudeHooks(workspaceDir) {
   }
   if (removed === 0) return { removed: 0 };
   if (Object.keys(hooks).length === 0 && Object.keys(parsed).length === 1) {
-    fs.rmSync(file, { force: true });
+    withFsRetry(() => fs.rmSync(file, { force: true }));
   } else {
     writeFileAtomic(file, `${JSON.stringify(parsed, null, 2)}\n`);
   }

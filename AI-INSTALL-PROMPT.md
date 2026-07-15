@@ -11,6 +11,13 @@ Install or update llm-wiki-memory (local LLM-wiki memory: capture/compile/recall
 hooks, an hourly refinement cron, a local stdio MCP server; local embeddings,
 no Docker) in this project. Follow these steps EXACTLY; do not improvise.
 
+**Platform.** On macOS / Linux the installer is `bootstrap.sh`. On Windows use
+the native `bootstrap.ps1` (PowerShell) instead — everywhere below that names
+`bootstrap.sh`, substitute `bootstrap.ps1` and translate its flags to the
+PowerShell form (`--commit-memory` → `-CommitMemory`, `--template repo` →
+`-Template repo`, `--schedule hourly` → `-Schedule hourly`, `--uninstall` →
+`-Uninstall`). The `git`/`npm install` steps are identical on all platforms.
+
 1. Check whether `./.llm-wiki-memory/src` exists in this project.
 
 2. **It does NOT exist → fresh install.** Run

@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { writeFileAtomic } from "./atomic-write.mjs";
 import { MARKER_START, MARKER_END, HOOK_EVENTS, hooksDirFor } from "./mount-git.mjs";
+import { withFsRetry } from "./fs-retry.mjs";
 import {
   POINTER_PREFIX,
   DOC_MARKER_START,
@@ -64,7 +65,7 @@ export function removeSyncHookBlocks(repoDir) {
     if (stripped === original) {
       results[event] = "no-marker";
     } else if (isInertHook(stripped)) {
-      fs.rmSync(target);
+      withFsRetry(() => fs.rmSync(target));
       results[event] = "removed";
     } else {
       // Normalize trailing blanks (chainHookFile prepends a separator on each install;
@@ -94,7 +95,7 @@ function stripBlockFromFile(file, startMarker, endMarker) {
     .replace(/\n{3,}/g, "\n\n")
     .replace(/^\n+/, "")
     .replace(/[ \t\n]+$/, "");
-  if (normalized === "") fs.rmSync(file, { force: true });
+  if (normalized === "") withFsRetry(() => fs.rmSync(file, { force: true }));
   else writeFileAtomic(file, `${normalized}\n`);
   return true;
 }
@@ -165,7 +166,7 @@ function sweepOrphanPointers(ws, result) {
         !tracked.has(rel) &&
         isOurPointer(abs)
       ) {
-        fs.rmSync(abs, { force: true });
+        withFsRetry(() => fs.rmSync(abs, { force: true }));
         result.pointers.push(rel);
       }
     }
@@ -203,7 +204,7 @@ function removeFromManifest(ws, manifest) {
         continue;
       }
       if (sha256(content) === a.sha256) {
-        fs.rmSync(abs, { force: true });
+        withFsRetry(() => fs.rmSync(abs, { force: true }));
         pointers.push(a.path);
       } else {
         kept.push(a.path);
@@ -219,7 +220,7 @@ function removeFromManifest(ws, manifest) {
     }
   }
   if (keptArtifacts.length) writeManifest(ws, keptArtifacts);
-  else fs.rmSync(manifestPath(ws), { force: true });
+  else withFsRetry(() => fs.rmSync(manifestPath(ws), { force: true }));
   return { pointers, docs, kept };
 }
 
@@ -235,7 +236,7 @@ function removeByDiscovery(ws) {
     for (const entry of fs.readdirSync(dir)) {
       const abs = path.join(dir, entry);
       if (entry.startsWith(POINTER_PREFIX) && entry.endsWith(".md") && isOurPointer(abs)) {
-        fs.rmSync(abs, { force: true });
+        withFsRetry(() => fs.rmSync(abs, { force: true }));
         pointers.push(`${surface}/${entry}`);
       }
     }
@@ -244,7 +245,7 @@ function removeByDiscovery(ws) {
   for (const doc of MEMORY_DOCS) {
     if (stripBlockFromDoc(path.join(ws, doc))) docs.push(doc);
   }
-  fs.rmSync(manifestPath(ws), { force: true }); // converge with the manifest path's end state
+  withFsRetry(() => fs.rmSync(manifestPath(ws), { force: true })); // converge with the manifest path's end state
   return { pointers, docs, kept: [] };
 }
 

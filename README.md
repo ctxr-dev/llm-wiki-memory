@@ -11,7 +11,7 @@ Claude Code, Cursor, Codex, and every other MCP client forget everything when a 
 <br/>
 <br/>
 
-[![tests](https://img.shields.io/badge/TESTS-1563_PASSING-0D0D14?style=for-the-badge&labelColor=5EFFC0)](#testing)
+[![tests](https://img.shields.io/badge/TESTS-1712_PASSING-0D0D14?style=for-the-badge&labelColor=5EFFC0)](#testing)
 [![node](https://img.shields.io/badge/NODE-%E2%89%A5_20-0D0D14?style=for-the-badge&logo=nodedotjs&logoColor=0D0D14&labelColor=5EF6FF)](https://nodejs.org)
 [![license](https://img.shields.io/badge/LICENSE-MIT-0D0D14?style=for-the-badge&labelColor=FCEE0A)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-STDIO_SERVER-0D0D14?style=for-the-badge&logo=anthropic&logoColor=0D0D14&labelColor=5EF6FF)](https://modelcontextprotocol.io)
@@ -31,13 +31,23 @@ Paste this one-liner into your AI coding agent (copy button on the right) — it
 Set up llm-wiki-memory in this project: fetch https://raw.githubusercontent.com/ctxr-dev/llm-wiki-memory/main/AI-INSTALL-PROMPT.md and follow it EXACTLY (it covers fresh install and update; if already installed, the same file is local at @.llm-wiki-memory/src/AI-INSTALL-PROMPT.md).
 ```
 
-Or run it yourself:
+Or run it yourself — **macOS / Linux**:
 
 ```bash
 git clone https://github.com/ctxr-dev/llm-wiki-memory ./.llm-wiki-memory/src
 ./.llm-wiki-memory/src/bootstrap.sh                    # add --commit-memory to git-track the wiki (you commit it)
 ./.llm-wiki-memory/src/bootstrap.sh --schedule hourly  # optional: hourly cron / launchd
 ```
+
+**Windows** (PowerShell — the native installer, same flags):
+
+```powershell
+git clone https://github.com/ctxr-dev/llm-wiki-memory ./.llm-wiki-memory/src
+./.llm-wiki-memory/src/bootstrap.ps1                    # add -CommitMemory to git-track the wiki (you commit it)
+./.llm-wiki-memory/src/bootstrap.ps1 -Schedule hourly  # optional: hourly Task Scheduler job
+```
+
+> **Windows prerequisite:** [Git for Windows](https://git-scm.com/downloads/win). You already need it to `git clone`, and Claude Code runs the lifecycle hooks (and the git embedding-refresh hooks) through its bundled Git Bash — so capture/recall and index-warming work out of the box.
 
 The bootstrap is **idempotent** — re-running preserves your edits to `.env` and your rule files.
 
@@ -53,6 +63,8 @@ git -C .llm-wiki-memory/src merge --ff-only origin/main
 ./.llm-wiki-memory/src/bootstrap.sh   # idempotent; runbooks may add one-shot steps + verification
 ```
 
+On **Windows**, the last line is `./.llm-wiki-memory/src/bootstrap.ps1` (the git/`npm install` steps above are identical in PowerShell).
+
 **Upgrading a shared team wiki?** Nothing special needed — a shared wiki is auto-detected on any `bootstrap.sh` re-run and stays git-tracked (a bare re-run does **not** revert it to private; the engine still never runs git on it). See [docs/shared-wikis.md](docs/shared-wikis.md#upgrading-a-shared-install).
 
 </details>
@@ -67,7 +79,7 @@ git -C .llm-wiki-memory/src merge --ff-only origin/main
 5. Wires the memory rules/skills. **Private brain:** `llm-wiki-memory-<name>.md` @-pointer files (referencing `~/.llm-wiki-memory/src` — no copies, no symlinks) into `.agents/rules/`, `.claude/skills/`, `.claude/rules/`, `.cursor/rules/`, plus one marker-fenced @-include block in `AGENTS.md`/`CLAUDE.md` (recorded in an install-manifest). **Shared (`--template repo`) mount:** ZERO machine-dependent files — only ONE machine-independent remote-read block in `AGENTS.md`/`CLAUDE.md` pointing at the discipline on `raw.githubusercontent.com/.../main/...`.
 6. Materialises the hosted wiki at `./.llm-wiki-memory/wiki` (with the layout template that declares `consolidate: refine | none` per category) and validates it.
 7. Adds `/.llm-wiki-memory` to `.gitignore` (`--commit-memory` git-tracks the wiki in the project instead — you commit it; the engine never does).
-8. Optionally installs the hourly cron (`compile` + an opt-in `consolidate`) as a scheduled job — launchd on macOS, a crontab wrapper on Linux (`--schedule hourly`; `daily` is a deprecated alias for the same hourly job); consolidation runs only when `consolidate.enabled: true` (default off).
+8. Optionally installs the hourly cron (`compile` + an opt-in `consolidate`) as a scheduled job — launchd on macOS, a crontab wrapper on Linux, a Task Scheduler task on Windows (`--schedule hourly` / `-Schedule hourly`; `daily` is a deprecated alias for the same hourly job); consolidation runs only when `consolidate.enabled: true` (default off).
 
 </details>
 

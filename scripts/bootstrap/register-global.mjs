@@ -22,16 +22,21 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_HOOKS_TEMPLATE = path.join(HERE, "..", "..", "templates", "claude", "settings.json");
 
 // Claude Code + Cursor interpolate ${HOME} in args; Claude Desktop + Codex take
-// an absolute index path (matches scripts/mcp-config.sh).
+// an absolute index path (matches scripts/mcp-config.sh). On Windows, ${HOME} is
+// NOT reliably set in the client's spawn env (it uses USERPROFILE), so `node`
+// would receive a literal "${HOME}" and never start the server — use the
+// absolute path there for every client (a global install is per-machine, so the
+// absolute path is portable enough by construction).
 const HOME_INTERP_CLIENTS = new Set(["claude-code", "cursor"]);
 
 /**
  * @param {string} home
  * @param {string} name
+ * @param {NodeJS.Platform} platform
  * @returns {string}
  */
-function indexArgFor(home, name) {
-  return HOME_INTERP_CLIENTS.has(name)
+function indexArgFor(home, name, platform) {
+  return platform !== "win32" && HOME_INTERP_CLIENTS.has(name)
     ? SERVER_INDEX_REL
     : path.join(home, ".llm-wiki-memory", "src", "mcp-server", "index.mjs");
 }
@@ -51,7 +56,7 @@ export function registerGlobalMcp({ home, platform = process.platform, hooksTemp
       results[name] = "absent";
       continue;
     }
-    const idx = indexArgFor(home, name);
+    const idx = indexArgFor(home, name, platform);
     if (c.format === "toml") {
       results[name] = mergeCodexToml(c.file, idx).action;
       continue;

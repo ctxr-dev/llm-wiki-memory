@@ -50,6 +50,15 @@ function NodeStep([string]$rel, [string[]]$stepArgs) {
   if ($LASTEXITCODE -ne 0) { Die "step failed: node $rel (exit $LASTEXITCODE)" }
 }
 
+function NodeOut([string]$rel, [string[]]$stepArgs) {
+  # Run a Node step and return its single-line stdout (trimmed); Die on non-zero
+  # exit. "$out" stringifies null/empty safely so .Trim() can't crash StrictMode.
+  $script = Join-Path $SrcDir $rel
+  $out = & node $script @stepArgs
+  if ($LASTEXITCODE -ne 0) { Die "step failed: node $rel (exit $LASTEXITCODE)" }
+  return "$out".Trim()
+}
+
 # --- uninstall (thin; fs reversals live in scripts/uninstall.mjs) ---
 if ($Uninstall) {
   if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Die "node is required to uninstall." }
@@ -93,7 +102,7 @@ try {
 if ($LASTEXITCODE -ne 0) { Die "@ctxr/skill-llm-wiki is not resolvable. Ensure it is installable from your registry (or vendor it)." }
 
 # --- detect provider (same ladder as bootstrap.sh, via the tested node module) ---
-$detect = & node (Join-Path $SrcDir "scripts\bootstrap\detect-provider.mjs") $Provider
+$detect = NodeOut "scripts\bootstrap\detect-provider.mjs" @($Provider)
 $detectParts = $detect -split "`t"
 $Provider = $detectParts[0]
 $baseUrlHint = if ($detectParts.Count -gt 1) { $detectParts[1] } else { "" }
@@ -136,7 +145,7 @@ else { Log "WARNING: wiki validation reported issues (continuing anyway):"; Log 
 
 # --- wiki git repo (auto-commit); a SHARED wiki is never given a standalone repo ---
 $wikiDir = Join-Path $DataDir "wiki"
-$wikiIsShared = (& node (Join-Path $SrcDir "scripts\bootstrap\shared-wiki.mjs") $wikiDir).Trim()
+$wikiIsShared = NodeOut "scripts\bootstrap\shared-wiki.mjs" @($wikiDir)
 $wikiGit = Join-Path $wikiDir ".git"
 if ($wikiIsShared -eq "1") {
   # Shared: never git-init a standalone wiki\.git; the host repo tracks it.
@@ -197,8 +206,8 @@ if ($CommitMemory -or $wikiIsShared -eq "1") {
 
 # --- optional scheduled maintenance task (hourly, via Task Scheduler) ---
 function Set-ScheduleTask([string]$action) {
-  $wsHash = & node (Join-Path $SrcDir "scripts\bootstrap\ws-hash.mjs") $WorkspaceDir
-  $ids = (& node (Join-Path $SrcDir "scripts\bootstrap\render-schedule.mjs") "win-ids" $wsHash $DataDir) -split "`t"
+  $wsHash = NodeOut "scripts\bootstrap\ws-hash.mjs" @($WorkspaceDir)
+  $ids = (NodeOut "scripts\bootstrap\render-schedule.mjs" @("win-ids", $wsHash, $DataDir)) -split "`t"
   $taskName = $ids[0]
   $wrapperPath = $ids[1]
   if ($action -eq "off") {
@@ -210,8 +219,13 @@ function Set-ScheduleTask([string]$action) {
   $nodeBin = (Get-Command node).Source
   $cliPath = Join-Path $SrcDir "scripts\cli.mjs"
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $wrapperPath) | Out-Null
-  $wrapper = & node (Join-Path $SrcDir "scripts\bootstrap\render-schedule.mjs") "cmd-wrapper" $DataDir $nodeBin $cliPath
-  Set-Content -Path $wrapperPath -Value $wrapper -NoNewline -Encoding ascii
+  # Pipe node's stdout STRAIGHT to the file so each \r\n line is written verbatim:
+  # capturing into a variable arrays-ifies the multi-line output, and -NoNewline
+  # would then concatenate the lines into one unrunnable command. oem encoding is
+  # what cmd.exe reads (ascii mangles a non-ASCII install path to '?').
+  & node (Join-Path $SrcDir "scripts\bootstrap\render-schedule.mjs") "cmd-wrapper" $DataDir $nodeBin $cliPath |
+    Set-Content -Path $wrapperPath -Encoding oem
+  if ($LASTEXITCODE -ne 0) { Die "failed to render the schedule wrapper." }
   if (-not $env:LWM_BOOTSTRAP_SKIP_SCHED_OS) {
     & schtasks /create /sc hourly /mo 1 /tn $taskName /tr "`"$wrapperPath`"" /f *> $null
     if ($LASTEXITCODE -ne 0) { Log "WARNING: schtasks /create failed for $taskName." }

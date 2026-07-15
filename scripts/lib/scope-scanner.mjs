@@ -45,6 +45,13 @@ function realpathOr(p) {
   }
 }
 
+// Windows paths are case-insensitive, and realpathSync doesn't canonicalize
+// case for a not-yet-existing wiki root — so the within-home test and the
+// dedup key must fold case there, else a differently-cased scope stops the walk
+// early or collects the same mount twice.
+/** @param {string} p @returns {string} */
+const foldCase = (p) => (process.platform === "win32" ? p.toLowerCase() : p);
+
 /**
  * @param {string} dir
  * @returns {string}
@@ -68,7 +75,9 @@ function wikiRootFor(dir) {
  * @returns {boolean}
  */
 function withinHome(dir, homeReal) {
-  return dir === homeReal || dir.startsWith(homeReal + path.sep);
+  const d = foldCase(dir);
+  const h = foldCase(homeReal);
+  return d === h || d.startsWith(h + path.sep);
 }
 
 /**
@@ -116,7 +125,7 @@ function walkScope(scope, homeReal, brainRootKey, out) {
     }
     if (!mounted) return false;
     const root = wikiRootFor(d);
-    const key = realpathOr(root);
+    const key = foldCase(realpathOr(root));
     if (key !== brainRootKey && !out.has(key)) {
       out.set(key, {
         mountDir: d,
@@ -189,7 +198,7 @@ function isStrictAncestorDir(ancestor, descendant) {
 export function scanScopes(scopes, { home = os.homedir(), brainDataDir = MEMORY_DATA_DIR } = {}) {
   const brainMountDir = path.dirname(brainDataDir);
   const brainRoot = path.join(brainDataDir, WIKI_DIRNAME);
-  const brainRootKey = realpathOr(brainRoot);
+  const brainRootKey = foldCase(realpathOr(brainRoot));
   /** @type {ScopeLevel} */
   const brain = {
     mountDir: brainMountDir,
