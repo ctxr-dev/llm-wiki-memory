@@ -22,10 +22,10 @@ export function envHasOpenAiKey() {
 }
 
 /**
- * @param {{ cmdProbe?: CmdProbe }} [opts]
+ * @param {{ cmdProbe?: CmdProbe, platform?: NodeJS.Platform }} [opts]
  * @returns {Set<string>}
  */
-export function detectAvailableProviders({ cmdProbe } = {}) {
+export function detectAvailableProviders({ cmdProbe, platform = process.platform } = {}) {
   const probe = typeof cmdProbe === "function" ? cmdProbe : null;
   /** @type {Set<string>} */
   const out = new Set();
@@ -34,14 +34,19 @@ export function detectAvailableProviders({ cmdProbe } = {}) {
     out.add("openai");
     out.add("openai-compatible");
   }
-  if (probe) {
-    if (probe("claude")) out.add("claude");
-    if (probe("codex")) out.add("codex");
-    if (probe("cursor-agent")) out.add("cursor");
-  } else {
-    out.add("claude");
-    out.add("codex");
-    out.add("cursor");
+  // The claude/codex/cursor CLIs are npm .cmd shims Windows can't spawn with an
+  // untrusted prompt arg — never put them in the chain there (mirrors
+  // detect-provider.mjs + llm-health.mjs). Windows uses an API key / base URL.
+  if (platform !== "win32") {
+    if (probe) {
+      if (probe("claude")) out.add("claude");
+      if (probe("codex")) out.add("codex");
+      if (probe("cursor-agent")) out.add("cursor");
+    } else {
+      out.add("claude");
+      out.add("codex");
+      out.add("cursor");
+    }
   }
   return out;
 }
