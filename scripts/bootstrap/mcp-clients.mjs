@@ -21,7 +21,10 @@ export function serverEntry(indexArg = SERVER_INDEX_REL) {
  * @returns {string}
  */
 export function codexTomlBlock(indexArg = SERVER_INDEX_REL) {
-  return `[mcp_servers.${SERVER_NAME}]\ncommand = "node"\nargs = ["${indexArg}"]\n`;
+  // Single-quoted TOML LITERAL string: a Windows absolute index path contains
+  // backslashes, and a double-quoted BASIC string would read `\U`/`\.` as
+  // invalid escapes and reject the whole config.toml. Paths never contain `'`.
+  return `[mcp_servers.${SERVER_NAME}]\ncommand = "node"\nargs = ['${indexArg}']\n`;
 }
 
 /**

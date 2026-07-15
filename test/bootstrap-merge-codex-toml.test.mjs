@@ -15,7 +15,7 @@ test("creates the file with our table when absent", () => {
   assert.equal(r.action, "created");
   assert.match(
     read(f),
-    /^\[mcp_servers\.llm-wiki-memory\]\ncommand = "node"\nargs = \[".*index\.mjs"\]\n$/,
+    /^\[mcp_servers\.llm-wiki-memory\]\ncommand = "node"\nargs = \['.*index\.mjs'\]\n$/,
   );
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -70,6 +70,20 @@ test("preserves a customized (wrapper) command, does not overwrite", () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test("a Windows backslash index path is a TOML literal string (no invalid \\U / \\. escape, whole file stays parseable)", () => {
+  const dir = tmp();
+  const f = path.join(dir, "config.toml");
+  const winIdx = "C:\\Users\\dev\\.llm-wiki-memory\\src\\mcp-server\\index.mjs";
+  const r = mergeCodexToml(f, winIdx);
+  assert.equal(r.changed, true);
+  const out = read(f);
+  // Single-quoted literal keeps the backslashes verbatim; a basic ("...") string
+  // would have made \U (users) an invalid unicode escape → whole-file reject.
+  assert.ok(out.includes(`args = ['${winIdx}']`), `backslashes preserved in a literal:\n${out}`);
+  assert.doesNotMatch(out, /args = \["/, "must NOT use a basic (double-quoted) string for a path");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test("replaces a stale (non-customized) block in place, consuming dotted-child subtables", () => {
   const dir = tmp();
   const f = path.join(dir, "config.toml");
@@ -82,7 +96,7 @@ test("replaces a stale (non-customized) block in place, consuming dotted-child s
   const out = read(f);
   assert.doesNotMatch(out, /OLD\.mjs/);
   assert.doesNotMatch(out, /mcp_servers\.llm-wiki-memory\.env/, "stale child subtable consumed");
-  assert.match(out, /args = \["\$\{HOME\}\/new\.mjs"\]/);
+  assert.match(out, /args = \['\$\{HOME\}\/new\.mjs'\]/);
   assert.match(out, /\[other\]\nk = 1/, "unrelated table preserved");
   // exactly one of our tables
   assert.equal((out.match(/\[mcp_servers\.llm-wiki-memory\]/g) || []).length, 1);

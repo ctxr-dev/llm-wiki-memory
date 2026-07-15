@@ -22,6 +22,16 @@ DATA_DIR="$WORKSPACE_DIR/.llm-wiki-memory"
 # a literal ~ is NOT expanded in JSON args, so never use it here.
 INDEX_REL='${HOME}/.llm-wiki-memory/src/mcp-server/index.mjs'
 
+# On Git Bash (Windows), the MCP client's spawn env may not set HOME (it uses
+# USERPROFILE), so a ${HOME} arg never resolves and the server won't launch.
+# Emit an absolute mixed-mode path (C:/... — valid JSON, resolved by Windows
+# node) instead. POSIX keeps the portable ${HOME} form.
+case "$(uname -s 2>/dev/null || true)" in
+  MINGW* | MSYS* | CYGWIN*)
+    if command -v cygpath >/dev/null 2>&1; then INDEX_REL="$(cygpath -m "$INDEX")"; fi
+    ;;
+esac
+
 # Project-scoped clients get a relative path (survives the workspace moving).
 # Global single-file clients (Claude Desktop, ~/.codex) have no project cwd, so
 # they need the absolute path. Neither needs MEMORY_DATA_DIR: the server

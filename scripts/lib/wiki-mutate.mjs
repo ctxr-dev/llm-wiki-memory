@@ -126,7 +126,6 @@ function writeMemoryInner({
   }
   const title = deriveTitle({ metadata, text, name: safeName });
   const leafAbs = path.join(root(), dir.split("/").join(path.sep), safeName);
-  fs.mkdirSync(path.dirname(leafAbs), { recursive: true });
   writeFileAtomic(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));
 
   const touched = [leafAbs];
@@ -225,7 +224,6 @@ export function saveDocument({ name, text, datasetId, metadata, placementOverrid
     };
   }
 
-  fs.mkdirSync(path.dirname(leafAbs), { recursive: true });
   writeFileAtomic(leafAbs, renderLeaf({ id, title, tags, body: text, memoryMeta }));
 
   const touched = [leafAbs];

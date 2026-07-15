@@ -23,7 +23,7 @@ test("codexTomlBlock renders the [mcp_servers.<name>] table", () => {
   const block = codexTomlBlock();
   assert.match(block, /^\[mcp_servers\.llm-wiki-memory\]\n/);
   assert.match(block, /command = "node"\n/);
-  assert.match(block, /args = \["\$\{HOME\}\/\.llm-wiki-memory\/src\/mcp-server\/index\.mjs"\]\n/);
+  assert.match(block, /args = \['\$\{HOME\}\/\.llm-wiki-memory\/src\/mcp-server\/index\.mjs'\]\n/);
 });
 
 test("mcpClients maps each client to its user-home global config path", () => {

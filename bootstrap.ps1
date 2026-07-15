@@ -69,8 +69,14 @@ if ($Uninstall) {
     $wsHash = & node (Join-Path $SrcDir "scripts\bootstrap\ws-hash.mjs") $WorkspaceDir
     $ids = (& node (Join-Path $SrcDir "scripts\bootstrap\render-schedule.mjs") "win-ids" $wsHash $DataDir) -split "`t"
     $taskName = $ids[0]
-    & schtasks /delete /tn $taskName /f *> $null
-    Log "Removed scheduled task if present ($taskName)."
+    # Guard the delete on a real name: a failed derivation must not schtasks /tn ""
+    # (a no-op that leaves the real task orphaned) — warn and let a re-run clean it.
+    if ($taskName) {
+      & schtasks /delete /tn $taskName /f *> $null
+      Log "Removed scheduled task if present ($taskName)."
+    } else {
+      Log "WARNING: could not derive the scheduled-task name; skipped its teardown (re-run --uninstall if a task lingers)."
+    }
   }
   & node (Join-Path $SrcDir "scripts\bootstrap\unregister-global.mjs") $HomeDir 2>&1 | Write-Host
   & node (Join-Path $SrcDir "scripts\uninstall.mjs") $WorkspaceDir

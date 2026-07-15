@@ -13,6 +13,7 @@ import {
 } from "./lib/memory-surface-constants.mjs";
 import { sha256, writeManifest } from "./lib/install-manifest.mjs";
 import { writeFileAtomic } from "./lib/atomic-write.mjs";
+import { withFsRetry } from "./lib/fs-retry.mjs";
 import { stripManagedBlocks } from "./lib/marker-block.mjs";
 import { isOurPointer } from "./lib/pointer-file.mjs";
 import { isSharedWiki } from "./bootstrap/shared-wiki.mjs";
@@ -172,7 +173,7 @@ function wireSharedRepo(workspaceDir) {
     for (const entry of fs.readdirSync(dir)) {
       const abs = path.join(dir, entry);
       if (entry.startsWith(POINTER_PREFIX) && entry.endsWith(".md") && isOurPointer(abs)) {
-        fs.rmSync(abs, { force: true });
+        withFsRetry(() => fs.rmSync(abs, { force: true }));
       }
     }
   }
@@ -216,7 +217,7 @@ export function wireMemorySurfaces({ srcDir, workspaceDir, home, selfObsEnabled 
         entry.endsWith(".md") &&
         !want.has(entry) &&
         isOurPointer(abs);
-      if (staleCopy || stalePointer) fs.rmSync(abs, { force: true });
+      if (staleCopy || stalePointer) withFsRetry(() => fs.rmSync(abs, { force: true }));
     }
     for (const [fname, ref] of want) {
       const body = pointerBody(ref);

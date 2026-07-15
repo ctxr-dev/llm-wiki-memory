@@ -126,7 +126,6 @@ export function updateDocMetadata({
         conflict: { existing: documentId, destination: newRel },
       };
     }
-    fs.mkdirSync(path.dirname(newAbs), { recursive: true });
     writeFileAtomic(newAbs, rendered);
     withFsRetry(() => fs.rmSync(abs, { force: true }));
     renameEmbedding(/** @type {string} */ (documentId), newRel);
@@ -236,7 +235,6 @@ export function moveDocument({ documentId, fromPath, toPath, datasetId: _dataset
   }
 
   const raw = fs.readFileSync(fromAbs, "utf8");
-  fs.mkdirSync(path.dirname(toAbsPath), { recursive: true });
   writeFileAtomic(toAbsPath, raw); // verbatim — moving must not re-render content
   withFsRetry(() => fs.rmSync(fromAbs));
   const toRelPath = toRel(toAbsPath);

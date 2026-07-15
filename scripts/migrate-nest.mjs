@@ -6,6 +6,7 @@ import { categoryHasTopology, renameEmbedding } from "./lib/wiki-store.mjs";
 import { ensureIndexes, validate } from "./lib/wiki-cli.mjs";
 import { loadTopology } from "./lib/topology-runtime.mjs";
 import { recordWikiChange, withWikiCommit } from "./lib/wiki-commit.mjs";
+import { withFsRetry } from "./lib/fs-retry.mjs";
 import {
   relPosix,
   leafMemoryOf,
@@ -161,8 +162,8 @@ async function migrateNestInner({ wiki = wikiRoot(), dryRun = false, check = fal
       conflicts.push({ from: m.from, to: m.to });
       continue;
     }
-    fs.mkdirSync(path.dirname(m.destAbs), { recursive: true });
-    fs.renameSync(m.abs, m.destAbs);
+    withFsRetry(() => fs.mkdirSync(path.dirname(m.destAbs), { recursive: true }));
+    withFsRetry(() => fs.renameSync(m.abs, m.destAbs));
     renameEmbedding(m.from, m.to); // content unchanged, so keep the cached vector
     recordWikiChange(
       /** @type {Parameters<typeof recordWikiChange>[0]} */ (
