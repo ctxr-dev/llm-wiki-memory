@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { renameWithRetry } from "./fs-retry.mjs";
+import { renameWithRetry, withFsRetry } from "./fs-retry.mjs";
 
 // Crash-safe file write: write to a sibling temp file, fsync it, then
 // rename onto the final path. A POSIX rename within the same directory is
@@ -33,8 +33,9 @@ export function writeFileAtomic(filePath, data, { mode = 0o644 } = {}) {
   );
   let fd;
   try {
+    fs.mkdirSync(dir, { recursive: true });
     // wx: fail if the temp somehow exists (unique name makes that a real bug).
-    fd = fs.openSync(tmp, "wx", mode);
+    fd = withFsRetry(() => fs.openSync(tmp, "wx", mode));
     // Loop writeSync until every byte lands: a single writeSync can short-write
     // a large payload, silently truncating the file. Normalise to a Buffer so
     // the offset/length form writes an exact remaining-byte count.
