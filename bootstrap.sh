@@ -156,34 +156,13 @@ if ! ( cd "$SRC_DIR" && node -e "require('module').createRequire(process.cwd()+'
 fi
 
 # --- detect provider ---
-# Priority order (first match wins). Each branch corresponds to a documented
-# install context: managed-by-claude / managed-by-codex / direct API key /
-# local model server / nothing-installed. The `mock` fallback exists so a fresh
-# clone of this repo doesn't fail at runtime — it lets every test pass and
-# every consolidate run skip its LLM passes cleanly while telling the operator
-# how to enable them. Without this, an install with no provider silently sat
-# on "claude" and threw cryptic CLI-not-found errors at runtime.
-BASE_URL_HINT=""
-if [[ -z "$PROVIDER" ]]; then
-  if command -v claude >/dev/null 2>&1; then
-    PROVIDER="claude"
-  elif command -v codex >/dev/null 2>&1; then
-    PROVIDER="codex"
-  elif [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-    PROVIDER="anthropic"
-  elif [[ -n "${OPENAI_API_KEY:-}" ]]; then
-    PROVIDER="openai"
-  elif [[ -n "${MEMORY_LLM_BASE_URL:-}" ]]; then
-    PROVIDER="openai-compatible"
-  elif command -v curl >/dev/null 2>&1 && curl -fsS --max-time 1 http://localhost:11434/api/version >/dev/null 2>&1; then
-    PROVIDER="openai-compatible"
-    # Probe-detected ollama on its default port: pre-fill MEMORY_LLM_BASE_URL
-    # in .env so the user doesn't have to. They can override anytime.
-    BASE_URL_HINT="http://localhost:11434/v1"
-  else
-    PROVIDER="mock"
-  fi
-fi
+# The priority ladder (claude/codex CLI → API keys → base-url → ollama probe →
+# mock fallback) lives in scripts/bootstrap/detect-provider.mjs (unit-tested).
+# An explicit --provider ($PROVIDER already set) short-circuits it. Output is
+# "<provider>\t<baseUrlHint>".
+DETECT="$(node "$SRC_DIR/scripts/bootstrap/detect-provider.mjs" "$PROVIDER")"
+PROVIDER="${DETECT%%$'\t'*}"
+BASE_URL_HINT="${DETECT#*$'\t'}"
 log "LLM provider: $PROVIDER"
 if [[ "$PROVIDER" == "mock" ]]; then
   printf '\033[1;33m[llm-wiki-memory] WARN:\033[0m No LLM provider detected (no claude/codex CLI on PATH; no ANTHROPIC_API_KEY/OPENAI_API_KEY/MEMORY_LLM_BASE_URL set; no ollama at http://localhost:11434). Defaulting to MEMORY_LLM_PROVIDER=mock. Consolidate'\''s LLM passes will be skipped. Set MEMORY_LLM_PROVIDER (or one of those env vars) in %s to enable.\n' "$DATA_DIR/settings/.env" >&2
