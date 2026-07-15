@@ -98,6 +98,16 @@ test("INSTRUCTIONS encodes the required-scopes discipline (rule 12)", () => {
   assert.match(INSTRUCTIONS, /NEVER optional/);
 });
 
+test("INSTRUCTIONS encodes the search-before-save dedup discipline (rule 16)", () => {
+  assert.match(INSTRUCTIONS, /SEARCH BEFORE YOU SAVE/);
+  assert.match(INSTRUCTIONS, /across EVERY dataset and every topology path/);
+  assert.match(INSTRUCTIONS, /DELEGATE this to a SUBAGENT/);
+  assert.match(INSTRUCTIONS, /CREATE-NEW vs UPDATE/);
+  assert.match(INSTRUCTIONS, /PREFER UPDATING an existing leaf/);
+  // The gated proposal must disclose new-vs-update (rule 2 cross-ref).
+  assert.match(INSTRUCTIONS, /FIRST run the rule-16 dedup search/);
+});
+
 test("scopes discipline is mirrored on the template rule + skill surfaces", () => {
   const rule = fs.readFileSync(path.join(SRC, "templates/rules/tool-scopes.md"), "utf8");
   assert.match(rule, /scopes/, "tool-scopes rule names the argument");

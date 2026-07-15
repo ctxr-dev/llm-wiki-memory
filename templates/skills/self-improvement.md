@@ -64,9 +64,13 @@ Trigger conditions for proposing a lesson:
 - Repeat correction: "I told you before", "again", "same mistake", "we've covered this".
 - Wrong-tool / wrong-step: the user pointed out you used the wrong file, command, format, or skipped a step.
 
-**Self_improvement writes are WRITE-GATED.** When you observe a trigger, do NOT call `save_lesson` on your own. Instead, in one short line, PROPOSE the lesson and wait for explicit user confirmation in this turn:
+**Self_improvement writes are WRITE-GATED.** When you observe a trigger, do NOT call `save_lesson` on your own.
 
-> "Want me to save a lesson? Title: \"<imperative summary>\", error_pattern: \"<kebab-slug>\"."
+**FIRST, search-before-save (dedup — discipline rule 16).** Before proposing, SEARCH the wiki for an existing lesson about the same failure mode — exhaustively, not one query: `search_memory` on the `error_pattern` slug, the title, and the key tags, across `self_improvement` (and knowledge if it might already be a `feedback-rule`). DELEGATE this to a subagent when your client supports it (it can compare many candidate leaves without bloating the main chat) and have it return: does a matching leaf exist, its `documentId`, and CREATE-NEW vs UPDATE-that-id. PREFER updating the existing lesson (same `error_pattern` → the compile/consolidate dedup merges it anyway; a same-`name` save upserts) over a near-duplicate.
+
+Then, in one short line, PROPOSE the lesson — STATING new-vs-update — and wait for explicit user confirmation in this turn:
+
+> "Want me to save a lesson? Title: \"<imperative summary>\", error_pattern: \"<kebab-slug>\"." — or, if a match exists: "There's already `<id>` (\"<title>\") about this; want me to UPDATE it with the fresh data?"
 
 Then:
 - **User says yes** -> call `save_lesson` with `userRequested:true` (see template below).

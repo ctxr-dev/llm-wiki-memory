@@ -46,10 +46,13 @@ Do NOT invoke when:
    file edits, or transcript references — note the key(s). Multiple
    issues OK.
 
-2. **For each active issue, decide what to record.** Open the issue's
-   wiki knowledge file (use `search_memory` with the issue key as the
-   query, or compute the path if you know the topology) and read it.
-   Ask yourself:
+2. **For each active issue, decide what to record.** Search-before-save
+   (discipline rule 16): find the issue's EXISTING wiki knowledge file and
+   UPDATE it in place rather than creating a duplicate — use `search_memory`
+   with the issue key + the topic across every path (delegate the search to a
+   subagent when available so it can scan broadly without bloating the main
+   chat), or compute the path if you know the topology, and read it. Ask
+   yourself:
    - Is there a finding from this session that isn't already in the
      issue's body?
    - Did the plan's `## Reasons` section gain new entries that should be

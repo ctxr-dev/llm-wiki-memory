@@ -29,6 +29,10 @@ If only ONE of these applies, prefer:
 - **Speculation without evidence.** "I think it might be a race condition" doesn't deserve a permanent artefact. Investigations carry weight precisely because they have proof.
 - **In-flight work.** Save when the investigation has concluded (root cause found OR explicitly given up with a documented next-step). Saving mid-investigation produces a leaf that's stale before retrieval.
 
+## Search before you save (dedup — discipline rule 16)
+
+BEFORE saving, search `investigations` (and `knowledge`) for an existing write-up of the same failure — by `error_pattern`, the symptom, and the affected module — across every path, not one query. DELEGATE the search to a subagent when available (it can read several candidate leaves without bloating the main chat) and have it return: does a matching investigation exist, its `documentId`, and CREATE-NEW vs UPDATE. If one exists, UPDATE it (re-save under its SAME slug — same-name upserts in place) with the fresh trail rather than creating a near-duplicate; say in your reply whether you created or updated it.
+
 ## How to save
 
 Call `save_to_dataset` with the `investigations` category:
