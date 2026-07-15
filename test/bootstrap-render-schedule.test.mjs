@@ -150,14 +150,22 @@ test("renderCmdWrapper: CRLF .cmd sets MEMORY_DATA_DIR + runs node cli.mjs cron-
   assert.ok(w.includes("\r\n"), "cmd.exe needs CRLF line endings");
 });
 
-test("renderCmdWrapper: a % in the data dir is escaped to %% (cmd.exe env expansion)", () => {
+test("renderCmdWrapper: a % is escaped to %% in EVERY path (data dir AND the exec line)", () => {
+  // The install-path root is shared, so a % lands in the cli path too — cmd.exe
+  // would expand %2 at parse time on the exec line and mangle node's argv.
   const w = renderCmdWrapper({
     dataDir: "C:\\Users\\ci%20run\\.llm-wiki-memory",
-    nodeBin: "C:\\node.exe",
-    cliPath: "C:\\cli.mjs",
+    nodeBin: "C:\\Program Files\\node%x.exe",
+    cliPath: "C:\\Users\\ci%20run\\.llm-wiki-memory\\src\\scripts\\cli.mjs",
   });
   assert.ok(
     w.includes('set "MEMORY_DATA_DIR=C:\\Users\\ci%%20run\\.llm-wiki-memory"'),
-    "a literal % is doubled so cmd.exe does not treat it as a variable reference",
+    "data dir % doubled",
+  );
+  assert.ok(
+    w.includes(
+      '"C:\\Program Files\\node%%x.exe" "C:\\Users\\ci%%20run\\.llm-wiki-memory\\src\\scripts\\cli.mjs" cron-job',
+    ),
+    "the exec-line node + cli paths also have % doubled",
   );
 });
