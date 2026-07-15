@@ -1,15 +1,7 @@
 // plan-frontmatter — updates a plan file's OWN frontmatter (status,
-// progress, last_updated, flip history) based on its checkbox state.
-//
-// This module does NOT touch any auto-generated index.md — that's the
-// skill's job. Our hook only updates the plan markdown file itself.
-//
-// Public API:
-//   updatePlanFrontmatter(filePath, opts) -> { changed, newStatus, progress, ... }
-//   applyChecklistFlipsToFrontmatter(planText, flips, now) -> newPlanText
-//
-// Pure (no side effects) variants are provided alongside the I/O wrappers
-// so tests can exercise the transformations without touching disk.
+// progress, last_updated) from its checkbox state. Pure transforms sit
+// alongside the I/O wrappers so tests can run without touching disk, and
+// this module never touches the auto-generated index.md (the skill owns that).
 
 import fs from "node:fs";
 import matter from "gray-matter";
@@ -29,19 +21,14 @@ import { parseChecklist, inferLifecycle, checklistProgress } from "./tracker-par
 //   - progress.done       checked count
 //   - progress.label      "done/total"
 //   - last_updated        ISO date (no time) — caller can override via `now`
-//   - flip_log[]          append-only list of { num, from, to, at } entries
-//                         (cap at FLIP_LOG_MAX so a long-lived plan doesn't
-//                         grow unbounded)
 //
 // `archived: true` in the existing frontmatter is preserved and SUPPRESSES
 // the status flip — archived plans never auto-move back to in-progress.
-const FLIP_LOG_MAX = 200;
-
 /**
- * @param {{ data?: Record<string, unknown> | null, checklist: ChecklistItem[] | string, flips?: ChecklistFlip[], now?: Date }} args
+ * @param {{ data?: Record<string, unknown> | null, checklist: ChecklistItem[] | string, now?: Date }} args
  * @returns {Record<string, unknown>}
  */
-export function buildUpdatedFrontmatter({ data, checklist, flips, now }) {
+export function buildUpdatedFrontmatter({ data, checklist, now }) {
   /** @type {Record<string, unknown>} */
   const out = { ...(data || {}) };
   const isArchived = out.archived === true;
@@ -61,48 +48,25 @@ export function buildUpdatedFrontmatter({ data, checklist, flips, now }) {
   // Last-updated date.
   out.last_updated = (now instanceof Date ? now : new Date()).toISOString().slice(0, 10);
 
-  // Append flip entries. Each is { num, from, to, at } where `at` is the
-  // same ISO date as last_updated.
-  if (Array.isArray(flips) && flips.length > 0) {
-    /** @typedef {{ num: string, from: string, to: string, at: unknown }} FlipLogEntry */
-    const existing = /** @type {FlipLogEntry[]} */ (
-      Array.isArray(out.flip_log) ? out.flip_log : []
-    );
-    /** @type {FlipLogEntry[]} */
-    const newEntries = flips.map((f) => ({
-      num: f.id,
-      from: f.from ? "x" : " ",
-      to: f.to ? "x" : " ",
-      at: out.last_updated,
-    }));
-    const combined = [...existing, ...newEntries];
-    out.flip_log = combined.length > FLIP_LOG_MAX ? combined.slice(-FLIP_LOG_MAX) : combined;
-  }
+  // flip_log is read by nothing (checkbox provenance lives in the plan body's
+  // dated change-log). Drop it, and strip it from any legacy leaf on re-save.
+  delete out.flip_log;
 
   return out;
 }
 
-// Given a plan file's text content, parse its frontmatter + body, compute
-// the new frontmatter, and return the rewritten plan text. `flips` is
-// optional — when omitted no flip_log entries are added (use this for
-// "first scan" / passive updates).
-//
-// Returns:
-//   { text: <new plan markdown>, changed: <bool>, summary: { ... } }
+// Parse a plan's frontmatter + body, recompute the frontmatter, and return
+// the rewritten text. `flips` is only counted (summary.flips_detected); it no
+// longer changes what is written.
 /**
  * @param {string} planText
  * @param {{ flips?: ChecklistFlip[], now?: Date }} [opts]
- * @returns {{ text: string, changed: boolean, summary: { status: unknown, progress: unknown, flips_appended: number, total_flip_log: number } }}
+ * @returns {{ text: string, changed: boolean, summary: { status: unknown, progress: unknown, flips_detected: number } }}
  */
 export function applyFrontmatterUpdate(planText, { flips, now } = {}) {
   const parsed = matter(planText);
   const checklist = parseChecklist(parsed.content);
-  const newData = buildUpdatedFrontmatter({
-    data: parsed.data,
-    checklist,
-    flips,
-    now,
-  });
+  const newData = buildUpdatedFrontmatter({ data: parsed.data, checklist, now });
   // lineWidth:-1 disables js-yaml's 80-col scalar folding. wiki-store leaves
   // carry long `covers`/`focus` scalars; folding them into block scalars (`>-`)
   // breaks skill-llm-wiki's line-by-line frontmatter index parser. Match the
@@ -121,8 +85,7 @@ export function applyFrontmatterUpdate(planText, { flips, now } = {}) {
     summary: {
       status: newData.status,
       progress: newData.progress,
-      flips_appended: Array.isArray(flips) ? flips.length : 0,
-      total_flip_log: Array.isArray(newData.flip_log) ? newData.flip_log.length : 0,
+      flips_detected: Array.isArray(flips) ? flips.length : 0,
     },
   };
 }
@@ -135,7 +98,7 @@ export function applyFrontmatterUpdate(planText, { flips, now } = {}) {
 /**
  * @param {string} filePath
  * @param {{ flips?: ChecklistFlip[], now?: Date }} [opts]
- * @returns {{ filePath: string, changed: boolean, status: unknown, progress: unknown, flips_appended: number, total_flip_log: number }}
+ * @returns {{ filePath: string, changed: boolean, status: unknown, progress: unknown, flips_detected: number }}
  */
 export function updatePlanFrontmatter(filePath, opts = {}) {
   const raw = fs.readFileSync(filePath, "utf8");

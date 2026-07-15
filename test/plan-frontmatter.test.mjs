@@ -74,48 +74,24 @@ test("buildUpdatedFrontmatter: unrelated frontmatter keys are preserved", () => 
   assert.deepEqual(r.tags, ["hermes", "timeout"]);
 });
 
-test("buildUpdatedFrontmatter: flip_log appended with date stamp", () => {
+test("buildUpdatedFrontmatter: flip_log is NOT written (dropped as read-by-nothing)", () => {
   const r = buildUpdatedFrontmatter({
     data: {},
     checklist: parseChecklist("1. - [x] A\n"),
-    flips: [{ id: "1", from: false, to: true }],
     now: FIXED_NOW,
   });
-  assert.equal(r.flip_log.length, 1);
-  assert.deepEqual(r.flip_log[0], { num: "1", from: " ", to: "x", at: "2026-05-26" });
+  assert.equal(r.flip_log, undefined, "no flip_log persisted");
+  assert.deepEqual(r.progress, { total: 1, done: 1, label: "1/1" });
+  assert.equal(r.last_updated, "2026-05-26");
 });
 
-test("buildUpdatedFrontmatter: existing flip_log is preserved + appended", () => {
+test("buildUpdatedFrontmatter: a legacy flip_log is STRIPPED on re-save", () => {
   const r = buildUpdatedFrontmatter({
-    data: {
-      flip_log: [{ num: "1", from: " ", to: "x", at: "2026-05-22" }],
-    },
-    checklist: parseChecklist("1. - [x] A\n2. - [x] B\n"),
-    flips: [{ id: "2", from: false, to: true }],
+    data: { flip_log: [{ num: "1", from: " ", to: "x", at: "2026-05-22" }], status: "pending" },
+    checklist: parseChecklist("1. - [x] A\n"),
     now: FIXED_NOW,
   });
-  assert.equal(r.flip_log.length, 2);
-  assert.equal(r.flip_log[0].num, "1");
-  assert.equal(r.flip_log[1].num, "2");
-});
-
-test("buildUpdatedFrontmatter: flip_log caps at FLIP_LOG_MAX entries", () => {
-  // Seed 250 existing entries, append one more.
-  const existing = Array.from({ length: 250 }, (_, i) => ({
-    num: `${i}`,
-    from: " ",
-    to: "x",
-    at: "2026-05-26",
-  }));
-  const r = buildUpdatedFrontmatter({
-    data: { flip_log: existing },
-    checklist: [],
-    flips: [{ id: "new", from: false, to: true }],
-    now: FIXED_NOW,
-  });
-  assert.equal(r.flip_log.length, 200);
-  // The most recent (the new) entry is at the tail.
-  assert.equal(r.flip_log[r.flip_log.length - 1].num, "new");
+  assert.equal(r.flip_log, undefined, "legacy flip_log removed on re-save");
 });
 
 const PLAN_FIXTURE = `---
@@ -162,20 +138,21 @@ test("applyFrontmatterUpdate: returns changed=false when nothing differs", () =>
   assert.equal(second.changed, false, "idempotent on stable state");
 });
 
-test("applyFrontmatterUpdate: appends flip_log entries when `flips` supplied", () => {
+test("applyFrontmatterUpdate: no flip_log written; flips are only counted", () => {
   const r = applyFrontmatterUpdate(PLAN_FIXTURE, {
     flips: [{ id: "1", from: false, to: true }],
     now: FIXED_NOW,
   });
   const parsed = matter(r.text);
-  assert.equal(parsed.data.flip_log.length, 1);
-  assert.equal(parsed.data.flip_log[0].num, "1");
+  assert.equal(parsed.data.flip_log, undefined, "no flip_log frontmatter written");
+  assert.equal(r.summary.flips_detected, 1, "flips are counted in the summary");
 });
 
-test("applyFrontmatterUpdate: no flip_log entries when `flips` omitted", () => {
+test("applyFrontmatterUpdate: no flip_log when flips omitted", () => {
   const r = applyFrontmatterUpdate(PLAN_FIXTURE, { now: FIXED_NOW });
   const parsed = matter(r.text);
   assert.equal(parsed.data.flip_log, undefined);
+  assert.equal(r.summary.flips_detected, 0);
 });
 
 test("updatePlanFrontmatter: reads, transforms, writes the plan file", () => {
