@@ -44,7 +44,10 @@ export function assertSyncHook(hooksDir, spec = {}) {
   for (const ev of events) {
     const p = path.join(hooksDir, ev);
     assert.ok(fs.existsSync(p), `hook ${ev} present`);
-    assert.ok((fs.statSync(p).mode & 0o111) !== 0, `hook ${ev} executable`);
+    // Windows has no POSIX exec bit (git-for-Windows runs hooks regardless).
+    if (process.platform !== "win32") {
+      assert.ok((fs.statSync(p).mode & 0o111) !== 0, `hook ${ev} executable`);
+    }
     const body = fs.readFileSync(p, "utf8");
     assert.match(body, /^#!\/usr\/bin\/env bash/, `hook ${ev} shebang`);
     if (spec.wrapperFragment)

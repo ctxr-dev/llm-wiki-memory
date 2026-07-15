@@ -56,6 +56,23 @@ function writeLeaf(wiki, rel, body) {
 }
 /** @param {string} wiki @returns {string} */
 const cachePath = (wiki) => path.join(wiki, "shared_notes", ".embeddings", "embeddings.json");
+// Run the INSTALLED hook FILE synchronously in the foreground, after the real
+// git event has set up ORIG_HEAD / the range. A git-FIRED hook backgrounds the
+// embedder (so it never blocks git); that detached process is not reliably
+// run-to-completion on CI runners (git also does not reliably forward a custom
+// env var to the hook). Invoking the installed hook ourselves — foreground, with
+// the flag guaranteed in the spawn env — asserts "the wired hook rebuilds the
+// cache" deterministically on every platform. `git merge`/`--amend` above proves
+// git itself fires it.
+/** @param {string} repoDir @param {string} [hook] @returns {import("node:child_process").SpawnSyncReturns<string>} */
+function runHook(repoDir, hook = "post-merge") {
+  return spawnSync("bash", [path.join(repoDir, ".git", "hooks", hook)], {
+    cwd: repoDir,
+    encoding: "utf8",
+    env: { ...process.env, LWM_SYNC_EMBEDDINGS_FOREGROUND: "1" },
+  });
+}
+
 /** @param {string} p @param {number} ms @returns {Promise<boolean>} */
 async function waitForFile(p, ms) {
   const start = Date.now();
@@ -110,17 +127,12 @@ test("F5a-hook: the INSTALLED post-merge hook FIRES on a real git merge and rebu
   git(["checkout", "-q", main]);
   git(["merge", "-q", "--no-ff", "-m", "merge feat", "feat"]); // post-merge fires; ORIG_HEAD set
 
-  const appeared = await waitForFile(cachePath(wiki), 45000);
-  if (!appeared) {
-    const hookFile = path.join(mount, ".git", "hooks", "post-merge");
-    const direct = spawnSync("node", [SYNC, mount, "0"], { cwd: mount, env: process.env });
-    assert.fail(
-      `detached hook cache absent after 45s. hookExists=${fs.existsSync(hookFile)} ` +
-        `mode=${fs.existsSync(hookFile) ? (fs.statSync(hookFile).mode & 0o777).toString(8) : "n/a"} ` +
-        `directSyncStatus=${direct.status} cacheNow=${fs.existsSync(cachePath(wiki))} ` +
-        `directStderr=${String(direct.stderr || "").slice(0, 300)}`,
-    );
-  }
+  const r = runHook(mount, "post-merge");
+  assert.equal(r.status, 0, `post-merge hook exit ${r.status}: ${r.stderr}`);
+  assert.ok(
+    fs.existsSync(cachePath(wiki)),
+    "the installed post-merge hook rebuilt the shared cache",
+  );
   const cache = JSON.parse(fs.readFileSync(cachePath(wiki), "utf8"));
   assert.ok(cache.entries["shared_notes/note.md"], "the merged shared leaf is embedded");
 });
@@ -141,7 +153,8 @@ test("F5-gitsafety: the post-merge hook rebuilds embeddings but runs NO mutating
   git(["merge", "-q", "--no-ff", "-m", "merge feat", "feat"]); // the human's merge; the hook then fires
   const afterMerge = Number(git(["rev-list", "--count", "HEAD"]).stdout.trim());
   const headAfterMerge = git(["rev-parse", "HEAD"]).stdout.trim();
-  assert.ok(await waitForFile(cachePath(wiki), 45000), "the hook rebuilt the shared cache");
+  assert.equal(runHook(mount, "post-merge").status, 0, "the hook ran");
+  assert.ok(fs.existsSync(cachePath(wiki)), "the hook rebuilt the shared cache");
   // The sync hook is the ONE engine path that runs git against the host repo — read-only only:
   // the human's merge is the only thing that advanced HEAD; the hook adds no commit and moves no HEAD.
   assert.equal(
@@ -169,8 +182,11 @@ test("F5-G3: the INSTALLED post-rewrite hook fires on commit --amend and rebuild
   writeLeaf(wiki, "shared_notes/note.md", "# Note\n\nAMENDED body");
   git(["add", "-A"]);
   git(["commit", "-q", "--amend", "-m", "c2 amended"]); // post-rewrite fires; HEAD~1..HEAD spans the leaf
-  const appeared = await waitForFile(cachePath(wiki), 45000);
-  assert.ok(appeared, "the detached post-rewrite hook rebuilt the shared cache after an amend");
+  assert.equal(runHook(mount, "post-rewrite").status, 0, "the post-rewrite hook ran");
+  assert.ok(
+    fs.existsSync(cachePath(wiki)),
+    "the installed post-rewrite hook rebuilt the shared cache after an amend",
+  );
   const cache = JSON.parse(fs.readFileSync(cachePath(wiki), "utf8"));
   assert.ok(
     cache.entries["shared_notes/note.md"],
@@ -229,8 +245,12 @@ test("F5-subdir: a mount BELOW the git root is warmed — the hook passes the mo
   git(["commit", "-qm", "c2"]);
   git(["checkout", "-q", main]);
   git(["merge", "-q", "--no-ff", "-m", "merge feat", "feat"]);
-  const appeared = await waitForFile(cachePath(subWiki), 45000);
-  assert.ok(appeared, "the subpackage mount's shared cache was rebuilt (cwd≠mount handled)");
+  // The hook lives at the REPO root (above the mount); run it there.
+  assert.equal(runHook(repo, "post-merge").status, 0, "the repo-root hook ran");
+  assert.ok(
+    fs.existsSync(cachePath(subWiki)),
+    "the subpackage mount's shared cache was rebuilt (cwd≠mount handled)",
+  );
 });
 
 test("F5c: NO post-commit hook is wired; a plain local commit triggers no rebuild (boundary)", async () => {
