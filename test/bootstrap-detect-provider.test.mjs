@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { detectProvider } from "../scripts/bootstrap/detect-provider.mjs";
+import { detectProvider, realHasCommand } from "../scripts/bootstrap/detect-provider.mjs";
 
 const none = () => false;
 const base = { env: {}, hasCommand: none, probeOllama: none };
@@ -58,4 +58,11 @@ test("priority order: a CLI beats an env key, an env key beats the ollama probe"
       .provider,
     "openai",
   );
+});
+
+test("realHasCommand finds a present binary and misses an absent one (real probe, per-platform)", () => {
+  // Runs the platform-appropriate branch: `where` on the windows-latest CI leg
+  // (would fail with the old sh-only probe), `sh -c command -v` on POSIX.
+  assert.equal(realHasCommand("node"), true, "node is on PATH (we run under it)");
+  assert.equal(realHasCommand("lwm-definitely-not-a-real-binary-xyz"), false, "bogus cmd absent");
 });

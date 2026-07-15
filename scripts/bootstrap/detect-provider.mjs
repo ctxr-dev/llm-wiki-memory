@@ -27,7 +27,12 @@ export function detectProvider({ explicit, env = {}, hasCommand, probeOllama }) 
 }
 
 /** @param {string} cmd @returns {boolean} */
-function realHasCommand(cmd) {
+export function realHasCommand(cmd) {
+  // Windows has no /bin/sh — use `where` (mirrors scripts/lib/llm-health.mjs, so
+  // the install-time probe agrees with the runtime one). Else `sh -c command -v`.
+  if (process.platform === "win32") {
+    return spawnSync("where", [cmd], { stdio: "ignore" }).status === 0;
+  }
   return spawnSync("sh", ["-c", `command -v ${cmd}`], { stdio: "ignore" }).status === 0;
 }
 

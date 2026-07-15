@@ -18,6 +18,8 @@
 // Exit codes: 0 = all ok, 2 = at least one failure.
 
 import fs from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import matter from "gray-matter";
 import { saveDocument, normalizeLeafNamePreservingCase } from "./lib/wiki-store.mjs";
 
@@ -290,6 +292,6 @@ async function main() {
   process.exit(summary.fail === 0 ? 0 : 2);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(path.resolve(process.argv[1] || "")).href) {
   await main();
 }

@@ -57,7 +57,14 @@ export function writeState(state) {
 /** @param {Record<string, unknown>} entry */
 export function appendCompileLog(entry) {
   const log = `${COMPILE_STATE_PATH}.log`;
-  fs.appendFileSync(log, `${JSON.stringify({ ts: new Date().toISOString(), ...entry })}\n`);
+  try {
+    fs.appendFileSync(log, `${JSON.stringify({ ts: new Date().toISOString(), ...entry })}\n`);
+  } catch (err) {
+    // A log-append failure (e.g. a transient Windows lock) must not fail compile.
+    process.stderr.write(
+      `[compile] failed to append compile log: ${err instanceof Error ? err.message : err}\n`,
+    );
+  }
 }
 
 export function todayUtcDate() {
