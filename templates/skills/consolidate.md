@@ -1,6 +1,6 @@
 ---
 name: consolidate
-description: At session end (after embed-gc), run the deterministic + LLM memory consolidation orchestrator. Search-driven; refines self_improvement + knowledge over time without touching daily/plans/investigations. Opt-in via `consolidate.enabled` (default false, off): a no-op in every path until enabled; when on, self-throttled (default daily) so it no-ops cheaply when not due. Claude Code runs it on the daily cron; hook-less agents (Codex, Cursor) invoke it once at session end via this rule.
+description: At session end (after embed-gc), run the deterministic + LLM memory consolidation orchestrator. Search-driven; refines self_improvement + knowledge over time without touching daily/plans/investigations. Opt-in via `consolidate.enabled` (default false, off): a no-op in every path until enabled; when on, self-throttled (default daily) so it no-ops cheaply when not due. Claude Code runs it on the hourly cron; hook-less agents (Codex, Cursor) invoke it once at session end via this rule.
 ---
 
 # Consolidate (memory refinement)
@@ -35,7 +35,7 @@ Both return a JSON report shaped `{ ok, dryRun, llm, passes: { ... per-pass stat
 - Do NOT pass `--force` or `force: true` unless the user explicitly asks for an off-schedule run.
 - Do NOT pass `--no-llm` to silently skip LLM passes — if the provider is unavailable the orchestrator already skips them and logs once. Use `--no-llm` only when the user asks for "deterministic only" output. Persistent involuntary skips (provider requested but unavailable) are tracked by the cron self-healing layer as `system:consolidate-llm-providers` and escalate into an issue report surfaced by `cron-health`.
 - Do NOT override `--cosine-threshold` casually. The default (`0.97` on bge-large, auto-bumped to `0.995` on the lexical fallback) is calibrated to a near-paraphrase floor. Lower thresholds = more false-positive archives.
-- Do NOT loop the call. Once per session, end of session. The daily cron does the rest.
+- Do NOT loop the call. Once per session, end of session. The scheduled hourly cron does the rest.
 - Do NOT invoke this tool as a workaround for failing to propose a self_improvement save (rule 2 of the discipline). Consolidate refines what's already there; it does NOT capture new content.
 
 ## What it produces

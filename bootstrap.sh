@@ -21,9 +21,11 @@
 #                    sync-embeddings git-hook block; then PRINT the manual
 #                    reversals (gitignore edit, per-mount personal git, deleting
 #                    the mount). Never deletes memory data. Idempotent.
-#   --commit-memory  Do NOT gitignore the whole ./.llm-wiki-memory tree; commit
-#                    the wiki content (still ignores node_modules, the embed
-#                    index, and settings/.env). Default: ignore the whole tree.
+#   --commit-memory  Do NOT gitignore the whole ./.llm-wiki-memory tree; git-track
+#                    the wiki content so YOU commit it (the engine never does; still
+#                    ignores node_modules, the embed index, settings/.env). Default:
+#                    ignore the whole tree. A shared (repo-layout) wiki is tracked
+#                    automatically without this flag.
 #   --enable-self-observability / --disable-self-observability
 #                    Opt in / out of self-observability: reference the
 #                    `self-observability` rule into this project's rule dirs so
@@ -90,22 +92,27 @@ if [[ "$UNINSTALL" -eq 1 ]]; then
   command -v node >/dev/null 2>&1 || die "node is required to uninstall."
   log "Uninstalling llm-wiki-memory from $WORKSPACE_DIR (memory data is left intact) ..."
   ws_hash="$(printf '%s' "$WORKSPACE_DIR" | cksum | awk '{print $1}')"
-  if [[ "$(uname)" == "Darwin" ]]; then
-    plist="$HOME/Library/LaunchAgents/com.llm-wiki-memory.$ws_hash.plist"
-    if command -v launchctl >/dev/null 2>&1; then
-      launchctl unload "$plist" >/dev/null 2>&1 || true
+  # LWM_BOOTSTRAP_SKIP_SCHED_OS lets the e2e reverse the fs surfaces without
+  # touching the real user's launchd/crontab (default: unset = tear down).
+  if [[ -z "${LWM_BOOTSTRAP_SKIP_SCHED_OS:-}" ]]; then
+    if [[ "$(uname)" == "Darwin" ]]; then
+      plist="$HOME/Library/LaunchAgents/com.llm-wiki-memory.$ws_hash.plist"
+      if command -v launchctl >/dev/null 2>&1; then
+        launchctl unload "$plist" >/dev/null 2>&1 || true
+      fi
+      rm -f "$plist"
+      log "Removed launchd cron job if present ($plist)."
+    elif command -v crontab >/dev/null 2>&1; then
+      tag="# llm-wiki-memory:$WORKSPACE_DIR"
+      filtered="$(crontab -l 2>/dev/null | awk -v t="$tag" 'index($0, t) == 0 || substr($0, length($0) - length(t) + 1) != t' || true)"
+      printf '%s\n' "$filtered" | grep -v '^$' | crontab - 2>/dev/null || true
+      rm -f "$DATA_DIR/state/cron-daily.sh"
+      log "Removed crontab cron job if present (tag: $tag)."
     fi
-    rm -f "$plist"
-    log "Removed launchd cron job if present ($plist)."
-  elif command -v crontab >/dev/null 2>&1; then
-    tag="# llm-wiki-memory:$WORKSPACE_DIR"
-    filtered="$(crontab -l 2>/dev/null | awk -v t="$tag" 'index($0, t) == 0 || substr($0, length($0) - length(t) + 1) != t' || true)"
-    printf '%s\n' "$filtered" | grep -v '^$' | crontab - 2>/dev/null || true
-    rm -f "$DATA_DIR/state/cron-daily.sh"
-    log "Removed crontab cron job if present (tag: $tag)."
   fi
+  node "$SRC_DIR/scripts/bootstrap/unregister-global.mjs" "$HOME" >&2 || true
   node "$SRC_DIR/scripts/uninstall.mjs" "$WORKSPACE_DIR" || die "uninstall helper failed."
-  log "Uninstall complete."
+  log "Uninstall complete (global MCP + hooks removed from \$HOME; memory data left intact)."
   exit 0
 fi
 
@@ -136,8 +143,12 @@ if [[ "$UPGRADE" -eq 1 ]]; then
 fi
 
 # --- install deps ---
-log "Installing dependencies in $SRC_DIR ..."
-( cd "$SRC_DIR" && npm install --no-audit --no-fund >/dev/null 2>&1 ) || die "npm install failed in $SRC_DIR."
+# LWM_BOOTSTRAP_SKIP_NPM lets the install e2e drive the real script against a
+# pre-populated node_modules without a network install (default: unset = install).
+if [[ -z "${LWM_BOOTSTRAP_SKIP_NPM:-}" ]]; then
+  log "Installing dependencies in $SRC_DIR ..."
+  ( cd "$SRC_DIR" && npm install --no-audit --no-fund >/dev/null 2>&1 ) || die "npm install failed in $SRC_DIR."
+fi
 
 # Confirm the skill CLI resolves.
 if ! ( cd "$SRC_DIR" && node -e "require('module').createRequire(process.cwd()+'/package.json').resolve('@ctxr/skill-llm-wiki/package.json')" >/dev/null 2>&1 ); then
@@ -178,48 +189,9 @@ if [[ "$PROVIDER" == "mock" ]]; then
   printf '\033[1;33m[llm-wiki-memory] WARN:\033[0m No LLM provider detected (no claude/codex CLI on PATH; no ANTHROPIC_API_KEY/OPENAI_API_KEY/MEMORY_LLM_BASE_URL set; no ollama at http://localhost:11434). Defaulting to MEMORY_LLM_PROVIDER=mock. Consolidate'\''s LLM passes will be skipped. Set MEMORY_LLM_PROVIDER (or one of those env vars) in %s to enable.\n' "$DATA_DIR/settings/.env" >&2
 fi
 
-# --- settings/.env ---
-mkdir -p "$DATA_DIR/settings"
-ENV_FILE="$DATA_DIR/settings/.env"
-if [[ ! -f "$ENV_FILE" ]]; then
-  cp "$SRC_DIR/templates/env.example" "$ENV_FILE"
-  # Apply provider choice (+ pre-filled BASE_URL when probe-detected).
-  if [[ "$(uname)" == "Darwin" ]]; then
-    sed -i '' "s|^MEMORY_LLM_PROVIDER=.*|MEMORY_LLM_PROVIDER=$PROVIDER|" "$ENV_FILE"
-    if [[ -n "$BASE_URL_HINT" ]]; then
-      # Replace MEMORY_LLM_BASE_URL line if present; otherwise append.
-      if grep -q "^MEMORY_LLM_BASE_URL=" "$ENV_FILE"; then
-        sed -i '' "s|^MEMORY_LLM_BASE_URL=.*|MEMORY_LLM_BASE_URL=$BASE_URL_HINT|" "$ENV_FILE"
-      else
-        printf '\nMEMORY_LLM_BASE_URL=%s\n' "$BASE_URL_HINT" >> "$ENV_FILE"
-      fi
-    fi
-  else
-    sed -i "s|^MEMORY_LLM_PROVIDER=.*|MEMORY_LLM_PROVIDER=$PROVIDER|" "$ENV_FILE"
-    if [[ -n "$BASE_URL_HINT" ]]; then
-      if grep -q "^MEMORY_LLM_BASE_URL=" "$ENV_FILE"; then
-        sed -i "s|^MEMORY_LLM_BASE_URL=.*|MEMORY_LLM_BASE_URL=$BASE_URL_HINT|" "$ENV_FILE"
-      else
-        printf '\nMEMORY_LLM_BASE_URL=%s\n' "$BASE_URL_HINT" >> "$ENV_FILE"
-      fi
-    fi
-  fi
-  log "Wrote $ENV_FILE"
-else
-  # Idempotent: preserve user edits. If MEMORY_LLM_PROVIDER is already set, the
-  # auto-detected value is informational only — the file wins via env.mjs's
-  # process.env-then-.env-file precedence.
-  if grep -q "^MEMORY_LLM_PROVIDER=" "$ENV_FILE"; then
-    EXISTING_PROVIDER="$(grep "^MEMORY_LLM_PROVIDER=" "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs)"
-    if [[ -n "$EXISTING_PROVIDER" && "$EXISTING_PROVIDER" != "$PROVIDER" ]]; then
-      log "Kept existing $ENV_FILE (MEMORY_LLM_PROVIDER=$EXISTING_PROVIDER; auto-detect would have chosen $PROVIDER)"
-    else
-      log "Kept existing $ENV_FILE"
-    fi
-  else
-    log "Kept existing $ENV_FILE"
-  fi
-fi
+# --- settings/.env (create-only; one JS path, no BSD/GNU sed fork) ---
+node "$SRC_DIR/scripts/bootstrap/setup-env.mjs" \
+  "$DATA_DIR" "$SRC_DIR/templates/env.example" "$PROVIDER" "$BASE_URL_HINT" >&2
 
 # --- settings/settings.yaml (canonical app config) + auto-migration ---
 # Run the migrator first. On a fresh install it's a no-op; on an upgrade it
@@ -238,45 +210,15 @@ else
   log "Kept existing $SETTINGS_YAML_FILE"
 fi
 
-# --- Claude Code hooks ---
-node "$SRC_DIR/scripts/merge-config.mjs" \
-  "$WORKSPACE_DIR/.claude/settings.json" \
-  "$SRC_DIR/templates/claude/settings.json" \
-  hooks
-
-# --- MCP server registration (Claude Code project scope) ---
-node "$SRC_DIR/scripts/merge-config.mjs" \
-  "$WORKSPACE_DIR/.mcp.json" \
-  "$SRC_DIR/templates/mcp.json" \
-  mcpServers
-
-# --- vendor-neutral .agents/ config (Cursor, Codex, Claude Desktop, generic) ---
-# Use a path RELATIVE to the workspace root so the config survives the workspace
-# being moved/renamed: clients launch the stdio server with the project root as
-# cwd, and the server self-discovers its data dir from its own file location
-# (see scripts/lib/env.mjs), so no MEMORY_DATA_DIR env is needed here.
-INDEX_REL='${HOME}/.llm-wiki-memory/src/mcp-server/index.mjs'
-# Idempotent render: write the template on first install, but NEVER clobber a
-# file the user has since customized (e.g. wrapping the server with their
-# org's prompt_security shim). If the on-disk file differs from a pristine
-# render, preserve it and tell the operator how to regenerate.
-render_agent() {
-  local src="$1" dst="$2" rendered
-  rendered="$(sed -e "s#__SERVER_INDEX__#$INDEX_REL#g" "$src")"
-  if [[ -f "$dst" ]] && [[ "$(cat "$dst")" != "$rendered" ]]; then
-    log "Preserving customized $dst (delete it to regenerate from template)"
-    return 0
-  fi
-  printf '%s\n' "$rendered" > "$dst"
-}
-mkdir -p "$WORKSPACE_DIR/.agents/clients"
-cp "$SRC_DIR/templates/agents/README.md" "$WORKSPACE_DIR/.agents/README.md"
-render_agent "$SRC_DIR/templates/agents/mcp.json" "$WORKSPACE_DIR/.agents/mcp.json"
-for c in cursor claude-desktop generic-mcp; do
-  render_agent "$SRC_DIR/templates/agents/clients/$c.json" "$WORKSPACE_DIR/.agents/clients/$c.json"
-done
-render_agent "$SRC_DIR/templates/agents/clients/openai-codex.toml" "$WORKSPACE_DIR/.agents/clients/openai-codex.toml"
-log "Wrote vendor-neutral MCP config to .agents/ (Cursor, Codex, Claude Desktop, generic)."
+# --- MCP server + Claude Code hooks: GLOBAL (user-home) registration ---
+# Registered ONCE in the user's HOME (not per repo) so a shared repo carries no
+# client config. Present clients (Cursor / Codex / Claude Desktop) are registered
+# globally too; a customized/wrapped command (mandated security shim) survives.
+node "$SRC_DIR/scripts/bootstrap/register-global.mjs" "$HOME" >&2
+# Migrate a pre-global install: remove stale per-repo client config (home-aware —
+# a brain's global hooks are never mistaken for per-repo ones).
+node "$SRC_DIR/scripts/bootstrap/unregister-global.mjs" --migrate "$WORKSPACE_DIR" "$HOME" >&2
+log "Registered the MCP server + hooks globally in \$HOME (no per-repo client config)."
 
 # --- materialise the wiki ---
 # --template selects the layout for a FRESH wiki (default: default). A repo
@@ -293,14 +235,18 @@ else
   log "$VALIDATE_OUT"
 fi
 
-# --- wiki git repo (auto-commit history) ---
-# The auto-commit layer (settings wiki.autoCommit) commits ONLY to the wiki's
-# OWN repo: it verifies `git -C <wiki> rev-parse --show-toplevel` equals the
-# wiki root, so it can never commit into the enclosing project. Give the wiki
-# that repo on the default (gitignored) install. Under --commit-memory the
-# wiki content rides inside the WORKSPACE repo, where a nested .git would
-# break tracking — skip, and auto-commit stays a silent no-op.
-if [[ "$COMMIT_MEMORY" -eq 0 && -d "$DATA_DIR/wiki" && ! -e "$DATA_DIR/wiki/.git" ]]; then
+# --- wiki git repo (auto-commit) ---
+# Private brain gets its own wiki/.git so the auto-commit layer commits to it. A
+# SHARED wiki (layout declares `ownership: repo`) is never given a repo — the human
+# commits it via the host repo, and gitUsable() refuses it at runtime. Detection
+# uses the SAME engine predicate as gitUsable (merges layout.local.yaml; parses YAML).
+WIKI_IS_SHARED="$(node "$SRC_DIR/scripts/bootstrap/shared-wiki.mjs" "$DATA_DIR/wiki")"
+
+if [[ "$WIKI_IS_SHARED" -eq 1 ]]; then
+  # Shared wiki: never git-init a standalone wiki/.git (the host repo tracks it; the
+  # engine never commits it). The gitignore block below tracks it either way.
+  :
+elif [[ "$COMMIT_MEMORY" -eq 0 && -d "$DATA_DIR/wiki" && ! -e "$DATA_DIR/wiki/.git" ]]; then
   if git -C "$DATA_DIR/wiki" init -q 2>/dev/null; then
     log "Initialised git repo at $DATA_DIR/wiki (auto-commit history; disable via settings wiki.autoCommit)"
   else
@@ -308,17 +254,11 @@ if [[ "$COMMIT_MEMORY" -eq 0 && -d "$DATA_DIR/wiki" && ! -e "$DATA_DIR/wiki/.git
   fi
 fi
 
-# The inverse transition: a data dir first installed PRIVATE (which git-init'd
-# wiki/.git) and later re-bootstrapped with --commit-memory to SHARE it. A stale
-# standalone wiki/.git keeps gitUsable() true (the engine would keep auto-committing
-# into the nested repo) AND makes the enclosing workspace repo stage an embedded
-# gitlink instead of the wiki files — silently breaking sharing. Remove it so the
-# workspace repo tracks the wiki content; the wiki DATA is untouched (only the
-# standalone .git metadata + its separate auto-commit history is dropped, which IS
-# the intended private->shared transition). Never touches the enclosing repo's git.
-if [[ "$COMMIT_MEMORY" -eq 1 && -e "$DATA_DIR/wiki/.git" ]]; then
+# A stray wiki/.git on a shared/committed wiki breaks host-repo tracking (embedded
+# gitlink) and is what the guard refuses — remove it (wiki DATA preserved).
+if [[ ("$COMMIT_MEMORY" -eq 1 || "$WIKI_IS_SHARED" -eq 1) && -e "$DATA_DIR/wiki/.git" ]]; then
   rm -rf "$DATA_DIR/wiki/.git"
-  log "Converted private wiki to shared: removed standalone $DATA_DIR/wiki/.git so the workspace repo tracks the wiki (standalone auto-commit history dropped; wiki data preserved)."
+  log "Removed standalone $DATA_DIR/wiki/.git so the workspace repo tracks the shared wiki (standalone auto-commit history dropped; wiki data preserved)."
 fi
 
 # --- wire memory rules/skills + AGENTS.md/CLAUDE.md as @-pointers (reference-only) ---
@@ -351,8 +291,12 @@ fi
 GITIGNORE="$WORKSPACE_DIR/.gitignore"
 GI_BEGIN="# >>> llm-wiki-memory >>>"
 GI_END="# <<< llm-wiki-memory <<<"
-if [[ "$COMMIT_MEMORY" -eq 1 ]]; then
-  # Commit the wiki content; ignore only derived/secret/local paths. state/ holds
+if [[ "$COMMIT_MEMORY" -eq 1 || "$WIKI_IS_SHARED" -eq 1 ]]; then
+  # Git-TRACK the wiki content (the HUMAN commits it; the engine never runs git on
+  # a shared wiki); ignore only derived/secret/local paths. A SHARED wiki
+  # (WIKI_IS_SHARED — its layout declares an `ownership: repo` category) ALWAYS
+  # takes this branch, even on a bare re-run WITHOUT --commit-memory, so a
+  # bootstrap re-run can NEVER silently un-track a shared team wiki. state/ holds
   # locks + journals + consolidate/embed-gc bookkeeping; wiki index.md files are
   # DERIVED (regenerated on init/clone-adopt), so a clone stays free of them —
   # which is what makes init's missing-index recovery fire.
@@ -366,7 +310,7 @@ if [[ "$COMMIT_MEMORY" -eq 1 ]]; then
     "/.llm-wiki-memory/settings/self-observability.enabled" \
     "/.llm-wiki-memory/wiki/**/index.md" |
     node "$SRC_DIR/scripts/merge-marker.mjs" "$GITIGNORE" "$GI_BEGIN" "$GI_END" -
-  log "Committing wiki content; ignoring node_modules / index / secrets only (fenced block)."
+  log "Git-tracking wiki content (you commit it; the engine never does); ignoring node_modules / index / secrets only (fenced block)."
   MOUNT_OUT="$(node "$SRC_DIR/scripts/mount-init.mjs" "$WORKSPACE_DIR" 2>&1 || true)"
   if printf '%s' "$MOUNT_OUT" | grep -q '"skipped": "no-shared-categories"'; then
     :
@@ -377,7 +321,7 @@ if [[ "$COMMIT_MEMORY" -eq 1 ]]; then
 else
   printf '/.llm-wiki-memory\n' |
     node "$SRC_DIR/scripts/merge-marker.mjs" "$GITIGNORE" "$GI_BEGIN" "$GI_END" -
-  log "Ignoring the whole /.llm-wiki-memory tree in a fenced block (use --commit-memory to commit)."
+  log "Ignoring the whole /.llm-wiki-memory tree in a fenced block (use --commit-memory to git-track it as a shared wiki)."
 fi
 
 # --- optional scheduled cron-job (hourly, self-throttling, self-healing) ---
@@ -393,134 +337,65 @@ fi
 # next hourly tick or the user sees the failure and can investigate.
 # Cron is set to fire hourly (not daily) so transient errors clear quickly.
 
-# Escape XML metacharacters for safe interpolation into the launchd plist.
-# A workspace path containing & < > (all legal in APFS filenames) — or the
-# literal double-quotes job_cmd wraps around $SRC_DIR — would otherwise emit
-# malformed plist XML, which launchd silently refuses to load: the cron job
-# never runs and nothing tells the operator. Order matters: & first, so the
-# &amp; / &lt; ... entities we introduce aren't re-escaped.
-xml_escape() {
-  printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g' -e "s/'/\&apos;/g"
-}
+# The plist/wrapper/cron-line text + the crontab idempotency filter are built by
+# scripts/bootstrap/render-schedule.mjs (byte-tested; ws_hash stays a POSIX cksum
+# here so install↔uninstall derive the same ids). This shell owns only the OS
+# calls (launchctl/crontab/file writes), guarded by LWM_BOOTSTRAP_SKIP_SCHED_OS so
+# the install e2e can run without mutating the real launchd/crontab.
+RENDER_SCHED="$SRC_DIR/scripts/bootstrap/render-schedule.mjs"
 
 schedule_job() {
   local action="$1"
-  # Resolve an absolute node path so the launchd job (minimal PATH) finds it,
-  # and so we can pass node + args as discrete ProgramArguments elements rather
-  # than a `/bin/sh -c "<string>"` — which would mis-parse an install path that
-  # contains a literal double-quote.
-  local node_bin
+  local node_bin cli_path cron_path ws_hash ids label plist tag wrapper
   node_bin="$(command -v node || echo node)"
-  local cli_path="$SRC_DIR/scripts/cli.mjs"
-  # Hybrid PATH for the scheduled job: the installing user's live PATH first,
-  # then well-known CLI install dirs (claude / codex / cursor-agent homes).
-  # launchd and cron strip PATH to /usr/bin:/bin:/usr/sbin:/sbin, which hides
-  # the provider CLIs and silently disabled LLM promotion (2026-06-04
-  # incident). Built by the same node helper llm.mjs uses at runtime — one
-  # source of truth; fall back to the live PATH if the helper fails.
-  local cron_path
+  cli_path="$SRC_DIR/scripts/cli.mjs"
   cron_path="$("$node_bin" "$SRC_DIR/scripts/lib/cron-path.mjs" 2>/dev/null || true)"
   [[ -n "$cron_path" ]] || cron_path="$PATH"
-  # Stable id derived from the workspace path (sanitised + short hash).
-  local ws_hash
   ws_hash="$(printf '%s' "$WORKSPACE_DIR" | cksum | awk '{print $1}')"
+  ids="$("$node_bin" "$RENDER_SCHED" ids "$ws_hash" "$WORKSPACE_DIR" "$DATA_DIR" "$HOME")"
+  IFS=$'\t' read -r label plist tag wrapper <<<"$ids"
 
   if [[ "$(uname)" == "Darwin" ]]; then
-    if ! command -v launchctl >/dev/null 2>&1; then
-      log "WARNING: launchctl not available; skipping schedule setup."
-      return 0
-    fi
-    local label="com.llm-wiki-memory.$ws_hash"
-    local plist="$HOME/Library/LaunchAgents/$label.plist"
-    # Always unload first so a re-run replaces cleanly (idempotent).
-    launchctl unload "$plist" >/dev/null 2>&1 || true
+    command -v launchctl >/dev/null 2>&1 ||
+      { log "WARNING: launchctl not available; skipping schedule setup."; return 0; }
+    [[ -n "${LWM_BOOTSTRAP_SKIP_SCHED_OS:-}" ]] || launchctl unload "$plist" >/dev/null 2>&1 || true
     if [[ "$action" == "off" ]]; then
       rm -f "$plist"
       log "Removed scheduled compile job ($label)."
       return 0
     fi
     mkdir -p "$HOME/Library/LaunchAgents"
-    local label_x data_dir_x node_bin_x cli_path_x cron_path_x
-    label_x="$(xml_escape "$label")"
-    data_dir_x="$(xml_escape "$DATA_DIR")"
-    node_bin_x="$(xml_escape "$node_bin")"
-    cli_path_x="$(xml_escape "$cli_path")"
-    cron_path_x="$(xml_escape "$cron_path")"
-    cat > "$plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>$label_x</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>MEMORY_DATA_DIR</key>
-    <string>$data_dir_x</string>
-    <key>PATH</key>
-    <string>$cron_path_x</string>
-  </dict>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$node_bin_x</string>
-    <string>$cli_path_x</string>
-    <string>cron-job</string>
-  </array>
-  <key>StartCalendarInterval</key>
-  <dict>
-    <key>Minute</key>
-    <integer>0</integer>
-  </dict>
-</dict>
-</plist>
-PLIST
-    launchctl load "$plist" >/dev/null 2>&1 || log "WARNING: launchctl load failed for $plist."
+    "$node_bin" "$RENDER_SCHED" plist "$label" "$DATA_DIR" "$node_bin" "$cli_path" "$cron_path" >"$plist"
+    [[ -n "${LWM_BOOTSTRAP_SKIP_SCHED_OS:-}" ]] ||
+      launchctl load "$plist" >/dev/null 2>&1 || log "WARNING: launchctl load failed for $plist."
     log "Installed hourly cron-job (launchd, every hour at :00): $plist"
   else
-    if ! command -v crontab >/dev/null 2>&1; then
-      log "WARNING: crontab not available; skipping schedule setup."
-      return 0
-    fi
-    local tag="# llm-wiki-memory:$WORKSPACE_DIR"
-    local wrapper="$DATA_DIR/state/cron-daily.sh"
-    # Filter out any prior line for THIS workspace (idempotent). The tag is the
-    # exact line suffix (see the cron line below), so match it as a suffix with
-    # awk's literal index/substr — NOT `grep -vF`, whose UNANCHORED substring
-    # match would also strip a sibling workspace whose path is a PREFIX of this
-    # one (e.g. /a/proj vs /a/proj2), silently killing the sibling's cron job.
-    local filtered
-    filtered="$(crontab -l 2>/dev/null | awk -v t="$tag" 'index($0, t) == 0 || substr($0, length($0) - length(t) + 1) != t' || true)"
+    command -v crontab >/dev/null 2>&1 ||
+      { log "WARNING: crontab not available; skipping schedule setup."; return 0; }
+    # Capture the existing crontab with `|| true` BEFORE the pipe: a fresh
+    # machine's `crontab -l` exits 1 ("no crontab"), which under `set -o pipefail`
+    # would otherwise fail the whole pipe and fire a spurious WARNING even though
+    # `crontab -` succeeded.
+    local current
     if [[ "$action" == "off" ]]; then
-      printf '%s\n' "$filtered" | grep -v '^$' | crontab - 2>/dev/null || true
+      if [[ -z "${LWM_BOOTSTRAP_SKIP_SCHED_OS:-}" ]]; then
+        current="$(crontab -l 2>/dev/null || true)"
+        printf '%s' "$current" | "$node_bin" "$RENDER_SCHED" filter-crontab "$tag" | crontab - 2>/dev/null || true
+      fi
       rm -f "$wrapper"
       log "Removed scheduled compile job (crontab) + wrapper."
       return 0
     fi
-    # Generate a wrapper script that the cron entry calls. Putting the env
-    # var + command chain INSIDE a bash double-quoted script side-steps the
-    # cron-line escaping problems for $DATA_DIR / $SRC_DIR: cron interprets
-    # `%` as a newline, and a single-quote in either path would close the
-    # outer `sh -c '...'` quoting. The wrapper carries the paths in
-    # double-quotes inside its own bash context where neither character is
-    # special. (POSIX shell scopes `VAR=val cmd1 && cmd2` to cmd1 only — so
-    # we also export the env so it applies to BOTH compile and consolidate.)
     mkdir -p "$(dirname "$wrapper")"
-    cat > "$wrapper" <<WRAPPER
-#!/usr/bin/env bash
-# Auto-generated by llm-wiki-memory bootstrap.sh — invoked HOURLY by cron.
-# The cron-job subcommand handles compile + consolidate + structured
-# attempt logging. Do NOT hand-edit; re-run bootstrap.sh to regenerate.
-set -u
-export MEMORY_DATA_DIR="$DATA_DIR"
-export PATH="$cron_path"
-exec "$node_bin" "$SRC_DIR/scripts/cli.mjs" cron-job
-WRAPPER
+    "$node_bin" "$RENDER_SCHED" wrapper "$DATA_DIR" "$cron_path" "$node_bin" "$cli_path" >"$wrapper"
     chmod +x "$wrapper"
-    # 0 * * * * = every hour at :00. Internal --if-due throttle keeps the
-    # actual heavy work bounded to once per MEMORY_CONSOLIDATE_INTERVAL_DAYS.
-    local line="0 * * * * \"$wrapper\" $tag"
-    { printf '%s\n' "$filtered" | grep -v '^$'; printf '%s\n' "$line"; } | crontab - \
-      || log "WARNING: failed to update crontab."
+    local line
+    line="$("$node_bin" "$RENDER_SCHED" cron-line "$wrapper" "$tag")"
+    if [[ -z "${LWM_BOOTSTRAP_SKIP_SCHED_OS:-}" ]]; then
+      current="$(crontab -l 2>/dev/null || true)"
+      printf '%s' "$current" | "$node_bin" "$RENDER_SCHED" filter-crontab "$tag" "$line" | crontab - 2>/dev/null ||
+        log "WARNING: failed to update crontab."
+    fi
     log "Installed hourly cron-job (crontab, every hour at :00) via wrapper $wrapper tagged: $tag"
   fi
 }
@@ -533,7 +408,7 @@ case "$SCHEDULE" in
 esac
 
 log "Done."
-log "Claude Code: restart so it picks up .mcp.json and .claude/settings.json (hooks + auto-capture)."
-log "Other agents (Cursor / Codex / Claude Desktop / generic): register the server with"
-log "  ./.llm-wiki-memory/src/scripts/mcp-config.sh <client>   (or see .agents/README.md)"
+log "Claude Code: restart so it picks up the global ~/.claude.json server + ~/.claude/settings.json hooks."
+log "A client we didn't detect (no config dir yet)? Register it globally with:"
+log "  ./.llm-wiki-memory/src/scripts/mcp-config.sh <client>"
 log "Memory wiki: $DATA_DIR/wiki"

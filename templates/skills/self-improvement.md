@@ -94,7 +94,7 @@ save_lesson({
 })
 ```
 
-**Refinement, not constant capture.** Even when the user says yes today, the consolidate orchestrator (search-driven, runs on the daily cron) will revisit lessons over time, merge near-duplicates, and refresh stale entries. So a sparse, user-approved corpus stays accurate; a verbose, auto-captured corpus would drown the recall path in noise. The lesson loop's value comes from PROPOSE quality + user judgment, not from save volume.
+**Refinement, not constant capture.** Even when the user says yes today, the consolidate orchestrator (search-driven, runs on the hourly maintenance cron) will revisit lessons over time, merge near-duplicates, and refresh stale entries. So a sparse, user-approved corpus stays accurate; a verbose, auto-captured corpus would drown the recall path in noise. The lesson loop's value comes from PROPOSE quality + user judgment, not from save volume.
 
 `error_pattern` is the dedup key. Pick a short kebab-case slug that captures the FAILURE MODE, not the surface symptom. Examples:
 - `missing-await-on-async-call`

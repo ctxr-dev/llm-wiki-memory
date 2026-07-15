@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { MEMORY_DATA_DIR } from "./env.mjs";
+import { sharedCategories, mergedLayoutForRoot } from "./wiki-ownership.mjs";
 
 /** @typedef {import("./wiki-commit.mjs").CommitEntry} CommitEntry */
 /** @typedef {import("./wiki-commit.mjs").CommitBatch} CommitBatch */
@@ -82,6 +83,14 @@ function samePath(a, b) {
  * @returns {boolean}
  */
 export function gitUsable(rootDir) {
+  // Git-safety: a wiki declaring an `ownership: repo` category is a shared mount —
+  // never auto-commit it. Refused above the cache so a stray `.git` at the wiki
+  // root can't re-enable it; a private brain declares no such category.
+  try {
+    if (sharedCategories(mergedLayoutForRoot(rootDir)).length > 0) return false;
+  } catch {
+    /* no readable layout → fall through to the structural probe */
+  }
   // Cache only the POSITIVE result: a repo doesn't vanish, but one can appear
   // later (bootstrap git-inits the wiki while the long-lived MCP server stays
   // up). A cached negative would silently disable auto-commit until restart;

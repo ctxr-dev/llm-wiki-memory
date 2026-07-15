@@ -35,7 +35,7 @@ Or run it yourself:
 
 ```bash
 git clone https://github.com/ctxr-dev/llm-wiki-memory ./.llm-wiki-memory/src
-./.llm-wiki-memory/src/bootstrap.sh                    # add --commit-memory to commit the wiki
+./.llm-wiki-memory/src/bootstrap.sh                    # add --commit-memory to git-track the wiki (you commit it)
 ./.llm-wiki-memory/src/bootstrap.sh --schedule hourly  # optional: hourly cron / launchd
 ```
 
@@ -53,6 +53,8 @@ git -C .llm-wiki-memory/src merge --ff-only origin/main
 ./.llm-wiki-memory/src/bootstrap.sh   # idempotent; runbooks may add one-shot steps + verification
 ```
 
+**Upgrading a shared team wiki?** Nothing special needed — a shared wiki is auto-detected on any `bootstrap.sh` re-run and stays git-tracked (a bare re-run does **not** revert it to private; the engine still never runs git on it). See [docs/shared-wikis.md](docs/shared-wikis.md#upgrading-a-shared-install).
+
 </details>
 
 <details>
@@ -61,10 +63,10 @@ git -C .llm-wiki-memory/src merge --ff-only origin/main
 1. Installs dependencies in `./.llm-wiki-memory/src`.
 2. Auto-detects the LLM provider: `claude` CLI → `codex` CLI → `ANTHROPIC_API_KEY` → `OPENAI_API_KEY` → `MEMORY_LLM_BASE_URL` → ollama at `:11434` → `mock` (with a stderr warning).
 3. Writes `./.llm-wiki-memory/settings/.env` (preserves your edits on re-run).
-4. Merges hooks into `.claude/settings.json` and the stdio server into `.mcp.json`.
-5. Writes `llm-wiki-memory-<name>.md` @-pointer files (referencing `~/.llm-wiki-memory/src` — no copies, no symlinks) into `.agents/rules/`, `.claude/skills/`, `.claude/rules/`, `.cursor/rules/`, plus one marker-fenced @-include block in `AGENTS.md`/`CLAUDE.md`, and records them all in an install-manifest.
+4. Registers the stdio server + Claude Code hooks GLOBALLY in your home config (`~/.claude.json` + `~/.claude/settings.json`; Cursor `~/.cursor/mcp.json`, Codex `~/.codex/config.toml`, Claude Desktop — whichever you have) — never per-repo, so a shared repo carries no client config. A customized/wrapped command (e.g. a mandated security shim) is preserved; a re-bootstrap migrates a pre-global install by removing its stale per-repo `.mcp.json`/`.claude/settings.json`/`.agents/*`.
+5. Wires the memory rules/skills. **Private brain:** `llm-wiki-memory-<name>.md` @-pointer files (referencing `~/.llm-wiki-memory/src` — no copies, no symlinks) into `.agents/rules/`, `.claude/skills/`, `.claude/rules/`, `.cursor/rules/`, plus one marker-fenced @-include block in `AGENTS.md`/`CLAUDE.md` (recorded in an install-manifest). **Shared (`--template repo`) mount:** ZERO machine-dependent files — only ONE machine-independent remote-read block in `AGENTS.md`/`CLAUDE.md` pointing at the discipline on `raw.githubusercontent.com/.../main/...`.
 6. Materialises the hosted wiki at `./.llm-wiki-memory/wiki` (with the layout template that declares `consolidate: refine | none` per category) and validates it.
-7. Adds `/.llm-wiki-memory` to `.gitignore` (`--commit-memory` commits the wiki instead).
+7. Adds `/.llm-wiki-memory` to `.gitignore` (`--commit-memory` git-tracks the wiki in the project instead — you commit it; the engine never does).
 8. Optionally installs the hourly cron (`compile` + an opt-in `consolidate`) as a scheduled job — launchd on macOS, a crontab wrapper on Linux (`--schedule hourly`; `daily` is a deprecated alias for the same hourly job); consolidation runs only when `consolidate.enabled: true` (default off).
 
 </details>
@@ -72,12 +74,29 @@ git -C .llm-wiki-memory/src merge --ff-only origin/main
 <details>
 <summary><strong>Register with a non-Claude client</strong></summary>
 
+Bootstrap already auto-registers every client it detects, **globally** in your
+home config (never per-repo). Use these only for a client bootstrap didn't
+detect — each prints a global snippet to paste:
+
 ```bash
-./.llm-wiki-memory/src/scripts/mcp-config.sh cursor          # .cursor/mcp.json
+./.llm-wiki-memory/src/scripts/mcp-config.sh cursor          # ~/.cursor/mcp.json
 ./.llm-wiki-memory/src/scripts/mcp-config.sh codex           # ~/.codex/config.toml
-./.llm-wiki-memory/src/scripts/mcp-config.sh claude-desktop  # claude_desktop_config.json
+./.llm-wiki-memory/src/scripts/mcp-config.sh claude-desktop  # claude_desktop_config.json (global)
 ./.llm-wiki-memory/src/scripts/mcp-config.sh all
 ```
+
+</details>
+
+<details>
+<summary><strong>Install as a shared team wiki</strong></summary>
+
+From inside the repo you want the team to share:
+
+```bash
+./.llm-wiki-memory/src/bootstrap.sh --template repo --commit-memory
+```
+
+This sets up a shared `knowledge/` tree and un-ignores it so **you** commit it into the project (teammates inherit it on clone) — the engine itself never runs git on a shared wiki. It keeps your caches / indexes / personal notes out of git and installs git hooks that warm the shared embeddings on pull. A teammate cloning an already-shared repo adopts it with `node ~/.llm-wiki-memory/src/scripts/mount-init.mjs "$PWD"`. Full guide → [**docs/shared-wikis.md**](docs/shared-wikis.md).
 
 </details>
 
@@ -94,7 +113,7 @@ Here's what you'll actually experience session to session. The theme: **your ass
 | --- | --- | --- |
 | **Open a session** | Your assistant opens **already knowing where you left off**: it's handed a short briefing (visible in the transcript) with your recent notes, your in-progress plans and their checkbox progress (e.g. `4/12 done, in-progress`), and the wiki leaves that match your current git branch. No re-explaining. | **Automatic** |
 | **Start a real task** ("implement X", "fix the timeout") | Before working, it recalls the lessons it learned on similar past work and applies them silently — you'll see a one-line `applied lesson: <title>` when it does, so old mistakes don't repeat. | **Agent-led** |
-| **Say "remember this"** (a fact, a decision, a convention) | It's saved as a plain-Markdown leaf in your project's local wiki (e.g. `knowledge/infra/decision/…md`), versioned in git and shared with every agent — not a per-session scratchpad that vanishes. | **Agent-led** |
+| **Say "remember this"** (a fact, a decision, a convention) | It's saved as a plain-Markdown leaf in your project's local wiki (e.g. `knowledge/infra/decision/…md`), versioned in git and shared with every AI tool on your machine (or with your team, if you install a [shared repo wiki](#private-brain--shared-team-wikis)) — not a per-session scratchpad that vanishes. | **Agent-led** |
 | **Correct it, or say "save that as a lesson"** | It proposes one lesson at a time and saves nothing until you say yes (on Claude Code you also get a one-click yes/no prompt). One approval covers one lesson. | **Asks first** |
 | **Approve a plan** | The approved plan is captured as a tracked `<slug>.plan.md` with its checkboxes and `status`, so progress survives across sessions. | **Automatic** |
 | **End or compact a session** | The conversation is distilled into dated notes under `daily/`; a later step folds those into the durable knowledge and lessons you'll recall next time. | **Automatic** |
@@ -136,7 +155,7 @@ Each highlight links to its full section where one exists.
 
 ![01](https://img.shields.io/badge/01-ZERO_INFRA-0D0D14?style=flat-square&labelColor=FCEE0A)  Everything lives in a local `.llm-wiki-memory/` folder — no vector DB, no container, no cloud.
 
-![02](https://img.shields.io/badge/02-GIT_VERSIONED-0D0D14?style=flat-square&labelColor=FCEE0A)  Every memory is a markdown leaf with full git history (one commit per operation); your project repo is never touched.
+![02](https://img.shields.io/badge/02-GIT_VERSIONED-0D0D14?style=flat-square&labelColor=FCEE0A)  Every memory is a markdown leaf with full git history (one commit per operation); your project repo is never touched — unless you deliberately install a [shared team wiki](#private-brain--shared-team-wikis), whose knowledge files land in your working tree for you to commit (the engine still never runs git).
 
 ![03](https://img.shields.io/badge/03-WRITE_GATED-0D0D14?style=flat-square&labelColor=FCEE0A)  Self-improvement lessons save only with your explicit consent, one approval per lesson. → [Memory write-gate](#memory-write-gate-read-freely-write-gated)
 
@@ -201,6 +220,19 @@ flowchart LR
 ```
 
 **Offline upkeep.** An opt-in hourly pass keeps the store from becoming a write-only graveyard (dedup, staleness refresh, housekeeping) and logs each attempt so failures surface next session — see [Consolidate](#consolidate-offline-refinement) below and [docs/consolidate.md](docs/consolidate.md). How embedding, ranking, and the vector cache work: [docs/embeddings.md](docs/embeddings.md).
+
+## Private brain & shared team wikis
+![](docs/assets/line-bold.svg)
+
+By default your memory is a **private brain**: one wiki in your home directory, gitignored, visible to every AI tool on your machine but to no one else. That's the whole story for most installs.
+
+You can also give a **repo its own shared wiki** — a `knowledge` tree **you** commit into the project so everyone who clones it inherits that knowledge (the engine never runs git on a shared wiki — you commit it). The two coexist: the engine discovers every `.llm-wiki-memory` wiki by walking up from where you're working (your cwd and the repos in play), stacking them into a **scope chain** — your private brain (depth 0) plus any repo-owned wikis above it.
+
+- **Reads fan out across the whole chain** and merge, ranked so a *comparably-relevant* repo-local note outranks a general one from your brain — one embedding model serves the whole fan-out (no extra memory per level).
+- **Writes pick one destination.** A save targets your **brain** (private — the default choice) or a **specific repo** (shared). A shared write is opt-in: the agent asks first, then only *stages* the note in that repo's working tree — it isn't shared until you commit and push it. The engine **never** runs git on a shared wiki — not on save, recall, install, or uninstall — so your project's git history is only ever changed by you.
+- **Install shared** with `bootstrap.sh --template repo --commit-memory`; a teammate adopts an already-shared repo on clone. A shared wiki is auto-detected on any re-run and stays git-tracked — a bare re-run does **not** revert it to private, and the engine never runs git on it.
+
+Full walkthrough — install, adoption, the scope chain, the ranking rules (confidence + locality + priority), upgrade/uninstall, and the team caveats → [**docs/shared-wikis.md**](docs/shared-wikis.md).
 
 ## Capture pipeline — chunked & recoverable
 ![](docs/assets/line-bold.svg)
@@ -298,7 +330,7 @@ The **LLM provider** that extracts typed atoms during capture / compile / consol
 <details>
 <summary><strong>Shared-repo writes, read-only CLI tools & self-observability</strong></summary>
 
-**Shared-repo writes.** The engine never writes to a shared repo (a mount inside a git project) unless `target` names it. A shared write only *stages* the leaf in that repo's working tree and runs no git there — it isn't shared until a human commits and pushes it. If you later change a category's `ownership` in the mount's `layout.yaml`, re-run `bootstrap.sh` so the mount's `.gitignore` regenerates — it's a point-in-time snapshot of which categories are shared.
+**Shared-repo writes.** The engine never writes to a shared repo (a mount inside a git project) unless `target` names it. A shared write only *stages* the leaf in that repo's working tree and runs no git there — it isn't shared until a human commits and pushes it. If you later change a category's `ownership` in the mount's `layout.yaml`, re-run `bootstrap.sh` so the mount's `.gitignore` regenerates — it's a point-in-time snapshot of which categories are shared. Full team walkthrough → [docs/shared-wikis.md](docs/shared-wikis.md).
 
 **Read-only CLI counterparts** (no MCP tool):
 - `cli.mjs doctor` — a layout-derived health scan (broken index refs, stray / orphan leaves; exit `3` on findings). `doctor --fix` surgically rebuilds affected parent indexes. Run it after any suspected cloud-sync event.

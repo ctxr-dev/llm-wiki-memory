@@ -15,10 +15,16 @@ no Docker) in this project. Follow these steps EXACTLY; do not improvise.
 
 2. **It does NOT exist → fresh install.** Run
    `git clone https://github.com/ctxr-dev/llm-wiki-memory ./.llm-wiki-memory/src`
-   then `./.llm-wiki-memory/src/bootstrap.sh` (idempotent). When it finishes: if
-   the user is on Claude Code, tell them to restart the session; otherwise show
-   them `./.llm-wiki-memory/src/scripts/mcp-config.sh <their-client>` so they
-   can register the MCP server. Done — skip step 3.
+   then `./.llm-wiki-memory/src/bootstrap.sh` (idempotent). Bootstrap
+   auto-registers the MCP server (and, for Claude Code, the lifecycle hooks)
+   GLOBALLY in your home config — never per-repo — for whichever clients are
+   present (Claude Code `~/.claude.json` + `~/.claude/settings.json`, Cursor
+   `~/.cursor/mcp.json`, Codex `~/.codex/config.toml`, Claude Desktop); a client
+   whose config dir doesn't exist is skipped, not created. When it finishes: if
+   the user is on Claude Code, tell them to restart the session. For any client
+   bootstrap did NOT detect, show them
+   `./.llm-wiki-memory/src/scripts/mcp-config.sh <their-client>`, which prints a
+   global snippet to paste. Done — skip step 3.
 
    Two fresh-install choices you may need to make (see the sections at the end):
    - **Layout template.** A plain install uses the `default` layout (the private
@@ -54,7 +60,13 @@ no Docker) in this project. Follow these steps EXACTLY; do not improvise.
       force); `( cd .llm-wiki-memory/src && npm install --no-audit --no-fund )`;
       then the consolidated runbook steps — typically a re-run of
       `./.llm-wiki-memory/src/bootstrap.sh` (idempotent) plus any one-shot
-      migration commands the runbooks name.
+      migration commands the runbooks name. A **SHARED team wiki** (its layout
+      declares an `ownership: repo` category) is auto-detected on any re-run and
+      stays git-tracked — a bare re-run does NOT revert it to private and needs no
+      special flag. Optional check after: the workspace `.gitignore` fenced block
+      still re-includes the shared categories, no `wiki/.git` exists, and the three
+      `post-*` sync hooks are present. See `docs/shared-wikis.md` § "Upgrading a
+      shared install".
    7. Verify with EVERY runbook's VERIFICATION block, oldest first; finish with
       `node .llm-wiki-memory/src/scripts/cli.mjs cron-health` reporting
       `healthy:true`. (On a box where daily docs are pending but NO LLM
@@ -94,9 +106,10 @@ each developer's private brain. This is the `repo` layout template.
   whether the repo already has a committed shared brain:
   `test -f .llm-wiki-memory/wiki/.layout/layout.yaml && git ls-files --error-unmatch .llm-wiki-memory/wiki/.layout/layout.yaml`.
   If that layout.yaml is tracked AND declares `ownership: repo`, the repo is
-  already shared — OFFER to ADOPT it (register the MCP server + wire the mount
-  git surfaces with `node .llm-wiki-memory/src/scripts/mount-init.mjs "$PWD"`),
-  do NOT re-seed it.
+  already shared — OFFER to ADOPT it (the MCP server + Claude Code hooks are
+  registered GLOBALLY in your home config by bootstrap, never per-repo — so
+  adopting only wires the mount git surfaces with
+  `node .llm-wiki-memory/src/scripts/mount-init.mjs "$PWD"`), do NOT re-seed it.
 - **Otherwise, per-repo opt-in.** Ask whether this repo's memory should be
   PERSONAL (private, gitignored — the `default` layout) or SHARED (committed —
   the `repo` layout). For SHARED, install with
@@ -104,7 +117,18 @@ each developer's private brain. This is the `repo` layout template.
   materialises the `repo` layout and `mount-init.mjs` wires the mount (a negated
   `.gitignore` tracking only `knowledge/`, a private personal git repo, and a
   chained sync-embeddings hook). The user commits the shared category; the
-  engine never commits it for them.
+  engine never commits it for them. A shared repo carries ZERO
+  machine-dependent files — no per-repo client configs and no `~/…` @-pointer
+  files: it carries only the wiki data + yaml (`wiki/**`, `layout.yaml`,
+  `layout.local.yaml`) + the mount `.gitignore`, PLUS exactly ONE
+  machine-independent remote-read block in `AGENTS.md`/`CLAUDE.md` pointing at
+  the discipline on
+  `https://raw.githubusercontent.com/ctxr-dev/llm-wiki-memory/main/templates/agents-memory-instructions.md`.
+  The MCP server + hooks live in each developer's home config, so a teammate who
+  clones just installs the engine globally and picks up the discipline from that
+  remote-read block. (The PRIVATE brain install is unchanged — it still wires
+  local `@~/.llm-wiki-memory/src/…` pointers into `.agents/rules`/`.claude/skills`/
+  `.claude/rules`/`.cursor/rules`.)
 
 ## Uninstall
 

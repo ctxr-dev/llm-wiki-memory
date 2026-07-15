@@ -56,6 +56,11 @@ is absent (or wrong) on the others.
 `scopes` says which wikis the call *concerns*; `target` says which one a WRITE
 goes INTO. They are different arguments with different jobs.
 
+A repo can carry its own **shared team wiki** (the `repo` layout, `ownership:
+repo`): it appears as a level in `get_memory_config`'s `levels`, alongside your
+private brain. Writing to it is opt-in and merely stages the leaf for the team to
+commit (full behaviour → `docs/shared-wikis.md`).
+
 > Every write (`save_to_dataset`, `save_lesson`, `write_memory`) and every
 > document mutation (`disable_document`, `enable_document`, `delete_document`,
 > `move_document`) REQUIRES an explicit `target` — there is **no default**. Pass

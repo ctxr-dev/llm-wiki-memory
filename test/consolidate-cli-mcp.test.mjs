@@ -173,85 +173,34 @@ test("MCP: consolidate_memory with a shared/non-brain target is refused (deferre
   assert.match(res.message, /brain-only/);
 });
 
-test("bootstrap.sh schedule_job invokes the cron-job CLI subcommand", () => {
+test("bootstrap.sh schedule_job wires render-schedule.mjs (no inline heredoc / grep -vF / /bin/sh)", () => {
+  // The plist/wrapper/cron-line text + the prefix-safe crontab filter are built
+  // by scripts/bootstrap/render-schedule.mjs and byte-tested in
+  // bootstrap-render-schedule.test.mjs; here we only guard the WIRING.
   const raw = fs.readFileSync(BOOTSTRAP, "utf8");
   const startIdx = raw.indexOf("schedule_job()");
   assert.ok(startIdx >= 0, "schedule_job function present in bootstrap.sh");
-  // Slice exactly to the function's closing brace so a later top-level
-  // addition (e.g. a /bin/sh call after schedule_job) cannot false-fail
-  // the doesNotMatch below.
-  const endIdx = raw.indexOf("\n}", startIdx);
-  assert.ok(endIdx > startIdx, "schedule_job closing brace found");
-  const body = raw.slice(startIdx, endIdx + 2);
-  // The cron-job subcommand chains compile + consolidate --if-due internally
-  // (see scripts/cron-job.mjs) and writes the attempt log. It is invoked from
-  // the crontab wrapper (`exec "$node_bin" ".../cli.mjs" cron-job` — absolute
-  // node: cron's minimal PATH may not resolve a bare `node` under nvm) AND,
-  // on macOS, as a launchd ProgramArguments element (<string>cron-job</string>).
+  const body = raw.slice(startIdx, raw.indexOf("\n}", startIdx) + 2);
+  assert.match(body, /RENDER_SCHED" ids /, "resolves ids via render-schedule.mjs");
+  assert.match(body, /RENDER_SCHED" plist /, "builds the plist via render-schedule.mjs");
+  assert.match(body, /RENDER_SCHED" wrapper /, "builds the wrapper via render-schedule.mjs");
+  assert.match(body, /RENDER_SCHED" cron-line /, "builds the cron line via render-schedule.mjs");
   assert.match(
     body,
-    /exec "\$node_bin" "\$SRC_DIR\/scripts\/cli\.mjs" cron-job/,
-    "wrapper invokes cron-job via the absolute node",
+    /RENDER_SCHED" filter-crontab /,
+    "filters the crontab via render-schedule.mjs",
   );
-  assert.match(body, /<string>cron-job<\/string>/, "launchd ProgramArguments invokes cron-job");
-  // The launchd job must NOT route through `/bin/sh -c "<string>"` — that
-  // mis-parses an install path containing a literal double-quote. It passes
-  // node + the cli path as discrete ProgramArguments elements instead.
   assert.doesNotMatch(
     body,
-    /<string>\/bin\/sh<\/string>/,
-    "no /bin/sh -c indirection in the plist",
+    /grep -vF "\$tag"/,
+    "no unanchored grep -vF (prefix-collision regression)",
   );
-});
-
-test("bootstrap.sh crontab idempotency filter is prefix-collision-safe (awk suffix match, not grep -vF)", () => {
-  const raw = fs.readFileSync(BOOTSTRAP, "utf8");
-  const startIdx = raw.indexOf("schedule_job()");
-  const body = raw.slice(startIdx, startIdx + 6000);
-  // Guard against a regression to `grep -vF "$tag"`, whose unanchored substring
-  // match wipes a sibling workspace whose path is a prefix of this one.
   assert.doesNotMatch(
     body,
-    /crontab -l[^\n]*grep -vF "\$tag"/,
-    "must NOT use unanchored grep -vF on the tag",
+    /<<PLIST/,
+    "no inline plist heredoc (extracted to render-schedule.mjs)",
   );
-  assert.match(
-    body,
-    /awk -v t="\$tag"[^\n]*substr\(\$0[^\n]*length\(t\)/,
-    "uses an awk suffix-match filter keyed on the tag",
-  );
-
-  // Execute the EXACT awk expression bootstrap uses and prove it drops only the
-  // exact-suffix line, keeping a prefix-sibling and unrelated lines.
-  const exprMatch = body.match(/awk -v t="\$tag" '([^']*)'/);
-  assert.ok(exprMatch, "extracted the awk program text");
-  const awkProg = exprMatch[1];
-  const tag = "# llm-wiki-memory:/a/proj";
-  const input =
-    [
-      `0 * * * * "/a/proj/.llm/state/cron-daily.sh" ${tag}`,
-      `0 * * * * "/a/proj2/.llm/state/cron-daily.sh" # llm-wiki-memory:/a/proj2`,
-      "0 2 * * * /usr/bin/backup  # unrelated",
-    ].join("\n") + "\n";
-  const r = spawnSync("awk", ["-v", `t=${tag}`, awkProg], { input, encoding: "utf8" });
-  assert.equal(r.status, 0, `awk ran; stderr=${r.stderr}`);
-  const kept = r.stdout.trimEnd().split("\n");
-  assert.ok(
-    kept.some((l) => l.includes("/a/proj2")),
-    "sibling prefix workspace line is KEPT",
-  );
-  assert.ok(
-    kept.some((l) => l.includes("/usr/bin/backup")),
-    "unrelated cron line is KEPT",
-  );
-  assert.ok(!kept.some((l) => l.endsWith(tag)), "this workspace's exact line is dropped");
-});
-
-test("bootstrap.sh installs cron at hourly cadence (0 * * * *)", () => {
-  const raw = fs.readFileSync(BOOTSTRAP, "utf8");
-  // The Linux cron line is interpolated with $wrapper / $tag, so we match
-  // the literal "0 * * * *" prefix.
-  assert.match(raw, /local line="0 \* \* \* \*/, "cron entry uses hourly cadence (0 * * * *)");
+  assert.doesNotMatch(body, /<string>\/bin\/sh<\/string>/, "no /bin/sh -c indirection");
 });
 
 test("consolidate CLI: bare value-taking flags and invalid values abort loudly (exit 2)", () => {

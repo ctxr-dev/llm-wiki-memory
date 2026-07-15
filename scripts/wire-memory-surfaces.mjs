@@ -9,11 +9,13 @@ import {
   MEMORY_DOCS,
   MARKER_ID,
   POINTER_FALLBACK_NOTE,
+  REMOTE_INSTRUCTIONS_URL,
 } from "./lib/memory-surface-constants.mjs";
 import { sha256, writeManifest } from "./lib/install-manifest.mjs";
 import { writeFileAtomic } from "./lib/atomic-write.mjs";
 import { stripManagedBlocks } from "./lib/marker-block.mjs";
 import { isOurPointer } from "./lib/pointer-file.mjs";
+import { isSharedWiki } from "./bootstrap/shared-wiki.mjs";
 
 const INSTRUCTIONS_REL = "templates/agents-memory-instructions.md";
 const SELF_OBS = "self-observability.md";
@@ -124,9 +126,8 @@ function desiredPointers(srcDir, home, selfObsEnabled) {
   return bySurface;
 }
 
-/** @param {string} file @param {string} ref */
-function wireInclude(file, ref) {
-  const inner = `## Project memory (llm-wiki-memory)\n\n@${ref}\n\nIf your client does not resolve the @-include above, read:\n${ref}`;
+/** @param {string} file @param {string} inner the block body (marker fence added here) */
+function writeDocBlock(file, inner) {
   const block = `${DOC_MARKER_START}\n${inner}\n${DOC_MARKER_END}`;
   let existing = "";
   try {
@@ -142,11 +143,59 @@ function wireInclude(file, ref) {
   writeIfChanged(file, next);
 }
 
+/** @param {string} file @param {string} ref local include (private brain) */
+function wireInclude(file, ref) {
+  writeDocBlock(
+    file,
+    `## Project memory (llm-wiki-memory)\n\n@${ref}\n\nIf your client does not resolve the @-include above, read:\n${ref}`,
+  );
+}
+
+/** @param {string} file machine-INDEPENDENT remote-read block (shared repo) */
+function wireRemoteInclude(file) {
+  writeDocBlock(
+    file,
+    `## Project memory (llm-wiki-memory)\n\nThis repository uses llm-wiki-memory shared team memory. If you have the engine installed, its MCP tools are available globally. For the memory discipline, read:\n${REMOTE_INSTRUCTIONS_URL}`,
+  );
+}
+
+/**
+ * A SHARED (team) mount carries ZERO machine-dependent files: strip any `~/...`
+ * pointers a prior private-style install left, and write only the one
+ * machine-independent remote-read block into AGENTS.md/CLAUDE.md.
+ * @param {string} workspaceDir @returns {{ surfaces: number, artifacts: number }}
+ */
+function wireSharedRepo(workspaceDir) {
+  for (const surface of RULE_SURFACES) {
+    const dir = path.join(workspaceDir, surface);
+    if (!fs.existsSync(dir)) continue;
+    for (const entry of fs.readdirSync(dir)) {
+      const abs = path.join(dir, entry);
+      if (entry.startsWith(POINTER_PREFIX) && entry.endsWith(".md") && isOurPointer(abs)) {
+        fs.rmSync(abs, { force: true });
+      }
+    }
+  }
+  /** @type {import("./lib/install-manifest.mjs").InstallArtifact[]} */
+  const artifacts = [];
+  for (const doc of MEMORY_DOCS) {
+    wireRemoteInclude(path.join(workspaceDir, doc));
+    artifacts.push({ kind: "block", path: doc, marker: MARKER_ID });
+  }
+  writeManifest(workspaceDir, artifacts);
+  return { surfaces: 0, artifacts: artifacts.length };
+}
+
 /**
  * @param {{ srcDir: string, workspaceDir: string, home: string, selfObsEnabled?: boolean }} opts
  * @returns {{ surfaces: number, artifacts: number }}
  */
 export function wireMemorySurfaces({ srcDir, workspaceDir, home, selfObsEnabled = false }) {
+  // A SHARED (team) mount must carry no machine-dependent `~/...` pointers — only
+  // a remote-read block. The private brain keeps its local @-pointer wiring.
+  if (isSharedWiki(path.join(workspaceDir, ".llm-wiki-memory", "wiki"))) {
+    return wireSharedRepo(workspaceDir);
+  }
   const desired = desiredPointers(srcDir, home, selfObsEnabled);
   const canonical = managedCanonical(srcDir);
   /** @type {import("./lib/install-manifest.mjs").InstallArtifact[]} */

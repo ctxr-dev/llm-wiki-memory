@@ -27,7 +27,7 @@ const MCP_JSON_RELPATHS = [
  * @param {string} file
  * @returns {boolean}
  */
-function removeServerFromJson(file) {
+export function removeServerFromJson(file) {
   let parsed;
   try {
     parsed = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -92,7 +92,7 @@ export function pruneEmptyDir(dir) {
  * only table.
  * @param {string} file @returns {boolean}
  */
-function stripCodexServer(file) {
+export function stripCodexServer(file) {
   if (!fs.existsSync(file)) return false;
   const lines = fs.readFileSync(file, "utf8").split("\n");
   const start = lines.findIndex((l) => l.trim() === "[mcp_servers.llm-wiki-memory]");

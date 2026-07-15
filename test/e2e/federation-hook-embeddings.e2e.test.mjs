@@ -112,6 +112,38 @@ test("F5a-hook: the INSTALLED post-merge hook FIRES on a real git merge and rebu
   assert.ok(cache.entries["shared_notes/note.md"], "the merged shared leaf is embedded");
 });
 
+test("F5-gitsafety: the post-merge hook rebuilds embeddings but runs NO mutating git on the host repo", async () => {
+  const { mount, wiki, git } = gitMountRepo();
+  writeLeaf(wiki, "shared_notes/note.md", "# Note\n\nbase kafka");
+  git(["add", "-A"]);
+  git(["commit", "-qm", "c1"]);
+  const inst = installSyncEmbeddingsHook(mount);
+  assert.equal(inst.ok, true, "hook installed");
+  const main = git(["rev-parse", "--abbrev-ref", "HEAD"]).stdout.trim();
+  git(["checkout", "-qb", "feat"]);
+  writeLeaf(wiki, "shared_notes/note.md", "# Note\n\nUPDATED kafka");
+  git(["add", "-A"]);
+  git(["commit", "-qm", "c2"]);
+  git(["checkout", "-q", main]);
+  git(["merge", "-q", "--no-ff", "-m", "merge feat", "feat"]); // the human's merge; the hook then fires
+  const afterMerge = Number(git(["rev-list", "--count", "HEAD"]).stdout.trim());
+  const headAfterMerge = git(["rev-parse", "HEAD"]).stdout.trim();
+  assert.ok(await waitForFile(cachePath(wiki), 20000), "the hook rebuilt the shared cache");
+  // The sync hook is the ONE engine path that runs git against the host repo — read-only only:
+  // the human's merge is the only thing that advanced HEAD; the hook adds no commit and moves no HEAD.
+  assert.equal(
+    Number(git(["rev-list", "--count", "HEAD"]).stdout.trim()),
+    afterMerge,
+    "the hook added NO commit beyond the human's merge",
+  );
+  assert.equal(
+    git(["rev-parse", "HEAD"]).stdout.trim(),
+    headAfterMerge,
+    "the hook did not move HEAD",
+  );
+  assert.equal(fs.existsSync(path.join(wiki, ".git")), false, "no wiki/.git created");
+});
+
 test("F5-G3: the INSTALLED post-rewrite hook fires on commit --amend and rebuilds the shared cache (polled)", async () => {
   const { mount, wiki, git } = gitMountRepo();
   writeLeaf(wiki, "other.md", "# c1\n\nno shared leaf yet");

@@ -42,7 +42,7 @@ save_to_dataset({
     name: "investigation-<topic>.md",
     text: <markdown body, see template below>,
     metadata: {
-      project_module: "<auth | billing | infra | frontend | ... >",
+      area: "<auth | billing | infra | frontend | ... >",
       task_type: "debugging",
       tags: "<scope>, <failure-class>",
       error_pattern: "<short kebab-case slug if you can name the failure mode>"
@@ -55,7 +55,7 @@ The slug IS the identity. Use a stable, descriptive slug (`investigation-pr-merg
 
 ### Required-ish metadata
 
-- `project_module`: STRONGLY recommended. Without it, `recall_lessons` and `search_memory` calls scoped to a project module won't surface this investigation. The default `project_module` injection (from `MEMORY_DEFAULT_PROJECT_MODULE` or the workspace directory name) covers it when you omit it, but explicit beats inferred when you know the affected area.
+- `area`: STRONGLY recommended — the sub-module (auth / billing / infra / …) the investigation concerns. It is the facet `recall_lessons` / `search_memory` filter on, so setting it makes the investigation surface for a module-scoped recall. (`project_module` is NOT something you hand-set: it is the workspace's deterministic identity — the git origin `org/repo`, else `file://<path>` — auto-stamped on every leaf.)
 - `task_type: "debugging"`: this is the canonical task type for investigations.
 - `tags`: 2-3 lowercase-hyphenated keywords. The first should name the scope (`pr-loop`, `mcp-server`, `compile`), the second the failure class (`timeout`, `auth-failure`, `race-condition`).
 - `error_pattern`: kebab-case slug naming the failure mode. Optional but powerful; lets future `search_memory({filters: {error_pattern: ...}})` calls pinpoint this investigation directly.

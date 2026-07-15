@@ -195,22 +195,25 @@ test("MCP server surfaces INSTRUCTIONS to the client on initialize", async () =>
 
 // ─── cron PATH wiring guards (2026-06-04 provider-unavailable incident) ────
 
-test("bootstrap bakes a PATH into BOTH schedulers (plist EnvironmentVariables + cron wrapper)", () => {
+test("bootstrap passes the hybrid PATH into BOTH schedulers (plist + wrapper via render-schedule)", () => {
+  // render-schedule.mjs bakes the PATH into the plist EnvironmentVariables + the
+  // wrapper `export PATH` (golden-tested in bootstrap-render-schedule.test.mjs);
+  // here we guard that bootstrap PASSES cron_path to both renderers.
   const bootstrap = fs.readFileSync(path.join(SRC, "bootstrap.sh"), "utf8");
-  assert.match(
-    bootstrap,
-    /<key>PATH<\/key>\s*\n\s*<string>\$cron_path_x<\/string>/,
-    "launchd plist heredoc carries the hybrid PATH",
-  );
-  assert.match(
-    bootstrap,
-    /^export PATH="\$cron_path"$/m,
-    "Linux cron wrapper heredoc exports the hybrid PATH",
-  );
   assert.match(
     bootstrap,
     /cron-path\.mjs/,
     "PATH comes from the shared node helper (single source of truth)",
+  );
+  assert.match(
+    bootstrap,
+    /RENDER_SCHED" plist "\$label" "\$DATA_DIR" "\$node_bin" "\$cli_path" "\$cron_path"/,
+    "plist renderer receives the hybrid PATH",
+  );
+  assert.match(
+    bootstrap,
+    /RENDER_SCHED" wrapper "\$DATA_DIR" "\$cron_path"/,
+    "wrapper renderer receives the hybrid PATH",
   );
 });
 

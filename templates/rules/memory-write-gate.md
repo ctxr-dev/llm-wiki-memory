@@ -31,7 +31,7 @@ This rule applies to every AI agent connected to the local LLM wiki memory throu
 
 The earlier discipline told the model to autosave on every correction. In practice that produces a noisy corpus: many low-signal lessons, duplicates with slightly different wording, and entries the user didn't actually endorse. The new rule trades passive learning volume for **user-curated quality**.
 
-The consolidate orchestrator (search-driven, runs on the daily cron) backfills the value of bulk capture another way: it merges near-duplicates, refreshes stale entries, and archives leaves that no longer match current reality. So a sparse, user-approved set still grows into a useful corpus over time — without the noise.
+The consolidate orchestrator (search-driven, runs on the hourly maintenance cron) backfills the value of bulk capture another way: it merges near-duplicates, refreshes stale entries, and archives leaves that no longer match current reality. So a sparse, user-approved set still grows into a useful corpus over time — without the noise.
 
 ## Enforcement (deterministic, cross-client)
 

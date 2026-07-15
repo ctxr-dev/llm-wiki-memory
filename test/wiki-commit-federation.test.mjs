@@ -104,10 +104,10 @@ function writeSharedLayout(root) {
   );
 }
 
-test("V3: a shared-owned leaf is excluded from the commit; a personal leaf in the same batch still commits", () => {
+test("V3: a wiki declaring ANY shared category is NEVER auto-committed — even its wiki-owned leaves (the whole mount is human-committed)", () => {
   const root = repoRoot("v3-mixed");
   seedCommit(root);
-  writeSharedLayout(root);
+  writeSharedLayout(root); // knowledge: repo + notes: wiki
   writeLeaf(root, "knowledge/shared.md", "# Shared\n\nrepo-owned\n");
   writeLeaf(root, "notes/keep.md", "# Keep\n\nwiki-owned\n");
   wc._resetGitProbeCache();
@@ -128,18 +128,22 @@ test("V3: a shared-owned leaf is excluded from the commit; a personal leaf in th
     });
   });
 
-  assert.equal(commitCount(root), before + 1, "exactly one commit (for the personal leaf)");
-  const files = committedFiles(root);
+  // The deterministic git-safety guard (gitUsable hard-refuses a wiki that
+  // declares an `ownership: repo` category) supersedes per-leaf partition: the
+  // engine commits NOTHING for a shared mount — even the wiki-owned `notes` leaf
+  // is left for the human to commit (its personal notes belong in the separate
+  // `personal/` git, never staged into the host-tracked shared wiki). Both leaves
+  // stay UNTRACKED in the working tree; the engine ran no git.
+  assert.equal(commitCount(root), before, "the engine made NO commit on a shared-declaring wiki");
+  const tracked = git(root, ["ls-files"]).stdout;
+  assert.ok(!tracked.includes("knowledge/shared.md"), "the shared leaf was never staged/committed");
   assert.ok(
-    files.some((l) => l.includes("notes/keep.md")),
-    "personal leaf committed",
+    !tracked.includes("notes/keep.md"),
+    "even the wiki-owned leaf is not auto-committed on a shared-declaring mount",
   );
-  assert.ok(
-    !files.some((l) => l.includes("knowledge/shared.md")),
-    "shared/repo-owned leaf was NEVER committed",
-  );
-  // The shared leaf stays untracked in the repo's working tree.
-  assert.match(git(root, ["status", "--porcelain"]).stdout, /\?\?\s+knowledge\//);
+  const status = git(root, ["status", "--porcelain"]).stdout;
+  assert.match(status, /\?\?\s+knowledge\//, "the shared leaf stays untracked in the working tree");
+  assert.match(status, /\?\?\s+notes\//, "the wiki-owned leaf also stays untracked");
 });
 
 test("V3: a batch containing ONLY shared-owned leaves produces zero commits (shared repo untouched)", () => {

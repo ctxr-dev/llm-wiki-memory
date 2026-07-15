@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Print a ready-to-paste MCP server config for a given client. The memory
-# server is a local stdio process; this resolves the absolute paths so the
-# snippet works from any client (Cursor, Codex, Claude Desktop, generic), and
-# emits a project-relative snippet for Claude Code's project-scope .mcp.json.
+# Print a ready-to-paste MCP server config for a given client's USER-HOME global
+# config (registration is global-only — never per repo). For a client bootstrap
+# didn't auto-detect; the ${HOME}-based snippet works from any project.
 #
 # Usage: mcp-config.sh <claude-code|cursor|claude-desktop|codex|generic|all>
 set -euo pipefail
@@ -40,10 +39,11 @@ render_abs() { render_with "$INDEX" "$1"; }
 emit() {
   case "$1" in
     claude-code)
-      echo "# Claude Code - merge into ./.mcp.json (project scope; relative path):"
+      echo "# Claude Code - add to ~/.claude.json under mcpServers (user/global scope)"
+      echo "#   or run: claude mcp add --scope user llm-wiki-memory -- node \"\${HOME}\"/.llm-wiki-memory/src/mcp-server/index.mjs"
       cat "$TEMPLATES/mcp.json" ;;
     cursor)
-      echo "# Cursor - merge into ./.cursor/mcp.json (project scope; relative path):"
+      echo "# Cursor - add to ~/.cursor/mcp.json under mcpServers (global; every project):"
       render_rel "$TEMPLATES/agents/clients/cursor.json" ;;
     claude-desktop)
       echo "# Claude Desktop - merge into claude_desktop_config.json (global; absolute path):"

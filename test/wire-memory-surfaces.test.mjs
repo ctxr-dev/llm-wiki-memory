@@ -371,3 +371,59 @@ test("wire: an orphan @-include block (START, END hand-deleted) never deletes us
   assert.match(run2, /IMPORTANT USER PROSE THAT MUST SURVIVE/, "user prose STILL survives run 2");
   assert.equal(run2, run1, "byte-stable across runs (converged — no cross-block deletion)");
 });
+
+/** Turn a scaffold workspace into a SHARED (ownership: repo) mount. */
+function makeShared(/** @type {string} */ ws) {
+  const layout = path.join(ws, ".llm-wiki-memory", "wiki", ".layout");
+  fs.mkdirSync(layout, { recursive: true });
+  fs.writeFileSync(
+    path.join(layout, "layout.yaml"),
+    "layout:\n  - path: knowledge\n    ownership: repo\n",
+  );
+}
+
+const RULE_DIRS = [".agents/rules", ".claude/skills", ".claude/rules", ".cursor/rules"];
+const ourPointers = (/** @type {string} */ dir) =>
+  fs.existsSync(dir) ? fs.readdirSync(dir).filter((e) => e.startsWith("llm-wiki-memory-")) : [];
+
+test("SHARED mount (O): NO ~/ pointers; only a machine-independent remote-read block", () => {
+  const { srcDir, home, ws } = scaffold();
+  makeShared(ws);
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home });
+  for (const s of RULE_DIRS) {
+    assert.deepEqual(ourPointers(path.join(ws, s)), [], `${s}: no machine-dependent pointers`);
+  }
+  const agents = read(path.join(ws, "AGENTS.md"));
+  assert.match(
+    agents,
+    /raw\.githubusercontent\.com\/ctxr-dev\/llm-wiki-memory\/main\/templates\/agents-memory-instructions\.md/,
+  );
+  assert.ok(!agents.includes("~/"), "no machine-dependent ~/ path in a shared repo");
+  assert.ok(!agents.includes("@~/"), "no @-include ~ pointer in a shared repo");
+});
+
+test("SHARED mount (O): converting a private install to shared STRIPS the prior ~/ pointers", () => {
+  const { srcDir, home, ws } = scaffold();
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home }); // private install → writes pointers
+  assert.ok(
+    ourPointers(path.join(ws, ".agents/rules")).length > 0,
+    "private install wrote pointers",
+  );
+  makeShared(ws);
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home }); // now shared
+  for (const s of RULE_DIRS) {
+    assert.deepEqual(ourPointers(path.join(ws, s)), [], `${s}: pointers stripped on conversion`);
+  }
+  assert.match(read(path.join(ws, "AGENTS.md")), /raw\.githubusercontent\.com/);
+});
+
+test("SHARED mount (O): idempotent (a second wire is byte-stable)", () => {
+  const { srcDir, home, ws } = scaffold();
+  makeShared(ws);
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home });
+  const a = read(path.join(ws, "AGENTS.md"));
+  const c = read(path.join(ws, "CLAUDE.md"));
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home });
+  assert.equal(read(path.join(ws, "AGENTS.md")), a);
+  assert.equal(read(path.join(ws, "CLAUDE.md")), c);
+});

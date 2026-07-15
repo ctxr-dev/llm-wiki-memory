@@ -83,18 +83,24 @@ test("committed project-scoped templates carry no MEMORY_DATA_DIR and no absolut
   assert.match(claudeMcp, /\$\{HOME\}\/\.llm-wiki-memory\/src\/mcp-server\/index\.mjs/);
 });
 
-test("bootstrap renders .agents/ MCP config with the ${HOME}-based path (D-f, home install, no absolute)", () => {
-  const raw = fs.readFileSync(path.join(SRC, "bootstrap.sh"), "utf8");
-  // Home-based, not hardcoded-absolute: ${HOME} (single-quoted so bash keeps it
-  // literal; the MCP client interpolates ${HOME}). ~ is NOT used here (no shell
-  // to expand it in .mcp.json args).
-  assert.match(raw, /INDEX_REL='\$\{HOME\}\/\.llm-wiki-memory\/src\/mcp-server\/index\.mjs'/);
-  assert.ok(!/INDEX_ABS=.*mcp-server\/index\.mjs/.test(raw), "stale INDEX_ABS render present");
-  assert.ok(!/__DATA_DIR__/.test(raw), "bootstrap should no longer substitute __DATA_DIR__");
-  assert.ok(
-    !/INDEX_REL=["'][^"']*\/(Users|home|opt)\//.test(raw),
-    "no hardcoded absolute server path baked into the render",
+test("global MCP registration uses the ${HOME}-based path (no absolute leak); bootstrap registers globally (N)", () => {
+  // Global-only (Workstream N): the ${HOME}-based index lives in the client
+  // registry, not an inlined bootstrap render; ${HOME} is interpolated by the
+  // MCP client (a literal ~ would NOT expand in JSON args).
+  const registry = fs.readFileSync(path.join(SRC, "scripts/bootstrap/mcp-clients.mjs"), "utf8");
+  assert.match(
+    registry,
+    /SERVER_INDEX_REL\s*=\s*"\$\{HOME\}\/\.llm-wiki-memory\/src\/mcp-server\/index\.mjs"/,
   );
+  assert.ok(
+    !/["'][^"']*\/(Users|home|opt)\/[^"']*mcp-server\/index\.mjs/.test(registry),
+    "no hardcoded absolute server path in the client registry",
+  );
+  // bootstrap registers into the user's HOME (no per-repo render survives).
+  const raw = fs.readFileSync(path.join(SRC, "bootstrap.sh"), "utf8");
+  assert.match(raw, /register-global\.mjs/, "bootstrap calls the global registrar");
+  assert.ok(!/render_agent\b/.test(raw), "the per-repo .agents render is removed (global-only)");
+  assert.ok(!/__DATA_DIR__/.test(raw), "bootstrap should no longer substitute __DATA_DIR__");
   // .claude/settings.json hooks are home-based ($HOME), not $CLAUDE_PROJECT_DIR.
   const settings = fs.readFileSync(path.join(SRC, "templates/claude/settings.json"), "utf8");
   assert.ok(!/CLAUDE_PROJECT_DIR/.test(settings), "hooks no longer use $CLAUDE_PROJECT_DIR");

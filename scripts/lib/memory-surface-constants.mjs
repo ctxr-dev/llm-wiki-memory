@@ -10,6 +10,12 @@ export const HASH_MARKER_END = `# <<< ${MARKER_ID} <<<`;
 export const MEMORY_DOCS = ["AGENTS.md", "CLAUDE.md"];
 export const RULE_SURFACES = [".agents/rules", ".claude/skills", ".claude/rules", ".cursor/rules"];
 
+// A SHARED (team) repo carries NO machine-dependent `~/...` pointers — only this
+// machine-INDEPENDENT remote-read URL, pinned to `main` (stable discipline prose).
+// Any teammate/OS can fetch it; the repo itself stays free of per-machine paths.
+export const REMOTE_INSTRUCTIONS_URL =
+  "https://raw.githubusercontent.com/ctxr-dev/llm-wiki-memory/main/templates/agents-memory-instructions.md";
+
 // The fallback line every @-pointer body carries verbatim, regardless of where the
 // source install lives. It is the layout-independent signature we use to recognize
 // our own pointer files (the install-path fragment is NOT reliable — a repo-dev
