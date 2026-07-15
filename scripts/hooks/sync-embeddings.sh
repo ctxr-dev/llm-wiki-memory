@@ -9,5 +9,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # range resolution (it reads the hook's transient index) so it warms nothing.
 # Clear them so the child resolves the mount's repo cleanly.
 unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX GIT_QUARANTINE_PATH GIT_QUARANTINE_ENVIRONMENT
-( node "$SCRIPT_DIR/sync-embeddings.mjs" "$@" >/dev/null 2>&1 & )
+# Default: fully detached so it can never block or fail the host git op. Tests
+# set LWM_SYNC_EMBEDDINGS_FOREGROUND=1 to run synchronously — a detached
+# background process is not reliably reaped-to-completion on CI runners, so the
+# async form can't be asserted deterministically there.
+if [ -n "${LWM_SYNC_EMBEDDINGS_FOREGROUND:-}" ]; then
+  node "$SCRIPT_DIR/sync-embeddings.mjs" "$@" >/dev/null 2>&1 || true
+else
+  ( node "$SCRIPT_DIR/sync-embeddings.mjs" "$@" >/dev/null 2>&1 & )
+fi
 exit 0

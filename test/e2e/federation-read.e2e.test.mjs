@@ -47,6 +47,7 @@ function freshHome(prefix) {
   const home = realTmp(prefix);
   tmps.push(home);
   process.env.HOME = home; // os.homedir() honours $HOME → the real scanner default
+  process.env.USERPROFILE = home; // Windows: os.homedir() reads USERPROFILE, not HOME
   return home;
 }
 

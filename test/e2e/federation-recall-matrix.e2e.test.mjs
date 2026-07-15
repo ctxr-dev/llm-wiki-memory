@@ -32,6 +32,7 @@ before(() => {
   const home = realTmp("recall-boost");
   tmps.push(home);
   process.env.HOME = home;
+  process.env.USERPROFILE = home; // Windows: os.homedir() reads USERPROFILE, not HOME
   const repoWiki = writeMountLayout(mkdirp(home, "repo"), MOUNT_LAYOUT);
   const subWiki = writeMountLayout(mkdirp(home, "repo/sub"), MOUNT_LAYOUT);
   deepCwd = mkdirp(home, "repo/sub/x/y");

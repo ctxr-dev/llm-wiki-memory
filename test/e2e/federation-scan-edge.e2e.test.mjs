@@ -38,6 +38,7 @@ function freshHome(prefix) {
   const home = realTmp(prefix);
   tmps.push(home);
   process.env.HOME = home;
+  process.env.USERPROFILE = home; // Windows: os.homedir() reads USERPROFILE, not HOME
   return home;
 }
 

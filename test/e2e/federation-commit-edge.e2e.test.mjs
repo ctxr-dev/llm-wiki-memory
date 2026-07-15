@@ -47,6 +47,7 @@ test("commit-edge: two NESTED shared repos in ONE batch — both staged untracke
   const home = realTmp("commit-nested");
   tmps.push(home);
   process.env.HOME = home;
+  process.env.USERPROFILE = home; // Windows: os.homedir() reads USERPROFILE, not HOME
 
   const outer = mkdirp(home, "outer");
   gitInit(outer);

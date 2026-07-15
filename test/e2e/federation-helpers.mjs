@@ -207,6 +207,7 @@ export function freshHome(prefix, tmps) {
   tmps.push(home);
   // os.homedir() honours $HOME → the real scanner default resolves under /tmp.
   process.env.HOME = home;
+  process.env.USERPROFILE = home; // Windows: os.homedir() reads USERPROFILE, not HOME
   return home;
 }
 
@@ -248,6 +249,7 @@ export async function buildFakeHome(spec) {
   const home = realTmp(prefix);
   const brainDataDir = path.join(home, ".llm-wiki-memory");
   process.env.HOME = home;
+  process.env.USERPROFILE = home; // Windows: os.homedir() reads USERPROFILE, not HOME
   process.env.MEMORY_DATA_DIR = brainDataDir;
   process.env.MEMORY_EMBED_BACKEND = "lexical";
   if (projectModule != null) process.env.MEMORY_DEFAULT_PROJECT_MODULE = projectModule;

@@ -13,6 +13,10 @@ import { setupWorkspace, cleanup, SRC } from "../harness.mjs";
 import { installSyncEmbeddingsHook } from "../../scripts/lib/mount-git.mjs";
 
 const { dataDir } = setupWorkspace({ init: false });
+// Run the git-fired sync hook in the foreground so the rebuild is deterministic:
+// a detached background process is not reliably run-to-completion on CI runners.
+// This still proves git FIRES the installed hook and it rebuilds — just synchronously.
+process.env.LWM_SYNC_EMBEDDINGS_FOREGROUND = "1";
 const SYNC = path.join(SRC, "scripts", "hooks", "sync-embeddings.mjs");
 const SHARED_LAYOUT = "layout:\n  - path: shared_notes\n    ownership: repo\n";
 
