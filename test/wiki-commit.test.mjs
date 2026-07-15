@@ -67,7 +67,16 @@ test("naked write after git init: exactly one commit with subject, body line, tr
     metadata: { area: "alpha", atom_type: "reference" },
   });
   assert.equal(r.ok, true);
-  assert.equal(commitCount(), 1, "one logical write = one commit");
+  const diag = () => {
+    let crumb = "(none)";
+    try {
+      crumb = fs.readFileSync(BREADCRUMB, "utf8");
+    } catch {
+      /* no breadcrumb */
+    }
+    return `\ngitUsable=${wc._internals.gitUsable(wiki)}\ntoplevel=${git("rev-parse", "--show-toplevel").stdout.trim()}\nwiki=${wiki}\nstatus=${git("status", "--porcelain").stdout}\nbreadcrumb=${crumb}`;
+  };
+  assert.equal(commitCount(), 1, `one logical write = one commit${diag()}`);
 
   const msg = lastMessage();
   assert.match(msg, /^memory\(memory-write\): /, "subject carries the op");

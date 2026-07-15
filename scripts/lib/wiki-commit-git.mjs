@@ -73,9 +73,15 @@ function samePath(a, b) {
   // ...); compare realpaths so a wiki under a symlinked tmp/home still matches.
   const norm = (/** @type {string} */ p) => {
     try {
-      return fs.realpathSync(p);
+      // .native gives the OS-canonical form so git's toplevel (forward-slash,
+      // lowercase drive on Windows) and rootDir canonicalize identically.
+      return fs.realpathSync.native(p);
     } catch {
-      return path.resolve(p);
+      try {
+        return fs.realpathSync(p);
+      } catch {
+        return path.resolve(p);
+      }
     }
   };
   const ra = norm(a);

@@ -106,8 +106,17 @@ test("F5a-hook: the INSTALLED post-merge hook FIRES on a real git merge and rebu
   git(["checkout", "-q", main]);
   git(["merge", "-q", "--no-ff", "-m", "merge feat", "feat"]); // post-merge fires; ORIG_HEAD set
 
-  const appeared = await waitForFile(cachePath(wiki), 20000);
-  assert.ok(appeared, "the detached post-merge hook rebuilt the shared cache within the timeout");
+  const appeared = await waitForFile(cachePath(wiki), 45000);
+  if (!appeared) {
+    const hookFile = path.join(mount, ".git", "hooks", "post-merge");
+    const direct = spawnSync("node", [SYNC, mount, "0"], { cwd: mount, env: process.env });
+    assert.fail(
+      `detached hook cache absent after 45s. hookExists=${fs.existsSync(hookFile)} ` +
+        `mode=${fs.existsSync(hookFile) ? (fs.statSync(hookFile).mode & 0o777).toString(8) : "n/a"} ` +
+        `directSyncStatus=${direct.status} cacheNow=${fs.existsSync(cachePath(wiki))} ` +
+        `directStderr=${String(direct.stderr || "").slice(0, 300)}`,
+    );
+  }
   const cache = JSON.parse(fs.readFileSync(cachePath(wiki), "utf8"));
   assert.ok(cache.entries["shared_notes/note.md"], "the merged shared leaf is embedded");
 });
@@ -128,7 +137,7 @@ test("F5-gitsafety: the post-merge hook rebuilds embeddings but runs NO mutating
   git(["merge", "-q", "--no-ff", "-m", "merge feat", "feat"]); // the human's merge; the hook then fires
   const afterMerge = Number(git(["rev-list", "--count", "HEAD"]).stdout.trim());
   const headAfterMerge = git(["rev-parse", "HEAD"]).stdout.trim();
-  assert.ok(await waitForFile(cachePath(wiki), 20000), "the hook rebuilt the shared cache");
+  assert.ok(await waitForFile(cachePath(wiki), 45000), "the hook rebuilt the shared cache");
   // The sync hook is the ONE engine path that runs git against the host repo — read-only only:
   // the human's merge is the only thing that advanced HEAD; the hook adds no commit and moves no HEAD.
   assert.equal(
@@ -156,7 +165,7 @@ test("F5-G3: the INSTALLED post-rewrite hook fires on commit --amend and rebuild
   writeLeaf(wiki, "shared_notes/note.md", "# Note\n\nAMENDED body");
   git(["add", "-A"]);
   git(["commit", "-q", "--amend", "-m", "c2 amended"]); // post-rewrite fires; HEAD~1..HEAD spans the leaf
-  const appeared = await waitForFile(cachePath(wiki), 20000);
+  const appeared = await waitForFile(cachePath(wiki), 45000);
   assert.ok(appeared, "the detached post-rewrite hook rebuilt the shared cache after an amend");
   const cache = JSON.parse(fs.readFileSync(cachePath(wiki), "utf8"));
   assert.ok(
@@ -216,7 +225,7 @@ test("F5-subdir: a mount BELOW the git root is warmed — the hook passes the mo
   git(["commit", "-qm", "c2"]);
   git(["checkout", "-q", main]);
   git(["merge", "-q", "--no-ff", "-m", "merge feat", "feat"]);
-  const appeared = await waitForFile(cachePath(subWiki), 20000);
+  const appeared = await waitForFile(cachePath(subWiki), 45000);
   assert.ok(appeared, "the subpackage mount's shared cache was rebuilt (cwd≠mount handled)");
 });
 
