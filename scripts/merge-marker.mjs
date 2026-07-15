@@ -7,6 +7,7 @@
 //
 // If <contentFile> is omitted or "-", the block content is read from stdin.
 import fs from "node:fs";
+import path from "node:path";
 import { writeFileAtomic } from "./lib/atomic-write.mjs";
 
 const [file, beginMarker, endMarker, contentFile] = process.argv.slice(2);
@@ -52,6 +53,6 @@ if (fence.test(existing)) {
   next = `${existing}${sep}${block}\n`;
 }
 
-fs.mkdirSync(file.replace(/\/[^/]*$/, "") || ".", { recursive: true });
+fs.mkdirSync(path.dirname(file) || ".", { recursive: true });
 writeFileAtomic(file, next);
 console.error(`upserted block into ${file}`);

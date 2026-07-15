@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { setupWorkspace, cleanup, runScript } from "./harness.mjs";
+import { spawnSync } from "node:child_process";
+import { setupWorkspace, cleanup, runScript, SRC } from "./harness.mjs";
 
 // The two path-override env vars are cleared so the single-tree neutrality
 // assertions compare the pure MEMORY_DATA_DIR-anchored default wikiRoot()
@@ -175,10 +176,18 @@ async function waitForWorker(sid, timeoutMs = 20000) {
 
 test("wrapped flush worker writes its daily leaf into the brain wiki (placement unchanged)", async () => {
   const sid = "brainctx-flush";
-  // Guarantee the workspace dir exists right before writing into it — the
-  // module-load dataDir can be transiently absent under CI's concurrent
-  // per-file test processes, and a stale reference must never ENOENT the write.
+  // The detached worker resolves the brain wiki from MEMORY_DATA_DIR when it
+  // runs (async, after the front exits). Guarantee the workspace + an
+  // initialised wiki exist here — under CI's concurrent per-file test processes
+  // the module-load workspace can be transiently absent / its layout drift, and
+  // the worker would otherwise report "wiki not initialised" and save nothing.
   fs.mkdirSync(dataDir, { recursive: true });
+  if (!fs.existsSync(path.join(dataDir, "wiki", ".layout", "layout.yaml"))) {
+    spawnSync(process.execPath, [path.join(SRC, "scripts/cli.mjs"), "init"], {
+      env: { ...process.env, MEMORY_DATA_DIR: dataDir },
+      encoding: "utf8",
+    });
+  }
   const transcript = path.join(dataDir, "brainctx.jsonl");
   const turns = [
     { role: "user", text: "Prefer atomic writes for durable artifacts." },
@@ -212,6 +221,7 @@ test("wrapped flush worker writes its daily leaf into the brain wiki (placement 
       cwd: dataDir,
     }),
     env: {
+      MEMORY_DATA_DIR: dataDir,
       MEMORY_HOOK_REENTRY: "",
       CLAUDE_INVOKED_BY: "",
       MEMORY_LLM_PROVIDER: "mock",

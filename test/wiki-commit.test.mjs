@@ -281,7 +281,7 @@ test("buildDirset never emits a bare '.' and includes ancestor index.md specs", 
   ]);
   assert.ok(!specs.includes("."), "no bare dot pathspec");
   assert.ok(specs.includes("knowledge/alpha/reference"), "leaf dir included");
-  assert.ok(specs.includes(path.join("knowledge", "index.md")), "ancestor index.md included");
+  assert.ok(specs.includes("knowledge/index.md"), "ancestor index.md included");
   assert.ok(specs.includes("index.md"), "wiki-root index.md included");
   assert.ok(specs.includes("rootleaf.md"), "root-level file staged as itself");
 });

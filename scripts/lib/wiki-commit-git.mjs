@@ -71,11 +71,24 @@ export function runGit(rootDir, args, { input } = {}) {
 function samePath(a, b) {
   // git prints the symlink-resolved toplevel (macOS: /var/... → /private/var/
   // ...); compare realpaths so a wiki under a symlinked tmp/home still matches.
-  try {
-    return fs.realpathSync(a) === fs.realpathSync(b);
-  } catch {
-    return path.resolve(a) === path.resolve(b);
+  const norm = (/** @type {string} */ p) => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  const ra = norm(a);
+  const rb = norm(b);
+  if (ra === rb) return true;
+  // Windows: `git rev-parse --show-toplevel` prints forward slashes and often a
+  // lowercase drive letter (`c:/…`), while realpathSync yields `C:\…`. The FS is
+  // case-insensitive, so compare separator- and case-normalized.
+  if (process.platform === "win32") {
+    const canon = (/** @type {string} */ p) => path.resolve(p).toLowerCase();
+    return canon(ra) === canon(rb);
   }
+  return false;
 }
 
 /**

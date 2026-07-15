@@ -10,6 +10,10 @@ import matter from "gray-matter";
 import { syncPlanFile, syncAllPlans, pickNonColliding } from "../scripts/lib/plan-sync.mjs";
 import { _resetCacheForTests as resetTopologyCache } from "../scripts/lib/topology-runtime.mjs";
 
+// r.moved.to/from are native absolute FS paths (backslash on Windows); the
+// lifecycle-folder substring checks below are forward-slash, so normalize.
+const fwd = (/** @type {string} */ p) => p.split(path.sep).join("/");
+
 // Spin up a fresh wiki with the tracker-issues layout so the topology
 // runtime recognises lifecycle-aware paths. We copy the example layout
 // inline since the test runs in isolation from the live wiki.
@@ -163,7 +167,7 @@ test("syncPlanFile: pending → in-progress moves the file into in-progress/", a
   assert.equal(r.error, null);
   assert.equal(r.status, "in-progress");
   assert.ok(r.moved, JSON.stringify(r));
-  assert.ok(r.moved.to.includes("in-progress/DEV-100001-investigate.plan.md"), r.moved.to);
+  assert.ok(fwd(r.moved.to).includes("in-progress/DEV-100001-investigate.plan.md"), r.moved.to);
   assert.equal(fs.existsSync(r.moved.from), false, "source removed");
   assert.equal(fs.existsSync(r.moved.to), true, "destination present");
 });
@@ -179,7 +183,7 @@ test("syncPlanFile: in-progress → done moves the file into done/", async () =>
   );
   const r = await syncPlanFile(fp, { wikiRoot: wiki });
   assert.equal(r.status, "done");
-  assert.ok(r.moved.to.includes("done/DEV-100002-finish.plan.md"));
+  assert.ok(fwd(r.moved.to).includes("done/DEV-100002-finish.plan.md"));
 });
 
 test("syncPlanFile: reason:canceled items count as resolved → done", async () => {
@@ -193,7 +197,7 @@ test("syncPlanFile: reason:canceled items count as resolved → done", async () 
   );
   const r = await syncPlanFile(fp, { wikiRoot: wiki });
   assert.equal(r.status, "done");
-  assert.ok(r.moved.to.includes("done/"));
+  assert.ok(fwd(r.moved.to).includes("done/"));
 });
 
 test("syncPlanFile: reason:deferred items do NOT count as resolved", async () => {
@@ -312,6 +316,6 @@ test("syncAllPlans: sweeps every .plan.md and returns per-file results", async (
   const results = await syncAllPlans(wiki);
   assert.equal(results.length, 2);
   // DEV-100008 had one step and it's checked → done; move happens.
-  const done = results.find((r) => r.moved && r.moved.to.includes("done/"));
+  const done = results.find((r) => r.moved && fwd(r.moved.to).includes("done/"));
   assert.ok(done, "one plan must have moved to done/");
 });

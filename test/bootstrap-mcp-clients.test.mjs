@@ -54,5 +54,5 @@ test("every client target is under the given home (no absolute machine leak)", (
 });
 
 test("claudeUserSettings is the user-scope hooks file", () => {
-  assert.equal(claudeUserSettings("/home/u"), "/home/u/.claude/settings.json");
+  assert.equal(claudeUserSettings("/home/u"), path.join("/home/u", ".claude", "settings.json"));
 });
