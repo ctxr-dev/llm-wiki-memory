@@ -47,7 +47,9 @@ git clone https://github.com/ctxr-dev/llm-wiki-memory ./.llm-wiki-memory/src
 ./.llm-wiki-memory/src/bootstrap.ps1 -Schedule hourly  # optional: hourly Task Scheduler job
 ```
 
-> **Windows prerequisite:** [Git for Windows](https://git-scm.com/downloads/win). You already need it to `git clone`, and Claude Code runs the lifecycle hooks (and the git embedding-refresh hooks) through its bundled Git Bash — so capture/recall and index-warming work out of the box.
+> **Windows prerequisites:**
+> - [Git for Windows](https://git-scm.com/downloads/win). You already need it to `git clone`, and Claude Code runs the lifecycle hooks (and the git embedding-refresh hooks) through its bundled Git Bash — so capture/recall and index-warming work out of the box.
+> - **LLM provider:** on Windows, set an API key (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) or a base URL (e.g. a local Ollama) — these are fetch-based and fully supported. The subscription-auth CLI providers (`claude` / `codex` / `cursor-agent`) are **not** used on Windows (they are npm `.cmd` shims that can't be spawned with the distillation prompt), so bootstrap won't auto-select them there.
 
 The bootstrap is **idempotent** — re-running preserves your edits to `.env` and your rule files.
 

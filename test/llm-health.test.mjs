@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { test as winTest } from "./windows-only.mjs";
 import assert from "node:assert/strict";
 import { isLocalEndpoint, health } from "../scripts/lib/llm.mjs";
 
@@ -216,3 +217,15 @@ test("health: codex provider reason mentions CLI (availability depends on host P
   assert.equal(h.provider, "codex");
   assert.ok(/CLI/.test(h.reason), `expected reason to mention "CLI", got: ${h.reason}`);
 });
+
+winTest(
+  "health: on Windows a CLI provider reports UNAVAILABLE (a .cmd shim can't be spawned)",
+  async (t) => {
+    clearLlmEnv();
+    t.after(clearLlmEnv);
+    process.env.MEMORY_LLM_PROVIDER = "claude";
+    const h = await health();
+    assert.equal(h.available, false, "claude reported unavailable on Windows regardless of PATH");
+    assert.match(h.reason, /Windows/, "reason steers to an API key / base URL");
+  },
+);

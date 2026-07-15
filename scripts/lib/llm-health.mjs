@@ -43,6 +43,13 @@ export async function health() {
     }
   }
   const memModel = envValue("MEMORY_LLM_MODEL", "");
+  // The claude/codex/cursor CLIs are npm .cmd shims; Windows can't spawn them
+  // with the untrusted distillation prompt as an argv arg (post-CVE .cmd spawn
+  // needs a shell that mis-quotes it), so report them unavailable there rather
+  // than claim a provider that would silently fall through to deterministic-only.
+  const cliWin = process.platform === "win32";
+  const cliWinReason =
+    "CLI subscription-auth providers are unavailable on Windows; set an API key or base URL";
   switch (provider) {
     case "mock":
       return {
@@ -53,27 +60,31 @@ export async function health() {
         reason: "mock provider; needs MEMORY_LLM_MOCK_RESPONSE or MEMORY_LLM_MOCK_FILE",
       };
     case "claude": {
-      const ok = await isCmdAvailable("claude");
+      const ok = !cliWin && (await isCmdAvailable("claude"));
       return {
         provider,
         available: ok,
-        reason: ok ? "claude CLI on PATH" : "claude CLI not on PATH",
+        reason: ok ? "claude CLI on PATH" : cliWin ? cliWinReason : "claude CLI not on PATH",
       };
     }
     case "codex": {
-      const ok = await isCmdAvailable("codex");
+      const ok = !cliWin && (await isCmdAvailable("codex"));
       return {
         provider,
         available: ok,
-        reason: ok ? "codex CLI on PATH" : "codex CLI not on PATH",
+        reason: ok ? "codex CLI on PATH" : cliWin ? cliWinReason : "codex CLI not on PATH",
       };
     }
     case "cursor": {
-      const ok = await isCmdAvailable("cursor-agent");
+      const ok = !cliWin && (await isCmdAvailable("cursor-agent"));
       return {
         provider,
         available: ok,
-        reason: ok ? "cursor-agent CLI on PATH" : "cursor-agent CLI not on PATH",
+        reason: ok
+          ? "cursor-agent CLI on PATH"
+          : cliWin
+            ? cliWinReason
+            : "cursor-agent CLI not on PATH",
       };
     }
     case "anthropic": {

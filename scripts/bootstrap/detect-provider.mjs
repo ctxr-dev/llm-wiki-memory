@@ -10,13 +10,24 @@ import { pathToFileURL } from "node:url";
 /** @typedef {{ provider: string, baseUrlHint: string }} Detection */
 
 /**
- * @param {{ explicit?: string, env?: Record<string, string | undefined>, hasCommand: (c: string) => boolean, probeOllama: () => boolean }} args
+ * @param {{ explicit?: string, env?: Record<string, string | undefined>, hasCommand: (c: string) => boolean, probeOllama: () => boolean, platform?: NodeJS.Platform }} args
  * @returns {Detection}
  */
-export function detectProvider({ explicit, env = {}, hasCommand, probeOllama }) {
+export function detectProvider({
+  explicit,
+  env = {},
+  hasCommand,
+  probeOllama,
+  platform = process.platform,
+}) {
   if (explicit) return { provider: explicit, baseUrlHint: "" };
-  if (hasCommand("claude")) return { provider: "claude", baseUrlHint: "" };
-  if (hasCommand("codex")) return { provider: "codex", baseUrlHint: "" };
+  // The claude/codex CLIs are npm .cmd shims on Windows; Node can't spawn them
+  // with the untrusted distillation prompt as an argv arg (post-CVE .cmd spawn
+  // needs a shell that mis-quotes it), so don't auto-select them there — Windows
+  // uses an API key / base URL (fetch, no spawn). macOS/Linux keep the CLIs.
+  const cliOk = platform !== "win32";
+  if (cliOk && hasCommand("claude")) return { provider: "claude", baseUrlHint: "" };
+  if (cliOk && hasCommand("codex")) return { provider: "codex", baseUrlHint: "" };
   if (env.ANTHROPIC_API_KEY) return { provider: "anthropic", baseUrlHint: "" };
   if (env.OPENAI_API_KEY) return { provider: "openai", baseUrlHint: "" };
   if (env.MEMORY_LLM_BASE_URL) return { provider: "openai-compatible", baseUrlHint: "" };

@@ -60,6 +60,31 @@ test("priority order: a CLI beats an env key, an env key beats the ollama probe"
   );
 });
 
+test("win32 does NOT auto-select the claude/codex CLI (.cmd shims can't be spawned there) — steers to API/mock", () => {
+  const cliPresent = () => true;
+  // claude present but on win32 → skip the CLIs → fall through to API-key/mock.
+  assert.equal(
+    detectProvider({ hasCommand: cliPresent, probeOllama: none, platform: "win32" }).provider,
+    "mock",
+    "no API key + win32 + CLI present → mock, not claude",
+  );
+  assert.equal(
+    detectProvider({
+      env: { ANTHROPIC_API_KEY: "x" },
+      hasCommand: cliPresent,
+      probeOllama: none,
+      platform: "win32",
+    }).provider,
+    "anthropic",
+    "win32 prefers the fetch-based API key over the un-spawnable CLI",
+  );
+  // Same inputs on linux DO select the CLI (contrast).
+  assert.equal(
+    detectProvider({ hasCommand: cliPresent, probeOllama: none, platform: "linux" }).provider,
+    "claude",
+  );
+});
+
 test("realHasCommand finds a present binary and misses an absent one (real probe, per-platform)", () => {
   // Runs the platform-appropriate branch: `where` on the windows-latest CI leg
   // (would fail with the old sh-only probe), `sh -c command -v` on POSIX.
