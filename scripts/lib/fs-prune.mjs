@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { withFsRetry } from "./fs-retry.mjs";
 
 // Walk UP from `dir`, removing every ancestor that is empty or holds only an
 // auto-generated index.md, stopping at (and never removing) `wikiRoot`. Used
@@ -38,13 +39,13 @@ export function pruneEmptyAncestors(dir, wikiRoot) {
     if (meaningful.length > 0) break;
     if (entries.length === 1 && entries[0].name === "index.md") {
       try {
-        fs.unlinkSync(path.join(cur, "index.md"));
+        withFsRetry(() => fs.unlinkSync(path.join(cur, "index.md")));
       } catch {
         // best-effort
       }
     }
     try {
-      fs.rmdirSync(cur);
+      withFsRetry(() => fs.rmdirSync(cur));
     } catch {
       break;
     }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { writeFileAtomic, renameWithRetry } from "../scripts/lib/atomic-write.mjs";
+import { writeFileAtomic } from "../scripts/lib/atomic-write.mjs";
 
 // writeFileAtomic is the crash-safety backbone: every durable write the
 // system reads back (wiki leaves, settings.yaml, .env, the failed-distill
@@ -150,37 +150,4 @@ test("on a mid-write failure, the original file is left intact and no temp linge
   // Old content preserved; the failed temp was cleaned up.
   assert.equal(fs.readFileSync(target, "utf8"), "ORIGINAL");
   assert.deepEqual(fs.readdirSync(dir), ["keep.txt"], "no leftover temp after failure");
-});
-
-test("renameWithRetry: retries a transient EPERM/EACCES/EBUSY then succeeds (Windows lock)", () => {
-  let calls = 0;
-  renameWithRetry("a", "b", () => {
-    calls++;
-    if (calls < 3) throw Object.assign(new Error("locked"), { code: "EBUSY" });
-  });
-  assert.equal(calls, 3, "retried twice, landed on the third attempt");
-});
-
-test("renameWithRetry: a non-transient error is rethrown immediately (no retry)", () => {
-  let calls = 0;
-  assert.throws(
-    () =>
-      renameWithRetry("a", "b", () => {
-        calls++;
-        throw Object.assign(new Error("gone"), { code: "ENOENT" });
-      }),
-    /gone/,
-  );
-  assert.equal(calls, 1, "ENOENT is not a lock — thrown on the first attempt");
-});
-
-test("renameWithRetry: gives up after the bounded attempts (persistent lock)", () => {
-  let calls = 0;
-  assert.throws(() =>
-    renameWithRetry("a", "b", () => {
-      calls++;
-      throw Object.assign(new Error("stuck"), { code: "EPERM" });
-    }),
-  );
-  assert.equal(calls, 11, "attempt 0 + 10 retries, then rethrows");
 });

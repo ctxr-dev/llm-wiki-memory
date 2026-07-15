@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { writeFileAtomic } from "./atomic-write.mjs";
+import { withFsRetry } from "./fs-retry.mjs";
 import { ensureIndexes, indexRebuildOne } from "./wiki-cli.mjs";
 import { pruneEmptyAncestors } from "./fs-prune.mjs";
 import { recordWikiChange } from "./wiki-commit.mjs";
@@ -127,7 +128,7 @@ export function updateDocMetadata({
     }
     fs.mkdirSync(path.dirname(newAbs), { recursive: true });
     writeFileAtomic(newAbs, rendered);
-    fs.rmSync(abs, { force: true });
+    withFsRetry(() => fs.rmSync(abs, { force: true }));
     renameEmbedding(/** @type {string} */ (documentId), newRel);
     ensureIndexes(root(), [abs, newAbs]); // drop the entry from old ancestors, add to new
     // Remove any source ancestor dir left holding only an orphaned index.md,
@@ -237,7 +238,7 @@ export function moveDocument({ documentId, fromPath, toPath, datasetId: _dataset
   const raw = fs.readFileSync(fromAbs, "utf8");
   fs.mkdirSync(path.dirname(toAbsPath), { recursive: true });
   writeFileAtomic(toAbsPath, raw); // verbatim — moving must not re-render content
-  fs.rmSync(fromAbs);
+  withFsRetry(() => fs.rmSync(fromAbs));
   const toRelPath = toRel(toAbsPath);
   renameEmbedding(fromRel, toRelPath); // content unchanged -> keep the cached vector
   ensureIndexes(root(), [fromAbs, toAbsPath]); // refresh both source + destination ancestors

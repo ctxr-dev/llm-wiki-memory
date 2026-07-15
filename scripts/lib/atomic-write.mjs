@@ -1,23 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-
-const RENAME_RETRY_CODES = new Set(["EPERM", "EACCES", "EBUSY", "EEXIST"]);
-
-// Windows transiently fails a rename-over-existing while AV / indexer / a reader
-// holds a handle; a valid POSIX rename never hits these codes.
-/** @param {string} tmp @param {string} dest @param {(a: string, b: string) => void} [rename] @returns {void} */
-export function renameWithRetry(tmp, dest, rename = fs.renameSync) {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return rename(tmp, dest);
-    } catch (err) {
-      const code = /** @type {{ code?: string }} */ (err)?.code;
-      if (attempt >= 10 || !code || !RENAME_RETRY_CODES.has(code)) throw err;
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5 * (attempt + 1));
-    }
-  }
-}
+import { renameWithRetry } from "./fs-retry.mjs";
 
 // Crash-safe file write: write to a sibling temp file, fsync it, then
 // rename onto the final path. A POSIX rename within the same directory is

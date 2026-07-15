@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { writeFileAtomic } from "./atomic-write.mjs";
+import { withFsRetry } from "./fs-retry.mjs";
 import { ensureIndexes, indexRebuildOne } from "./wiki-cli.mjs";
 import { pruneEmptyAncestors } from "./fs-prune.mjs";
 import { recordWikiChange, withWikiCommit } from "./wiki-commit.mjs";
@@ -229,7 +230,7 @@ export function saveDocument({ name, text, datasetId, metadata, placementOverrid
 
   const touched = [leafAbs];
   if (moved) {
-    fs.rmSync(/** @type {string} */ (existing)); // relocate: drop the stale-facet copy after the new one is written
+    withFsRetry(() => fs.rmSync(/** @type {string} */ (existing)));
     renameEmbedding(toRel(/** @type {string} */ (existing)), toRel(leafAbs));
     touched.push(/** @type {string} */ (existing));
   }
