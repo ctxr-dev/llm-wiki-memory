@@ -34,10 +34,11 @@ PowerShell form (`--commit-memory` → `-CommitMemory`, `--template repo` →
    global snippet to paste. Done — skip step 3.
 
    Two fresh-install choices you may need to make (see the sections at the end):
-   - **Layout template.** A plain install uses the `default` layout (the private
-     per-developer brain). If the user wants a SHARED, repo-committed brain
-     instead, install with `--template repo --commit-memory`. If you are unsure
-     which they want, ASK once; otherwise take the `default`.
+   - **Layout template.** The fresh install is always the private per-developer
+     brain (`default` layout) — install that. A SHARED, repo-committed team wiki
+     is NOT a fresh-install flag: it is a per-repo mount added afterward with the
+     one home engine's `mount-init` (no engine clone in the repo). See "Per-repo
+     shared memory" below.
    - **Install location.** The private brain normally lives in the user's home
      directory, not in a project. Moving the engine home is a user-manual
      one-time step (Phase A) — do NOT relocate it yourself; install into
@@ -105,37 +106,46 @@ PowerShell form (`--commit-memory` → `-CommitMemory`, `--template repo` →
 
 ## Per-repo shared memory (opt-in)
 
-A project can carry its OWN shared brain — a single `knowledge` category checked
-into the repo so teammates who clone it inherit the knowledge — separate from
-each developer's private brain. This is the `repo` layout template.
+A project can carry its OWN shared brain — a single `knowledge` category committed
+into the repo so teammates who clone it inherit the knowledge — separate from each
+developer's private brain (the `repo` layout).
 
-- **Detect an already-shared repo first.** Before offering to set one up, check
-  whether the repo already has a committed shared brain:
+**The engine is NEVER cloned into the project.** There is one engine clone, the
+private brain at `~/.llm-wiki-memory/src`. Set up OR adopt a shared wiki with that
+global engine's `mount-init` — one idempotent command, run from inside the repo:
+
+```bash
+node ~/.llm-wiki-memory/src/scripts/mount-init.mjs "$PWD"
+```
+
+- **Detect an already-shared repo first.** Before offering to set one up, check:
   `test -f .llm-wiki-memory/wiki/.layout/layout.yaml && git ls-files --error-unmatch .llm-wiki-memory/wiki/.layout/layout.yaml`.
   If that layout.yaml is tracked AND declares `ownership: repo`, the repo is
-  already shared — OFFER to ADOPT it (the MCP server + Claude Code hooks are
-  registered GLOBALLY in your home config by bootstrap, never per-repo — so
-  adopting only wires the mount git surfaces with
-  `node .llm-wiki-memory/src/scripts/mount-init.mjs "$PWD"`), do NOT re-seed it.
-- **Otherwise, per-repo opt-in.** Ask whether this repo's memory should be
-  PERSONAL (private, gitignored — the `default` layout) or SHARED (committed —
-  the `repo` layout). For SHARED, install with
-  `./.llm-wiki-memory/src/bootstrap.sh --template repo --commit-memory`; bootstrap
-  materialises the `repo` layout and `mount-init.mjs` wires the mount (a negated
-  `.gitignore` tracking only `knowledge/`, a private personal git repo, and a
-  chained sync-embeddings hook). The user commits the shared category; the
-  engine never commits it for them. A shared repo carries ZERO
-  machine-dependent files — no per-repo client configs and no `~/…` @-pointer
-  files: it carries only the wiki data + yaml (`wiki/**`, `layout.yaml`,
-  `layout.local.yaml`) + the mount `.gitignore`, PLUS exactly ONE
-  machine-independent remote-read block in `AGENTS.md`/`CLAUDE.md` pointing at
-  the discipline on
-  `https://raw.githubusercontent.com/ctxr-dev/llm-wiki-memory/main/templates/agents-memory-instructions.md`.
-  The MCP server + hooks live in each developer's home config, so a teammate who
-  clones just installs the engine globally and picks up the discipline from that
-  remote-read block. (The PRIVATE brain install is unchanged — it still wires
-  local `@~/.llm-wiki-memory/src/…` pointers into `.agents/rules`/`.claude/skills`/
-  `.claude/rules`/`.cursor/rules`.)
+  already shared — run the `mount-init` above to ADOPT it (it wires the sync
+  hooks + the gitignored derived caches rebuild locally; it never re-seeds or
+  touches the committed leaves).
+- **Otherwise, opt-in.** Ask whether this repo's memory should be PERSONAL
+  (private, gitignored — the `default` layout) or SHARED (committed — the `repo`
+  layout). For SHARED, run the same `mount-init`: on a repo with no wiki yet it
+  SEEDS the `repo` layout (a negated `.gitignore` tracking only `knowledge/`, a
+  private personal git repo, three sync-embeddings hooks) and writes the remote-read
+  block. The user commits the shared category; the engine never commits it.
+
+A shared repo carries ZERO machine-dependent files — **no engine clone**, no
+per-repo client config, no `~/…` @-pointer files: only the wiki data + yaml
+(`wiki/**`, `layout.yaml`, `layout.local.yaml`) + the mount `.gitignore`, PLUS
+exactly ONE machine-independent remote-read block in `AGENTS.md`/`CLAUDE.md`
+pointing at the discipline on
+`https://raw.githubusercontent.com/ctxr-dev/llm-wiki-memory/main/templates/agents-memory-instructions.md`.
+The MCP server + hooks live in each developer's home config (from `bootstrap.sh`),
+so a teammate who clones installs the engine globally once, runs the `mount-init`
+above, and picks up the discipline from that committed remote-read block. (The
+PRIVATE brain install is unchanged — it wires local `@~/.llm-wiki-memory/src/…`
+pointers into `.agents/rules`/`.claude/skills`/`.claude/rules`/`.cursor/rules`.)
+
+> **Legacy:** `./.llm-wiki-memory/src/bootstrap.sh --template repo --commit-memory`
+> still works but requires an engine clone inside the repo — prefer the no-clone
+> `mount-init` above, run from the one home engine.
 
 ## Uninstall
 

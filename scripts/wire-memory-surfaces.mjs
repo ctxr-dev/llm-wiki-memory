@@ -166,7 +166,7 @@ function wireRemoteInclude(file) {
  * machine-independent remote-read block into AGENTS.md/CLAUDE.md.
  * @param {string} workspaceDir @returns {{ surfaces: number, artifacts: number }}
  */
-function wireSharedRepo(workspaceDir) {
+export function wireSharedRepo(workspaceDir) {
   for (const surface of RULE_SURFACES) {
     const dir = path.join(workspaceDir, surface);
     if (!fs.existsSync(dir)) continue;

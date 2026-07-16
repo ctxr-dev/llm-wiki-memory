@@ -104,13 +104,13 @@ detect — each prints a global snippet to paste:
 <details>
 <summary><strong>Install as a shared team wiki</strong></summary>
 
-From inside the repo you want the team to share:
+The engine stays a single clone in `$HOME` — it is **never** cloned into the project. From inside the repo you want the team to share, run the home engine's `mount-init`:
 
 ```bash
-./.llm-wiki-memory/src/bootstrap.sh --template repo --commit-memory
+node ~/.llm-wiki-memory/src/scripts/mount-init.mjs "$PWD"
 ```
 
-This sets up a shared `knowledge/` tree and un-ignores it so **you** commit it into the project (teammates inherit it on clone) — the engine itself never runs git on a shared wiki. It keeps your caches / indexes / personal notes out of git and installs git hooks that warm the shared embeddings on pull. A teammate cloning an already-shared repo adopts it with `node ~/.llm-wiki-memory/src/scripts/mount-init.mjs "$PWD"`. Full guide → [**docs/shared-wikis.md**](docs/shared-wikis.md).
+One idempotent command sets up a fresh shared wiki *or* adopts one on clone: it seeds/adopts a shared `knowledge/` tree, un-ignores it so **you** commit it into the project (teammates inherit it on clone), keeps your caches / indexes / personal notes out of git, installs git hooks that warm the shared embeddings on pull, and writes one machine-independent remote-read block into `AGENTS.md`/`CLAUDE.md`. The engine never runs git on a shared wiki. The repo carries **no engine clone and no machine-dependent config** — MCP + hooks are global (`bootstrap.sh`). Full guide → [**docs/shared-wikis.md**](docs/shared-wikis.md).
 
 </details>
 
@@ -244,7 +244,7 @@ You can also give a **repo its own shared wiki** — a `knowledge` tree **you** 
 
 - **Reads fan out across the whole chain** and merge, ranked so a *comparably-relevant* repo-local note outranks a general one from your brain — one embedding model serves the whole fan-out (no extra memory per level).
 - **Writes pick one destination.** A save targets your **brain** (private — the default choice) or a **specific repo** (shared). A shared write is opt-in: the agent asks first, then only *stages* the note in that repo's working tree — it isn't shared until you commit and push it. The engine **never** runs git on a shared wiki — not on save, recall, install, or uninstall — so your project's git history is only ever changed by you.
-- **Install shared** with `bootstrap.sh --template repo --commit-memory`; a teammate adopts an already-shared repo on clone. A shared wiki is auto-detected on any re-run and stays git-tracked — a bare re-run does **not** revert it to private, and the engine never runs git on it.
+- **Install shared** by running the one home engine's `node ~/.llm-wiki-memory/src/scripts/mount-init.mjs "$PWD"` inside the repo (no engine clone in the project — the same command sets up a fresh shared wiki or adopts one on clone). A shared wiki is auto-detected on any re-run and stays git-tracked — a bare re-run does **not** revert it to private, and the engine never runs git on it.
 
 Full walkthrough — install, adoption, the scope chain, the ranking rules (confidence + locality + priority), upgrade/uninstall, and the team caveats → [**docs/shared-wikis.md**](docs/shared-wikis.md).
 

@@ -225,3 +225,59 @@ test("initMount surfaces (non-fatally) a host-ignored mount", () => {
   assert.equal(host.ok, false);
   assert.match(String(host.message), /git-ignored by the enclosing repo/);
 });
+
+test("initMount(wireRemote): fresh shared setup — remote-read block, NO engine clone, NO ~/ pointers", () => {
+  const m = mount("mi-shared-setup");
+  spawnSync("git", ["-C", m, "init", "-q"], { encoding: "utf8" });
+  // a stray private-style @-pointer, to prove the shared setup strips it
+  const rulesDir = path.join(m, ".claude", "rules");
+  fs.mkdirSync(rulesDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(rulesDir, "llm-wiki-memory-self-improvement.md"),
+    "@~/.llm-wiki-memory/src/templates/skills/self-improvement.md\n\nIf your client does not resolve the @-include above, read the canonical file at:\n~/.llm-wiki-memory/src/templates/skills/self-improvement.md\n",
+  );
+  const res = initMount(m, { wireRemote: true });
+  assert.equal(res.seeded, "repo", "fresh mount seeds the repo template (no pre-existing layout)");
+  assert.ok(res.remoteInclude, "the shared remote-read block was wired");
+  for (const doc of ["CLAUDE.md", "AGENTS.md"]) {
+    const body = fs.readFileSync(path.join(m, doc), "utf8");
+    assert.match(
+      body,
+      /raw\.githubusercontent\.com\/ctxr-dev\/llm-wiki-memory\/main\//,
+      `${doc} carries the machine-independent remote-read block`,
+    );
+    assert.ok(!body.includes("~/"), `${doc} carries no ~/ machine path`);
+  }
+  assert.ok(
+    !fs.existsSync(path.join(m, ".llm-wiki-memory", "src")),
+    "the engine is NEVER cloned into the shared repo",
+  );
+  assert.ok(
+    !fs.existsSync(path.join(rulesDir, "llm-wiki-memory-self-improvement.md")),
+    "a stray private-style @-pointer is stripped from the shared repo",
+  );
+});
+
+test("initMount default (no wireRemote): NO remote block — programmatic/bootstrap contract unchanged", () => {
+  const m = mount("mi-noremote");
+  spawnSync("git", ["-C", m, "init", "-q"], { encoding: "utf8" });
+  const res = initMount(m);
+  assert.ok(res.gitignore, "git surfaces still provisioned");
+  assert.equal(res.remoteInclude, undefined, "no remote block unless wireRemote is set");
+  assert.ok(!fs.existsSync(path.join(m, "CLAUDE.md")), "no CLAUDE.md written by default");
+});
+
+test("initMount(wireRemote) is idempotent — a re-run / teammate adopt keeps exactly one block", () => {
+  const m = mount("mi-idem-remote");
+  spawnSync("git", ["-C", m, "init", "-q"], { encoding: "utf8" });
+  initMount(m, { wireRemote: true });
+  const a = fs.readFileSync(path.join(m, "CLAUDE.md"), "utf8");
+  initMount(m, { wireRemote: true });
+  const b = fs.readFileSync(path.join(m, "CLAUDE.md"), "utf8");
+  assert.equal(a, b, "byte-stable re-run");
+  assert.equal(
+    (b.match(/BEGIN llm-wiki-memory/g) || []).length,
+    1,
+    "exactly one remote-read block",
+  );
+});
