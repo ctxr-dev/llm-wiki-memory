@@ -76,7 +76,14 @@ while [[ $# -gt 0 ]]; do
     --disable-self-observability) SELF_OBS="off"; REEXEC_ARGS+=("$1"); shift ;;
     --upgrade) UPGRADE=1; shift ;;
     --migrate) MIGRATE=1; REEXEC_ARGS+=("$1"); shift ;;
-    *) echo "unknown arg: $1" >&2; exit 1 ;;
+    --help | -h)
+      echo "bootstrap.sh — install / upgrade llm-wiki-memory (global MCP + hooks, hosted wiki, config)."
+      echo "Usage: ./.llm-wiki-memory/src/bootstrap.sh [--commit-memory] [--template <name>] [--provider <p>] [--schedule hourly|off] [--enable-self-observability|--disable-self-observability] [--upgrade] [--migrate] [--uninstall]"
+      echo "Shared team wiki? Do NOT clone the engine into the repo — from your install's src dir run: node scripts/mount-init.mjs <repo>"
+      echo "Docs (any OS, via WebFetch): https://raw.githubusercontent.com/ctxr-dev/llm-wiki-memory/main/ — README.md · AI-INSTALL-PROMPT.md · docs/shared-wikis.md"
+      exit 0
+      ;;
+    *) echo "unknown arg: $1 (see --help)" >&2; exit 1 ;;
   esac
 done
 

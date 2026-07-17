@@ -14,6 +14,7 @@ import {
   flatLeaves,
   seedContractIfAbsent,
 } from "./migrate-nest-helpers.mjs";
+import { helpGuard, formatHelp, docsUrl } from "./lib/cli-args.mjs";
 
 // One-shot, idempotent migration: move FLAT leaves (files sitting directly in a
 // category root) into the nested layout the writer now produces. For facet
@@ -212,6 +213,14 @@ const invokedAsCli = (() => {
 })();
 
 if (invokedAsCli) {
+  const HELP = formatHelp({
+    name: "migrate-nest",
+    summary:
+      "one-shot relocation of flat leaves sitting at a category root into the nested (facet/date/topology) layout the writer now produces",
+    usage: "node scripts/migrate-nest.mjs [--dry-run | --check]",
+    docs: docsUrl("AI-INSTALL-PROMPT.md"),
+  });
+  helpGuard(process.argv.slice(2), HELP);
   const res = await migrateNest({
     dryRun: process.argv.includes("--dry-run"),
     check: process.argv.includes("--check"),

@@ -2,6 +2,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { pathToFileURL } from "node:url";
+import { helpGuard, formatHelp, docsUrl } from "../lib/cli-args.mjs";
 
 // Pure string builders for the scheduled cron-job (the launchd plist, the crontab
 // wrapper, the cron line, the idempotency filter). The OS calls (cksum, launchctl,
@@ -135,6 +136,15 @@ export function filterCrontab(text, tag, addLine) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  const HELP = formatHelp({
+    name: "render-schedule",
+    summary:
+      "emit the launchd/cron/Task-Scheduler artifacts for the hourly maintenance job (pure string builders)",
+    usage:
+      "node scripts/bootstrap/render-schedule.mjs <plist|wrapper|cron-line|filter-crontab|ids|win-ids|cmd-wrapper> ...",
+    docs: docsUrl("AI-INSTALL-PROMPT.md"),
+  });
+  helpGuard(process.argv.slice(2), HELP);
   const [cmd, ...rest] = process.argv.slice(2);
   const out = (/** @type {string} */ s) => process.stdout.write(s);
   if (cmd === "plist") {

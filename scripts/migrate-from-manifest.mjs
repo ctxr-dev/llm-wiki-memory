@@ -1,27 +1,16 @@
 #!/usr/bin/env node
-// Apply a Phase-D-style migration manifest to the live wiki.
-//
-// Reads a dry-run-manifest.json (the schema produced by the Phase D
-// inventory builder), then for every non-skip entry:
-//   - reads the source file (or, when the source ends with `#<heading>`,
-//     extracts that `## <heading>` H2 section's slice)
-//   - derives metadata (area / atom_type / task_type / issue_key / status)
-//     from the manifest entry + path segments
-//   - calls saveDocument({ ..., placementOverride: <dir> }) — the SAME
-//     function the `save_to_dataset` MCP tool wraps — so sha256, embedding,
-//     index rebuild, and frontmatter normalisation all fire identically
-//     to a normal MCP write.
-//
-// Usage:
-//   node scripts/migrate-from-manifest.mjs <manifest.json> [--dry-run]
-//
-// Exit codes: 0 = all ok, 2 = at least one failure.
+// Apply a Phase-D-style migration manifest to the live wiki: for every non-skip
+// entry it reads the source (or a `#<heading>` H2 slice), derives metadata from
+// the entry + path segments, and calls saveDocument with a placementOverride —
+// the SAME path save_to_dataset wraps, so sha256/embedding/index/frontmatter all
+// fire identically to a normal MCP write. Exit 0 = all ok, 2 = a failure.
 
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import matter from "gray-matter";
 import { saveDocument, normalizeLeafNamePreservingCase } from "./lib/wiki-store.mjs";
+import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "./lib/cli-args.mjs";
 
 /** @typedef {import("./lib/types.mjs").WriteResult} WriteResult */
 
@@ -293,5 +282,14 @@ async function main() {
 }
 
 if (import.meta.url === pathToFileURL(path.resolve(process.argv[1] || "")).href) {
+  const args = process.argv.slice(2);
+  const HELP = formatHelp({
+    name: "migrate-from-manifest",
+    summary: "one-shot legacy migration of leaves recorded in an old manifest into the wiki",
+    usage: "node scripts/migrate-from-manifest.mjs <manifest.json> [--dry-run]",
+    docs: docsUrl("AI-INSTALL-PROMPT.md"),
+  });
+  helpGuard(args, HELP);
+  refuseFlagAsPath(args[0], HELP);
   await main();
 }

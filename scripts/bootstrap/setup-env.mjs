@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { writeFileAtomic } from "../lib/atomic-write.mjs";
+import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "../lib/cli-args.mjs";
 
 // Write the settings/.env on a FRESH install (one JS path — no BSD/GNU `sed`
 // fork). CREATE-ONLY: an existing .env is NEVER modified (env.mjs's
@@ -47,6 +48,16 @@ export function writeEnvFile({ dataDir, templatePath, provider, baseUrlHint }) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  const args = process.argv.slice(2);
+  const HELP = formatHelp({
+    name: "setup-env",
+    summary:
+      "create settings/.env (provider + optional base URL) — create-only, never rewrites an existing .env",
+    usage: "node scripts/bootstrap/setup-env.mjs <dataDir> <templatePath> <provider> [baseUrlHint]",
+    docs: docsUrl("AI-INSTALL-PROMPT.md"),
+  });
+  helpGuard(args, HELP);
+  refuseFlagAsPath(args[0], HELP);
   const [dataDir, templatePath, provider, baseUrlHint] = process.argv.slice(2);
   if (!dataDir || !templatePath || !provider) {
     console.error("usage: setup-env.mjs <dataDir> <templatePath> <provider> [baseUrlHint]");

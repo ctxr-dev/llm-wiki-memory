@@ -11,6 +11,7 @@ import {
   SERVER_NAME,
   SERVER_INDEX_REL,
 } from "./mcp-clients.mjs";
+import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "../lib/cli-args.mjs";
 
 // Register the MCP server + Claude Code hooks into the user's HOME (global),
 // never per repo. A client whose config dir doesn't exist is skipped (it isn't
@@ -93,6 +94,16 @@ function mergeGlobalJson(file, incoming, topKey) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  const args = process.argv.slice(2);
+  const HELP = formatHelp({
+    name: "register-global",
+    summary:
+      "register the MCP server + Claude Code hooks GLOBALLY in the home config for every detected client (preserves a wrapped command)",
+    usage: "node scripts/bootstrap/register-global.mjs [home]  (defaults to $HOME)",
+    docs: docsUrl("AI-INSTALL-PROMPT.md"),
+  });
+  helpGuard(args, HELP);
+  refuseFlagAsPath(args[0], HELP);
   const home = process.argv[2] || process.env.HOME || "";
   if (!home) {
     console.error("usage: register-global.mjs <home>");

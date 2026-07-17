@@ -4,6 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { writeFileAtomic } from "../lib/atomic-write.mjs";
 import { SERVER_NAME, SERVER_INDEX_REL, codexTomlBlock } from "./mcp-clients.mjs";
+import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "../lib/cli-args.mjs";
 
 // Upsert our `[mcp_servers.<name>]` table into ~/.codex/config.toml, preserving
 // every other table and a user-customized (mandated-wrapper) command. The block
@@ -64,6 +65,16 @@ export function mergeCodexToml(file, indexArg = SERVER_INDEX_REL) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  const args = process.argv.slice(2);
+  const HELP = formatHelp({
+    name: "merge-codex-toml",
+    summary:
+      "merge the llm-wiki-memory server into a Codex config.toml (idempotent, preserves a wrapped command)",
+    usage: "node scripts/bootstrap/merge-codex-toml.mjs <configFile> <indexArg>",
+    docs: docsUrl("AI-INSTALL-PROMPT.md"),
+  });
+  helpGuard(args, HELP);
+  refuseFlagAsPath(args[0], HELP);
   const [file, indexArg] = process.argv.slice(2);
   if (!file) {
     console.error("usage: merge-codex-toml.mjs <config.toml> [indexArg]");

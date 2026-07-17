@@ -11,6 +11,7 @@ import {
 } from "../lib/uninstall-configs.mjs";
 import { mcpClients } from "./mcp-clients.mjs";
 import { samePath } from "../lib/path-equal.mjs";
+import { helpGuard, formatHelp, docsUrl } from "../lib/cli-args.mjs";
 
 // Global-only teardown + migration, the inverse of register-global. Every step
 // is entry/key-scoped (never a blind delete of a user config) and idempotent.
@@ -56,6 +57,14 @@ export function removeStalePerRepo({ workspace, home }) {
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
   const args = process.argv.slice(2);
+  const HELP = formatHelp({
+    name: "unregister-global",
+    summary:
+      "strip the global MCP/hooks registration; with --migrate, also remove a pre-global install's stale per-repo copies",
+    usage: "node scripts/bootstrap/unregister-global.mjs [--migrate <workspace> <home>] | [home]",
+    docs: docsUrl("AI-INSTALL-PROMPT.md"),
+  });
+  helpGuard(args, HELP);
   if (args[0] === "--migrate") {
     const [, workspace, home] = args;
     if (!workspace || !home) {

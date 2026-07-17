@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { initMount } from "../scripts/mount-init.mjs";
 import { MARKER_START, HOOK_EVENTS } from "../scripts/lib/mount-git.mjs";
 import { removeSyncHookBlocks } from "../scripts/lib/uninstall.mjs";
@@ -280,4 +281,31 @@ test("initMount(wireRemote) is idempotent — a re-run / teammate adopt keeps ex
     1,
     "exactly one remote-read block",
   );
+});
+
+const MOUNT_INIT = fileURLToPath(new URL("../scripts/mount-init.mjs", import.meta.url));
+
+test("mount-init CLI: --help prints real help + exits 0 and creates NO stray ./--help dir", () => {
+  const m = mount("mi-help");
+  const r = spawnSync(process.execPath, [MOUNT_INIT, "--help"], { cwd: m, encoding: "utf8" });
+  assert.equal(r.status, 0, "help exits 0");
+  assert.match(r.stdout, /mount-init —/, "prints the real help block, not a bare refusal");
+  assert.match(r.stdout, /Docs:/, "points at where to read more");
+  assert.ok(
+    !fs.existsSync(path.join(m, "--help")),
+    "no stray ./--help directory (the reported bug)",
+  );
+  assert.ok(
+    !fs.existsSync(path.join(m, ".llm-wiki-memory")),
+    "a --help probe never provisions a mount",
+  );
+});
+
+test("mount-init CLI: a leading-dash flag is never misread as a path — exits 2, no fs mutation", () => {
+  const m = mount("mi-badflag");
+  const r = spawnSync(process.execPath, [MOUNT_INIT, "--bogus"], { cwd: m, encoding: "utf8" });
+  assert.equal(r.status, 2, "unknown flag exits 2");
+  assert.match(r.stderr, /unknown option/, "explains the rejection");
+  assert.ok(!fs.existsSync(path.join(m, "--bogus")), "no stray ./--bogus directory");
+  assert.ok(!fs.existsSync(path.join(m, ".llm-wiki-memory")), "no mount provisioned");
 });

@@ -1,5 +1,5 @@
 // The no-clone shared-mount setup, run FROM the single global engine:
-// `node ~/.llm-wiki-memory/src/scripts/mount-init.mjs <repo>`. The engine is
+// `node scripts/mount-init.mjs <repo>`. The engine is
 // NEVER cloned into a consuming repo — this seeds/adopts the shared wiki + git
 // surfaces (+ the machine-independent remote-read block) in place, all from the
 // one home install. It is the same command for FRESH setup and teammate ADOPT
@@ -23,6 +23,7 @@ import {
   installSyncEmbeddingsHook,
 } from "./lib/mount-git.mjs";
 import { wireSharedRepo } from "./wire-memory-surfaces.mjs";
+import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "./lib/cli-args.mjs";
 
 const MOUNT_DIRNAME = ".llm-wiki-memory";
 // A repo MOUNT is a shared, repo-owned brain, so it seeds the knowledge-only
@@ -80,7 +81,17 @@ export function initMount(mountDir, { template = MOUNT_TEMPLATE, wireRemote = fa
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const res = initMount(process.argv[2] || process.cwd(), { wireRemote: true });
+  const HELP = formatHelp({
+    name: "mount-init",
+    summary:
+      "set up OR adopt a shared llm-wiki-memory team wiki in a repo — run from the one home engine, never clones the engine into the repo; seeds/adopts the wiki + git surfaces + a remote-read block in place (idempotent)",
+    usage: "node scripts/mount-init.mjs [repo-dir]   (defaults to the current directory)",
+    docs: docsUrl("docs/shared-wikis.md"),
+  });
+  const args = process.argv.slice(2);
+  helpGuard(args, HELP);
+  refuseFlagAsPath(args[0], HELP);
+  const res = initMount(args[0] || process.cwd(), { wireRemote: true });
   process.stdout.write(`${JSON.stringify(res, null, 2)}\n`);
   const host = /** @type {{ ok?: boolean, message?: string }} */ (res.hostIgnore);
   if (host && host.ok === false) process.stderr.write(`WARNING: ${host.message}\n`);

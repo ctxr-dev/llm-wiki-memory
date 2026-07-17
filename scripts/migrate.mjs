@@ -8,6 +8,7 @@ import {
   categoryHasTopology,
 } from "./lib/wiki-store.mjs";
 import { indexRebuildAll, validate } from "./lib/wiki-cli.mjs";
+import { helpGuard, formatHelp, docsUrl } from "./lib/cli-args.mjs";
 
 // One-shot upgrade for wikis built before the project_module/area split:
 //   - move each leaf's legacy sub-module `project_module` into `area` and stamp
@@ -130,6 +131,14 @@ const invokedAsCli = (() => {
 })();
 
 if (invokedAsCli) {
+  const HELP = formatHelp({
+    name: "migrate",
+    summary:
+      "one-shot upgrade of pre-split wikis: move each leaf's legacy sub-module into `area`, stamp project_module to the workspace, and regenerate index focuses",
+    usage: "node scripts/migrate.mjs [--dry-run | --check]",
+    docs: docsUrl("AI-INSTALL-PROMPT.md"),
+  });
+  helpGuard(process.argv.slice(2), HELP);
   const res = migrate({
     dryRun: process.argv.includes("--dry-run"),
     check: process.argv.includes("--check"),

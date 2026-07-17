@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { sharedCategories, mergedLayoutForRoot } from "../lib/wiki-ownership.mjs";
+import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "../lib/cli-args.mjs";
 
 // Is the wiki at `wikiDir` a SHARED (team) mount — i.e. its merged layout
 // declares at least one `ownership: repo` category? This is the SAME predicate
@@ -23,5 +24,14 @@ export function isSharedWiki(wikiDir) {
 // bootstrap uses (replacing the old ad-hoc grep, which missed layout.local.yaml
 // and could misfire on malformed YAML; this agrees with gitUsable).
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
-  process.stdout.write(isSharedWiki(process.argv[2] || "") ? "1" : "0");
+  const args = process.argv.slice(2);
+  const HELP = formatHelp({
+    name: "shared-wiki",
+    summary: "print 1 if the wiki at <wikiDir> is a shared (ownership: repo) mount, else 0",
+    usage: "node scripts/bootstrap/shared-wiki.mjs <wikiDir>",
+    docs: docsUrl("docs/shared-wikis.md"),
+  });
+  helpGuard(args, HELP);
+  refuseFlagAsPath(args[0], HELP);
+  process.stdout.write(isSharedWiki(args[0] || "") ? "1" : "0");
 }

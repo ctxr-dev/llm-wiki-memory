@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "../lib/cli-args.mjs";
 
 // Provider auto-detection ladder (first match wins). Pure: probes are injected
 // so every branch is unit-testable; the CLI supplies the real env/command/ollama
@@ -58,6 +59,16 @@ function realProbeOllama() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  const args = process.argv.slice(2);
+  const HELP = formatHelp({
+    name: "detect-provider",
+    summary:
+      "detect the LLM provider (claude/codex CLI, API keys, base URL, ollama, else mock); prints 'provider<TAB>baseUrlHint'",
+    usage: "node scripts/bootstrap/detect-provider.mjs [explicit-provider]",
+    docs: docsUrl("AI-INSTALL-PROMPT.md"),
+  });
+  helpGuard(args, HELP);
+  refuseFlagAsPath(args[0], HELP);
   const explicit = process.argv[2] || "";
   const d = detectProvider({
     explicit,

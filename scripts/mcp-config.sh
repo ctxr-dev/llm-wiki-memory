@@ -81,6 +81,12 @@ emit() {
 }
 
 CLIENT="${1:-all}"
+if [[ "$CLIENT" == "--help" || "$CLIENT" == "-h" ]]; then
+  echo "mcp-config.sh — print a paste-ready GLOBAL MCP config snippet for a client bootstrap didn't auto-detect."
+  echo "Usage: ./.llm-wiki-memory/src/scripts/mcp-config.sh <claude-code|cursor|claude-desktop|codex|generic|all>"
+  echo "Docs (any OS, via WebFetch): https://raw.githubusercontent.com/ctxr-dev/llm-wiki-memory/main/ — README.md · AI-INSTALL-PROMPT.md"
+  exit 0
+fi
 if [[ "$CLIENT" == "all" ]]; then
   for c in claude-code cursor claude-desktop codex generic; do
     emit "$c"; echo

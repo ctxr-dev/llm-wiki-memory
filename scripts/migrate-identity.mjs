@@ -8,6 +8,7 @@ import {
   categoryHasTopology,
 } from "./lib/wiki-store.mjs";
 import { validate } from "./lib/wiki-cli.mjs";
+import { helpGuard, formatHelp, docsUrl } from "./lib/cli-args.mjs";
 
 /** @typedef {import("./lib/types.mjs").MetadataInput} MetadataInput */
 
@@ -119,6 +120,14 @@ const invokedAsCli = (() => {
 })();
 
 if (invokedAsCli) {
+  const HELP = formatHelp({
+    name: "migrate-identity",
+    summary:
+      "one-shot re-stamp of every non-topology leaf's legacy project_module identity to the current workspace id",
+    usage: "node scripts/migrate-identity.mjs [--dry-run | --check]",
+    docs: docsUrl("AI-INSTALL-PROMPT.md"),
+  });
+  helpGuard(process.argv.slice(2), HELP);
   const res = migrateProjectModuleIdentity({
     dryRun: process.argv.includes("--dry-run"),
     check: process.argv.includes("--check"),

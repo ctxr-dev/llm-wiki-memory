@@ -7,8 +7,19 @@
 
 import { pathToFileURL } from "node:url";
 import { uninstall } from "./lib/uninstall.mjs";
+import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "./lib/cli-args.mjs";
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const args = process.argv.slice(2);
+  const HELP = formatHelp({
+    name: "uninstall",
+    summary:
+      "reverse the machine-managed install surfaces (global MCP entry, hooks, marker blocks) for a workspace — never deletes memory data",
+    usage: "node scripts/uninstall.mjs <workspaceDir> [repoDir...]",
+    docs: docsUrl("docs/shared-wikis.md"),
+  });
+  helpGuard(args, HELP);
+  refuseFlagAsPath(args[0], HELP);
   const [workspaceDir, ...repoDirs] = process.argv.slice(2);
   if (!workspaceDir) {
     process.stderr.write("usage: uninstall.mjs <workspaceDir> [repoDir ...]\n");

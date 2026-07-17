@@ -17,6 +17,7 @@ import { withFsRetry } from "./lib/fs-retry.mjs";
 import { stripManagedBlocks } from "./lib/marker-block.mjs";
 import { isOurPointer } from "./lib/pointer-file.mjs";
 import { isSharedWiki } from "./bootstrap/shared-wiki.mjs";
+import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "./lib/cli-args.mjs";
 
 const INSTRUCTIONS_REL = "templates/agents-memory-instructions.md";
 const SELF_OBS = "self-observability.md";
@@ -244,6 +245,16 @@ const invokedAsCli = (() => {
 })();
 
 if (invokedAsCli) {
+  const args = process.argv.slice(2);
+  const HELP = formatHelp({
+    name: "wire-memory-surfaces",
+    summary:
+      "wire an install's rule/skill @-pointers + AGENTS/CLAUDE include (private brain) or the remote-read block (shared repo)",
+    usage: "node scripts/wire-memory-surfaces.mjs <srcDir> <workspaceDir> <home> [selfObs]",
+    docs: docsUrl("AI-INSTALL-PROMPT.md"),
+  });
+  helpGuard(args, HELP);
+  refuseFlagAsPath(args[0], HELP);
   const [srcDir, workspaceDir, home, selfObs] = process.argv.slice(2);
   if (!srcDir || !workspaceDir || !home) {
     console.error("usage: wire-memory-surfaces.mjs <srcDir> <workspaceDir> <home> [selfObs:0|1]");

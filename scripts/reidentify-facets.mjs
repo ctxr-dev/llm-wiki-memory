@@ -6,6 +6,7 @@ import { wikiRoot } from "./lib/env.mjs";
 import { getCategories, categoryHasTopology, updateDocMetadata } from "./lib/wiki-store.mjs";
 import { ensureIndexes, validate } from "./lib/wiki-cli.mjs";
 import { facetIssues, classifyFacetsLLM } from "./lib/facets.mjs";
+import { helpGuard, formatHelp, docsUrl } from "./lib/cli-args.mjs";
 
 // One-shot, idempotent backfill: re-identify placement facets on leaves whose
 // `area` is unknown/unscoped/the workspace name, or (for knowledge) whose
@@ -242,6 +243,14 @@ const invokedAsCli = (() => {
 })();
 
 if (invokedAsCli) {
+  const HELP = formatHelp({
+    name: "reidentify-facets",
+    summary:
+      "one-shot LLM-backed backfill that re-identifies bad placement facets (area/atom_type) and relocates the offending leaves",
+    usage: "node scripts/reidentify-facets.mjs [--dry-run | --check]",
+    docs: docsUrl("AI-INSTALL-PROMPT.md"),
+  });
+  helpGuard(process.argv.slice(2), HELP);
   const res = await reidentifyFacets({
     dryRun: process.argv.includes("--dry-run"),
     check: process.argv.includes("--check"),
