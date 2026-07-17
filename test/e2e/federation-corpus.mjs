@@ -11,7 +11,7 @@ export const MOCK_DOCS = {
   K1: {
     id: "K1",
     datasetId: "knowledge",
-    metadata: { atom_type: "pattern-gotcha", area: "billing", subject: ["observability", "kamon"] },
+    metadata: { atom_type: "pattern-gotcha", area: "billing", subject: ["architecture", "kamon"] },
     token: "gaugesampler",
     edge: "baseline-nested",
   },
@@ -21,7 +21,7 @@ export const MOCK_DOCS = {
     metadata: {
       atom_type: "reference",
       area: "infra",
-      subject: ["languages", "scala", "cats-effect"],
+      subject: ["data", "scala", "cats-effect"],
     },
     token: "catseffectio",
     edge: "multi-segment-subject",
@@ -92,18 +92,20 @@ const ABSENT = { absentCategory: true };
 /** @type {Record<string, Record<LayoutKind, PlacementOutcome>>} */
 export const EXPECTED_PLACEMENT = {
   K1: {
-    DEF: "knowledge/billing/pattern-gotcha/observability/kamon",
-    REPO: "knowledge/observability/kamon/pattern-gotcha",
-    TRK: "knowledge/billing/pattern-gotcha/observability/kamon",
+    DEF: "knowledge/billing/pattern-gotcha/architecture/kamon",
+    // REPO is subject-ONLY now (no atom_type folder): knowledge/<domain>/<subtopic>.
+    REPO: "knowledge/architecture/kamon",
+    TRK: "knowledge/billing/pattern-gotcha/architecture/kamon",
   },
   K2: {
-    DEF: "knowledge/infra/reference/languages/scala/cats-effect",
-    REPO: "knowledge/languages/scala/cats-effect/reference",
-    TRK: "knowledge/infra/reference/languages/scala/cats-effect",
+    DEF: "knowledge/infra/reference/data/scala/cats-effect",
+    REPO: "knowledge/data/scala/cats-effect",
+    TRK: "knowledge/infra/reference/data/scala/cats-effect",
   },
   K3: {
     DEF: "knowledge/unscoped/reference/general",
-    REPO: "knowledge/general/reference",
+    // subject-only fallback (no trailing atom_type segment).
+    REPO: "knowledge/general",
     TRK: "knowledge/unscoped/reference/general",
   },
   K4: { DEF: OUT_OF_VOCAB, REPO: OUT_OF_VOCAB, TRK: OUT_OF_VOCAB },

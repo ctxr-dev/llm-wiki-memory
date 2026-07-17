@@ -17,6 +17,7 @@ import {
   truncateArchivedBody,
   listDocuments,
   getCategories,
+  isLeafFull,
 } from "./lib/wiki-store.mjs";
 import { toIso, ageInDays, ageInMonths } from "./consolidate-time.mjs";
 import { stampLeafMetadata } from "./consolidate-report.mjs";
@@ -212,6 +213,7 @@ export function compressArchived({ ctx, now, dryRun }) {
       const m = leaf.memory || {};
       if (m.status !== "archived") continue;
       if (m.consolidate_truncated_at) continue;
+      if (isLeafFull(cat, m)) continue; // a full leaf is a whole document — never compress it
       if (String(leaf.text).length <= max) continue;
       if (ageInDays(leaf.frontmatter?.updated, now) <= ageDays) continue;
       if (dryRun) {

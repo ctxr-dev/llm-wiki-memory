@@ -20,6 +20,7 @@ import {
   disableDocument,
   saveDocument,
   embedTextForLeaf,
+  isLeafFull,
 } from "./lib/wiki-store.mjs";
 import { preserveIdentityOnResave } from "./lib/wiki-identity.mjs";
 import { callJSON } from "./lib/llm-callJSON.mjs";
@@ -235,7 +236,7 @@ export async function llmSemanticRefresh({ ctx, now, dryRun }) {
         recordEntity(report, { id: entityLeafId(leaf), kind: "leaf", action: "keep", ok: true });
       } else if (decision.action === "rewrite") {
         let body = String(decision.rewritten_body || "");
-        if (body.length > bodyCap) {
+        if (body.length > bodyCap && !isLeafFull(leaf.category, leaf.memory)) {
           body =
             truncateAtWordBoundary(body, bodyCap, { preferSentence: true }) +
             `\n\n[truncated by consolidate at ${toIso(now)} — rewritten_body exceeded settings.compile.atomBodyMaxChars]\n`;

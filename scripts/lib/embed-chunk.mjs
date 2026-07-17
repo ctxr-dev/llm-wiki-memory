@@ -1,5 +1,6 @@
 import { cosine } from "./embed-lexical.mjs";
-import { embedMany, contentHash } from "./embed.mjs";
+import { embedMany, contentHash, getTokenizer } from "./embed.mjs";
+import { embedChunk } from "./settings.mjs";
 
 /** @typedef {import("./embed.mjs").EmbedCache} EmbedCache */
 /** @typedef {import("./embed.mjs").EmbedCacheEntry} EmbedCacheEntry */
@@ -80,22 +81,54 @@ export function scoreLeaf(queryVec, vecList, penalty, cos = cosine) {
 }
 
 /**
+ * Convenience wrapper: resolve the chunk config + tokenizer (from settings) and
+ * delegate to `scoreTree`. `chunkAware` is opt-in per read entry point; the
+ * tokenizer is only loaded when chunking is both requested AND enabled.
+ * @param {{ id: string, datasetId: string, embedText: string, text: string, full?: boolean }[]} candidates
+ * @param {(cat: string) => EmbedCache} cacheFor
+ * @param {number[]} queryVec
+ * @param {boolean} chunkAware
+ * @returns {Promise<Map<string, number>>}
+ */
+export async function scoreCandidates(candidates, cacheFor, queryVec, chunkAware) {
+  const { enabled, maxChunks, penalty, fullMaxChunks, fullPenalty } = embedChunk();
+  const tokenizer = chunkAware && enabled ? await getTokenizer() : null;
+  return scoreTree(candidates, cacheFor, queryVec, {
+    chunkAware,
+    tokenizer,
+    penalty,
+    maxChunks,
+    fullMaxChunks,
+    fullPenalty,
+  });
+}
+
+/**
  * Group candidates by category, batch-fill each category's cache via
  * cachedLeafVectors, and return `${datasetId}\0${id}` -> recall score.
  * chunkAware picks penalized-max-over-chunks (recall) vs plain whole-leaf cosine
- * (consolidate/compile). `text` is the candidate's raw body.
- * @param {{ id: string, datasetId: string, embedText: string, text: string }[]} candidates
+ * (consolidate/compile). A `full` candidate uncaps to `fullMaxChunks` and scores
+ * with `fullPenalty` (0) so its whole body is searchable and length never hurts.
+ * `text` is the candidate's raw body; `full` is resolved by the caller.
+ * @param {{ id: string, datasetId: string, embedText: string, text: string, full?: boolean }[]} candidates
  * @param {(cat: string) => EmbedCache} cacheFor
  * @param {number[]} queryVec
- * @param {{ chunkAware: boolean, tokenizer: import("./embed.mjs").Tokenizer | null, penalty: number, maxChunks: number }} opts
+ * @param {{ chunkAware: boolean, tokenizer: import("./embed.mjs").Tokenizer | null, penalty: number, maxChunks: number, fullPenalty?: number, fullMaxChunks?: number }} opts
  * @returns {Promise<Map<string, number>>}
  */
 export async function scoreTree(candidates, cacheFor, queryVec, opts) {
-  const { chunkAware, tokenizer, penalty, maxChunks } = opts;
-  /** @type {Map<string, { id: string, embedText: string, body: string }[]>} */
+  const {
+    chunkAware,
+    tokenizer,
+    penalty,
+    maxChunks,
+    fullPenalty = 0,
+    fullMaxChunks = maxChunks,
+  } = opts;
+  /** @type {Map<string, { id: string, embedText: string, body: string, full?: boolean }[]>} */
   const byCat = new Map();
   for (const c of candidates) {
-    const it = { id: c.id, embedText: c.embedText, body: c.text };
+    const it = { id: c.id, embedText: c.embedText, body: c.text, full: c.full === true };
     const arr = byCat.get(c.datasetId);
     if (arr) arr.push(it);
     else byCat.set(c.datasetId, [it]);
@@ -107,11 +140,13 @@ export async function scoreTree(candidates, cacheFor, queryVec, opts) {
       tokenizer,
       needChunks: chunkAware,
       maxChunks,
+      fullMaxChunks,
     });
     items.forEach((it, i) => {
       const v = perLeaf[i];
+      const pen = it.full ? fullPenalty : penalty;
       const score = chunkAware
-        ? scoreLeaf(queryVec, v.chunks ?? [v.vector], penalty)
+        ? scoreLeaf(queryVec, v.chunks ?? [v.vector], pen)
         : cosine(queryVec, v.vector);
       scoreByKey.set(`${cat}\0${it.id}`, score);
     });
@@ -127,15 +162,17 @@ export async function scoreTree(candidates, cacheFor, queryVec, opts) {
  * the chunk vectors are stored under `entry.chunks` and returned for scoring; a
  * `needChunks:false` (consolidate/compile) call never chunks and preserves any
  * existing chunks so a maintenance pass can't strip them.
+ * A `full` item uncaps its chunk count to `fullMaxChunks` (the whole document is
+ * embedded); a non-full item uses `maxChunks` (today's 6). So an atomic leaf is
+ * byte-identical and a full leaf becomes fully searchable.
  * @param {EmbedCache} cache
- * @param {{ id: string, embedText: string, body: string }[]} items
- * @param {{ tokenizer: import("./embed.mjs").Tokenizer | null, needChunks: boolean, window?: number, maxChunks?: number, margin?: number }} opts
+ * @param {{ id: string, embedText: string, body: string, full?: boolean }[]} items
+ * @param {{ tokenizer: import("./embed.mjs").Tokenizer | null, needChunks: boolean, window?: number, maxChunks?: number, margin?: number, fullMaxChunks?: number }} opts
  * @returns {Promise<{ vector: number[], chunks?: number[][] }[]>}
  */
 export async function cachedLeafVectors(cache, items, opts) {
   const list = Array.isArray(items) ? items : [];
   const { tokenizer = null, needChunks = false } = opts || {};
-  const chunkOpts = { window: opts?.window, maxChunks: opts?.maxChunks, margin: opts?.margin };
   /** @type {string[]} */
   const missTexts = [];
   /** @type {{ kind: "vector" | "chunk", i: number, k?: number }[]} */
@@ -145,7 +182,13 @@ export async function cachedLeafVectors(cache, items, opts) {
   const staged = new Array(list.length);
 
   for (let i = 0; i < list.length; i += 1) {
-    const { id, embedText, body } = list[i];
+    const { id, embedText, body, full } = list[i];
+    // A full leaf embeds its whole body (fullMaxChunks); others cap at maxChunks.
+    const chunkOpts = {
+      window: opts?.window,
+      maxChunks: full ? (opts?.fullMaxChunks ?? opts?.maxChunks) : opts?.maxChunks,
+      margin: opts?.margin,
+    };
     const hash = contentHash(embedText);
     const existing = cache.entries[id];
     const vectorHit =

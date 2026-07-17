@@ -1,5 +1,5 @@
 // Template-aware `cli.mjs init --template <name>`: the default install stays
-// byte-identical, `repo` yields a knowledge-only subject-first tree, the
+// byte-identical, `repo` yields a knowledge-only subject-only FULL tree, the
 // tracker-issues template carries its sibling path-compiler helpers, an unknown
 // template fails closed, and every fresh install declares consolidate for every
 // category (getConsolidateLayout().missing === []).
@@ -76,12 +76,17 @@ test("--template default matches the shipped default example", () => {
   );
 });
 
-test("--template repo yields a knowledge-only, subject-first tree", () => {
+test("--template repo yields a knowledge-only, subject-only FULL tree", () => {
   const { status, wiki } = runInit("repo");
   assert.equal(status, 0);
   const raw = fs.readFileSync(path.join(wiki, ".layout", "layout.yaml"), "utf8");
   assert.match(raw, /- path: knowledge/);
-  assert.match(raw, /placement_facets:\s*\[subject, atom_type\]/, "subject-first placement");
+  assert.match(
+    raw,
+    /placement_facets:\s*\[subject\]/,
+    "subject-only placement (no atom_type folder)",
+  );
+  assert.match(raw, /full:\s*true/, "team wiki holds whole documents (full leaves)");
   assert.match(raw, /ownership:\s*repo/);
   for (const other of ["self_improvement", "plans", "investigations", "daily", "issues"]) {
     assert.ok(!raw.includes(`- path: ${other}`), `repo layout must NOT declare '${other}'`);

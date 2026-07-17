@@ -7,7 +7,7 @@ import { z } from "zod";
 import { PROMPTS_DIR } from "./lib/env.mjs";
 import { consolidateLlmMaxRetries, atomBodyMaxChars } from "./lib/settings.mjs";
 import { truncateAtWordBoundary } from "./lib/slug.mjs";
-import { saveDocument } from "./lib/wiki-store.mjs";
+import { saveDocument, isLeafFull } from "./lib/wiki-store.mjs";
 import { preserveIdentityOnResave } from "./lib/wiki-identity.mjs";
 import { callJSON } from "./lib/llm-callJSON.mjs";
 import { LLMOutputInvalid } from "./lib/llm.mjs";
@@ -112,7 +112,7 @@ export async function llmMergeNearDuplicates({ candidates, ctx, now, dryRun }) {
       cand.llmDecision = decision;
       if (decision.action === "merge") {
         let body = String(decision.merged_body || "");
-        if (body.length > bodyCap) {
+        if (body.length > bodyCap && !isLeafFull(keeper.category, keeper.memory)) {
           body =
             truncateAtWordBoundary(body, bodyCap, { preferSentence: true }) +
             `\n\n[truncated by consolidate at ${toIso(now)} — merged_body exceeded settings.compile.atomBodyMaxChars]\n`;

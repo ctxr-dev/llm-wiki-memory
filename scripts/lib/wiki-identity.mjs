@@ -135,6 +135,10 @@ export function normaliseMeta(metadata = {}, extra = {}) {
   if (typeof m.consolidate_truncated_at === "string" && m.consolidate_truncated_at.trim() !== "") {
     out.consolidate_truncated_at = m.consolidate_truncated_at.trim();
   }
+  // `full`: this leaf is a whole document — never shortened, embedded over its
+  // entire body. Only a real `true` persists (absence = atomic default); kept
+  // here (not stripped) so a maintenance re-save preserves it.
+  if (m.full === true) out.full = true;
   // Strip empties so absent fields aren't matched as "". project_module is kept
   // (always the workspace) so the default recall scope always has something to match.
   for (const k of ["area", "language", "task_type", "error_pattern", "tags"]) {

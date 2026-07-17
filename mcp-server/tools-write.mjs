@@ -4,6 +4,7 @@ import { errorResponse } from "./mcp-responses.mjs";
 import { MetadataSchema } from "./mcp-schemas.mjs";
 import { gateRefusal, dispatchWrite } from "./mcp-write-dispatch.mjs";
 import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
+import { registerAbsorbTool } from "./tools-absorb.mjs";
 import { getActiveWikiContext } from "../scripts/lib/wiki-context.mjs";
 import { parseWriteRequest, WRITE_KIND } from "../scripts/lib/context/write.mjs";
 import {
@@ -253,6 +254,8 @@ function registerWriteTools(server) {
         }
       }),
   );
+
+  registerAbsorbTool(server);
 }
 
 export { registerWriteTools };

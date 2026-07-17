@@ -44,6 +44,7 @@
  * @property {string} [tags] - COMMA-joined string (arrays are joined on write; membership-matched on read).
  * @property {string[]} [subject] - hierarchical semantic path, stored as a slug ARRAY (broad -> narrow).
  * @property {boolean} [stale] - consolidate refresh flag.
+ * @property {boolean} [full] - this leaf is a whole document: never shortened, embedded over its entire body.
  * @property {string} [supersedes_id] - documentId this leaf supersedes (consolidate).
  * @property {string} [consolidated_at] - ISO timestamp (consolidate).
  * @property {string} [last_refreshed_at] - ISO timestamp (consolidate).
@@ -71,6 +72,7 @@
  * @property {string | string[]} [tags]
  * @property {string | string[]} [subject]
  * @property {boolean} [stale]
+ * @property {boolean} [full] - mark this leaf a whole document (never shortened, embedded whole).
  * @property {string} [supersedes_id]
  * @property {string} [consolidated_at]
  * @property {string} [last_refreshed_at]

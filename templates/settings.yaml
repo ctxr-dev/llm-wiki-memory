@@ -107,10 +107,19 @@ embed:
   # Length-aware recall: a note longer than the model's ~512-token window is
   # split into <=maxChunks pieces and scored by its best piece minus
   # penalty*(pieces-1). Recall-only; short notes and consolidate are unchanged.
+  #
+  # FULL leaves (a `full: true` category/leaf — whole absorbed documents) use the
+  # `full*` knobs instead: fullMaxChunks lifts the cap so the WHOLE doc is embedded
+  # (256 ~= 120k tokens; the ceiling only guards a pathological multi-MB file), and
+  # fullPenalty is 0 so a long full doc is scored on its best chunk alone and is
+  # never buried by the many-chunks penalty (which exists to keep weak ATOMIC notes
+  # from out-ranking on length).
   chunk:
     enabled: true
     maxChunks: 6
     penalty: 0.015
+    fullMaxChunks: 256
+    fullPenalty: 0
 
 recall:
   # A small relevance FLOOR: hits below this cosine are dropped before ranking, so

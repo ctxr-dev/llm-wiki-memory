@@ -376,3 +376,26 @@ test("compress-archived: active leaf with a big body is NEVER touched", async ()
   assert.ok(!fm.data.memory.consolidate_truncated_at, "no stamp on the active leaf");
   assert.notEqual(fm.data.memory.status, "archived", "still active");
 });
+
+test("compress-archived: a FULL archived leaf (memory.full) is NEVER truncated (F3)", async () => {
+  const bigBody = "# full archived\n\n" + "d".repeat(5000);
+  const { documentId, absPath } = seedKnowledge({
+    name: uniqName("k-compress-full"),
+    body: bigBody,
+    metadata: { atom_type: "reference", full: true },
+  });
+  // Archive + age it past the compress-age filter, exactly like the big-body
+  // test above — the ONLY difference is memory.full:true, which must exempt it.
+  store.disableDocument({ documentId, datasetId: "knowledge" });
+  setUpdated(absPath, "2026-04-01");
+  const beforeBytes = fs.readFileSync(absPath, "utf8");
+
+  const r = await consolidateMemory({ llm: false, now: NOW, passes: ["compress-archived"] });
+  assert.equal(r.ok, true);
+
+  const afterBytes = fs.readFileSync(absPath, "utf8");
+  assert.equal(afterBytes, beforeBytes, "a full leaf's body is NOT compressed");
+  const fm = readFm(absPath);
+  assert.equal(fm.data.memory.full, true, "full flag survived archive + compress pass");
+  assert.ok(!fm.data.memory.consolidate_truncated_at, "no truncation stamp on a full leaf");
+});

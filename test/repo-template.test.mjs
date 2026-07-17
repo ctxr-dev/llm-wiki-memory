@@ -1,6 +1,7 @@
-// The `repo` layout template: validates, and its subject-FIRST placement
-// (knowledge/<subject…>/<atom_type>) round-trips over a variable-depth subject.
-// A repo mount is knowledge-only and consolidate-excluded.
+// The `repo` layout template: a SHARED, FULL-doc team wiki. Validates; its
+// subject-ONLY placement (knowledge/<domain>/<subtopic>) round-trips over a
+// variable-depth subject; the knowledge category is FULL (whole-doc, embedded
+// whole); it is knowledge-only and consolidate-excluded.
 
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
@@ -9,7 +10,11 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { withWikiRoot } from "../scripts/lib/env.mjs";
-import { _resetLayoutCacheForTests, vocabularyFor } from "../scripts/lib/wiki-layout-state.mjs";
+import {
+  _resetLayoutCacheForTests,
+  vocabularyFor,
+  isFullCategory,
+} from "../scripts/lib/wiki-layout-state.mjs";
 import { placementDirForMeta } from "../scripts/lib/wiki-store.mjs";
 import { validateLayoutFile } from "../scripts/lib/layout-validator.mjs";
 import { installLayoutTemplate } from "../scripts/lib/layout-template.mjs";
@@ -41,64 +46,61 @@ test("repo template passes validate_layout", () => {
   assert.equal(r.ok, true, JSON.stringify(r, null, 2));
 });
 
-test("repo template nests subject-FIRST then atom_type (forward)", () => {
+test("repo template: the knowledge category is FULL (whole-doc, embedded whole)", () => {
+  const wiki = tmpWiki();
+  withWikiRoot(wiki, () => {
+    _resetLayoutCacheForTests();
+    assert.equal(isFullCategory("knowledge"), true);
+  });
+});
+
+test("repo template nests subject-ONLY: <domain>/<subtopic> (atom_type does NOT shape the path)", () => {
   const wiki = tmpWiki();
   withWikiRoot(wiki, () => {
     _resetLayoutCacheForTests();
     assert.equal(
       placementDirForMeta("knowledge", {
-        subject: ["frameworks", "react"],
-        atom_type: "pattern-gotcha",
+        subject: ["architecture", "payments"],
+        atom_type: "reference",
       }),
-      "knowledge/frameworks/react/pattern-gotcha",
+      "knowledge/architecture/payments",
+      "atom_type is ignored for placement (frontmatter only)",
     );
   });
 });
 
-test("repo template path round-trips over a VARIABLE-DEPTH subject (forward + reverse)", () => {
+test("repo template path round-trips over a variable-depth subject (forward + reverse)", () => {
   const wiki = tmpWiki();
   withWikiRoot(wiki, () => {
     _resetLayoutCacheForTests();
-    /** @type {[string[], string, string][]} */
+    /** @type {[string[], string][]} */
     const cases = [
-      [["frameworks", "react"], "pattern-gotcha", "knowledge/frameworks/react/pattern-gotcha"],
-      [
-        ["languages", "scala", "cats-effect"],
-        "reference",
-        "knowledge/languages/scala/cats-effect/reference",
-      ],
-      [["frameworks"], "decision", "knowledge/frameworks/decision"],
+      [["architecture", "payments"], "knowledge/architecture/payments"],
+      [["operations"], "knowledge/operations"],
+      [["data", "warehouse"], "knowledge/data/warehouse"],
     ];
-    for (const [subject, atomType, expected] of cases) {
-      const dir = placementDirForMeta("knowledge", { subject, atom_type: atomType });
+    for (const [subject, expected] of cases) {
+      const dir = placementDirForMeta("knowledge", { subject });
       assert.equal(dir, expected, `forward: ${JSON.stringify(subject)}`);
-      // Reverse: category | subject… (variable) | atom_type (single last segment).
-      const segs = dir.split("/");
-      const recoveredAtom = segs[segs.length - 1];
-      const recoveredSubject = segs.slice(1, -1);
+      // Reverse: every segment after the category IS subject (no atom_type folder).
+      const recoveredSubject = dir.split("/").slice(1);
       assert.deepEqual(recoveredSubject, subject, "subject recovered");
-      assert.equal(recoveredAtom, atomType, "atom_type recovered");
-      // Re-forward the recovered facets: an invertible compiler yields the same path.
       assert.equal(
-        placementDirForMeta("knowledge", { subject: recoveredSubject, atom_type: recoveredAtom }),
+        placementDirForMeta("knowledge", { subject: recoveredSubject }),
         dir,
         "round-trip stable",
       );
-      // The recovered first segment is a declared subject domain.
       const vocab = vocabularyFor("subject_domains");
       assert.ok(vocab && vocab.has(recoveredSubject[0]), "first segment in vocabulary");
     }
   });
 });
 
-test("repo template: absent subject collapses to the `general` fallback (still invertible)", () => {
+test("repo template: absent subject collapses to the `general` fallback", () => {
   const wiki = tmpWiki();
   withWikiRoot(wiki, () => {
     _resetLayoutCacheForTests();
-    const dir = placementDirForMeta("knowledge", { atom_type: "reference" });
-    assert.equal(dir, "knowledge/general/reference");
-    const segs = dir.split("/");
-    assert.deepEqual(segs.slice(1, -1), ["general"]);
+    assert.equal(placementDirForMeta("knowledge", { atom_type: "reference" }), "knowledge/general");
   });
 });
 
@@ -107,8 +109,7 @@ test("repo template: an out-of-vocabulary first subject segment FAILS LOUD", () 
   withWikiRoot(wiki, () => {
     _resetLayoutCacheForTests();
     assert.throws(
-      () =>
-        placementDirForMeta("knowledge", { subject: ["notadomain", "x"], atom_type: "reference" }),
+      () => placementDirForMeta("knowledge", { subject: ["notadomain", "x"] }),
       /vocabulary/,
       "deep placement with no valid domain must throw",
     );

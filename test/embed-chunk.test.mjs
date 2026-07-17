@@ -237,6 +237,65 @@ test("scoreTree: chunkAware scores a long leaf by its best sub-region (a tail to
   );
 });
 
+test("cachedLeafVectors: a FULL item uncaps chunk count (fullMaxChunks); non-full caps at maxChunks", async () => {
+  const body = bodyOf(400);
+  const et = HEADER + body;
+  const o = {
+    tokenizer: fakeTok,
+    needChunks: true,
+    window: 30,
+    maxChunks: 6,
+    margin: 4,
+    fullMaxChunks: 20,
+  };
+  const capped = await cachedLeafVectors(
+    { entries: {} },
+    [{ id: "x", embedText: et, body, full: false }],
+    o,
+  );
+  const uncapped = await cachedLeafVectors(
+    { entries: {} },
+    [{ id: "x", embedText: et, body, full: true }],
+    o,
+  );
+  assert.equal(capped[0].chunks.length, 6, "non-full capped at maxChunks");
+  assert.ok(uncapped[0].chunks.length > 6, `full uncapped (got ${uncapped[0].chunks.length})`);
+});
+
+test("scoreTree: a FULL candidate scores with NO penalty (length never hurts its rank)", async () => {
+  // scoreTree uses the real 512-token window (it doesn't forward a test window),
+  // so the body must exceed 512 tokens to chunk. ~600 words -> 2 chunks for BOTH
+  // full and atomic (under either cap), isolating the penalty difference.
+  const body = bodyOf(600);
+  const et = HEADER + body;
+  const q = await embed("w3");
+  const key = "knowledge\0f.md";
+  const o = {
+    chunkAware: true,
+    tokenizer: fakeTok,
+    penalty: 0.015,
+    maxChunks: 6,
+    fullPenalty: 0,
+    fullMaxChunks: 20,
+  };
+  const full = await scoreTree(
+    [{ id: "f.md", datasetId: "knowledge", embedText: et, text: body, full: true }],
+    cacheStore(),
+    q,
+    o,
+  );
+  const atomic = await scoreTree(
+    [{ id: "f.md", datasetId: "knowledge", embedText: et, text: body, full: false }],
+    cacheStore(),
+    q,
+    o,
+  );
+  assert.ok(
+    full.get(key) > atomic.get(key),
+    `full (${full.get(key)}) beats penalized atomic (${atomic.get(key)})`,
+  );
+});
+
 test("scoreTree: a SHORT leaf scores identically under chunkAware true/false (no regression)", async () => {
   const cands = [cand("k/short.md", bodyOf(10))];
   const q = await embed("w3");

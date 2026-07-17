@@ -19,6 +19,8 @@ export {
   categoryHasTopology,
   getPlacementFacets,
   slotToCategory,
+  isFullCategory,
+  isLeafFull,
 } from "./wiki-layout-state.mjs";
 
 export {

@@ -13,7 +13,8 @@ import { withWikiRoot, embedCacheFor } from "../lib/env.mjs";
 import { loadCache, saveCache, getTokenizer } from "../lib/embed.mjs";
 import { cachedLeafVectors } from "../lib/embed-chunk.mjs";
 import { embedChunk } from "../lib/settings.mjs";
-import { walkLeaves, readLeaf, isActive, embedTextForLeaf } from "../lib/wiki-core.mjs";
+import { walkLeaves, readLeaf, isActive, embedTextForLeaf, leafMemory } from "../lib/wiki-core.mjs";
+import { isLeafFull } from "../lib/wiki-layout-state.mjs";
 import { toRel } from "../lib/wiki-identity.mjs";
 import { mergedLayoutForRoot, sharedCategories } from "../lib/wiki-ownership.mjs";
 
@@ -46,7 +47,7 @@ function categoryFromMountPath(p) {
 async function warmCategory(wikiRootDir, category) {
   const cachePath = embedCacheFor(wikiRootDir, category);
   const cache = loadCache(cachePath);
-  /** @type {{ id: string, embedText: string, body: string }[]} */
+  /** @type {{ id: string, embedText: string, body: string, full: boolean }[]} */
   const items = [];
   for (const leaf of walkLeaves(path.join(wikiRootDir, category))) {
     let data, body;
@@ -62,14 +63,21 @@ async function warmCategory(wikiRootDir, category) {
       continue;
     }
     if (!isActive(data)) continue;
-    items.push({ id: toRel(leaf), embedText: embedTextForLeaf(data, body), body });
+    // Resolve `full` here IDENTICALLY to searchOneTree so warm + search agree on
+    // the chunk count (a mismatch would cause needless re-embed on first search).
+    items.push({
+      id: toRel(leaf),
+      embedText: embedTextForLeaf(data, body),
+      body,
+      full: isLeafFull(category, leafMemory(data)),
+    });
   }
   // One batched forward pass over all changed leaves (bounded internally by
   // embedMany's chunk size). Warm the recall vectors too (needChunks) so a long
   // leaf's chunks are ready, not cold, on the first post-merge search.
-  const { enabled, maxChunks } = embedChunk();
+  const { enabled, maxChunks, fullMaxChunks } = embedChunk();
   const tokenizer = enabled ? await getTokenizer() : null;
-  await cachedLeafVectors(cache, items, { tokenizer, needChunks: true, maxChunks });
+  await cachedLeafVectors(cache, items, { tokenizer, needChunks: true, maxChunks, fullMaxChunks });
   const count = items.length;
   // Best-effort persist (parity with searchOneTree): a READ-ONLY / unwritable
   // shared-repo tree (a teammate consuming another owner's curated memory) must

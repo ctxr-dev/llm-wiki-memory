@@ -50,6 +50,8 @@ import { DEFAULT_EMBED_MODEL } from "./settings.mjs";
  * @property {boolean} enabled
  * @property {number} maxChunks
  * @property {number} penalty
+ * @property {number} fullMaxChunks
+ * @property {number} fullPenalty
  */
 
 /**
@@ -180,7 +182,9 @@ export function structuralDefaults() {
     // Length-aware recall: a leaf whose embed text exceeds the model's token
     // window is split into <=maxChunks windows; recall scores it by its best
     // chunk minus penalty*(chunks-1) so a long doc can't win on chunk count.
-    chunk: { enabled: true, maxChunks: 6, penalty: 0.015 },
+    // A FULL leaf (whole document) uncaps to fullMaxChunks and drops the penalty
+    // to fullPenalty (0) so its whole body is searchable and length never hurts.
+    chunk: { enabled: true, maxChunks: 6, penalty: 0.015, fullMaxChunks: 256, fullPenalty: 0 },
   };
   const recall = {
     // A small relevance FLOOR: hits below this cosine are dropped before ranking,

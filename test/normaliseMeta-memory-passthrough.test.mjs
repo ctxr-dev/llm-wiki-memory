@@ -187,6 +187,29 @@ test("normaliseMeta: empty input -> none of the memory keys appear in output", (
   }
 });
 
+test("normaliseMeta: full=true (real boolean) -> kept (the full-leaf marker persists)", () => {
+  const out = normaliseMeta({ atom_type: "reference", full: true });
+  assert.equal(out.full, true);
+  assert.equal(typeof out.full, "boolean");
+});
+
+test("normaliseMeta: full=false / absent -> dropped (absence = atomic default)", () => {
+  assert.equal("full" in normaliseMeta({ atom_type: "reference", full: false }), false);
+  assert.equal("full" in normaliseMeta({ atom_type: "reference" }), false);
+});
+
+test('normaliseMeta: full="true" (string) / 1 -> DROPPED (only real boolean true)', () => {
+  assert.equal("full" in normaliseMeta({ atom_type: "reference", full: "true" }), false);
+  assert.equal("full" in normaliseMeta({ atom_type: "reference", full: 1 }), false);
+});
+
+test("normaliseMeta: full survives a re-save that passes the existing memory (preservation)", () => {
+  const first = normaliseMeta({ atom_type: "reference", full: true, area: "infra" });
+  // A maintenance re-save passes the leaf's existing memory back through normaliseMeta.
+  const resaved = normaliseMeta({ ...first, consolidated_at: "2026-07-18T00:00:00.000Z" });
+  assert.equal(resaved.full, true, "full is preserved across a re-save");
+});
+
 test("normaliseMeta: non-string ISO field (number) -> dropped (typeof guard rejects)", () => {
   const out = normaliseMeta({
     atom_type: "decision",

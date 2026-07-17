@@ -108,6 +108,21 @@ test("INSTRUCTIONS encodes the search-before-save dedup discipline (rule 16)", (
   assert.match(INSTRUCTIONS, /FIRST run the rule-16 dedup search/);
 });
 
+test("INSTRUCTIONS encodes the absorb discipline (rule 17)", () => {
+  assert.match(INSTRUCTIONS, /ABSORB WHOLE DOCUMENTS via the `absorb` skill/);
+  assert.match(INSTRUCTIONS, /FULL leaves/);
+  assert.match(INSTRUCTIONS, /absorb_document/);
+  assert.match(INSTRUCTIONS, /cli\.mjs absorb/);
+  assert.match(INSTRUCTIONS, /REFUSE the gated `self_improvement` and topology `issues`/);
+});
+
+test("the absorb skill ships and @-pointer-wires to the surfaces", () => {
+  const skill = fs.readFileSync(path.join(SRC, "templates/skills/absorb.md"), "utf8");
+  assert.match(skill, /name: absorb/, "skill declares its name");
+  assert.match(skill, /absorb_document/, "skill documents the MCP tool");
+  assert.match(skill, /cli\.mjs absorb/, "skill documents the CLI");
+});
+
 test("scopes discipline is mirrored on the template rule + skill surfaces", () => {
   const rule = fs.readFileSync(path.join(SRC, "templates/rules/tool-scopes.md"), "utf8");
   assert.match(rule, /scopes/, "tool-scopes rule names the argument");

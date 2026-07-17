@@ -71,6 +71,9 @@ export function coerceSections(sections) {
   embed.chunk.enabled = coerceBool(embed.chunk.enabled, true);
   embed.chunk.maxChunks = coercePos(embed.chunk.maxChunks, 6);
   embed.chunk.penalty = coerceFloat01(embed.chunk.penalty, 0.015);
+  embed.chunk.fullMaxChunks = coercePos(embed.chunk.fullMaxChunks, 256);
+  // coerceFloat01 (not coercePos): 0 is the intended default and must survive.
+  embed.chunk.fullPenalty = coerceFloat01(embed.chunk.fullPenalty, 0);
 
   recall.scoreThreshold = coerceFloat01(recall.scoreThreshold, 0.05);
   recall.priorityBand = coerceFloat01(recall.priorityBand, 0.05);

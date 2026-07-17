@@ -54,6 +54,30 @@ transformer backend chunks (lexical has no fixed window). Tune it in
 `settings.yaml` under `embed.chunk` (`enabled`, `maxChunks` default 6, `penalty`
 default 0.015).
 
+### Full leaves (whole documents) embed whole
+
+A leaf is **full** when its category declares `full: true` (the shared `repo`
+template), the whole wiki defaults to `full: true`, or the leaf's own frontmatter
+sets `memory.full: true` (`absorb` sets this on every leaf it imports). A full
+leaf is a whole document — a design doc, an RFC, a runbook — not a distilled
+atom, so recall treats it differently on two knobs:
+
+- **Chunk cap lifted** — a full leaf splits into up to `embed.chunk.fullMaxChunks`
+  pieces (default **256** ≈ ~120k tokens) instead of the atomic `maxChunks` (6),
+  so **all** of it is embedded and its tail stays findable. The 256 ceiling only
+  guards a pathological multi-MB file; hitting it logs a breadcrumb.
+- **No many-chunks penalty** — a full leaf scores on its best chunk with
+  `embed.chunk.fullPenalty` (default **0**), so a long document is not buried the
+  longer it gets. The penalty exists to stop a weak *atomic* note out-ranking on
+  sheer length; an intentional full document must not pay it.
+
+`full` is otherwise inert: the whole-leaf `vector` is still written, the capture
+pipeline never targets a full category, direct saves are already verbatim, and
+consolidate **skips** body-shortening a full leaf. `isLeafFull(category, memory)`
+resolves the flag identically on the warm and search paths so the chunk cache
+never thrashes. Atomic leaves are byte-identical to before (`full` defaults
+false everywhere).
+
 ### Backends
 
 | Backend | What it is | When |

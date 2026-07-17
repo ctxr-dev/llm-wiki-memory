@@ -2,9 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { priorityForAtomType, normalisePriority, priorityRank } from "./datasets.mjs";
 import { embedCacheFor } from "./env.mjs";
-import { recallPriorityBand, embedChunk } from "./settings.mjs";
-import { loadCache, saveCache, embed, getTokenizer } from "./embed.mjs";
-import { scoreTree } from "./embed-chunk.mjs";
+import { recallPriorityBand } from "./settings.mjs";
+import { loadCache, saveCache, embed } from "./embed.mjs";
+import { scoreCandidates } from "./embed-chunk.mjs";
 import {
   WikiStoreUnavailable,
   root,
@@ -15,7 +15,12 @@ import {
   embedTextForLeaf,
 } from "./wiki-core.mjs";
 import { toRel, toAbs } from "./wiki-identity.mjs";
-import { ensureLayoutLoaded, slotToCategory, getCategories } from "./wiki-layout-state.mjs";
+import {
+  ensureLayoutLoaded,
+  slotToCategory,
+  getCategories,
+  isLeafFull,
+} from "./wiki-layout-state.mjs";
 import { scopedCategories } from "./wiki-context.mjs";
 import { glanceFields } from "./wiki-render.mjs";
 
@@ -214,6 +219,8 @@ export async function searchOneTree({
         embedText: embedTextForLeaf(data, body),
         documentName: path.basename(leaf),
         datasetId: cat,
+        // A full leaf embeds its whole body + scores without the many-chunks penalty.
+        full: isLeafFull(cat, mem),
         // Lazy-default legacy leaves that predate the priority field by the
         // deterministic rubric (never P0), so ranking has a value without a write.
         priority: normalisePriority(mem.priority) || priorityForAtomType(mem.atom_type),
@@ -244,14 +251,7 @@ export async function searchOneTree({
   // Batch cold-cache misses per category (one embedMany pass, not a serial call
   // per candidate). Under chunkAware (recall) a long leaf scores by its best
   // chunk; otherwise it's the whole-leaf cosine (byte-identical to before).
-  const { enabled, maxChunks, penalty } = embedChunk();
-  const tokenizer = chunkAware && enabled ? await getTokenizer() : null;
-  const scoreByKey = await scoreTree(candidates, cacheFor, queryVec, {
-    chunkAware,
-    tokenizer,
-    penalty,
-    maxChunks,
-  });
+  const scoreByKey = await scoreCandidates(candidates, cacheFor, queryVec, chunkAware);
   const scored = candidates.map((c) => ({
     ...c,
     score: scoreByKey.get(`${c.datasetId}\0${c.id}`) ?? 0,

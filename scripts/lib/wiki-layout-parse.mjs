@@ -61,6 +61,8 @@ const DEFAULT_PLACEMENT_FACETS = Object.freeze({
  * @property {Record<string, Set<string>>} vocabs
  * @property {Record<string, string>} consolidateEligibility
  * @property {Record<string, boolean>} topologyCategories
+ * @property {Record<string, boolean>} fullCategories
+ * @property {boolean} fullDefault
  */
 
 // Loose views over the ALREADY-parsed layout object. The object was produced by
@@ -81,11 +83,13 @@ const DEFAULT_PLACEMENT_FACETS = Object.freeze({
  * @property {Record<string, RawFacetRule>} [facet_rules]
  * @property {unknown} [consolidate]
  * @property {unknown} [topology]
+ * @property {unknown} [full]
  */
 /**
  * @typedef {Object} RawLayoutDoc
  * @property {Record<string, unknown>} [vocabularies]
  * @property {RawLayoutEntry[]} [layout]
+ * @property {unknown} [full]
  */
 
 // mtime (ms) of a file, or 0 if it's absent/unreadable.
@@ -132,8 +136,12 @@ export function parseLayoutObject(parsed) {
   //                declared (no defaults — author intent must be explicit).
   const consolidateEligibility = Object.create(null);
   const topologyCategories = Object.create(null);
+  // Per-category full-document mode (true = store whole + embed whole; absent =
+  // inherit the wiki-level default). `fullDefault` is the layout-root fallback.
+  const fullCategories = Object.create(null);
 
   const doc = /** @type {RawLayoutDoc} */ (parsed && typeof parsed === "object" ? parsed : {});
+  const fullDefault = doc.full === true;
 
   // Controlled value sets referenced by `kind: path` facet rules.
   if (doc.vocabularies && typeof doc.vocabularies === "object") {
@@ -180,6 +188,8 @@ export function parseLayoutObject(parsed) {
         // any other value falls through and the orchestrator surfaces the
         // missing/invalid field at runtime.
       }
+      // full: true | false  (absent -> inherit the wiki-level default).
+      if (e.full !== undefined) fullCategories[name] = e.full === true;
       // A `topology:` block means this category nests via the path-compiler,
       // not facet placement: writes must supply an explicit path.
       if (e.topology && typeof e.topology === "object") {
@@ -192,5 +202,14 @@ export function parseLayoutObject(parsed) {
     }
   }
 
-  return { cats, facets, rules, vocabs, consolidateEligibility, topologyCategories };
+  return {
+    cats,
+    facets,
+    rules,
+    vocabs,
+    consolidateEligibility,
+    topologyCategories,
+    fullCategories,
+    fullDefault,
+  };
 }

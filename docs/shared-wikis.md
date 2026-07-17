@@ -87,6 +87,19 @@ notes, installs three git hooks that keep the shared embeddings warm, and upsert
 exactly ONE machine-independent remote-read block into `AGENTS.md`/`CLAUDE.md`. It
 runs **no git** on the wiki — **you** commit the shared tree.
 
+> **The `repo` template is a FULL-doc team wiki.** Unlike the private brain (which
+> distils short atomic notes), the shipped shared `knowledge` category is
+> `full: true` — every leaf is a WHOLE document, stored verbatim and embedded whole
+> (see `docs/embeddings.md`). It nests subject-only, two levels deep
+> (`knowledge/<domain>/<subtopic>/<leaf>`), over a UNIVERSAL team `subject_domains`
+> vocabulary (architecture, product, operations, data, security, process,
+> onboarding, integrations, decisions, reference, general) — curate that list for
+> your team in `layout.yaml`. This is the natural target for `absorb` (import
+> existing design docs / RFCs / runbooks as-is): `node
+> ~/.llm-wiki-memory/src/scripts/cli.mjs absorb <path…> --category=knowledge
+> --target=<repo> --dry-run`, then commit + push the staged leaves. See the
+> `absorb` skill.
+
 **A shared repo carries ZERO machine-dependent files** — no engine clone, no
 per-repo client config, no `~/…` @-pointer files. The MCP server and the Claude
 Code hooks are registered **globally** in each developer's home config

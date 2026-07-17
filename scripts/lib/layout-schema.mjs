@@ -129,6 +129,11 @@ const LayoutEntrySchema = z
     // presence at runtime with a clear error envelope, so the validator
     // doesn't gate `validate_layout` on it.
     consolidate: z.enum(["refine", "none"]).optional(),
+    // Full-document category: leaves here are stored verbatim (never shortened)
+    // and embedded over their whole body (uncapped chunks). Optional; absent =
+    // atomic (today's default). A wiki-level `full` at the layout root is the
+    // fallback when a category omits it.
+    full: z.boolean().optional(),
   })
   .strict()
   .superRefine((entry, ctx) => {
@@ -162,6 +167,9 @@ export const LayoutYamlSchema = z
     // --max-depth to skill-llm-wiki, so depth is unbounded by construction;
     // this flag documents that intent and lets per-entry `max_depth` be omitted.
     ignore_max_depth: z.boolean().optional(),
+    // Wiki-level default for full-document mode: every category inherits it
+    // unless the category sets its own `full`. Absent = atomic (today).
+    full: z.boolean().optional(),
     vocabularies: z.record(z.string(), z.array(z.string().min(1)).min(1)).optional(),
     layout: z.array(LayoutEntrySchema).min(1, "`layout` must declare at least one entry"),
   })

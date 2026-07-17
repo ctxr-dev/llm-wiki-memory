@@ -12,6 +12,7 @@ import {
   handleTestPathCompiler,
 } from "./cli-validate.mjs";
 import { handleConsolidate } from "./cli-consolidate.mjs";
+import { handleAbsorb } from "./cli-absorb.mjs";
 import {
   handleHeal,
   handleGcEmbeddings,
@@ -39,7 +40,7 @@ function cmdCompile(args) {
 }
 
 const USAGE =
-  "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|migrate-identity [--dry-run|--check]|doctor|move-leaf <from> <to>|monitor --title <t> [...] | --resolve <file>|monitoring-health|gate-audit [--limit N]|recall <q>|search <q>|redistill --leaf <path> | --session <id> | --all>\n\n" +
+  "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|migrate-identity [--dry-run|--check]|doctor|move-leaf <from> <to>|absorb <path...> --category=<name> [--match=<glob>]... [--area=|--subject=|--atom-type=] [--target=<sel>] [--dry-run]|monitor --title <t> [...] | --resolve <file>|monitoring-health|gate-audit [--limit N]|recall <q>|search <q>|redistill --leaf <path> | --session <id> | --all>\n\n" +
   `Docs (any OS, via WebFetch): ${REPO_RAW_BASE}/ — README.md · AI-INSTALL-PROMPT.md · ARCHITECTURE.md · docs/{shared-wikis,consolidate,embeddings}.md`;
 
 async function main() {
@@ -62,6 +63,8 @@ async function main() {
       return handleGcEmbeddings(rest);
     case "consolidate":
       return handleConsolidate(rest);
+    case "absorb":
+      return handleAbsorb(rest);
     case "where":
       return handleWhere(rest);
     case "cron-job":

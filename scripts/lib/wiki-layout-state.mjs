@@ -32,6 +32,8 @@ import { loadMergedLayout, readMergedLayout } from "./layout-merge.mjs";
  * @property {Record<string, Set<string>>} vocabs declared vocabularies (name -> slug set)
  * @property {Record<string, string>} consolidateEligibility per-category "refine" | "none"
  * @property {Record<string, boolean>} topologyCategories categories with a `topology:` block
+ * @property {Record<string, boolean>} fullCategories per-category full-document flag (explicit only)
+ * @property {boolean} fullDefault wiki-level full default (inherited when a category omits `full`)
  * @property {number} sharedMtime mtime (ms) of layout.yaml when built (0 if absent)
  * @property {number} localMtime mtime (ms) of layout.local.yaml when built (0 if absent)
  */
@@ -125,6 +127,31 @@ export function getConsolidateLayout() {
 // write/search path still gets the populated list. Returns a fresh copy.
 export function getCategories() {
   return [...ensureLayoutLoaded().cats];
+}
+
+// True when a category holds FULL documents (stored verbatim, embedded whole).
+// A category's explicit `full` wins; otherwise it inherits the wiki-level
+// default; absent both -> false (atomic, today's behavior).
+/**
+ * @param {string | undefined | null} category
+ * @returns {boolean}
+ */
+export function isFullCategory(category) {
+  const snap = ensureLayoutLoaded();
+  const explicit = snap.fullCategories[String(category || "")];
+  return explicit === undefined ? Boolean(snap.fullDefault) : explicit;
+}
+
+// True when a specific leaf is full: a per-leaf `memory.full: true` frontmatter
+// override wins over the category/wiki setting. Lives here (not wiki-core) so
+// the embedding/search path can resolve it without an import cycle.
+/**
+ * @param {string | undefined | null} category
+ * @param {{ full?: boolean } | null | undefined} mem
+ * @returns {boolean}
+ */
+export function isLeafFull(category, mem) {
+  return (mem && mem.full === true) || isFullCategory(category);
 }
 
 // True when the category declares a `topology:` block (e.g. tracker `issues`).
