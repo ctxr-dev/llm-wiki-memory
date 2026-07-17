@@ -59,6 +59,7 @@ export async function searchMemory({
           scoreThreshold: effectiveThreshold,
           limit,
           withGlance,
+          chunkAware: true,
         })
       );
       all.push(...records);

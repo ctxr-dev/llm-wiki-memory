@@ -104,6 +104,13 @@ embed:
   # transformers (default, on-device bge-large) | lexical (no model download).
   backend: transformers
   model: Xenova/bge-large-en-v1.5
+  # Length-aware recall: a note longer than the model's ~512-token window is
+  # split into <=maxChunks pieces and scored by its best piece minus
+  # penalty*(pieces-1). Recall-only; short notes and consolidate are unchanged.
+  chunk:
+    enabled: true
+    maxChunks: 6
+    penalty: 0.015
 
 recall:
   # A small relevance FLOOR: hits below this cosine are dropped before ranking, so

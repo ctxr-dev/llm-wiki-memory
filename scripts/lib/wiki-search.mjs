@@ -2,8 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { priorityForAtomType, normalisePriority, priorityRank } from "./datasets.mjs";
 import { embedCacheFor } from "./env.mjs";
-import { recallPriorityBand } from "./settings.mjs";
-import { loadCache, saveCache, cachedEmbeddings, embed, cosine } from "./embed.mjs";
+import { recallPriorityBand, embedChunk } from "./settings.mjs";
+import { loadCache, saveCache, embed, getTokenizer } from "./embed.mjs";
+import { scoreTree } from "./embed-chunk.mjs";
 import {
   WikiStoreUnavailable,
   root,
@@ -174,7 +175,7 @@ export function rerankWithinBands(sortedDesc, band, scoreOf = (r) => r.score) {
 // (wiki-search-fanout.mjs → the public `searchMemoryFiltered`) runs it once per
 // level inside a `withWikiRoot` frame and merges the results.
 /**
- * @param {{ query?: string, datasetId?: string, limit?: number, filters?: SearchFilters, scoreThreshold?: number, withGlance?: boolean }} [opts]
+ * @param {{ query?: string, datasetId?: string, limit?: number, filters?: SearchFilters, scoreThreshold?: number, withGlance?: boolean, chunkAware?: boolean }} [opts]
  */
 export async function searchOneTree({
   query,
@@ -183,6 +184,7 @@ export async function searchOneTree({
   filters,
   scoreThreshold,
   withGlance = false,
+  chunkAware = false,
 } = {}) {
   ensureLayoutLoaded();
   const cats = datasetId
@@ -240,23 +242,19 @@ export async function searchOneTree({
     return c;
   };
   // Batch cold-cache misses per category (one embedMany pass, not a serial call
-  // per candidate); score in candidate order so the priority tie-break holds.
-  /** @type {Map<string, { id: string, text: string }[]>} */
-  const itemsByCat = new Map();
-  for (const c of candidates) {
-    const arr = itemsByCat.get(c.datasetId);
-    if (arr) arr.push({ id: c.id, text: c.embedText });
-    else itemsByCat.set(c.datasetId, [{ id: c.id, text: c.embedText }]);
-  }
-  /** @type {Map<string, number[]>} */
-  const vecById = new Map();
-  for (const [cat, items] of itemsByCat) {
-    const vecs = await cachedEmbeddings(cacheFor(cat), items);
-    items.forEach((it, i) => vecById.set(`${cat}\0${it.id}`, vecs[i]));
-  }
+  // per candidate). Under chunkAware (recall) a long leaf scores by its best
+  // chunk; otherwise it's the whole-leaf cosine (byte-identical to before).
+  const { enabled, maxChunks, penalty } = embedChunk();
+  const tokenizer = chunkAware && enabled ? await getTokenizer() : null;
+  const scoreByKey = await scoreTree(candidates, cacheFor, queryVec, {
+    chunkAware,
+    tokenizer,
+    penalty,
+    maxChunks,
+  });
   const scored = candidates.map((c) => ({
     ...c,
-    score: cosine(queryVec, vecById.get(`${c.datasetId}\0${c.id}`) ?? []),
+    score: scoreByKey.get(`${c.datasetId}\0${c.id}`) ?? 0,
   }));
   for (const [cat, cache] of cacheByCat) {
     // Best-effort persist: vectors are already scored in-memory, so this is only a

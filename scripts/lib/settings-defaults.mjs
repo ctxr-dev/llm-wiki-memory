@@ -46,9 +46,17 @@ import { DEFAULT_EMBED_MODEL } from "./settings.mjs";
  */
 
 /**
+ * @typedef {Object} EmbedChunkSection
+ * @property {boolean} enabled
+ * @property {number} maxChunks
+ * @property {number} penalty
+ */
+
+/**
  * @typedef {Object} EmbedSection
  * @property {string} backend
  * @property {string} model
+ * @property {EmbedChunkSection} chunk
  */
 
 /**
@@ -169,6 +177,10 @@ export function structuralDefaults() {
   const embed = {
     backend: "transformers",
     model: DEFAULT_EMBED_MODEL,
+    // Length-aware recall: a leaf whose embed text exceeds the model's token
+    // window is split into <=maxChunks windows; recall scores it by its best
+    // chunk minus penalty*(chunks-1) so a long doc can't win on chunk count.
+    chunk: { enabled: true, maxChunks: 6, penalty: 0.015 },
   };
   const recall = {
     // A small relevance FLOOR: hits below this cosine are dropped before ranking,

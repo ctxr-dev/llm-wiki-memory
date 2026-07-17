@@ -14,6 +14,7 @@ const {
   __setSettingsForTest,
   __clearSettingsForTest,
   consolidateCosineThreshold,
+  embedChunk,
   flushChunkTargetK,
   hookMaxTurns,
   writeGateSelfImprovementEnabled,
@@ -868,5 +869,36 @@ test("recall.priorityBand: coerced via coerceFloat01 (valid kept; invalid / out-
   });
   withYaml("recall: {}\n", () => {
     assert.equal(settings().recall.priorityBand, 0.05, "absent key defaults to 0.05");
+  });
+});
+
+test("embed.chunk: shipped defaults enabled / maxChunks 6 / penalty 0.015", () => {
+  clearEnv();
+  withYaml(null, () => {
+    settings({ cmdProbe: () => false });
+    assert.deepEqual(embedChunk(), { enabled: true, maxChunks: 6, penalty: 0.015 });
+  });
+});
+
+test("embed.chunk: user YAML overrides each knob", () => {
+  clearEnv();
+  withYaml("embed:\n  chunk:\n    enabled: false\n    maxChunks: 4\n    penalty: 0.03\n", () => {
+    assert.deepEqual(embedChunk(), { enabled: false, maxChunks: 4, penalty: 0.03 });
+  });
+});
+
+test("embed.chunk: malformed knobs fall back per-field (no throw)", () => {
+  clearEnv();
+  withYaml("embed:\n  chunk:\n    enabled: nope\n    maxChunks: -3\n    penalty: 9\n", () => {
+    // enabled non-bool -> true; maxChunks not >0 -> 6; penalty out of [0,1] -> 0.015
+    assert.deepEqual(embedChunk(), { enabled: true, maxChunks: 6, penalty: 0.015 });
+  });
+});
+
+test("embed.chunk: a wholesale embed override still gets the chunk defaults filled", () => {
+  clearEnv();
+  withYaml("embed:\n  backend: lexical\n", () => {
+    assert.equal(settings().embed.backend, "lexical");
+    assert.deepEqual(embedChunk(), { enabled: true, maxChunks: 6, penalty: 0.015 });
   });
 });

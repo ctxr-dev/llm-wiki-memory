@@ -15,6 +15,7 @@ after(() => cleanup(dataDir));
 
 const store = await import("../scripts/lib/wiki-store.mjs");
 const embed = await import("../scripts/lib/embed.mjs");
+const chunk = await import("../scripts/lib/embed-chunk.mjs");
 const env = await import("../scripts/lib/env.mjs");
 
 function catCache(category) {
@@ -86,6 +87,28 @@ test("a two-category search loads BOTH category caches and ranks correctly", asy
   assert.ok(embed.loadCache(sPath).entries[s.created.document.id], "lesson leaf cached");
 });
 
+test("searchMemoryFiltered threads chunkAware through the real search path (parity under lexical)", async () => {
+  store.saveDocument({
+    name: "pc-chunkaware.md",
+    text: "# CA\n\nnarwhal narwhal beacon lighthouse compass.",
+    datasetId: "knowledge",
+    metadata: { atom_type: "reference", project_module: "pctest" },
+  });
+  const q = { query: "narwhal beacon", datasetId: "knowledge" };
+  const aware = await store.searchMemoryFiltered({ ...q, chunkAware: true });
+  const whole = await store.searchMemoryFiltered({ ...q, chunkAware: false });
+  assert.ok(
+    aware.records.some((r) => r.documentName === "pc-chunkaware.md"),
+    "chunkAware:true search returns the leaf (branch + fan-out passthrough exercised)",
+  );
+  // Under lexical there is no tokenizer, so chunking is a no-op → identical top hit.
+  assert.equal(
+    aware.records[0].documentName,
+    whole.records[0].documentName,
+    "chunkAware:true matches whole-leaf under lexical (no regression)",
+  );
+});
+
 test("renameEmbedding across categories moves the entry between per-category files", () => {
   const from = "knowledge/old/mover.md";
   const to = "self_improvement/new/mover.md";
@@ -103,6 +126,66 @@ test("renameEmbedding across categories moves the entry between per-category fil
     embed.loadCache(sPath).entries[to],
     { hash: "sha256:mover", vector: [0.11, 0.22, 0.33] },
     "entry (with its vector) landed in the destination category cache",
+  );
+});
+
+test("chunked entry {hash,vector,chunks}: dim is read from .vector (not chunks), so an all-chunked cache is NOT invalidated", () => {
+  const p = path.join(fs.mkdtempSync(path.join(dataDir, "chunkcache-")), "e.json");
+  // vector is dim-3 but chunk vectors are dim-5: if cacheDim wrongly read a
+  // chunk's dim (5) the stamp would be 5, mismatch the query dim (3), and the
+  // cache would be invalidated. Surviving proves the dim comes from .vector.
+  embed.saveCache(p, {
+    entries: {
+      "issues/only.md": {
+        hash: "sha256:whole",
+        vector: [0.1, 0.2, 0.3],
+        chunks: [
+          { hash: "c0", vector: [1, 2, 3, 4, 5] },
+          { hash: "c1", vector: [6, 7, 8, 9, 10] },
+        ],
+      },
+    },
+  });
+  const loaded = embed.loadCache(p, 3);
+  assert.ok(
+    loaded.entries["issues/only.md"],
+    "chunked cache survives the dim-stamp check (dim from .vector)",
+  );
+  assert.equal(loaded.entries["issues/only.md"].chunks.length, 2, "chunks round-trip on disk");
+});
+
+test("renameEmbedding carries a chunked entry (its chunks included) to the new id", () => {
+  const kPath = catCache("knowledge");
+  const cache = embed.loadCache(kPath);
+  cache.entries["knowledge/old/cm.md"] = {
+    hash: "h",
+    vector: [1, 2],
+    chunks: [{ hash: "c", vector: [1, 2] }],
+  };
+  embed.saveCache(kPath, cache);
+  store.renameEmbedding("knowledge/old/cm.md", "knowledge/new/cm.md");
+  const after = embed.loadCache(kPath);
+  assert.ok(!after.entries["knowledge/old/cm.md"]);
+  assert.equal(
+    after.entries["knowledge/new/cm.md"].chunks.length,
+    1,
+    "chunks moved with the entry",
+  );
+});
+
+test("upsertEmbedding invalidates a chunked entry when its content hash changed", () => {
+  const kPath = catCache("knowledge");
+  const cache = embed.loadCache(kPath);
+  cache.entries["knowledge/up.md"] = {
+    hash: "OLD",
+    vector: [1, 2],
+    chunks: [{ hash: "c", vector: [1, 2] }],
+  };
+  embed.saveCache(kPath, cache);
+  store.upsertEmbedding("knowledge/up.md", "brand new body");
+  assert.ok(
+    !embed.loadCache(kPath).entries["knowledge/up.md"],
+    "hash-changed chunked entry dropped",
   );
 });
 
@@ -153,22 +236,22 @@ test("embedMany chunks by batchSize and preserves order across chunk boundaries"
   }
 });
 
-test("cachedEmbeddings reuses hash-matching entries and embeds only the misses", async () => {
+test("cachedLeafVectors reuses a hash-matching whole-leaf vector and embeds only the misses", async () => {
   /** @type {import("../scripts/lib/embed.mjs").EmbedCache} */
   const cache = { entries: {} };
-  const hit = { id: "knowledge/a.md", text: "reused body token" };
-  cache.entries[hit.id] = { hash: embed.contentHash(hit.text), vector: [0.5, 0.5] };
+  const hit = { id: "knowledge/a.md", embedText: "reused body token", body: "reused body token" };
+  cache.entries[hit.id] = { hash: embed.contentHash(hit.embedText), vector: [0.5, 0.5] };
   const items = [
     hit,
-    { id: "knowledge/b.md", text: "fresh body one" },
-    { id: "knowledge/c.md", text: "fresh body two" },
+    { id: "knowledge/b.md", embedText: "fresh body one", body: "fresh body one" },
+    { id: "knowledge/c.md", embedText: "fresh body two", body: "fresh body two" },
   ];
-  const vecs = await embed.cachedEmbeddings(cache, items);
-  assert.equal(vecs.length, 3, "aligned to items");
+  const out = await chunk.cachedLeafVectors(cache, items, { tokenizer: null, needChunks: false });
+  assert.equal(out.length, 3, "aligned to items");
   assert.deepEqual(
-    vecs[0],
+    out[0].vector,
     [0.5, 0.5],
-    "the hash-matching entry is returned verbatim, not re-embedded",
+    "the hash-matching whole-leaf vector is returned verbatim, not re-embedded",
   );
   assert.ok(cache.entries["knowledge/b.md"], "miss b stored in the cache");
   assert.ok(cache.entries["knowledge/c.md"], "miss c stored in the cache");
@@ -195,14 +278,16 @@ test("tensorRows handles a Float32Array tensor and a single-row (last-chunk) cas
   assert.deepEqual(embed.tensorRows(out, 1), [[1, 2, 3, 4]]);
 });
 
-test("cachedEmbeddings re-embeds an entry whose content hash changed", async () => {
+test("cachedLeafVectors re-embeds a whole-leaf entry whose content hash changed", async () => {
   /** @type {import("../scripts/lib/embed.mjs").EmbedCache} */
   const cache = { entries: {} };
   cache.entries["knowledge/x.md"] = { hash: "STALE", vector: [9, 9] };
-  const [vec] = await embed.cachedEmbeddings(cache, [
-    { id: "knowledge/x.md", text: "brand new content" },
-  ]);
-  assert.notDeepEqual(vec, [9, 9], "the stale-hash entry is recomputed, not returned");
+  const [r] = await chunk.cachedLeafVectors(
+    cache,
+    [{ id: "knowledge/x.md", embedText: "brand new content", body: "brand new content" }],
+    { tokenizer: null, needChunks: false },
+  );
+  assert.notDeepEqual(r.vector, [9, 9], "the stale-hash entry is recomputed, not returned");
   assert.equal(cache.entries["knowledge/x.md"].hash, embed.contentHash("brand new content"));
 });
 

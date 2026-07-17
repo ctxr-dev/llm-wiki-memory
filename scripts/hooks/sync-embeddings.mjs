@@ -10,7 +10,9 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { withWikiRoot, embedCacheFor } from "../lib/env.mjs";
-import { loadCache, saveCache, cachedEmbeddings } from "../lib/embed.mjs";
+import { loadCache, saveCache, getTokenizer } from "../lib/embed.mjs";
+import { cachedLeafVectors } from "../lib/embed-chunk.mjs";
+import { embedChunk } from "../lib/settings.mjs";
 import { walkLeaves, readLeaf, isActive, embedTextForLeaf } from "../lib/wiki-core.mjs";
 import { toRel } from "../lib/wiki-identity.mjs";
 import { mergedLayoutForRoot, sharedCategories } from "../lib/wiki-ownership.mjs";
@@ -44,7 +46,7 @@ function categoryFromMountPath(p) {
 async function warmCategory(wikiRootDir, category) {
   const cachePath = embedCacheFor(wikiRootDir, category);
   const cache = loadCache(cachePath);
-  /** @type {{ id: string, text: string }[]} */
+  /** @type {{ id: string, embedText: string, body: string }[]} */
   const items = [];
   for (const leaf of walkLeaves(path.join(wikiRootDir, category))) {
     let data, body;
@@ -60,11 +62,14 @@ async function warmCategory(wikiRootDir, category) {
       continue;
     }
     if (!isActive(data)) continue;
-    items.push({ id: toRel(leaf), text: embedTextForLeaf(data, body) });
+    items.push({ id: toRel(leaf), embedText: embedTextForLeaf(data, body), body });
   }
-  // One batched forward pass over all changed leaves in this category (bounded
-  // internally by embedMany's chunk size) instead of a serial call per leaf.
-  await cachedEmbeddings(cache, items);
+  // One batched forward pass over all changed leaves (bounded internally by
+  // embedMany's chunk size). Warm the recall vectors too (needChunks) so a long
+  // leaf's chunks are ready, not cold, on the first post-merge search.
+  const { enabled, maxChunks } = embedChunk();
+  const tokenizer = enabled ? await getTokenizer() : null;
+  await cachedLeafVectors(cache, items, { tokenizer, needChunks: true, maxChunks });
   const count = items.length;
   // Best-effort persist (parity with searchOneTree): a READ-ONLY / unwritable
   // shared-repo tree (a teammate consuming another owner's curated memory) must

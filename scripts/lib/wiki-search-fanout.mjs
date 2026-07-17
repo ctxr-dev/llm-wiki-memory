@@ -39,6 +39,7 @@ import { searchOneTree } from "./wiki-search.mjs";
  * @property {SearchFilters} [filters]
  * @property {number} [scoreThreshold]
  * @property {boolean} [withGlance]
+ * @property {boolean} [chunkAware] score long leaves by best chunk (recall only)
  */
 
 /**

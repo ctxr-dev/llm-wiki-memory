@@ -129,6 +129,7 @@ export async function recallLessons({
         scoreThreshold: threshold,
         limit,
         withGlance,
+        chunkAware: true,
       })
     );
     let added = 0;
@@ -173,6 +174,7 @@ export async function recallLessons({
           scoreThreshold: threshold,
           limit: 1,
           withGlance,
+          chunkAware: true,
         })
       );
       for (const r of records.slice(0, 1)) supplementary.push({ ...r, kind: "knowledge" });

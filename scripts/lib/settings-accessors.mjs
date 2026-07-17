@@ -108,6 +108,10 @@ export function embedBackend() {
 export function embedModel() {
   return settings().embed.model;
 }
+/** @returns {import("./settings-defaults.mjs").EmbedChunkSection} */
+export function embedChunk() {
+  return settings().embed.chunk;
+}
 
 export function recallScoreThreshold() {
   return settings().recall.scoreThreshold;

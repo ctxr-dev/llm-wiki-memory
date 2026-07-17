@@ -33,6 +33,27 @@ searches for a leaf's near-duplicates). That probe composes the **same**
 shape. The header lives in one helper (`embedTextForLeaf`), so leaf-side and
 consolidate-side can never drift apart.
 
+### Long leaves — length-aware chunking (recall only)
+
+The model reads only the first ~512 tokens of a leaf's embed text, so a long
+leaf (a plan, investigation, tracker issue, or daily capture) would otherwise
+lose the rest — its later sections become unfindable, and even its early content
+retrieves poorly because one mean-pooled vector over a long multi-topic body
+blurs every specific point. When a leaf's embed text exceeds the window, recall
+additionally splits the body into up to `embed.chunk.maxChunks` window-sized
+pieces (each re-prefixed with the `title · tags · subject` header) and scores the
+leaf by its **best-matching** chunk minus `embed.chunk.penalty · (chunks − 1)` —
+the penalty stops a long leaf out-ranking atomic leaves just by having more
+chunks. A short leaf is a single chunk and scores exactly as before.
+
+Chunking is **recall-only** and opt-in per call (`chunkAware`): `search_memory`,
+`recall_lessons`, and the CLI `search` / `recall` use it; the consolidate and
+compile de-duplication passes do **not** — they keep scoring on the unchanged
+whole-leaf vector, so their calibrated thresholds stay byte-identical. Only the
+transformer backend chunks (lexical has no fixed window). Tune it in
+`settings.yaml` under `embed.chunk` (`enabled`, `maxChunks` default 6, `penalty`
+default 0.015).
+
 ### Backends
 
 | Backend | What it is | When |
@@ -59,6 +80,12 @@ keyed by the leaf's relative id and carries the **content hash** of the embedded
 text (the `title · tags · subject` header **plus** the body) it was computed
 from, so an unchanged leaf is never re-embedded — and editing a leaf's title,
 tags, or subject re-embeds it once, automatically, on the next search.
+
+A long (truncated) leaf's entry additionally carries a `chunks` array (each with
+its own hash + vector), added lazily on the first chunk-aware recall. The
+whole-leaf `vector` is **always** present, so the cache stamp/dim check and the
+non-chunk-aware paths (consolidate/compile) are unaffected, and an older engine
+reading the file just uses `vector` and ignores `chunks`.
 
 The cache file is **stamped** with `{ model, backend, dim }`. On load, a stamp
 mismatch (different model, different backend, or a different vector dimension)

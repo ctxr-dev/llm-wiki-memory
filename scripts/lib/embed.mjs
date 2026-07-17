@@ -26,9 +26,22 @@ export { cosine, tensorRows } from "./embed-lexical.mjs";
 /** @typedef {import("@xenova/transformers").FeatureExtractionPipeline} FeatureExtractionPipeline */
 
 /**
+ * @typedef {Object} Tokenizer
+ * @property {(t: string, pair?: unknown, opts?: unknown) => unknown[]} encode
+ * @property {(ids: unknown[], opts?: unknown) => string} decode
+ */
+
+/**
+ * @typedef {Object} EmbedChunkVec
+ * @property {string} hash
+ * @property {number[]} vector
+ */
+
+/**
  * @typedef {Object} EmbedCacheEntry
  * @property {string} hash
  * @property {number[]} vector
+ * @property {EmbedChunkVec[]} [chunks] chunk vectors for a long (truncated) leaf; recall-only
  */
 
 /**
@@ -160,6 +173,25 @@ export function activeBackend() {
   return _backend || configuredBackend() || "transformers";
 }
 
+// The transformer pipeline's own tokenizer, for length-aware chunking (no second
+// load). Returns null in lexical mode (no fixed window, so nothing to chunk) or
+// if the model can't load — the chunker then treats every leaf as a single
+// chunk, i.e. today's behavior.
+/**
+ * @returns {Promise<Tokenizer | null>}
+ */
+export async function getTokenizer() {
+  if (configuredBackend() === "lexical" || _backend === "lexical") return null;
+  try {
+    const extractor = await getExtractor();
+    _backend = "transformers";
+    return /** @type {Tokenizer} */ (/** @type {unknown} */ (extractor.tokenizer));
+  } catch (err) {
+    noteLexicalFallback(err);
+    return null;
+  }
+}
+
 // embedding cache keyed by leaf id + content hash
 
 // The signature a cache is stamped with: the embed model AND the resolved
@@ -238,46 +270,6 @@ export function saveCache(cachePath, cache) {
   const { model, backend } = cacheStamp();
   const stamped = { model, backend, dim: cacheDim(cache), entries: cache.entries || {} };
   writeFileAtomic(cachePath, JSON.stringify(stamped));
-}
-
-// Batched cache fill for ONE cache: reuse entries whose content hash is
-// unchanged, embed the MISSES in a single batched call (embedMany), store them,
-// and return vectors aligned to `items` order. Mutates `cache` in memory; the
-// caller persists. Batching the misses is what turns a cold N-leaf category warm
-// (or first search) from N serial model calls into ceil(N/batch) forward passes.
-/**
- * @param {EmbedCache} cache
- * @param {{ id: string, text: string }[]} items
- * @returns {Promise<number[][]>}
- */
-export async function cachedEmbeddings(cache, items) {
-  const list = Array.isArray(items) ? items : [];
-  /** @type {number[][]} */
-  const out = new Array(list.length);
-  /** @type {{ idx: number, id: string, hash: string }[]} */
-  const misses = [];
-  /** @type {string[]} */
-  const missTexts = [];
-  for (let i = 0; i < list.length; i += 1) {
-    const { id, text } = list[i];
-    const hash = contentHash(text);
-    const existing = cache.entries[id];
-    if (existing && existing.hash === hash && Array.isArray(existing.vector)) {
-      out[i] = existing.vector;
-    } else {
-      misses.push({ idx: i, id, hash });
-      missTexts.push(text);
-    }
-  }
-  if (missTexts.length > 0) {
-    const vecs = await embedMany(missTexts);
-    for (let k = 0; k < misses.length; k += 1) {
-      const { idx, id, hash } = misses[k];
-      cache.entries[id] = { hash, vector: vecs[k] };
-      out[idx] = vecs[k];
-    }
-  }
-  return out;
 }
 
 /**

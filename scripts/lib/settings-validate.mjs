@@ -66,6 +66,11 @@ export function coerceSections(sections) {
 
   if (typeof embed.backend !== "string") embed.backend = "transformers";
   if (typeof embed.model !== "string") embed.model = DEFAULT_EMBED_MODEL;
+  if (typeof embed.chunk !== "object" || embed.chunk === null)
+    embed.chunk = /** @type {import("./settings-defaults.mjs").EmbedChunkSection} */ ({});
+  embed.chunk.enabled = coerceBool(embed.chunk.enabled, true);
+  embed.chunk.maxChunks = coercePos(embed.chunk.maxChunks, 6);
+  embed.chunk.penalty = coerceFloat01(embed.chunk.penalty, 0.015);
 
   recall.scoreThreshold = coerceFloat01(recall.scoreThreshold, 0.05);
   recall.priorityBand = coerceFloat01(recall.priorityBand, 0.05);
