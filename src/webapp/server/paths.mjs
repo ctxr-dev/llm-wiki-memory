@@ -20,3 +20,10 @@ export function samePathKey(p) {
 export function samePath(a, b) {
   return samePathKey(a) === samePathKey(b);
 }
+
+/** @param {string} root @param {string} target @returns {boolean} */
+export function isWithin(root, target) {
+  const base = path.resolve(root);
+  const resolved = path.resolve(target);
+  return resolved === base || resolved.startsWith(base + path.sep);
+}

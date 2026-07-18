@@ -64,6 +64,28 @@ export const NavChildrenSchema = z.object({
 
 export const DocListSchema = z.object({ documents: z.array(DocEntrySchema) });
 
+export const DocViewSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  category: z.string(),
+  body: z.string(),
+  frontmatter: z.record(z.unknown()),
+  memory: z.record(z.unknown()),
+  active: z.boolean(),
+});
+
+export const RelatedEntrySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  score: z.number(),
+});
+
+export const RelatedListSchema = z.object({ related: z.array(RelatedEntrySchema) });
+
+export const PrefValueSchema = z.object({ value: z.string().nullable() });
+
+export const SetPrefRequest = z.object({ value: z.string() }).strict();
+
 /** @typedef {import("zod").infer<typeof HealthSchema>} Health */
 /** @typedef {import("zod").infer<typeof LevelSchema>} Level */
 /** @typedef {import("zod").infer<typeof WikiSchema>} Wiki */
@@ -71,3 +93,5 @@ export const DocListSchema = z.object({ documents: z.array(DocEntrySchema) });
 /** @typedef {import("zod").infer<typeof NavCategorySchema>} NavCategory */
 /** @typedef {import("zod").infer<typeof NavChildrenSchema>} NavChildren */
 /** @typedef {import("zod").infer<typeof DocEntrySchema>} DocEntry */
+/** @typedef {import("zod").infer<typeof DocViewSchema>} DocView */
+/** @typedef {import("zod").infer<typeof RelatedEntrySchema>} RelatedEntry */
