@@ -107,6 +107,39 @@ export const AskResponseSchema = z.object({
   sources: z.array(SearchResultSchema),
 });
 
+export const MetaInputSchema = z.record(z.unknown());
+
+export const EditDocRequest = z
+  .object({
+    body: z.string().optional(),
+    memory: MetaInputSchema.optional(),
+    userRequested: z.boolean().optional(),
+  })
+  .strict();
+
+export const ArchiveRequest = z.object({ archive: z.boolean() }).strict();
+
+export const CreateDocRequest = z
+  .object({
+    category: z.string(),
+    name: z.string().min(1),
+    title: z.string().optional(),
+    body: z.string().optional(),
+    memory: MetaInputSchema.optional(),
+    userRequested: z.boolean().optional(),
+  })
+  .strict();
+
+export const EditResultSchema = z.object({
+  ok: z.boolean(),
+  id: z.string().optional(),
+  relocatedFrom: z.string().nullable().optional(),
+  status: z.string().optional(),
+  shared: z.boolean().optional(),
+  error: z.string().optional(),
+  message: z.string().optional(),
+});
+
 /** @typedef {import("zod").infer<typeof HealthSchema>} Health */
 /** @typedef {import("zod").infer<typeof LevelSchema>} Level */
 /** @typedef {import("zod").infer<typeof WikiSchema>} Wiki */
@@ -118,3 +151,4 @@ export const AskResponseSchema = z.object({
 /** @typedef {import("zod").infer<typeof RelatedEntrySchema>} RelatedEntry */
 /** @typedef {import("zod").infer<typeof SearchResultSchema>} SearchResult */
 /** @typedef {import("zod").infer<typeof AskResponseSchema>} AskResponse */
+/** @typedef {import("zod").infer<typeof EditResultSchema>} EditResult */

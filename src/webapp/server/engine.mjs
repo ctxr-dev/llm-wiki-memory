@@ -4,16 +4,20 @@ import { describeWiki, hashRoot } from "./wiki-describe.mjs";
 import { realpathOr, samePath, samePathKey } from "./paths.mjs";
 
 export async function loadEngine() {
-  const [env, embed, context, layout, core, identity, search] = await Promise.all([
-    import("../../../scripts/lib/env.mjs"),
-    import("../../../scripts/lib/embed.mjs"),
-    import("../../../scripts/lib/wiki-context.mjs"),
-    import("../../../scripts/lib/wiki-layout-state.mjs"),
-    import("../../../scripts/lib/wiki-core.mjs"),
-    import("../../../scripts/lib/wiki-identity.mjs"),
-    import("../../../scripts/lib/wiki-search.mjs"),
-  ]);
-  return { env, embed, context, layout, core, identity, search };
+  const [env, embed, context, layout, core, identity, search, store, render, atomic] =
+    await Promise.all([
+      import("../../../scripts/lib/env.mjs"),
+      import("../../../scripts/lib/embed.mjs"),
+      import("../../../scripts/lib/wiki-context.mjs"),
+      import("../../../scripts/lib/wiki-layout-state.mjs"),
+      import("../../../scripts/lib/wiki-core.mjs"),
+      import("../../../scripts/lib/wiki-identity.mjs"),
+      import("../../../scripts/lib/wiki-search.mjs"),
+      import("../../../scripts/lib/wiki-store.mjs"),
+      import("../../../scripts/lib/wiki-render.mjs"),
+      import("../../../scripts/lib/atomic-write.mjs"),
+    ]);
+  return { env, embed, context, layout, core, identity, search, store, render, atomic };
 }
 
 /**
@@ -90,4 +94,17 @@ export async function resolveWikiRoot(id, places = []) {
   if (hashRoot(resolved.brain.root) === id) return resolved.brain.root;
   const match = places.find((place) => hashRoot(place.root) === id);
   return match ? match.root : null;
+}
+
+/**
+ * @param {string} id
+ * @param {import("./app-db.mjs").Place[]} [places]
+ * @returns {Promise<{ root: string, ownership: "wiki" | "repo" } | null>}
+ */
+export async function resolveWiki(id, places = []) {
+  const { context } = await loadEngine();
+  const resolved = context.resolveWikiContext([]);
+  if (hashRoot(resolved.brain.root) === id) return { root: resolved.brain.root, ownership: "wiki" };
+  const match = places.find((place) => hashRoot(place.root) === id);
+  return match ? { root: match.root, ownership: "repo" } : null;
 }

@@ -9,6 +9,7 @@ import {
   PrefValueSchema,
   SearchResultsSchema,
   AskResponseSchema,
+  EditResultSchema,
 } from "../shared/contract.mjs";
 
 export type Wiki = z.infer<typeof WikiListSchema>["wikis"][number];
@@ -19,12 +20,36 @@ export type DocView = z.infer<typeof DocViewSchema>;
 export type RelatedEntry = z.infer<typeof RelatedListSchema>["related"][number];
 export type SearchResult = z.infer<typeof SearchResultsSchema>["results"][number];
 export type AskResponse = z.infer<typeof AskResponseSchema>;
+export type EditResult = z.infer<typeof EditResultSchema>;
+export type MemoryInput = Record<string, unknown>;
+export type CreateInput = {
+  category: string;
+  name: string;
+  title?: string;
+  body?: string;
+  memory?: MemoryInput;
+  userRequested?: boolean;
+};
 
 async function getJson<T>(url: string, schema: z.ZodType<T>): Promise<T> {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`${response.status} ${url}`);
   }
+  return schema.parse(await response.json());
+}
+
+async function sendJson<T>(
+  url: string,
+  method: string,
+  body: unknown,
+  schema: z.ZodType<T>,
+): Promise<T> {
+  const response = await fetch(url, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
   return schema.parse(await response.json());
 }
 
@@ -49,6 +74,15 @@ export const api = {
     ).then((r) => r.results),
   ask: (id: string, q: string) =>
     getJson(`/api/wikis/${id}/ask?q=${encodeURIComponent(q)}`, AskResponseSchema),
+  editDoc: (
+    id: string,
+    docId: string,
+    payload: { body?: string; memory?: MemoryInput; userRequested?: boolean },
+  ) => sendJson(`/api/wikis/${id}/doc/${docId}`, "PUT", payload, EditResultSchema),
+  archiveDoc: (id: string, docId: string, archive: boolean) =>
+    sendJson(`/api/wikis/${id}/archive/${docId}`, "POST", { archive }, EditResultSchema),
+  createDoc: (id: string, payload: CreateInput) =>
+    sendJson(`/api/wikis/${id}/create`, "POST", payload, EditResultSchema),
   getPref: (id: string, key: string) =>
     getJson(`/api/wikis/${id}/prefs/${key}`, PrefValueSchema).then((r) => r.value),
   setPref: (id: string, key: string, value: string) =>
