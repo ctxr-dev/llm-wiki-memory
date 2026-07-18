@@ -7,6 +7,8 @@ import {
   DocViewSchema,
   RelatedListSchema,
   PrefValueSchema,
+  SearchResultsSchema,
+  AskResponseSchema,
 } from "../shared/contract.mjs";
 
 export type Wiki = z.infer<typeof WikiListSchema>["wikis"][number];
@@ -15,6 +17,8 @@ export type NavChildren = z.infer<typeof NavChildrenSchema>;
 export type DocEntry = z.infer<typeof DocListSchema>["documents"][number];
 export type DocView = z.infer<typeof DocViewSchema>;
 export type RelatedEntry = z.infer<typeof RelatedListSchema>["related"][number];
+export type SearchResult = z.infer<typeof SearchResultsSchema>["results"][number];
+export type AskResponse = z.infer<typeof AskResponseSchema>;
 
 async function getJson<T>(url: string, schema: z.ZodType<T>): Promise<T> {
   const response = await fetch(url);
@@ -38,6 +42,13 @@ export const api = {
   doc: (id: string, docId: string) => getJson(`/api/wikis/${id}/doc/${docId}`, DocViewSchema),
   related: (id: string, docId: string) =>
     getJson(`/api/wikis/${id}/related/${docId}`, RelatedListSchema).then((r) => r.related),
+  search: (id: string, q: string, scope: "wiki" | "all") =>
+    getJson(
+      `/api/wikis/${id}/search?q=${encodeURIComponent(q)}${scope === "all" ? "&scope=all" : ""}`,
+      SearchResultsSchema,
+    ).then((r) => r.results),
+  ask: (id: string, q: string) =>
+    getJson(`/api/wikis/${id}/ask?q=${encodeURIComponent(q)}`, AskResponseSchema),
   getPref: (id: string, key: string) =>
     getJson(`/api/wikis/${id}/prefs/${key}`, PrefValueSchema).then((r) => r.value),
   setPref: (id: string, key: string, value: string) =>

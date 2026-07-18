@@ -86,6 +86,27 @@ export const PrefValueSchema = z.object({ value: z.string().nullable() });
 
 export const SetPrefRequest = z.object({ value: z.string() }).strict();
 
+export const SearchResultSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  category: z.string(),
+  score: z.number(),
+  snippet: z.string(),
+  wikiId: z.string().optional(),
+  wikiLabel: z.string().optional(),
+});
+
+export const SearchResultsSchema = z.object({ results: z.array(SearchResultSchema) });
+
+export const AskAnswerSchema = z
+  .object({ id: z.string(), name: z.string(), category: z.string(), content: z.string() })
+  .nullable();
+
+export const AskResponseSchema = z.object({
+  answer: AskAnswerSchema,
+  sources: z.array(SearchResultSchema),
+});
+
 /** @typedef {import("zod").infer<typeof HealthSchema>} Health */
 /** @typedef {import("zod").infer<typeof LevelSchema>} Level */
 /** @typedef {import("zod").infer<typeof WikiSchema>} Wiki */
@@ -95,3 +116,5 @@ export const SetPrefRequest = z.object({ value: z.string() }).strict();
 /** @typedef {import("zod").infer<typeof DocEntrySchema>} DocEntry */
 /** @typedef {import("zod").infer<typeof DocViewSchema>} DocView */
 /** @typedef {import("zod").infer<typeof RelatedEntrySchema>} RelatedEntry */
+/** @typedef {import("zod").infer<typeof SearchResultSchema>} SearchResult */
+/** @typedef {import("zod").infer<typeof AskResponseSchema>} AskResponse */

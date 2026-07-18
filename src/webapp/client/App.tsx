@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Sidebar } from "./Sidebar";
 import { NavPanel } from "./NavPanel";
 import { DocView } from "./DocView";
+import { CommandPalette } from "./CommandPalette";
+import { AskPanel } from "./AskPanel";
 import { useWikis } from "./hooks";
 import { api } from "./api";
 import { parseTabs } from "./tabs";
@@ -11,10 +13,23 @@ export function App() {
   const [wikiId, setWikiId] = useState<string | null>(null);
   const [tabs, setTabs] = useState<string[]>([]);
   const [active, setActive] = useState<string | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
 
   useEffect(() => {
     if (!wikiId && wikis.data?.length) setWikiId(wikis.data[0].id);
   }, [wikis.data, wikiId]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     if (!wikiId) return undefined;
@@ -67,6 +82,21 @@ export function App() {
       <Sidebar activeId={wikiId} onSelect={setWikiId} />
       {wikiId && <NavPanel wikiId={wikiId} onOpenDoc={openDoc} />}
       <main className="flex min-w-0 flex-1 flex-col">
+        <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-1.5">
+          <button
+            onClick={() => setPaletteOpen(true)}
+            className="flex-1 rounded border border-slate-200 px-3 py-1 text-left text-sm text-slate-400 hover:border-slate-300"
+          >
+            Search or jump… <span className="ml-1 text-xs">⌘K</span>
+          </button>
+          <button
+            onClick={() => setAskOpen(true)}
+            disabled={!wikiId}
+            className="rounded bg-slate-800 px-3 py-1 text-sm text-white disabled:opacity-40"
+          >
+            Ask
+          </button>
+        </div>
         <div className="flex items-center gap-1 overflow-x-auto border-b border-slate-200 px-2">
           {tabs.map((tab) => (
             <div
@@ -96,6 +126,17 @@ export function App() {
           )}
         </div>
       </main>
+      {paletteOpen && wikiId && (
+        <CommandPalette
+          wikiId={wikiId}
+          onOpenDoc={openDoc}
+          onSwitchWiki={setWikiId}
+          onClose={() => setPaletteOpen(false)}
+        />
+      )}
+      {askOpen && wikiId && (
+        <AskPanel wikiId={wikiId} onOpenDoc={openDoc} onClose={() => setAskOpen(false)} />
+      )}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { openAppDb } from "./app-db.mjs";
 import { registerWikiRoutes } from "./routes/wikis.mjs";
 import { registerNavRoutes } from "./routes/nav.mjs";
 import { registerDocRoutes } from "./routes/doc.mjs";
+import { registerSearchRoutes } from "./routes/search.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(HERE, "..", "dist");
@@ -22,6 +23,7 @@ export function buildApp({ db } = {}) {
   registerWikiRoutes(app, appDb);
   registerNavRoutes(app, appDb);
   registerDocRoutes(app, appDb);
+  registerSearchRoutes(app, appDb);
   if (fs.existsSync(DIST)) {
     app.register(fastifyStatic, { root: DIST });
     app.setNotFoundHandler((request, reply) => {

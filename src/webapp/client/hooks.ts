@@ -35,3 +35,17 @@ export const useRelated = (wikiId: string | null, docId: string | null) =>
     queryFn: () => api.related(wikiId as string, docId as string),
     enabled: !!wikiId && !!docId,
   });
+
+export const useSearch = (wikiId: string | null, query: string, scope: "wiki" | "all") =>
+  useQuery({
+    queryKey: ["search", wikiId, query, scope],
+    queryFn: () => api.search(wikiId as string, query, scope),
+    enabled: !!wikiId && query.trim().length > 0,
+  });
+
+export const useAsk = (wikiId: string | null, query: string) =>
+  useQuery({
+    queryKey: ["ask", wikiId, query],
+    queryFn: () => api.ask(wikiId as string, query),
+    enabled: !!wikiId && query.trim().length > 0,
+  });
