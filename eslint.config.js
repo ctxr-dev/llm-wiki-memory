@@ -2,7 +2,7 @@ import js from "@eslint/js";
 import globals from "globals";
 
 export default [
-  { ignores: ["node_modules/", "wiki/", "coverage/", "*.min.js"] },
+  { ignores: ["node_modules/", "wiki/", "coverage/", "*.min.js", "src/webapp/"] },
   js.configs.recommended,
   {
     files: ["**/*.mjs"],

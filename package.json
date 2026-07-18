@@ -12,11 +12,18 @@
   "engines": {
     "node": ">=20"
   },
+  "workspaces": [
+    "src/webapp"
+  ],
   "bin": {
-    "llm-wiki-memory": "scripts/cli.mjs"
+    "llm-wiki-memory": "scripts/cli.mjs",
+    "llm-wiki-webapp": "scripts/webapp-cli.mjs"
   },
   "exports": {
     ".": "./scripts/lib/wiki-store.mjs",
+    "./recall": "./scripts/lib/recall.mjs",
+    "./context": "./scripts/lib/wiki-context.mjs",
+    "./env": "./scripts/lib/env.mjs",
     "./topology-runtime": "./scripts/lib/topology-runtime.mjs",
     "./path-compiler": "./scripts/lib/path-compiler.mjs"
   },
@@ -30,8 +37,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "deadcode": "knip",
-    "check:size": "find scripts mcp-server -name '*.mjs' -exec wc -l {} + | awk '$2!=\"total\" && $1>300 {print $1\"  \"$2; c++} END{exit c>0?1:0}'",
-    "check:comments": "test -z \"$(grep -rnE '^[[:space:]]*//[[:space:]]*[-=*]{3,}|^[[:space:]]*/\\*[[:space:]]*[-=*]{3,}' scripts mcp-server test --include='*.mjs')\"",
+    "check:size": "find scripts mcp-server src/webapp \\( -path '*/node_modules/*' -o -path '*/dist/*' \\) -prune -o \\( -name '*.mjs' -o -name '*.ts' -o -name '*.tsx' \\) -print0 | xargs -0 wc -l | awk '$2!=\"total\" && $1>300 {print $1\"  \"$2; c++} END{exit c>0?1:0}'",
+    "check:comments": "test -z \"$(grep -rnE '^[[:space:]]*//[[:space:]]*[-=*]{3,}|^[[:space:]]*/\\*[[:space:]]*[-=*]{3,}' scripts mcp-server test src/webapp --include='*.mjs' --include='*.ts' --include='*.tsx' --exclude-dir=node_modules --exclude-dir=dist)\"",
     "gates": "npm run typecheck && npx eslint . --max-warnings 0 && npm run format:check && npm run deadcode && npm run check:size && npm run check:comments && npm test && npm run test:e2e"
   },
   "dependencies": {

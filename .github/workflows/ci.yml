@@ -70,3 +70,27 @@ jobs:
           npm run test:e2e
         env:
           MEMORY_EMBED_BACKEND: lexical
+
+  webapp:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm ci --no-audit --no-fund
+      - name: Configure git identity (fixture wiki init)
+        run: |
+          git config --global user.email "ci@llm-wiki-memory.local"
+          git config --global user.name "ci"
+      - name: Webapp gates (typecheck, lint, no-comments, build, vitest)
+        run: |
+          rm -rf "${TMPDIR:-/tmp}"/lwm-* 2>/dev/null || true
+          npm run -w src/webapp gates
+        env:
+          MEMORY_EMBED_BACKEND: lexical
