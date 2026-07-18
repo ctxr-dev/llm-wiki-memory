@@ -198,6 +198,7 @@ test("the `settled` guard prevents same-drain re-run when a backoff expires mid-
   // Without `settled`, FAIL (now claimable again) would be re-run in this same drain.
   assert.equal(runs.filter((w) => w === "/w/FAIL").length, 1, "FAIL ran exactly once");
   assert.deepEqual(runs, ["/w/FAIL", "/w/SLOW"], "no same-drain re-claim of the backed-off job");
+  q.close();
 });
 
 const WORKER = path.join(TMP, "concurrency-worker.mjs");
