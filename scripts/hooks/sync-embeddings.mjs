@@ -1,20 +1,24 @@
-// Best-effort re-embed of changed SHARED wiki categories after a host-repo git
-// merge/checkout/rewrite (Phase G). It only WARMS the per-category embedding
-// caches for the shared categories that actually changed, so the first search
-// after a pull isn't a cold re-embed. Lazy-embed at search time remains the
-// correctness net — this hook is a latency optimisation and is always
-// best-effort: it never fails or blocks the git operation.
+// After a host-repo git merge/checkout/rewrite, refresh the SHARED (ownership:
+// repo) categories: warm their embedding caches AND rebuild the index.md tree
+// (via @ctxr/skill-llm-wiki — deterministic, so an already-correct tree rewrites
+// byte-identically; only a merge-mangled index shows a diff, the desired repair).
+// Work is routed through a durable per-wiki job queue and self-drained by the
+// firing hook, so rapid branch-switching coalesces and a killed run is retried,
+// never lost. Always detached + best-effort: never blocks or fails the git op;
+// lazy-embed at search + next-write index rebuild are the correctness net. If the
+// queue backend (better-sqlite3) can't load, the work runs directly instead.
 
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { withWikiRoot, embedCacheFor } from "../lib/env.mjs";
+import { withWikiRoot, embedCacheFor, envValue, envBool, SYNC_QUEUE_PATH } from "../lib/env.mjs";
 import { loadCache, saveCache, getTokenizer } from "../lib/embed.mjs";
 import { cachedLeafVectors } from "../lib/embed-chunk.mjs";
 import { embedChunk } from "../lib/settings.mjs";
 import { walkLeaves, readLeaf, isActive, embedTextForLeaf, leafMemory } from "../lib/wiki-core.mjs";
 import { isLeafFull } from "../lib/wiki-layout-state.mjs";
+import { indexRebuildAll, ensureIndexes } from "../lib/wiki-cli.mjs";
 import { toRel } from "../lib/wiki-identity.mjs";
 import { mergedLayoutForRoot, sharedCategories } from "../lib/wiki-ownership.mjs";
 
@@ -94,40 +98,142 @@ async function warmCategory(wikiRootDir, category) {
   return count;
 }
 
+/** Any LEAF-ANCESTOR dir (leaf's dir up to the wiki root) missing an index.md? */
+/** @param {string} leaf @param {string} wikiRootDir @returns {boolean} */
+function ancestorMissingIndex(leaf, wikiRootDir) {
+  for (let dir = path.dirname(leaf); ; dir = path.dirname(dir)) {
+    if (!fs.existsSync(path.join(dir, "index.md"))) return true;
+    if (dir === wikiRootDir || path.dirname(dir) === dir) return false;
+  }
+}
+
 /**
- * Re-embed the SHARED (ownership: repo) categories that changed in a git event.
- * When `full` is set, warm EVERY shared category (used for a degenerate git range).
+ * Rebuild the (gitignored, per-clone) index.md tree for the shared categories.
+ * `indexRebuildAll` refreshes every EXISTING index in one subprocess; then, if any
+ * LEAF-ANCESTOR dir lacks an index (a fresh clone, a new dir, or a partially-built
+ * tree left by a killed prior run), `ensureIndexes` over ALL shared leaves creates
+ * the missing ancestors deepest-first — including an intermediate dir that holds only
+ * subdirs. Only leaf-ancestor dirs count (the exact set ensureIndexes can build), so
+ * a leaf-less dir never forces an endless rebuild. Refresh and create-missing are
+ * INDEPENDENT. Best-effort.
+ * @param {string} wikiRootDir @param {string[]} sharedCats
+ */
+function rebuildIndexTree(wikiRootDir, sharedCats) {
+  try {
+    indexRebuildAll(wikiRootDir);
+  } catch (err) {
+    console.error(
+      `[sync-embeddings] index refresh skipped (${err instanceof Error ? err.message : String(err)})`,
+    );
+  }
+  /** @type {string[]} */
+  const leaves = [];
+  let missing = false;
+  for (const cat of sharedCats) {
+    const catRoot = path.join(wikiRootDir, cat);
+    if (!fs.existsSync(catRoot)) continue;
+    for (const leaf of walkLeaves(catRoot)) {
+      leaves.push(leaf);
+      if (!missing && ancestorMissingIndex(leaf, wikiRootDir)) missing = true;
+    }
+  }
+  if (missing && leaves.length) ensureIndexes(wikiRootDir, leaves);
+}
+
+/**
+ * The queue WORKER: a full refresh of one mount's shared tree — warm every shared
+ * category (the embed cache skips unchanged leaves by content-hash, so warming all
+ * is cheap) + rebuild the index.md tree. Jobs are detail-less, so this refreshes
+ * the whole shared tree. Best-effort throughout.
+ * @param {string} mountDir
+ * @returns {Promise<{ warmed: string[], indexed: boolean }>}
+ */
+async function runSyncJob(mountDir) {
+  const wikiRootDir = path.join(mountDir, ".llm-wiki-memory", "wiki");
+  if (!fs.existsSync(wikiRootDir)) return { warmed: [], indexed: false };
+  const shared = [...sharedCategories(mergedLayoutForRoot(wikiRootDir))];
+  if (shared.length === 0) return { warmed: [], indexed: false };
+  return withWikiRoot(wikiRootDir, async () => {
+    /** @type {string[]} */
+    const warmed = [];
+    for (const cat of shared) {
+      await warmCategory(wikiRootDir, cat);
+      warmed.push(cat);
+    }
+    let indexed = false;
+    try {
+      rebuildIndexTree(wikiRootDir, shared);
+      indexed = true;
+    } catch (err) {
+      console.error(
+        `[sync-embeddings] index rebuild skipped (${err instanceof Error ? err.message : String(err)}): next write/validate heals`,
+      );
+    }
+    return { warmed, indexed };
+  });
+}
+
+/**
+ * Enqueue a detail-less job for the wiki and self-drain the durable queue. Falls
+ * back to a direct run when the queue is disabled (`LWM_SYNC_NO_QUEUE`) or its
+ * backend (better-sqlite3) can't load / its dir is unwritable.
+ * @param {string} mountDir @param {string} wikiRootDir
+ * @returns {Promise<{ ok: boolean, queued: boolean, warmed: string[], indexed: boolean }>}
+ */
+async function refreshViaQueue(mountDir, wikiRootDir) {
+  if (!envBool("LWM_SYNC_NO_QUEUE", false)) {
+    try {
+      const { openQueue } = await import("../lib/sync-queue.mjs");
+      const q = openQueue(envValue("LWM_SYNC_QUEUE_PATH", SYNC_QUEUE_PATH));
+      try {
+        q.enqueue(wikiRootDir, mountDir);
+        /** @type {{ warmed: string[], indexed: boolean }[]} */
+        const runs = [];
+        await q.drain(async (job) => {
+          runs.push(await runSyncJob(job.mount_dir));
+        });
+        return {
+          ok: true,
+          queued: true,
+          warmed: runs.flatMap((r) => r.warmed),
+          indexed: runs.some((r) => r.indexed),
+        };
+      } finally {
+        try {
+          q.close();
+        } catch {
+          /* a close error must not discard a successful drain / trigger a redundant run */
+        }
+      }
+    } catch (err) {
+      console.error(
+        `[sync-embeddings] queue unavailable (${err instanceof Error ? err.message : String(err)}); running directly`,
+      );
+    }
+  }
+  const r = await runSyncJob(mountDir);
+  return { ok: true, queued: false, ...r };
+}
+
+/**
+ * Gate a git event: act only if a SHARED category changed (or a degenerate range),
+ * then enqueue + drain the durable refresh. `full` covers an unresolvable range.
  * @param {{ mountDir?: string, changedPaths?: string[], full?: boolean }} [args]
- * @returns {Promise<{ ok: boolean, warmed?: string[], skipped?: string }>}
+ * @returns {Promise<{ ok: boolean, queued?: boolean, warmed?: string[], indexed?: boolean, skipped?: string }>}
  */
 export async function syncEmbeddings({ mountDir, changedPaths = [], full = false } = {}) {
   const wikiRootDir = path.join(String(mountDir || ""), ".llm-wiki-memory", "wiki");
   if (!mountDir || !fs.existsSync(wikiRootDir)) return { ok: false, skipped: "no-wiki" };
   const shared = new Set(sharedCategories(mergedLayoutForRoot(wikiRootDir)));
   if (shared.size === 0) return { ok: true, warmed: [] };
-  /** @type {Set<string>} */
-  let changed;
-  if (full) {
-    // Degenerate git range (root/shallow/ORIG_HEAD-unset) — we can't tell what changed,
-    // so warm EVERY shared category rather than silently skip (embeddings must not go stale).
-    changed = shared;
-  } else {
-    changed = new Set();
-    for (const p of changedPaths || []) {
+  const changed =
+    full ||
+    (changedPaths || []).some((p) => {
       const cat = categoryFromMountPath(p);
-      if (cat && shared.has(cat)) changed.add(cat);
-    }
-  }
-  if (changed.size === 0) return { ok: true, warmed: [] };
-  return withWikiRoot(wikiRootDir, async () => {
-    /** @type {string[]} */
-    const warmed = [];
-    for (const cat of changed) {
-      await warmCategory(wikiRootDir, cat);
-      warmed.push(cat);
-    }
-    return { ok: true, warmed };
-  });
+      return Boolean(cat) && shared.has(cat);
+    });
+  if (!changed) return { ok: true, warmed: [] };
+  return refreshViaQueue(String(mountDir), wikiRootDir);
 }
 
 /**

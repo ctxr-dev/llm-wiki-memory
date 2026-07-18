@@ -55,6 +55,9 @@ export const ISSUES_INDEX_PATH = path.join(MEMORY_DATA_DIR, "state", ".issues-in
 // one redacted JSONL record per L2 hook allow/ask, L3 server accepted/refused, and
 // compile-distilled lesson promotion. Observability only. Gitignored.
 export const SAVE_GATE_AUDIT_PATH = path.join(MEMORY_DATA_DIR, "state", ".save-gate-audit.log");
+// Durable job queue (better-sqlite3) for the post-git sync hook. Brain-global;
+// jobs are keyed by wiki, so all mounts share this one file. Gitignored.
+export const SYNC_QUEUE_PATH = path.join(MEMORY_DATA_DIR, "state", "sync-queue.sqlite");
 export const PROMPTS_DIR = path.join(MEMORY_DIR, "prompts");
 
 // Parse one .env value. Deliberately small (NOT a full dotenv parser): it

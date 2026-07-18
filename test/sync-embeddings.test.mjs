@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { setupWorkspace, cleanup, SRC } from "./harness.mjs";
+import { ensureIndexes } from "../scripts/lib/wiki-cli.mjs";
 
 // Brain-global settings (lexical embed backend) come from MEMORY_DATA_DIR.
 const { dataDir } = setupWorkspace({ init: false });
@@ -180,6 +181,148 @@ test("syncEmbeddings full=true still EXCLUDES a personal (ownership==wiki) categ
   assert.ok(
     !fs.existsSync(path.join(wiki, "self_improvement", ".embeddings", "embeddings.json")),
     "the personal category is never warmed, even on a degenerate full range",
+  );
+});
+
+test("syncEmbeddings routes the refresh through the durable queue (queued:true) and drains it", async () => {
+  const { mount, wiki } = mountWith(SHARED_LAYOUT);
+  writeLeaf(wiki, "shared_notes/note.md", "# Note\n\nshared note about kafka");
+  const res = await syncEmbeddings({
+    mountDir: mount,
+    changedPaths: [".llm-wiki-memory/wiki/shared_notes/note.md"],
+  });
+  assert.equal(res.ok, true);
+  assert.equal(res.queued, true, "went through the sqlite queue");
+  assert.deepEqual(res.warmed, ["shared_notes"]);
+  assert.ok(
+    fs.existsSync(path.join(wiki, "shared_notes", ".embeddings", "embeddings.json")),
+    "the drained job warmed the shared cache",
+  );
+});
+
+test("syncEmbeddings rebuilds the shared index.md tree (indexed:true), deterministic on re-run (no churn)", async () => {
+  const { mount, wiki } = mountWith(SHARED_LAYOUT);
+  writeLeaf(wiki, "shared_notes/note.md", "# Note\n\nbody about kafka");
+  // A committed shared tree already has indexes (authors' saveDocument built
+  // them); the hook keeps them current via indexRebuildAll.
+  ensureIndexes(wiki, [path.join(wiki, "shared_notes", "note.md")]);
+  const idx = path.join(wiki, "shared_notes", "index.md");
+  const args = { mountDir: mount, changedPaths: [".llm-wiki-memory/wiki/shared_notes/note.md"] };
+  const res1 = await syncEmbeddings(args);
+  assert.equal(res1.indexed, true, "indexRebuildAll ran on the shared wiki");
+  const after1 = fs.readFileSync(idx, "utf8");
+  assert.match(after1, /type: index/, "a valid index remains");
+  const res2 = await syncEmbeddings(args);
+  assert.equal(res2.indexed, true);
+  assert.equal(
+    fs.readFileSync(idx, "utf8"),
+    after1,
+    "deterministic: a second refresh is byte-identical (no working-tree churn)",
+  );
+});
+
+test("syncEmbeddings CREATES missing index.md on a fresh clone (gitignored indexes were never pulled)", async () => {
+  const { mount, wiki } = mountWith(SHARED_LAYOUT);
+  // A fresh clone: committed leaves are present, but index.md is gitignored so it
+  // was never pulled — the dir has none.
+  writeLeaf(wiki, "shared_notes/note.md", "# Note\n\nbody about kafka");
+  writeLeaf(wiki, "shared_notes/deep/nested.md", "# Nested\n\nnested body");
+  assert.ok(
+    !fs.existsSync(path.join(wiki, "shared_notes", "index.md")),
+    "no index before the sync",
+  );
+  const res = await syncEmbeddings({
+    mountDir: mount,
+    changedPaths: [".llm-wiki-memory/wiki/shared_notes/note.md"],
+  });
+  assert.equal(res.indexed, true);
+  assert.ok(
+    fs.existsSync(path.join(wiki, "shared_notes", "index.md")),
+    "created shared_notes/index.md",
+  );
+  assert.ok(
+    fs.existsSync(path.join(wiki, "shared_notes", "deep", "index.md")),
+    "created the nested index.md",
+  );
+  assert.ok(fs.existsSync(path.join(wiki, "index.md")), "created the root index.md");
+});
+
+test("syncEmbeddings recreates a missing INTERMEDIATE index.md (a dir with only subdirs) — self-heals a partial state", async () => {
+  const { mount, wiki } = mountWith(SHARED_LAYOUT);
+  writeLeaf(wiki, "shared_notes/domain/topic/leaf.md", "# L\n\nbody about kafka");
+  ensureIndexes(wiki, [path.join(wiki, "shared_notes", "domain", "topic", "leaf.md")]);
+  const intermediate = path.join(wiki, "shared_notes", "domain", "index.md");
+  assert.ok(fs.existsSync(intermediate), "intermediate index exists after the full build");
+  // Simulate a partial build (a killed prior run): only the intermediate dir's
+  // index is gone; the leaf's OWN dir still has one, so a leaf-parent-dir gap scan
+  // would MISS this — the fix scans every dir.
+  fs.rmSync(intermediate);
+  const res = await syncEmbeddings({
+    mountDir: mount,
+    changedPaths: [".llm-wiki-memory/wiki/shared_notes/domain/topic/leaf.md"],
+  });
+  assert.equal(res.indexed, true);
+  assert.ok(fs.existsSync(intermediate), "the missing intermediate index was recreated");
+});
+
+test("syncEmbeddings falls back to a DIRECT run when the queue backend can't open (best-effort)", async () => {
+  const { mount, wiki } = mountWith(SHARED_LAYOUT);
+  writeLeaf(wiki, "shared_notes/n.md", "# n\n\nkafka");
+  // Point the queue DB under a FILE so mkdir/open fails -> fall back to direct.
+  const notADir = path.join(mount, "not-a-dir");
+  fs.writeFileSync(notADir, "x");
+  process.env.LWM_SYNC_QUEUE_PATH = path.join(notADir, "queue.sqlite");
+  try {
+    const res = await syncEmbeddings({
+      mountDir: mount,
+      changedPaths: [".llm-wiki-memory/wiki/shared_notes/n.md"],
+    });
+    assert.equal(res.ok, true);
+    assert.equal(res.queued, false, "fell back to a direct run");
+    assert.deepEqual(res.warmed, ["shared_notes"], "still warmed despite no queue");
+    assert.ok(
+      fs.existsSync(path.join(wiki, "shared_notes", ".embeddings", "embeddings.json")),
+      "cache still written on the fallback path",
+    );
+  } finally {
+    delete process.env.LWM_SYNC_QUEUE_PATH;
+  }
+});
+
+test("LWM_SYNC_NO_QUEUE: '1' disables the queue (direct run); 'false' does NOT (envBool, not truthiness)", async () => {
+  const { mount, wiki } = mountWith(SHARED_LAYOUT);
+  writeLeaf(wiki, "shared_notes/n.md", "# n\n\nkafka");
+  const args = { mountDir: mount, changedPaths: [".llm-wiki-memory/wiki/shared_notes/n.md"] };
+  process.env.LWM_SYNC_NO_QUEUE = "1";
+  try {
+    const res = await syncEmbeddings(args);
+    assert.equal(res.queued, false, "queue disabled -> direct run");
+    assert.deepEqual(res.warmed, ["shared_notes"]);
+  } finally {
+    delete process.env.LWM_SYNC_NO_QUEUE;
+  }
+  process.env.LWM_SYNC_NO_QUEUE = "false";
+  try {
+    const res = await syncEmbeddings(args);
+    assert.equal(
+      res.queued,
+      true,
+      "'false' must keep the queue ON (not the old truthiness footgun)",
+    );
+  } finally {
+    delete process.env.LWM_SYNC_NO_QUEUE;
+  }
+});
+
+test("syncEmbeddings on a shared category with ZERO leaves does not throw and creates no stray index", async () => {
+  const { mount, wiki } = mountWith(SHARED_LAYOUT);
+  fs.mkdirSync(path.join(wiki, "shared_notes"), { recursive: true }); // empty shared category
+  const res = await syncEmbeddings({ mountDir: mount, full: true });
+  assert.equal(res.ok, true, "no throw on an empty shared tree");
+  assert.deepEqual(res.warmed, ["shared_notes"], "the empty shared category resolves cleanly");
+  assert.ok(
+    !fs.existsSync(path.join(wiki, "shared_notes", "index.md")),
+    "nothing to index (no leaf-ancestor) -> no index created, no endless rebuild",
   );
 });
 
