@@ -54,6 +54,16 @@ test("prefs get/set upserts by (scope, key)", () => {
   db.close();
 });
 
+test("doc_stats get/set upserts by (root, facet_path) and updates the token", () => {
+  const db = openAppDb(freshDbPath());
+  expect(db.getStat("/w/a", "knowledge")).toBe(null);
+  db.setStat("/w/a", "knowledge", 12, "t1");
+  expect(db.getStat("/w/a", "knowledge")).toEqual({ count: 12, mtimeToken: "t1" });
+  db.setStat("/w/a", "knowledge", 15, "t2");
+  expect(db.getStat("/w/a", "knowledge")).toEqual({ count: 15, mtimeToken: "t2" });
+  db.close();
+});
+
 test("places persist across reopen (durable WAL)", () => {
   const dbPath = freshDbPath();
   const first = openAppDb(dbPath);

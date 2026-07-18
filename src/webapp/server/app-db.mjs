@@ -56,6 +56,13 @@ export function openAppDb(dbPath = DEFAULT_DB_PATH, { now = () => Date.now() } =
       "ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value",
   );
   const selectPref = db.prepare("SELECT value FROM prefs WHERE scope = ? AND key = ?");
+  const upsertStat = db.prepare(
+    "INSERT INTO doc_stats(root, facet_path, count, mtime_token) VALUES (@root, @facetPath, @count, @token) " +
+      "ON CONFLICT(root, facet_path) DO UPDATE SET count = excluded.count, mtime_token = excluded.mtime_token",
+  );
+  const selectStat = db.prepare(
+    "SELECT count, mtime_token AS mtimeToken FROM doc_stats WHERE root = ? AND facet_path = ?",
+  );
 
   return {
     /** @param {{ root: string, mountDir: string, label?: string | null }} place */
@@ -77,6 +84,13 @@ export function openAppDb(dbPath = DEFAULT_DB_PATH, { now = () => Date.now() } =
     },
     /** @param {string} scope @param {string} key @param {string} value */
     setPref: (scope, key, value) => upsertPref.run({ scope, key, value }),
+    /** @param {string} root @param {string} facetPath @returns {{ count: number, mtimeToken: string } | null} */
+    getStat: (root, facetPath) =>
+      /** @type {{ count: number, mtimeToken: string } | undefined} */ (
+        selectStat.get(root, facetPath)
+      ) ?? null,
+    /** @param {string} root @param {string} facetPath @param {number} count @param {string} token */
+    setStat: (root, facetPath, count, token) => upsertStat.run({ root, facetPath, count, token }),
     close: () => db.close(),
   };
 }

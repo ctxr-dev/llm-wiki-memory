@@ -7,6 +7,7 @@ import { HealthSchema } from "../shared/contract.mjs";
 import { memoryConfig } from "./engine.mjs";
 import { openAppDb } from "./app-db.mjs";
 import { registerWikiRoutes } from "./routes/wikis.mjs";
+import { registerNavRoutes } from "./routes/nav.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(HERE, "..", "dist");
@@ -18,6 +19,7 @@ export function buildApp({ db } = {}) {
   if (!db) app.addHook("onClose", async () => appDb.close());
   app.get("/api/health", async () => HealthSchema.parse(await memoryConfig([])));
   registerWikiRoutes(app, appDb);
+  registerNavRoutes(app, appDb);
   if (fs.existsSync(DIST)) {
     app.register(fastifyStatic, { root: DIST });
     app.setNotFoundHandler((request, reply) => {
