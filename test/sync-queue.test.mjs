@@ -4,15 +4,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import Database from "better-sqlite3";
 import { openQueue, LEASE_MS } from "../scripts/lib/sync-queue.mjs";
 
 const RETRY_BACKOFF_MS = 30_000; // mirrors the module constant
-const SYNC_QUEUE_MODULE = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../scripts/lib/sync-queue.mjs",
-);
+// A file:// URL, not a raw path: ESM on Windows rejects a backslashed absolute path.
+const SYNC_QUEUE_URL = pathToFileURL(
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../scripts/lib/sync-queue.mjs"),
+).href;
 
 const TMP = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "sync-queue-")));
 after(() => fs.rmSync(TMP, { recursive: true, force: true }));
@@ -204,7 +204,7 @@ const WORKER = path.join(TMP, "concurrency-worker.mjs");
 fs.writeFileSync(
   WORKER,
   `import fs from "node:fs";
-import { openQueue } from ${JSON.stringify(SYNC_QUEUE_MODULE)};
+import { openQueue } from ${JSON.stringify(SYNC_QUEUE_URL)};
 const [dbPath, out] = process.argv.slice(2);
 const q = openQueue(dbPath);
 await q.drain((job) => fs.appendFileSync(out, job.wiki + "\\n"));
