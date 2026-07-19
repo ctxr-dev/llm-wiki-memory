@@ -7,5 +7,5 @@
       "project": ["scripts/**/*.mjs", "mcp-server/**/*.mjs"]
     }
   },
-  "ignoreBinaries": ["awk"]
+  "ignoreBinaries": ["awk", "playwright"]
 }

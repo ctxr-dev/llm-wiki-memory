@@ -94,3 +94,10 @@ jobs:
           npm run -w src/webapp gates
         env:
           MEMORY_EMBED_BACKEND: lexical
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Webapp E2E (Playwright, real browser + axe)
+        run: npm run -w src/webapp test:e2e
+        env:
+          MEMORY_EMBED_BACKEND: lexical
+          LWM_WEBAPP_OPEN: "0"

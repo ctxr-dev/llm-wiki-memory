@@ -15,6 +15,7 @@ const ENV = {
   LWM_WEBAPP_DIR: path.join(TMP, "webapp"),
   LWM_WEBAPP_SERVER_ENTRY: ENTRY,
   LWM_WEBAPP_PORT: "4711",
+  LWM_WEBAPP_OPEN: "0",
 };
 
 const cli = (...args) =>

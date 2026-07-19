@@ -50,6 +50,19 @@ function rmQuiet(p) {
   }
 }
 
+/** @param {string} url */
+function openBrowser(url) {
+  if (process.env.LWM_WEBAPP_OPEN === "0") return;
+  const cmd =
+    process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
+  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  try {
+    spawn(cmd, args, { stdio: "ignore", detached: true }).unref();
+  } catch {
+    /* opening a browser is best-effort */
+  }
+}
+
 /** @param {number} pid @param {number} ms @returns {boolean} */
 function waitDead(pid, ms) {
   const buf = new Int32Array(new SharedArrayBuffer(4));
@@ -95,6 +108,7 @@ export function start({ foreground = false } = {}) {
   });
   child.unref();
   fs.writeFileSync(pidPath, String(child.pid));
+  openBrowser(url);
   return { started: true, pid: Number(child.pid), url };
 }
 

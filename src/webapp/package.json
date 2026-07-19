@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "check:comments": "test -z \"$(grep -rnE '(^|[^:/])//|^[[:space:]]*/\\*[^*]' server shared client --include='*.ts' --include='*.tsx' --include='*.mjs' | grep -vE '@ts-|eslint-|https?://')\"",
     "gates": "npm run typecheck && npm run lint -- --max-warnings 0 && npm run check:comments && npm run build && npm run test"
   },
@@ -40,7 +41,9 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.61.1",
     "@testing-library/react": "^16.1.0",
     "@types/diff": "^7.0.2",
     "@types/node": "^22.10.2",
