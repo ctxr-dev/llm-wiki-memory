@@ -10,6 +10,8 @@ import {
   SearchResultsSchema,
   AskResponseSchema,
   EditResultSchema,
+  PlansBoardSchema,
+  IssuesBoardSchema,
 } from "../shared/contract.mjs";
 
 export type Wiki = z.infer<typeof WikiListSchema>["wikis"][number];
@@ -21,6 +23,8 @@ export type RelatedEntry = z.infer<typeof RelatedListSchema>["related"][number];
 export type SearchResult = z.infer<typeof SearchResultsSchema>["results"][number];
 export type AskResponse = z.infer<typeof AskResponseSchema>;
 export type EditResult = z.infer<typeof EditResultSchema>;
+export type PlansBoard = z.infer<typeof PlansBoardSchema>;
+export type IssuesBoard = z.infer<typeof IssuesBoardSchema>;
 export type MemoryInput = Record<string, unknown>;
 export type CreateInput = {
   category: string;
@@ -83,6 +87,8 @@ export const api = {
     sendJson(`/api/wikis/${id}/archive/${docId}`, "POST", { archive }, EditResultSchema),
   createDoc: (id: string, payload: CreateInput) =>
     sendJson(`/api/wikis/${id}/create`, "POST", payload, EditResultSchema),
+  plans: (id: string) => getJson(`/api/wikis/${id}/plans`, PlansBoardSchema),
+  issues: (id: string) => getJson(`/api/wikis/${id}/issues`, IssuesBoardSchema),
   getPref: (id: string, key: string) =>
     getJson(`/api/wikis/${id}/prefs/${key}`, PrefValueSchema).then((r) => r.value),
   setPref: (id: string, key: string, value: string) =>

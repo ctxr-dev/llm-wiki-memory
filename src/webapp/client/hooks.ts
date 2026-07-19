@@ -49,3 +49,17 @@ export const useAsk = (wikiId: string | null, query: string) =>
     queryFn: () => api.ask(wikiId as string, query),
     enabled: !!wikiId && query.trim().length > 0,
   });
+
+export const usePlans = (wikiId: string | null) =>
+  useQuery({
+    queryKey: ["plans", wikiId],
+    queryFn: () => api.plans(wikiId as string),
+    enabled: !!wikiId,
+  });
+
+export const useIssues = (wikiId: string | null) =>
+  useQuery({
+    queryKey: ["issues", wikiId],
+    queryFn: () => api.issues(wikiId as string),
+    enabled: !!wikiId,
+  });

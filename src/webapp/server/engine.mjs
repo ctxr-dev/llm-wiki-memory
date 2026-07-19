@@ -4,7 +4,7 @@ import { describeWiki, hashRoot } from "./wiki-describe.mjs";
 import { realpathOr, samePath, samePathKey } from "./paths.mjs";
 
 export async function loadEngine() {
-  const [env, embed, context, layout, core, identity, search, store, render, atomic] =
+  const [env, embed, context, layout, core, identity, search, store, render, atomic, topology] =
     await Promise.all([
       import("../../../scripts/lib/env.mjs"),
       import("../../../scripts/lib/embed.mjs"),
@@ -16,8 +16,9 @@ export async function loadEngine() {
       import("../../../scripts/lib/wiki-store.mjs"),
       import("../../../scripts/lib/wiki-render.mjs"),
       import("../../../scripts/lib/atomic-write.mjs"),
+      import("../../../scripts/lib/topology-runtime.mjs"),
     ]);
-  return { env, embed, context, layout, core, identity, search, store, render, atomic };
+  return { env, embed, context, layout, core, identity, search, store, render, atomic, topology };
 }
 
 /**

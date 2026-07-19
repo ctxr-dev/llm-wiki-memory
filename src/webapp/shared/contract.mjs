@@ -140,6 +140,35 @@ export const EditResultSchema = z.object({
   message: z.string().optional(),
 });
 
+export const PlanCardSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  title: z.string(),
+  status: z.string(),
+  progress: z.string(),
+  active: z.boolean(),
+});
+
+export const PlansBoardSchema = z.object({
+  columns: z.array(z.object({ key: z.string(), cards: z.array(PlanCardSchema) })),
+});
+
+export const IssueCardSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  kind: z.string(),
+  tracker: z.string(),
+  prefix: z.string(),
+  number: z.string(),
+  lifecycle: z.string().optional(),
+  slug: z.string().optional(),
+});
+
+export const IssuesBoardSchema = z.object({
+  hasIssues: z.boolean(),
+  columns: z.array(z.object({ key: z.string(), cards: z.array(IssueCardSchema) })),
+});
+
 /** @typedef {import("zod").infer<typeof HealthSchema>} Health */
 /** @typedef {import("zod").infer<typeof LevelSchema>} Level */
 /** @typedef {import("zod").infer<typeof WikiSchema>} Wiki */
@@ -152,3 +181,7 @@ export const EditResultSchema = z.object({
 /** @typedef {import("zod").infer<typeof SearchResultSchema>} SearchResult */
 /** @typedef {import("zod").infer<typeof AskResponseSchema>} AskResponse */
 /** @typedef {import("zod").infer<typeof EditResultSchema>} EditResult */
+/** @typedef {import("zod").infer<typeof PlansBoardSchema>} PlansBoard */
+/** @typedef {import("zod").infer<typeof PlanCardSchema>} PlanCard */
+/** @typedef {import("zod").infer<typeof IssuesBoardSchema>} IssuesBoard */
+/** @typedef {import("zod").infer<typeof IssueCardSchema>} IssueCard */

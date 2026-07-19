@@ -11,6 +11,7 @@ import { registerNavRoutes } from "./routes/nav.mjs";
 import { registerDocRoutes } from "./routes/doc.mjs";
 import { registerSearchRoutes } from "./routes/search.mjs";
 import { registerEditRoutes } from "./routes/edit.mjs";
+import { registerBoardRoutes } from "./routes/boards.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(HERE, "..", "dist");
@@ -26,6 +27,7 @@ export function buildApp({ db } = {}) {
   registerDocRoutes(app, appDb);
   registerSearchRoutes(app, appDb);
   registerEditRoutes(app, appDb);
+  registerBoardRoutes(app, appDb);
   if (fs.existsSync(DIST)) {
     app.register(fastifyStatic, { root: DIST });
     app.setNotFoundHandler((request, reply) => {
