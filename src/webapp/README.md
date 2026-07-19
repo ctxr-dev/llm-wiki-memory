@@ -38,10 +38,14 @@ llm-wiki-webapp restart
 ## Develop
 
 ```
-npm run dev        # Vite dev server (proxies /api to the daemon)
+npm run dev        # starts the API server (:4319) + Vite client with HMR (:5319)
 npm run gates      # typecheck + lint + no-comments + build + vitest
 npm run test:e2e   # Playwright in a real browser (npx playwright install chromium)
 ```
+
+`npm run dev` runs both halves together (Vite proxies `/api` to the API server),
+so you do not also run `llm-wiki-webapp` while developing. For a normal (non-dev)
+run, use the daemon: `llm-wiki-webapp start`.
 
 ## Layout
 

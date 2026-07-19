@@ -28,7 +28,7 @@ export function buildApp({ db } = {}) {
   registerSearchRoutes(app, appDb);
   registerEditRoutes(app, appDb);
   registerBoardRoutes(app, appDb);
-  if (fs.existsSync(DIST)) {
+  if (fs.existsSync(path.join(DIST, "index.html"))) {
     app.register(fastifyStatic, { root: DIST });
     app.setNotFoundHandler((request, reply) => {
       if ((request.raw.url ?? "").startsWith("/api")) {
@@ -37,9 +37,19 @@ export function buildApp({ db } = {}) {
       }
       reply.type("text/html").sendFile("index.html");
     });
+  } else {
+    app.get("/", async (_request, reply) => {
+      reply.code(503).type("text/html").send(NOT_BUILT_HTML);
+    });
   }
   return app;
 }
+
+const NOT_BUILT_HTML =
+  "<!doctype html><meta charset=utf-8><title>llm-wiki-memory</title>" +
+  '<body style="font-family:system-ui;padding:3rem;color:#334155">' +
+  "<h1>Web client not built</h1><p>Run <code>npm run -w src/webapp build</code> " +
+  "in the engine repo, then <code>llm-wiki-webapp restart</code>.</p></body>";
 
 const PORT = Number(process.env.PORT || 4319);
 const HOST = process.env.LWM_WEBAPP_HOST || "127.0.0.1";

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { MEMORY_DATA_DIR } from "./lib/env.mjs";
 
@@ -50,6 +50,15 @@ function rmQuiet(p) {
   }
 }
 
+/** @param {string} entry */
+function ensureBuilt(entry) {
+  const webappDir = path.dirname(path.dirname(entry));
+  if (!fs.existsSync(path.join(webappDir, "package.json"))) return;
+  if (fs.existsSync(path.join(webappDir, "dist", "index.html"))) return;
+  process.stdout.write("building the web client (first run)…\n");
+  spawnSync("npm", ["run", "build"], { cwd: webappDir, stdio: "ignore" });
+}
+
 /** @param {string} url */
 function openBrowser(url) {
   if (process.env.LWM_WEBAPP_OPEN === "0") return;
@@ -91,6 +100,7 @@ export function start({ foreground = false } = {}) {
   const url = `http://localhost:${port}`;
   const existing = readPid(pidPath);
   if (alive(existing)) return { started: false, pid: existing, url, reason: "already-running" };
+  ensureBuilt(entry);
   fs.mkdirSync(path.dirname(pidPath), { recursive: true });
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
   const childEnv = { ...process.env, PORT: String(port), LWM_WEBAPP_URL: url };
