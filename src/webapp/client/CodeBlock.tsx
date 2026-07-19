@@ -5,7 +5,13 @@ export function CodeBlock({ code, lang }: { code: string; lang: string }) {
   useEffect(() => {
     let alive = true;
     import("shiki")
-      .then(({ codeToHtml }) => codeToHtml(code, { lang, theme: "github-light" }))
+      .then(({ codeToHtml }) =>
+        codeToHtml(code, {
+          lang,
+          themes: { light: "github-light", dark: "github-dark" },
+          defaultColor: "light",
+        }),
+      )
       .then((out) => {
         if (alive) setHtml(out);
       })
@@ -26,7 +32,7 @@ export function CodeBlock({ code, lang }: { code: string; lang: string }) {
     );
   }
   return (
-    <pre className="my-3 overflow-x-auto rounded bg-slate-100 p-3 text-sm">
+    <pre className="my-3 overflow-x-auto rounded bg-slate-100 p-3 text-sm dark:bg-slate-800">
       <code>{code}</code>
     </pre>
   );

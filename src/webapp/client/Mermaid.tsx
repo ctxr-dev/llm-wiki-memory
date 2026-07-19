@@ -23,7 +23,7 @@ export function Mermaid({ chart }: { chart: string }) {
 
   if (failed) {
     return (
-      <pre className="my-3 overflow-x-auto rounded bg-slate-100 p-3 text-sm">
+      <pre className="my-3 overflow-x-auto rounded bg-slate-100 dark:bg-slate-800 p-3 text-sm">
         <code>{chart}</code>
       </pre>
     );

@@ -18,13 +18,16 @@ export function BoardColumns<T>({
   emptyLabel: string;
 }) {
   if (columns.every((column) => column.cards.length === 0)) {
-    return <div className="p-8 text-slate-400">{emptyLabel}</div>;
+    return <div className="p-8 text-slate-400 dark:text-slate-500">{emptyLabel}</div>;
   }
   return (
     <div className="flex h-full gap-3 overflow-x-auto p-4">
       {columns.map((column) => (
-        <div key={column.key} className="flex w-72 shrink-0 flex-col rounded bg-slate-50">
-          <div className="flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <div
+          key={column.key}
+          className="flex w-72 shrink-0 flex-col rounded bg-slate-50 dark:bg-slate-800"
+        >
+          <div className="flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             <span>{LABELS[column.key] ?? column.key}</span>
             <span>{column.cards.length}</span>
           </div>

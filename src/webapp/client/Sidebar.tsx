@@ -9,8 +9,8 @@ export function Sidebar({
 }) {
   const wikis = useWikis();
   return (
-    <nav className="w-56 shrink-0 overflow-y-auto border-r border-slate-200 p-2">
-      <div className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+    <nav className="w-56 shrink-0 overflow-y-auto border-r border-slate-200 dark:border-slate-700 p-2">
+      <div className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
         Wikis
       </div>
       {wikis.data?.map((wiki) => (
@@ -18,12 +18,14 @@ export function Sidebar({
           key={wiki.id}
           onClick={() => onSelect(wiki.id)}
           className={`block w-full truncate rounded px-2 py-1 text-left text-sm ${
-            wiki.id === activeId ? "bg-slate-200 font-medium" : "hover:bg-slate-100"
+            wiki.id === activeId
+              ? "bg-slate-200 dark:bg-slate-700 font-medium"
+              : "hover:bg-slate-100 dark:hover:bg-slate-800"
           }`}
           title={wiki.mountDir}
         >
           {wiki.label}
-          <span className="ml-1 text-xs text-slate-400">
+          <span className="ml-1 text-xs text-slate-400 dark:text-slate-500">
             {wiki.kind === "home" ? "home" : "repo"}
           </span>
         </button>

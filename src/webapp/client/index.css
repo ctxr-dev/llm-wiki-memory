@@ -2,15 +2,27 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  body {
+    @apply bg-white text-slate-800 dark:bg-slate-900 dark:text-slate-100;
+  }
+}
+
+html.dark .shiki,
+html.dark .shiki span {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+}
+
 @layer components {
   .md-body {
-    @apply leading-7 text-slate-800;
+    @apply leading-7 text-slate-800 dark:text-slate-200;
   }
   .md-body h1 {
     @apply mb-4 mt-6 text-2xl font-semibold;
   }
   .md-body h2 {
-    @apply mb-3 mt-6 border-b border-slate-100 pb-1 text-xl font-semibold;
+    @apply mb-3 mt-6 border-b border-slate-100 pb-1 text-xl font-semibold dark:border-slate-700;
   }
   .md-body h3 {
     @apply mb-2 mt-5 text-lg font-semibold;
@@ -28,20 +40,23 @@
     @apply my-1;
   }
   .md-body a {
-    @apply text-sky-700 underline underline-offset-2 hover:text-sky-900;
+    @apply text-sky-700 underline underline-offset-2 hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-300;
   }
   .md-body blockquote {
-    @apply my-3 border-l-4 border-slate-200 pl-4 text-slate-600;
+    @apply my-3 border-l-4 border-slate-200 pl-4 text-slate-600 dark:border-slate-700 dark:text-slate-400;
   }
   .md-body table {
     @apply my-4 block w-full overflow-x-auto border-collapse text-sm;
   }
   .md-body th,
   .md-body td {
-    @apply border border-slate-200 px-3 py-1.5 text-left;
+    @apply border border-slate-200 px-3 py-1.5 text-left dark:border-slate-700;
   }
   .md-body th {
-    @apply bg-slate-50 font-semibold;
+    @apply bg-slate-50 font-semibold dark:bg-slate-800;
+  }
+  .md-body code {
+    @apply dark:bg-slate-800;
   }
   .md-body img {
     @apply my-3 max-w-full rounded;

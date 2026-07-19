@@ -23,7 +23,7 @@ export function DocView({
 
   useEffect(() => setEditing(false), [docId]);
 
-  if (doc.isPending) return <div className="p-6 text-slate-400">Loading…</div>;
+  if (doc.isPending) return <div className="p-6 text-slate-400 dark:text-slate-500">Loading…</div>;
   if (doc.error || !doc.data) {
     return <div className="p-6 text-red-600">{String(doc.error ?? "Not found")}</div>;
   }
@@ -45,7 +45,7 @@ export function DocView({
         <div className="mb-2 flex justify-end">
           <button
             onClick={() => setEditing(true)}
-            className="rounded border border-slate-200 px-3 py-1 text-sm text-slate-600 hover:border-slate-300"
+            className="rounded border border-slate-200 dark:border-slate-700 px-3 py-1 text-sm text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600"
           >
             Edit
           </button>

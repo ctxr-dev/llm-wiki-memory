@@ -27,13 +27,15 @@ export function LexicalEditor({
   };
   return (
     <LexicalComposer initialConfig={initialConfig}>
-      <div className="relative rounded border border-slate-200">
+      <div className="relative rounded border border-slate-200 dark:border-slate-700">
         <RichTextPlugin
           contentEditable={
             <ContentEditable className="md-body min-h-[26rem] px-3 py-2 outline-none" />
           }
           placeholder={
-            <div className="pointer-events-none absolute left-3 top-2 text-slate-400">Write…</div>
+            <div className="pointer-events-none absolute left-3 top-2 text-slate-400 dark:text-slate-500">
+              Write…
+            </div>
           }
           ErrorBoundary={LexicalErrorBoundary}
         />

@@ -26,7 +26,7 @@ const PRIORITIES = ["P0", "P1", "P2"];
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</span>
       {children}
     </label>
   );
@@ -44,7 +44,7 @@ export function FrontmatterForm({
   const get = (key: string) => (typeof memory[key] === "string" ? (memory[key] as string) : "");
   const subject = Array.isArray(memory.subject) ? (memory.subject as string[]).join(", ") : "";
   const set = (key: string, value: unknown) => onChange({ ...memory, [key]: value });
-  const input = "rounded border border-slate-200 px-2 py-1 text-sm";
+  const input = "rounded border border-slate-200 dark:border-slate-700 px-2 py-1 text-sm";
 
   const select = (key: string, options: string[]) => (
     <select
@@ -62,7 +62,7 @@ export function FrontmatterForm({
   );
 
   return (
-    <div className="grid grid-cols-2 gap-3 rounded border border-slate-200 p-3 lg:grid-cols-3">
+    <div className="grid grid-cols-2 gap-3 rounded border border-slate-200 dark:border-slate-700 p-3 lg:grid-cols-3">
       <Field label="area">
         <input
           value={get("area")}

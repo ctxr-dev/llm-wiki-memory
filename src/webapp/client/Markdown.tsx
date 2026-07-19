@@ -18,7 +18,10 @@ export function Markdown({ body }: { body: string }) {
             const isBlock = lang !== undefined || text.includes("\n");
             if (isBlock) return <CodeBlock code={text} lang={lang ?? "text"} />;
             return (
-              <code className="rounded bg-slate-100 px-1 py-0.5 text-[0.9em]" {...props}>
+              <code
+                className="rounded bg-slate-100 dark:bg-slate-800 px-1 py-0.5 text-[0.9em]"
+                {...props}
+              >
                 {children}
               </code>
             );

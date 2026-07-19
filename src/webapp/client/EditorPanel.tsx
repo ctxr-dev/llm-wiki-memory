@@ -62,16 +62,19 @@ export function EditorPanel({
   return (
     <div className="p-6">
       <div className="mb-3 flex items-center justify-between">
-        <div className="text-sm text-slate-500">
-          Editing <span className="font-mono text-slate-700">{doc.name}</span>
+        <div className="text-sm text-slate-500 dark:text-slate-400">
+          Editing <span className="font-mono text-slate-700 dark:text-slate-200">{doc.name}</span>
         </div>
         <div className="flex gap-2">
-          <button onClick={toggleArchive} className="text-sm text-slate-500 hover:text-slate-800">
+          <button
+            onClick={toggleArchive}
+            className="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+          >
             {doc.active ? "Archive" : "Restore"}
           </button>
           <button
             onClick={() => onDone(null)}
-            className="text-sm text-slate-500 hover:text-slate-800"
+            className="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
           >
             Cancel
           </button>
@@ -102,13 +105,13 @@ export function EditorPanel({
           onClick={() => setShowDiff(false)}
         >
           <div
-            className="w-full max-w-2xl rounded-lg bg-white p-4 shadow-xl"
+            className="w-full max-w-2xl rounded-lg bg-white dark:bg-slate-800 p-4 shadow-xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-2 font-semibold">Review changes</div>
             <DiffView oldText={doc.body} newText={body} />
             {gated && (
-              <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+              <label className="mt-3 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                 <input
                   type="checkbox"
                   checked={consent}
@@ -118,7 +121,10 @@ export function EditorPanel({
               </label>
             )}
             <div className="mt-3 flex justify-end gap-2">
-              <button onClick={() => setShowDiff(false)} className="text-sm text-slate-500">
+              <button
+                onClick={() => setShowDiff(false)}
+                className="text-sm text-slate-500 dark:text-slate-400"
+              >
                 Back
               </button>
               <button

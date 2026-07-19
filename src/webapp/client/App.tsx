@@ -6,6 +6,7 @@ import { CommandPalette } from "./CommandPalette";
 import { AskPanel } from "./AskPanel";
 import { PlansBoard } from "./PlansBoard";
 import { IssuesBoard } from "./IssuesBoard";
+import { ThemeToggle } from "./ThemeToggle";
 import { useWikis } from "./hooks";
 import { api } from "./api";
 import { parseTabs } from "./tabs";
@@ -83,11 +84,11 @@ export function App() {
   );
 
   return (
-    <div className="flex h-screen text-slate-800">
+    <div className="flex h-screen text-slate-800 dark:text-slate-100">
       <Sidebar activeId={wikiId} onSelect={setWikiId} />
       {wikiId && <NavPanel wikiId={wikiId} onOpenDoc={openDoc} />}
       <main className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-1.5">
+        <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 px-3 py-1.5">
           <div className="flex gap-1 text-sm">
             {(["docs", "plans", "issues"] as const).map((name) => (
               <button
@@ -95,7 +96,9 @@ export function App() {
                 onClick={() => setView(name)}
                 disabled={!wikiId}
                 className={`rounded px-2 py-1 capitalize disabled:opacity-40 ${
-                  view === name ? "bg-slate-200 font-medium" : "hover:bg-slate-100"
+                  view === name
+                    ? "bg-slate-200 dark:bg-slate-700 font-medium"
+                    : "hover:bg-slate-100 dark:hover:bg-slate-800"
                 }`}
               >
                 {name}
@@ -104,7 +107,7 @@ export function App() {
           </div>
           <button
             onClick={() => setPaletteOpen(true)}
-            className="flex-1 rounded border border-slate-200 px-3 py-1 text-left text-sm text-slate-400 hover:border-slate-300"
+            className="flex-1 rounded border border-slate-200 dark:border-slate-700 px-3 py-1 text-left text-sm text-slate-400 dark:text-slate-500 hover:border-slate-300 dark:hover:border-slate-600"
           >
             Search or jump… <span className="ml-1 text-xs">⌘K</span>
           </button>
@@ -115,14 +118,17 @@ export function App() {
           >
             Ask
           </button>
+          <ThemeToggle />
         </div>
         {view === "docs" && (
-          <div className="flex items-center gap-1 overflow-x-auto border-b border-slate-200 px-2">
+          <div className="flex items-center gap-1 overflow-x-auto border-b border-slate-200 dark:border-slate-700 px-2">
             {tabs.map((tab) => (
               <div
                 key={tab}
                 className={`flex items-center gap-1 border-b-2 px-3 py-2 text-sm ${
-                  tab === active ? "border-slate-800" : "border-transparent text-slate-500"
+                  tab === active
+                    ? "border-slate-800"
+                    : "border-transparent text-slate-500 dark:text-slate-400"
                 }`}
               >
                 <button
@@ -134,7 +140,7 @@ export function App() {
                 </button>
                 <button
                   onClick={() => closeTab(tab)}
-                  className="text-slate-400 hover:text-slate-700"
+                  className="text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200"
                   aria-label="close tab"
                 >
                   ×
@@ -150,7 +156,9 @@ export function App() {
             (wikiId && active ? (
               <DocView wikiId={wikiId} docId={active} onOpen={openDoc} />
             ) : (
-              <div className="p-8 text-slate-400">Select a document from the tree.</div>
+              <div className="p-8 text-slate-400 dark:text-slate-500">
+                Select a document from the tree.
+              </div>
             ))}
         </div>
       </main>
