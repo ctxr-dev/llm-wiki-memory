@@ -165,10 +165,12 @@ gc:
   intervalDays: 7
 
 gate:
-  # The L3 server-side write-gate refusing self_improvement saves without
-  # `userRequested:true`. Defence-in-depth; turn off only as an operator
-  # escape hatch (L1 instructions + L2 hooks still apply).
-  selfImprovementEnabled: true
+  # The L3 server-side write-gate refusing a GATED-category save without
+  # `userRequested:true`. Governs every layout-gated category (self_improvement
+  # by default; a wiki may opt others in via `gated:` in its .layout/layout.yaml).
+  # Defence-in-depth; turn off only as an operator escape hatch (L1 instructions +
+  # L2 hooks still apply). Pre-rename alias `selfImprovementEnabled:` still works.
+  enabled: true
   # The L2 Claude Code PreToolUse hook (enabled by default). Set false to make
   # the hook a uniform no-op (exit 0, no decision) so Claude Code's normal
   # permission flow applies; L1 instructions + the L3 server gate still apply.

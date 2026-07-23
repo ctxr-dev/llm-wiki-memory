@@ -69,22 +69,23 @@ function refuseWriteGate(toolName) {
   return jsonResponse({
     ok: false,
     error: "write-gate-refused",
-    message: `${toolName} refused: self_improvement writes require userRequested:true (propose to the user in chat and wait for explicit yes; only then call the tool with the flag). The discipline rule in your initialize-time instructions documents the contract. Knowledge / plans / investigations / daily / issues writes are NOT gated and do not require the flag.`,
+    message: `${toolName} refused: this category is write-GATED in the target wiki's layout and requires userRequested:true (propose to the user in chat and wait for explicit yes; only then call the tool with the flag). Gated categories are declared per-wiki via the layout \`gated:\` flag — check the target wiki's layout via get_memory_config; self_improvement is gated by default, knowledge / plans / investigations / daily / issues are NOT gated unless a wiki opts them in. The discipline rule in your initialize-time instructions documents the contract.`,
   });
 }
 
-// True iff the resolved write would land under the self_improvement category,
-// regardless of the declared `dataset` field. Closes the gate-bypass where a
-// caller passes `dataset:"knowledge"` (or any non-gated value) together with
-// `path:"self_improvement/..."`. The L3 gate routes through this so the
-// effective target — not the caller's claim — governs the refusal.
+// True iff the resolved write would land under a GATED category (per the target
+// layout), regardless of the declared `dataset` field. Closes the gate-bypass
+// where a caller passes a non-gated `dataset` together with a `path` into a
+// gated category. The L3 gate routes through this so the effective target — not
+// the caller's claim — governs the refusal.
 /**
  * @param {string} dataset
  * @param {string | undefined} placementOverride
+ * @param {Record<string, unknown> | null | undefined} [layout] the TARGET level's layout
  * @returns {boolean}
  */
-function targetsGatedCategory(dataset, placementOverride) {
-  return isGatedWrite(dataset, placementOverride);
+function targetsGatedCategory(dataset, placementOverride, layout) {
+  return isGatedWrite(dataset, placementOverride, layout);
 }
 
 // Append an L3 audit record for a gated-category decision. Best-effort: the

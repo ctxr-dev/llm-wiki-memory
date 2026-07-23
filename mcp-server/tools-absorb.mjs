@@ -16,6 +16,13 @@ const DESCRIPTION =
   "REQUIRES `scopes`: the directories you are working in. Inputs are a single nested context object; unknown keys are rejected. " +
   'REQUIRED top-level `target` — the destination is explicit (no default): pass "brain" for private memory, or a context level\'s wiki root / mount directory for a project (discover levels via get_memory_config). NEVER absorb into a shared repo without the user choosing it; a shared write is only staged (the engine runs no git) — tell the user to commit and push it.';
 
+// INTENTIONALLY EXEMPT from BOTH the write-gate (consent) AND the quality judge:
+// invoking absorb IS the user's intent, and absorbed content is stored VERBATIM
+// (a whole external document, not a distilled atom), so the durability/quality
+// rubric — written for atomic leaves — does not apply. Hence this tool never
+// calls gateRefusal / judgeInteractiveSubmission. Its own guard still REFUSES the
+// gated (self_improvement) and topology (issues) categories, which cannot be
+// auto-placed from content.
 /** @param {McpServer} server */
 export function registerAbsorbTool(server) {
   server.registerTool(

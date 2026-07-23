@@ -150,6 +150,51 @@ test("recall-delegation discipline is mirrored on the template rule surface", ()
   assert.match(rule, /without subagents/i, "rule gives the provider-agnostic fallback");
 });
 
+test("INSTRUCTIONS encodes the content-quality discipline (rule 18)", () => {
+  assert.match(INSTRUCTIONS, /POLISHED, DE-PERSONALIZED DOCUMENTATION/);
+  assert.match(INSTRUCTIONS, /never quote or attribute the user/i);
+  assert.match(INSTRUCTIONS, /EXEMPT: `daily`/);
+});
+
+test("content-quality discipline is mirrored on the template rule surface", () => {
+  const rule = fs.readFileSync(path.join(SRC, "templates/rules/content-quality.md"), "utf8");
+  assert.match(rule, /name: content-quality/, "rule has its frontmatter name");
+  assert.match(rule, /never quotes the user/i, "rule forbids quoting the user");
+  assert.match(rule, /de-personaliz/i, "rule mandates de-personalization");
+  assert.match(rule, /`daily`.*EXEMPT|EXEMPT[\s\S]*`daily`/i, "rule exempts daily");
+  assert.match(rule, /`absorb`.*EXEMPT|EXEMPT[\s\S]*`absorb`/i, "rule exempts absorb");
+});
+
+test("INSTRUCTIONS encodes the durability discipline (rule 19)", () => {
+  assert.match(INSTRUCTIONS, /DURABILITY — NEVER PIN MEMORY TO VOLATILE CODE POSITIONS/);
+  assert.match(INSTRUCTIONS, /NEVER record a line number/);
+  assert.match(INSTRUCTIONS, /AVOID depending on file paths or internal symbol names/);
+  assert.match(INSTRUCTIONS, /behaviour-preserving refactor/);
+});
+
+test("content-quality rule carries the durability section (no volatile locators)", () => {
+  const rule = fs.readFileSync(path.join(SRC, "templates/rules/content-quality.md"), "utf8");
+  assert.match(rule, /Durability — write knowledge that survives refactors/);
+  assert.match(rule, /record a line number/);
+  assert.match(rule, /KEEP the truly immutable anchors/);
+});
+
+test("INSTRUCTIONS encodes the recall-validation discipline (rule 20)", () => {
+  assert.match(INSTRUCTIONS, /VALIDATE RECALLED MEMORY AGAINST REALITY BEFORE RELYING ON IT/);
+  assert.match(INSTRUCTIONS, /a PRIOR, not ground truth/);
+  assert.match(INSTRUCTIONS, /reconcile the memory BY CATEGORY/);
+  assert.match(INSTRUCTIONS, /never a licence to bypass the self_improvement write-gate/);
+});
+
+test("recall-validation discipline is mirrored on the template rule surface", () => {
+  const rule = fs.readFileSync(path.join(SRC, "templates/rules/recall-validation.md"), "utf8");
+  assert.match(rule, /name: recall-validation/, "rule has its frontmatter name");
+  assert.match(rule, /prior to verify/i, "rule frames recall as a prior");
+  assert.match(rule, /UPDATE the leaf in place/, "non-gated: update in place");
+  assert.match(rule, /PROPOSE the correction/, "gated: propose via the write-gate");
+  assert.match(rule, /never fix or flag silently/i, "always surface");
+});
+
 test("every MCP tool description carries the required-scopes clause (all three surfaces move together)", () => {
   const files = [
     "tools-config",

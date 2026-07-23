@@ -4,7 +4,6 @@
 // 3A merge pass.
 
 import path from "node:path";
-import { z } from "zod";
 import { PROMPTS_DIR } from "./lib/env.mjs";
 import {
   consolidateClusterTopK,
@@ -24,24 +23,16 @@ import {
 } from "./lib/wiki-store.mjs";
 import { preserveIdentityOnResave } from "./lib/wiki-identity.mjs";
 import { callJSON } from "./lib/llm-callJSON.mjs";
+import { generateWithJudge } from "./lib/quality-loop.mjs";
 import { LLMOutputInvalid } from "./lib/llm.mjs";
 import { toIso } from "./consolidate-time.mjs";
 import { entityLeafId, recordEntity, stampLeafMetadata } from "./consolidate-report.mjs";
+import { REFRESH_SCHEMA } from "./consolidate-schemas.mjs";
 
 /** @typedef {import("./consolidate-report.mjs").ConsolidateCtx} ConsolidateCtx */
 /** @typedef {import("./consolidate-report.mjs").RunLeaf} RunLeaf */
 /** @typedef {import("./consolidate-time.mjs").NowInput} NowInput */
-
-/**
- * The adjudication the 3B LLM emits per stale leaf (the REFRESH_SCHEMA output).
- * @typedef {Object} RefreshDecision
- * @property {"keep" | "rewrite" | "archive"} action
- * @property {string} leaf_id
- * @property {string} [rewritten_body]
- * @property {string} [archive_reason]
- * @property {boolean} stale_after
- * @property {string} reason
- */
+/** @typedef {import("./consolidate-schemas.mjs").RefreshDecision} RefreshDecision */
 
 /**
  * The `searchMemoryFiltered` options the refresh pass supplies to build a
@@ -60,34 +51,6 @@ import { entityLeafId, recordEntity, stampLeafMetadata } from "./consolidate-rep
  * @typedef {Object} RefreshCluster
  * @property {Array<{ documentId: string, score?: number, content?: string }>} [records]
  */
-
-const REFRESH_SCHEMA = z
-  .object({
-    action: z.enum(["keep", "rewrite", "archive"]),
-    leaf_id: z.string().min(1),
-    rewritten_body: z.string().min(1).optional(),
-    archive_reason: z.string().min(1).optional(),
-    stale_after: z.boolean(),
-    reason: z.string().min(1),
-  })
-  .superRefine((v, ctx) => {
-    if (v.action === "rewrite" && !v.rewritten_body) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["rewritten_body"],
-        message: "rewritten_body is required when action='rewrite'",
-      });
-    }
-    if (v.action === "archive" && !v.archive_reason) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["archive_reason"],
-        message: "archive_reason is required when action='archive'",
-      });
-    }
-  });
-
-export { REFRESH_SCHEMA };
 
 // 3B — LLM semantic refresh. Runs AFTER stalenessFlag flagged leaves. Caps
 // per-run LLM calls at consolidateRefreshMaxPerRun(); remaining stale leaves
@@ -183,24 +146,47 @@ export async function llmSemanticRefresh({ ctx, now, dryRun }) {
       ATOM_BODY_MAX_CHARS: bodyCap,
     };
 
+    // Judge-in-the-loop: a `rewrite` produces new durable content, so it runs
+    // through the quality judge (regenerating with feedback up to
+    // quality.maxRounds). `keep`/`archive` write no new body, so they bypass.
+    // FAIL-CLOSED: a judge/provider outage throws, caught below → the leaf's
+    // refresh is skipped and its stale flag left in place (retried next run).
     let decision;
+    let flaggedUnverified = false;
     try {
+      const judged = await generateWithJudge({
+        category: leaf.category,
+        generate: async ({ recommendation }) => {
+          const d = /** @type {RefreshDecision} */ (
+            await callJSON({
+              promptPath,
+              userPrompt: recommendation
+                ? `Emit STRICT JSON per the schema in the system prompt.\n\n---\nA QUALITY JUDGE REJECTED YOUR REWRITTEN BODY. Rewrite it to address this while preserving the durable facts:\n${recommendation}`
+                : "Emit STRICT JSON per the schema in the system prompt.",
+              vars,
+              schema: REFRESH_SCHEMA,
+              maxRetries,
+              maxTokens: 1200,
+            })
+          );
+          if (d.leaf_id !== leaf.documentId) {
+            throw new LLMOutputInvalid(
+              `LLM emitted leaf_id=${d.leaf_id} that doesn't match input ${leaf.documentId}`,
+              JSON.stringify(d),
+            );
+          }
+          if (d.action !== "rewrite") return { decision: d, __bypassJudge: true };
+          return {
+            decision: d,
+            title: String(leaf.frontmatter?.focus || leaf.name || ""),
+            body: String(d.rewritten_body || ""),
+          };
+        },
+      });
       decision = /** @type {RefreshDecision} */ (
-        await callJSON({
-          promptPath,
-          userPrompt: "Emit STRICT JSON per the schema in the system prompt.",
-          vars,
-          schema: REFRESH_SCHEMA,
-          maxRetries,
-          maxTokens: 1200,
-        })
+        /** @type {{ decision: RefreshDecision }} */ (judged.candidate).decision
       );
-      if (decision.leaf_id !== leaf.documentId) {
-        throw new LLMOutputInvalid(
-          `LLM emitted leaf_id=${decision.leaf_id} that doesn't match input ${leaf.documentId}`,
-          JSON.stringify(decision),
-        );
-      }
+      flaggedUnverified = judged.flagged;
     } catch (err) {
       report.errors++;
       recordEntity(report, {
@@ -246,11 +232,16 @@ export async function llmSemanticRefresh({ ctx, now, dryRun }) {
         }
         // Same relocation hazard as 3A — pin to the leaf's existing dir.
         const leafDir = path.posix.dirname(leaf.documentId);
+        const refreshMeta = { ...preserveIdentityOnResave(leaf.memory || {}, leaf.memory) };
+        // The judge just re-verified this rewritten body: set the flag when it
+        // still fell short, CLEAR a stale one when it now passes (self-heal).
+        if (flaggedUnverified) refreshMeta.quality = "unverified";
+        else delete refreshMeta.quality;
         saveDocument({
           name: leaf.name,
           text: body,
           datasetId: leaf.category,
-          metadata: preserveIdentityOnResave(leaf.memory || {}, leaf.memory),
+          metadata: refreshMeta,
           placementOverride: leafDir,
         });
         stampLeafMetadata(leaf.documentId, {

@@ -39,3 +39,18 @@ test("describeWiki prefers an explicit label over the prettified slug", () => {
   );
   expect(wiki.label).toBe("Custom");
 });
+
+test("describeWiki labels the home wiki 'Main Brain' unless an explicit label overrides", () => {
+  const home = describeWiki(
+    { root: "/brain", mountDir: "/brain", projectModule: "repos", ownership: "wiki" },
+    ["knowledge"],
+    "home",
+  );
+  expect(home.label).toBe("Main Brain");
+  const named = describeWiki(
+    { root: "/b", mountDir: "/b", projectModule: "repos", ownership: "wiki", label: "My Brain" },
+    ["knowledge"],
+    "home",
+  );
+  expect(named.label).toBe("My Brain");
+});

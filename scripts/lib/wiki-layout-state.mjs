@@ -34,6 +34,8 @@ import { loadMergedLayout, readMergedLayout } from "./layout-merge.mjs";
  * @property {Record<string, boolean>} topologyCategories categories with a `topology:` block
  * @property {Record<string, boolean>} fullCategories per-category full-document flag (explicit only)
  * @property {boolean} fullDefault wiki-level full default (inherited when a category omits `full`)
+ * @property {Record<string, boolean>} gatedCategories per-category write-gate flag (seeded defaults + overrides)
+ * @property {Record<string, boolean>} autoDistillCategories per-category auto-distill flag (default true)
  * @property {number} sharedMtime mtime (ms) of layout.yaml when built (0 if absent)
  * @property {number} localMtime mtime (ms) of layout.local.yaml when built (0 if absent)
  */
@@ -163,6 +165,31 @@ export function isLeafFull(category, mem) {
  */
 export function categoryHasTopology(category) {
   return Boolean(ensureLayoutLoaded().topologyCategories[String(category || "")]);
+}
+
+// True when a category is WRITE-GATED in the current root's layout: saving a
+// leaf there requires explicit user consent (the propose-then-confirm gate).
+// Absent/undeclared -> false (ungated), so the fail-open direction here is the
+// permissive one; the L2/L3 gate layers add their own fail-CLOSED handling
+// around a resolution error, this accessor only reports the layout's answer.
+/**
+ * @param {string | undefined | null} category
+ * @returns {boolean}
+ */
+export function isGatedCategory(category) {
+  return ensureLayoutLoaded().gatedCategories[String(category || "")] === true;
+}
+
+// True when `compile` may auto-promote daily captures into this category.
+// Absent/undeclared -> true (auto-distill is the default); a layout opts a
+// category OUT with `auto_distill: false` for human-only knowledge.
+/**
+ * @param {string | undefined | null} category
+ * @returns {boolean}
+ */
+export function isAutoDistillCategory(category) {
+  const v = ensureLayoutLoaded().autoDistillCategories[String(category || "")];
+  return v === undefined ? true : v;
 }
 
 // Public accessor for a category's declared placement facets (a fresh copy; []

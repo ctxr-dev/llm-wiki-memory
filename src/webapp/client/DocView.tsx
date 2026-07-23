@@ -1,25 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
+import { Button } from "./Button";
 import { useDoc, useRelated } from "./hooks";
 import { Markdown } from "./Markdown";
 import { FrontmatterCard } from "./FrontmatterCard";
+import { MetaBlock } from "./MetaBlock";
 import { Toc } from "./Toc";
 import { RelatedPanel } from "./RelatedPanel";
 import { EditorPanel } from "./EditorPanel";
+import { CollapsibleColumn } from "./CollapsibleColumn";
 import { extractToc } from "./headings";
+import { splitBodyMeta } from "./bodyMeta";
+import type { Facet } from "./api";
 
 export function DocView({
   wikiId,
   docId,
   onOpen,
+  onChipFilter,
 }: {
   wikiId: string;
   docId: string;
   onOpen: (id: string) => void;
+  onChipFilter: (facet: Facet) => void;
 }) {
   const doc = useDoc(wikiId, docId);
   const related = useRelated(wikiId, docId);
   const [editing, setEditing] = useState(false);
   const toc = useMemo(() => (doc.data ? extractToc(doc.data.body) : []), [doc.data]);
+  const meta = useMemo(() => (doc.data ? splitBodyMeta(doc.data.body) : null), [doc.data]);
 
   useEffect(() => setEditing(false), [docId]);
 
@@ -40,23 +48,39 @@ export function DocView({
     );
   }
   return (
-    <div className="flex gap-6 p-6">
+    <div className="flex items-start gap-6 p-6">
       <article className="min-w-0 flex-1">
         <div className="mb-2 flex justify-end">
-          <button
-            onClick={() => setEditing(true)}
-            className="rounded border border-slate-200 dark:border-slate-700 px-3 py-1 text-sm text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600"
-          >
+          <Button variant="secondary" onClick={() => setEditing(true)}>
             Edit
-          </button>
+          </Button>
         </div>
-        <FrontmatterCard doc={doc.data} />
-        <Markdown body={doc.data.body} />
+        <FrontmatterCard doc={doc.data} onChip={onChipFilter} />
+        {meta && meta.metaList.length > 0 ? (
+          <>
+            <Markdown body={meta.heading ?? ""} />
+            <MetaBlock lines={meta.metaList} />
+            <Markdown body={meta.prose} />
+          </>
+        ) : (
+          <Markdown body={doc.data.body} />
+        )}
       </article>
-      <aside className="hidden w-56 shrink-0 space-y-6 lg:block">
-        <Toc items={toc} />
-        <RelatedPanel related={related.data ?? []} onOpen={onOpen} />
-      </aside>
+      <CollapsibleColumn
+        as="aside"
+        side="right"
+        ariaLabel="table of contents and related"
+        railLabel="TOC & Related Docs"
+        expandedWidthClass="w-56"
+        collapseBelowPx={768}
+        className="sticky top-0 max-h-screen self-start"
+        header={<span />}
+      >
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-1 pb-2">
+          <Toc items={toc} />
+          <RelatedPanel related={related.data ?? []} onOpen={onOpen} />
+        </div>
+      </CollapsibleColumn>
     </div>
   );
 }

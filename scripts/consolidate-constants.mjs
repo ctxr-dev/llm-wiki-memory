@@ -43,12 +43,19 @@ export const ORPHAN_EXCLUDE_ATOM_TYPES = new Set([
 // Why these (and not others):
 //   self-improvement-lesson — canonical self_improvement leaf shape.
 //   bug-root-cause / feedback-rule / pattern-gotcha — knowledge atoms that
-//   can drift over time (the bug was fixed; the rule was reversed; the
-//   gotcha became obsolete after a library upgrade).
+//   can drift over time (the bug was fixed; the rule was reversed; the gotcha
+//   became obsolete after a library upgrade). These are also the atom types
+//   that EMBED volatile code locators as evidence, so the de-volatilizing
+//   refresh pass (see consolidate-refresh.md) revisits and rewrites them —
+//   this is how pre-existing bumblebee-style leaves get cleaned over time.
 //
 // Intentionally excluded (durable / canonical records):
 //   decision    — architectural decisions are point-in-time records.
-//   reference   — canonical pointers (URLs, file paths, conventions).
+//   reference   — a pointer whose canonical payload IS the target (a dashboard
+//                 URL, a runbook); a "de-volatilize" rewrite would gut it, and
+//                 it would perpetually re-trip staleness. The compile-time
+//                 durability gate + the judge catch a NEW reference that is
+//                 nothing but a line-number dump.
 //   project-lore — historical context that shouldn't be rewritten.
 //   plan / investigation / jira_issue — owned by other lifecycles; the
 //                                       layout already excludes their

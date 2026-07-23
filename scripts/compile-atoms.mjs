@@ -4,6 +4,7 @@ import { PROMPTS_DIR } from "./lib/env.mjs";
 import { atomBodyMaxChars } from "./lib/settings.mjs";
 import { collectFacetVocab, renderVocabVars } from "./lib/facet-vocab.mjs";
 import { ATOM_TYPES } from "./lib/datasets.mjs";
+import { hasAttribution } from "./lib/depersonalize.mjs";
 
 /** @typedef {import("./lib/types.mjs").DistilledAtom} DistilledAtom */
 /** @typedef {import("./lib/types.mjs").MetadataInput} MetadataInput */
@@ -141,6 +142,25 @@ export const __loadPromptForTest = loadPrompt;
 //    is the workspace, stamped automatically). An atom without an area is not
 //    facet-placed or area-scopable. (Legacy atoms' project_module is accepted
 //    as the area fallback.)
+// 5. No user attribution / quote in title+body (content-quality rule 18) - saved
+//    memory is de-personalized; "the user said…" / "you told me…" is narrative
+//    leaking through. The flush-validate backstop neutralises the common openers.
+// Volatile code-position locators: a SOURCE/CONFIG file pinned to a line
+// (`path/File.ext:NN`), `~line NN` / `line NN`, or the GitHub `Lnn` anchor (2+
+// digits, so a conceptual "L2 / L3 gate" reference is NOT a line number). A leaf
+// pinned to these rots the instant code shifts (content-quality Durability). The
+// extension allowlist is deliberate: it matches code POSITIONS, never durable
+// `host:port`, `image:tag`, or version tokens (colons content-quality says to
+// KEEP). The backstop flags DOMINANCE with no conceptual framing; a single dated
+// hint beside a real Why/How is durable, so it never fires on mere file mention.
+const VOLATILE_LOCATOR_EXT =
+  "scala|mjs|cjs|js|jsx|ts|tsx|py|rb|go|java|kt|kts|rs|c|cc|cpp|h|hpp|hh|cs|php|sh|bash|sql|swift|clj|ex|exs|erl|lua|pl|pm|vue|svelte|yaml|yml|json|toml";
+const VOLATILE_LOCATOR_RE = new RegExp(
+  `\\b[\\w./-]*\\.(?:${VOLATILE_LOCATOR_EXT})\\b:\\d{1,6}\\b|~?\\bline\\s+\\d{1,6}\\b|\\bL\\d{2,6}\\b`,
+  "gi",
+);
+const VOLATILE_LOCATOR_DOMINANCE = 3;
+
 /**
  * @param {DistilledAtom} atom
  * @returns {{ ok: boolean, reasons: string[] }}
@@ -161,6 +181,20 @@ export function scoreAtomQuality(atom) {
     !(atom?.metadata?.area || atom?.metadata?.project_module)
   ) {
     reasons.push(`type='${atom.type}' requires metadata.area (or legacy project_module)`);
+  }
+  // Content-quality (rule 18): auto-atoms must be de-personalized. Flag obvious
+  // user-attribution/quotes so qualityStrict drops them and lax mode surfaces them
+  // for forensics (the flush-validate backstop already neutralises the common openers).
+  if (hasAttribution(`${String(atom?.title || "")}\n${body}`)) {
+    reasons.push("user attribution / quote present (de-personalize)");
+  }
+  // Content-quality durability (rules 18/19): an atom DOMINATED by volatile
+  // code-position locators (line numbers, `~line N`, `Lnn`) with no conceptual
+  // `Why:` / `How to apply:` framing is a code-position dump that rots on the
+  // next refactor — drop it. A single dated hint beside real framing is kept.
+  const volatileLocators = (body.match(VOLATILE_LOCATOR_RE) || []).length;
+  if (volatileLocators >= VOLATILE_LOCATOR_DOMINANCE && !hasWhyOrHowTo) {
+    reasons.push("volatile code locators dominate with no conceptual framing (rots on refactor)");
   }
   return { ok: reasons.length === 0, reasons };
 }

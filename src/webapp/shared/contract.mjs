@@ -32,6 +32,8 @@ export const WikiListSchema = z.object({ wikis: z.array(WikiSchema) });
 
 export const AddWikiRequest = z.object({ path: z.string().min(1) }).strict();
 
+export const PickFolderResponse = z.object({ path: z.string() });
+
 export const NavCategorySchema = z.object({
   category: z.string(),
   label: z.string(),
@@ -49,10 +51,20 @@ export const NavDirSchema = z.object({
   count: z.number(),
 });
 
+export const LeafSummarySchema = z.object({
+  atomType: z.string().optional(),
+  area: z.string().optional(),
+  priority: z.string().optional(),
+  updated: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+});
+
 export const DocEntrySchema = z.object({
   id: z.string(),
   name: z.string(),
+  title: z.string(),
   active: z.boolean(),
+  summary: LeafSummarySchema.optional(),
 });
 
 export const NavChildrenSchema = z.object({
@@ -77,7 +89,10 @@ export const DocViewSchema = z.object({
 export const RelatedEntrySchema = z.object({
   id: z.string(),
   name: z.string(),
+  title: z.string(),
+  location: z.string(),
   score: z.number(),
+  summary: LeafSummarySchema.optional(),
 });
 
 export const RelatedListSchema = z.object({ related: z.array(RelatedEntrySchema) });
@@ -89,6 +104,8 @@ export const SetPrefRequest = z.object({ value: z.string() }).strict();
 export const SearchResultSchema = z.object({
   id: z.string(),
   name: z.string(),
+  title: z.string(),
+  location: z.string(),
   category: z.string(),
   score: z.number(),
   snippet: z.string(),
@@ -96,10 +113,30 @@ export const SearchResultSchema = z.object({
   wikiLabel: z.string().optional(),
 });
 
+export const SearchFilterSchema = z
+  .object({
+    area: z.string().optional(),
+    atom_type: z.string().optional(),
+    task_type: z.string().optional(),
+    subject: z.string().optional(),
+    tags: z.string().optional(),
+    language: z.string().optional(),
+    priority: z.string().optional(),
+  })
+  .strict();
+
 export const SearchResultsSchema = z.object({ results: z.array(SearchResultSchema) });
 
+export const TitlesSchema = z.object({ titles: z.record(z.string()) });
+
 export const AskAnswerSchema = z
-  .object({ id: z.string(), name: z.string(), category: z.string(), content: z.string() })
+  .object({
+    id: z.string(),
+    name: z.string(),
+    title: z.string(),
+    category: z.string(),
+    content: z.string(),
+  })
   .nullable();
 
 export const AskResponseSchema = z.object({
@@ -179,6 +216,8 @@ export const IssuesBoardSchema = z.object({
 /** @typedef {import("zod").infer<typeof DocViewSchema>} DocView */
 /** @typedef {import("zod").infer<typeof RelatedEntrySchema>} RelatedEntry */
 /** @typedef {import("zod").infer<typeof SearchResultSchema>} SearchResult */
+/** @typedef {import("zod").infer<typeof SearchFilterSchema>} SearchFilter */
+/** @typedef {import("zod").infer<typeof LeafSummarySchema>} LeafSummary */
 /** @typedef {import("zod").infer<typeof AskResponseSchema>} AskResponse */
 /** @typedef {import("zod").infer<typeof EditResultSchema>} EditResult */
 /** @typedef {import("zod").infer<typeof PlansBoardSchema>} PlansBoard */

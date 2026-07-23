@@ -90,11 +90,17 @@ export function setupWorkspace({ init = true, projectModule = "testproj" } = {})
   // bge model download on every fresh test workspace. `consolidate.enabled: true`
   // is set because the product default is opt-in/off; the consolidate + cron
   // suites need it on to exercise consolidation, and flag-specific tests
-  // override it back to false. Each workspace gets its own settings.yaml.
+  // override it back to false. `quality.judgeEnabled: false` mirrors the same
+  // philosophy in reverse: the judge-in-the-loop is ON by product default, but
+  // the broad compile/consolidate suites mock a single fixed LLM response per
+  // step, so a second (judge) LLM call would break their mock accounting. The
+  // judge is exercised by DEDICATED tests that opt back in via
+  // __setSettingsForTest({ quality: { judgeEnabled: true } }). Each workspace
+  // gets its own settings.yaml.
   fs.mkdirSync(path.join(dataDir, "settings"), { recursive: true });
   fs.writeFileSync(
     path.join(dataDir, "settings", "settings.yaml"),
-    "embed:\n  backend: lexical\nconsolidate:\n  enabled: true\n",
+    "embed:\n  backend: lexical\nconsolidate:\n  enabled: true\nquality:\n  judgeEnabled: false\n",
   );
 
   const wiki = path.join(dataDir, "wiki");

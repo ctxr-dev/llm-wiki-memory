@@ -157,8 +157,20 @@ export function compileMetadataRetryLimit() {
 export function gcIntervalDays() {
   return settings().gc.intervalDays;
 }
-export function writeGateSelfImprovementEnabled() {
-  return Boolean(settings().gate.selfImprovementEnabled);
+export function qualityJudgeEnabled() {
+  return Boolean(settings().quality.judgeEnabled);
+}
+export function qualityMaxRounds() {
+  return settings().quality.maxRounds;
+}
+// The write-gate master switch. `gate.enabled` is canonical (governs every
+// layout-gated category); `gate.selfImprovementEnabled` is the pre-rename ALIAS.
+// The YAML overlay maps the alias onto `gate.enabled`, but a process/test
+// OVERRIDE (deepMerged post-overlay) may still set the old key — so honour BOTH
+// here, fail-CLOSED: the gate is ON unless EITHER is explicitly false.
+export function writeGateEnabled() {
+  const g = settings().gate;
+  return !(g.enabled === false || g.selfImprovementEnabled === false);
 }
 export function writeGateClaudeHookEnabled() {
   return Boolean(settings().gate.claudeHookEnabled);

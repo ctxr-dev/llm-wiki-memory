@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { XMarkIcon } from "@heroicons/react/24/outline";
 import { useAsk } from "./hooks";
 import { Markdown } from "./Markdown";
+import { Button } from "./Button";
 
 export function AskPanel({
   wikiId,
@@ -23,12 +25,15 @@ export function AskPanel({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-16"
+      className="fixed inset-0 z-50 flex justify-center bg-black/30 sm:items-start sm:pt-16"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg bg-white dark:bg-slate-800 shadow-xl"
+        className="flex h-full w-full flex-col bg-white shadow-xl dark:bg-slate-800 sm:h-auto sm:max-h-[80vh] sm:w-[80vw] sm:max-w-4xl sm:rounded-lg"
         onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onClose();
+        }}
       >
         <form
           className="flex gap-2 border-b border-slate-100 dark:border-slate-800 p-3"
@@ -44,7 +49,16 @@ export function AskPanel({
             placeholder="Ask your memory…"
             className="flex-1 rounded border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-sm outline-none"
           />
-          <button className="rounded bg-slate-800 px-3 py-1.5 text-sm text-white">Ask</button>
+          <Button type="submit" variant="primary" className="px-3 py-1.5">
+            Ask
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={onClose}
+            aria-label="close"
+            className="px-2 leading-none"
+            icon={<XMarkIcon className="h-5 w-5" />}
+          />
         </form>
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {ask.isFetching && <div className="text-slate-400 dark:text-slate-500">Searching…</div>}
@@ -52,9 +66,9 @@ export function AskPanel({
             <div className="mb-4">
               <button
                 onClick={() => open(answer.id)}
-                className="mb-1 block text-sm font-semibold text-sky-700 hover:underline"
+                className="mb-1 block cursor-pointer text-sm font-semibold text-sky-700 hover:underline"
               >
-                {answer.name}
+                {answer.title}
               </button>
               <div className="rounded border border-slate-100 dark:border-slate-800 p-3">
                 <Markdown body={answer.content} />
@@ -71,11 +85,11 @@ export function AskPanel({
                   <li key={source.id}>
                     <button
                       onClick={() => open(source.id)}
-                      className="text-left text-sm text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
+                      className="cursor-pointer text-left text-sm text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
                     >
-                      {source.name}{" "}
+                      {source.title}{" "}
                       <span className="text-xs text-slate-400 dark:text-slate-500">
-                        {source.category} · {source.score.toFixed(2)}
+                        {source.location || source.category} · {source.score.toFixed(2)}
                       </span>
                     </button>
                   </li>

@@ -44,5 +44,7 @@ The new atom adds no information beyond the existing entries.
 - Do not invent documentIds.
 - Do not output multiple actions or arrays.
 - Do not output markdown.
+- Keep the atom de-personalized + professional: never quote or attribute the user ("the user said", names, verbatim quotes) and drop irrelevant/unprofessional specifics; keep the technical evidence.
+- Keep the merged text durable — survive refactors. State the rule CONCEPTUALLY with its `Why:` / `How to apply:`; NEVER introduce or retain a line number, `Lnn`, or byte offset (they rot on the next edit). Keep only immutable anchors (ticket keys, versions, commit SHAs, stable contract identifiers); a file path or private symbol may appear ONLY as a subordinate, re-verifiable hint, never as the load-bearing fact.
 
 The new atom and candidates follow.

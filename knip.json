@@ -3,7 +3,12 @@
   "ignoreWorkspaces": ["src/webapp"],
   "workspaces": {
     ".": {
-      "entry": ["scripts/*.mjs", "scripts/hooks/*.mjs", "test/**/*.test.mjs"],
+      "entry": [
+        "scripts/*.mjs",
+        "scripts/hooks/*.mjs",
+        "test/**/*.test.mjs",
+        "test/setup-guard.mjs"
+      ],
       "project": ["scripts/**/*.mjs", "mcp-server/**/*.mjs"]
     }
   },

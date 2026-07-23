@@ -1,10 +1,12 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { SRC } from "./harness.mjs";
+import { clientBuildStale, findFreePort } from "../scripts/webapp-cli.mjs";
 
 const CLI = path.join(SRC, "scripts", "webapp-cli.mjs");
 const TMP = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "webapp-cli-")));
@@ -108,6 +110,36 @@ test("a stale PID file reads as not-running and does not block a start", () => {
   cli("stop");
 });
 
+test("findFreePort returns a bindable port at or above the start when free", async () => {
+  const port = await findFreePort(45990);
+  assert.ok(port >= 45990, `expected >= 45990, got ${port}`);
+});
+
+test("findFreePort rolls past a busy port to the next free one", async () => {
+  const busy = net.createServer();
+  await new Promise((resolve) => busy.listen(45991, "127.0.0.1", resolve));
+  try {
+    const port = await findFreePort(45991);
+    assert.ok(port > 45991, `expected a port above the busy 45991, got ${port}`);
+  } finally {
+    await new Promise((resolve) => busy.close(resolve));
+  }
+});
+
+test("a busy configured port rolls the daemon to the next free one", async () => {
+  const busy = net.createServer();
+  await new Promise((resolve) => busy.listen(4711, "127.0.0.1", resolve));
+  try {
+    const r = cli("start");
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /started at http:\/\/localhost:(?!4711\b)\d+/);
+    assert.match(cli("status").stdout, /at http:\/\/localhost:(?!4711\b)\d+/);
+  } finally {
+    cli("stop");
+    await new Promise((resolve) => busy.close(resolve));
+  }
+});
+
 test("an unknown subcommand exits 2 with usage", () => {
   const r = cli("frobnicate");
   assert.equal(r.status, 2);
@@ -118,4 +150,37 @@ test("--help prints usage and exits 0", () => {
   const r = cli("--help");
   assert.equal(r.status, 0);
   assert.match(r.stdout, /start\|stop\|restart\|status/);
+});
+
+test("clientBuildStale flags a dist older than the client sources so restart rebuilds it", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "webapp-stale-"));
+  fs.mkdirSync(path.join(dir, "dist"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "client"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "dist", "index.html"), "built");
+  fs.writeFileSync(path.join(dir, "client", "App.tsx"), "source");
+  const older = new Date(1_000_000_000);
+  const newer = new Date(2_000_000_000);
+
+  fs.utimesSync(path.join(dir, "dist", "index.html"), older, older);
+  fs.utimesSync(path.join(dir, "client", "App.tsx"), newer, newer);
+  assert.equal(clientBuildStale(dir), true, "source newer than dist => stale");
+
+  fs.utimesSync(
+    path.join(dir, "dist", "index.html"),
+    new Date(3_000_000_000),
+    new Date(3_000_000_000),
+  );
+  assert.equal(clientBuildStale(dir), false, "dist newer than source => fresh");
+
+  fs.writeFileSync(path.join(dir, "client", "App.test.tsx"), "x");
+  fs.utimesSync(
+    path.join(dir, "client", "App.test.tsx"),
+    new Date(4_000_000_000),
+    new Date(4_000_000_000),
+  );
+  assert.equal(clientBuildStale(dir), false, "a newer test file does not force a rebuild");
+
+  fs.rmSync(path.join(dir, "dist", "index.html"));
+  assert.equal(clientBuildStale(dir), true, "missing dist => stale");
+  fs.rmSync(dir, { recursive: true, force: true });
 });

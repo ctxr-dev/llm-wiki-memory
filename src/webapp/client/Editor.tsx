@@ -19,7 +19,7 @@ export function Editor({
     <button
       onClick={() => setMode(target)}
       disabled={disabled}
-      className={`rounded px-2 py-0.5 ${
+      className={`cursor-pointer rounded px-2 py-0.5 ${
         mode === target
           ? "bg-slate-200 dark:bg-slate-700 font-medium"
           : "hover:bg-slate-100 dark:hover:bg-slate-800"

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { getImpl } from "./mcp-reload.mjs";
 import { errorResponse } from "./mcp-responses.mjs";
 import { MetadataSchema } from "./mcp-schemas.mjs";
-import { gateRefusal, dispatchWrite } from "./mcp-write-dispatch.mjs";
+import { runWriteGates, dispatchWrite } from "./mcp-write-dispatch.mjs";
 import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
 import { registerAbsorbTool } from "./tools-absorb.mjs";
 import { getActiveWikiContext } from "../scripts/lib/wiki-context.mjs";
@@ -65,6 +65,7 @@ function registerWriteTools(server) {
                 }),
               tags: z.array(z.string().trim().min(1)).optional(),
               evidence: z.string().trim().max(500).optional(),
+              acceptQuality: z.boolean().optional(),
             })
             .strict(),
           gate: GateSchema,
@@ -75,24 +76,26 @@ function registerWriteTools(server) {
     async (args) =>
       withToolScopes(args, async () => {
         const { write, gate, target } = args;
-        const { title, body, metadata, tags, evidence } = write;
+        const { title, body, metadata, tags, evidence, acceptQuality } = write;
         const userRequested = gate.userRequested;
         try {
-          const refusal = gateRefusal({
+          const gates = await runWriteGates({
             tool: "save_lesson",
             dataset: SELF_IMPROVEMENT,
             name: title,
+            text: body,
             metadata,
             userRequested,
-            refuseLabel: "save_lesson",
+            target,
+            acceptQuality,
           });
-          if (refusal) return refusal;
+          if (gates.blocked) return gates.blocked;
           const req = parseWriteRequest(getActiveWikiContext(), {
             kind: WRITE_KIND.LESSON,
             dataset: SELF_IMPROVEMENT,
             name: title,
             text: body,
-            metadata,
+            metadata: gates.writeMetadata,
             userRequested,
             target,
           });
@@ -125,6 +128,7 @@ function registerWriteTools(server) {
               text: z.string().trim().min(1).max(500_000),
               path: z.string().trim().min(1).max(500).optional(),
               metadata: MetadataSchema.optional(),
+              acceptQuality: z.boolean().optional(),
             })
             .strict(),
           gate: GateSchema.optional(),
@@ -135,29 +139,28 @@ function registerWriteTools(server) {
     async (args) =>
       withToolScopes(args, async () => {
         const { write, gate, target } = args;
-        const { dataset, name, text, path, metadata } = write;
+        const { dataset, name, text, path, metadata, acceptQuality } = write;
         const userRequested = gate?.userRequested;
         try {
-          const refusal = gateRefusal({
+          const gates = await runWriteGates({
             tool: "save_to_dataset",
             dataset,
             path,
             name,
+            text,
             metadata,
             userRequested,
-            refuseLabel:
-              dataset === SELF_IMPROVEMENT
-                ? `save_to_dataset(dataset="${SELF_IMPROVEMENT}")`
-                : `save_to_dataset(path="${path}" lands in ${SELF_IMPROVEMENT})`,
+            target,
+            acceptQuality,
           });
-          if (refusal) return refusal;
+          if (gates.blocked) return gates.blocked;
           const req = parseWriteRequest(getActiveWikiContext(), {
             kind: WRITE_KIND.DOCUMENT,
             dataset,
             name,
             text,
             path,
-            metadata,
+            metadata: gates.writeMetadata,
             userRequested,
             target,
           });
@@ -199,6 +202,7 @@ function registerWriteTools(server) {
               supersedesAction: SupersedesActionSchema.optional(),
               path: z.string().trim().min(1).max(500).optional(),
               metadata: MetadataSchema.optional(),
+              acceptQuality: z.boolean().optional(),
             })
             .strict(),
           gate: GateSchema.optional(),
@@ -209,29 +213,37 @@ function registerWriteTools(server) {
     async (args) =>
       withToolScopes(args, async () => {
         const { write, gate, target } = args;
-        const { name, text, datasetId, supersedes, supersedesAction, path, metadata } = write;
+        const {
+          name,
+          text,
+          datasetId,
+          supersedes,
+          supersedesAction,
+          path,
+          metadata,
+          acceptQuality,
+        } = write;
         const userRequested = gate?.userRequested;
         try {
-          const refusal = gateRefusal({
+          const gates = await runWriteGates({
             tool: "write_memory",
             dataset: datasetId,
             path,
             name,
+            text,
             metadata,
             userRequested,
-            refuseLabel:
-              datasetId === SELF_IMPROVEMENT
-                ? `write_memory(datasetId="${SELF_IMPROVEMENT}")`
-                : `write_memory(path="${path}" lands in ${SELF_IMPROVEMENT})`,
+            target,
+            acceptQuality,
           });
-          if (refusal) return refusal;
+          if (gates.blocked) return gates.blocked;
           const req = parseWriteRequest(getActiveWikiContext(), {
             kind: WRITE_KIND.MEMORY,
             dataset: datasetId,
             name,
             text,
             path,
-            metadata,
+            metadata: gates.writeMetadata,
             userRequested,
             target,
           });

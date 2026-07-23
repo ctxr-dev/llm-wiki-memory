@@ -1,20 +1,43 @@
 import fs from "node:fs";
 import path from "node:path";
 import { loadEngine } from "./engine.mjs";
-import { relabel, categoryLabel } from "./nav-labels.mjs";
+import { relabel, categoryLabel, isSentinel } from "./nav-labels.mjs";
+import { leafTitle, titleForId, summaryFromData } from "./leaf-title.mjs";
+import { isWithin } from "./paths.mjs";
 
-/** @param {{ walkLeaves: (dir: string) => string[] }} core @param {string} absDir @returns {number} */
+const MAX_TITLE_IDS = 500;
+
+/**
+ * @param {any} core @param {string} abs
+ * @returns {{ data: { focus?: unknown }, active: boolean } | null}
+ */
+function readActiveLeaf(core, abs) {
+  let data;
+  try {
+    data = core.readLeaf(abs).data;
+  } catch {
+    return null;
+  }
+  if (!data || Object.keys(data).length === 0) return null;
+  return { data, active: core.isActive(data) };
+}
+
+/** @param {any} core @param {string} absDir @returns {number} */
 function countUnder(core, absDir) {
   try {
-    return core.walkLeaves(absDir).length;
+    let active = 0;
+    for (const leaf of core.walkLeaves(absDir)) {
+      const read = readActiveLeaf(core, leaf);
+      if (read && read.active) active += 1;
+    }
+    return active;
   } catch {
     return 0;
   }
 }
 
 /**
- * @param {import("./app-db.mjs").AppDb} db
- * @param {{ walkLeaves: (dir: string) => string[] }} core
+ * @param {import("./app-db.mjs").AppDb} db @param {any} core
  * @param {string} root @param {string} facetPath @param {string} absDir @returns {number}
  */
 function cachedCount(db, core, root, facetPath, absDir) {
@@ -39,8 +62,53 @@ function safeChildAbs(categoryAbs, subPath) {
 }
 
 /**
- * @param {string} root
- * @param {import("./app-db.mjs").AppDb} db
+ * @param {any} deps @param {string} root @param {string} category @param {string} subPath
+ * @param {boolean} showArchived @param {import("./app-db.mjs").AppDb} db
+ */
+function computeChildren(deps, root, category, subPath, showArchived, db) {
+  const { core, identity } = deps;
+  /** @type {import("../shared/contract.mjs").NavChildren["dirs"]} */
+  const dirs = [];
+  /** @type {import("../shared/contract.mjs").DocEntry[]} */
+  const docs = [];
+  const abs = safeChildAbs(identity.toAbs(category), subPath);
+  if (!abs) return { dirs, docs };
+  let entries;
+  try {
+    entries = fs.readdirSync(abs, { withFileTypes: true });
+  } catch {
+    return { dirs, docs };
+  }
+  for (const entry of entries) {
+    if (entry.name.startsWith(".") || entry.name === "index.md") continue;
+    const childAbs = path.join(abs, entry.name);
+    if (entry.isDirectory()) {
+      const rel = subPath ? `${category}/${subPath}/${entry.name}` : `${category}/${entry.name}`;
+      dirs.push({
+        name: entry.name,
+        label: relabel(entry.name),
+        count: cachedCount(db, core, root, rel, childAbs),
+      });
+    } else if (entry.name.endsWith(".md")) {
+      const read = readActiveLeaf(core, childAbs);
+      if (read && (showArchived || read.active)) {
+        docs.push({
+          id: identity.toRel(childAbs),
+          name: entry.name,
+          active: read.active,
+          title: leafTitle(read.data, entry.name),
+          summary: summaryFromData(read.data),
+        });
+      }
+    }
+  }
+  dirs.sort((a, b) => a.name.localeCompare(b.name));
+  docs.sort((a, b) => a.title.localeCompare(b.title));
+  return { dirs, docs };
+}
+
+/**
+ * @param {string} root @param {import("./app-db.mjs").AppDb} db
  * @returns {Promise<import("../shared/contract.mjs").NavCategory[]>}
  */
 export async function listCategories(root, db) {
@@ -59,52 +127,26 @@ export async function listCategories(root, db) {
 
 /**
  * @param {string} root @param {string} category @param {string} subPath
- * @param {{ showArchived?: boolean }} opts
- * @param {import("./app-db.mjs").AppDb} db
+ * @param {{ showArchived?: boolean }} opts @param {import("./app-db.mjs").AppDb} db
  * @returns {Promise<import("../shared/contract.mjs").NavChildren>}
  */
 export async function navChildren(root, category, subPath, { showArchived = false } = {}, db) {
-  const { env, layout, core, identity } = await loadEngine();
-  return env.withWikiRoot(root, () => {
-    const empty = { category, path: subPath, dirs: [], docs: [] };
-    if (!layout.getCategories().includes(category)) return empty;
-    const categoryAbs = identity.toAbs(category);
-    const abs = safeChildAbs(categoryAbs, subPath);
-    if (!abs) return empty;
-    /** @type {import("../shared/contract.mjs").NavChildren["dirs"]} */
-    const dirs = [];
-    /** @type {import("../shared/contract.mjs").DocEntry[]} */
-    const docs = [];
-    let entries;
-    try {
-      entries = fs.readdirSync(abs, { withFileTypes: true });
-    } catch {
-      return empty;
+  const deps = await loadEngine();
+  return deps.env.withWikiRoot(root, () => {
+    if (!deps.layout.getCategories().includes(category)) {
+      return { category, path: subPath, dirs: [], docs: [] };
     }
-    for (const entry of entries) {
-      if (entry.name.startsWith(".") || entry.name === "index.md") continue;
-      const childAbs = path.join(abs, entry.name);
-      if (entry.isDirectory()) {
-        const rel = subPath ? `${category}/${subPath}/${entry.name}` : `${category}/${entry.name}`;
-        dirs.push({
-          name: entry.name,
-          label: relabel(entry.name),
-          count: cachedCount(db, core, root, rel, childAbs),
-        });
-      } else if (entry.name.endsWith(".md")) {
-        try {
-          const active = core.isActive(core.readLeaf(childAbs).data);
-          if (showArchived || active) {
-            docs.push({ id: identity.toRel(childAbs), name: entry.name, active });
-          }
-        } catch {
-          continue;
-        }
-      }
+    let currentPath = subPath;
+    let result = computeChildren(deps, root, category, currentPath, showArchived, db);
+    while (
+      result.docs.length === 0 &&
+      result.dirs.length === 1 &&
+      isSentinel(result.dirs[0].name)
+    ) {
+      currentPath = currentPath ? `${currentPath}/${result.dirs[0].name}` : result.dirs[0].name;
+      result = computeChildren(deps, root, category, currentPath, showArchived, db);
     }
-    dirs.sort((a, b) => a.name.localeCompare(b.name));
-    docs.sort((a, b) => a.name.localeCompare(b.name));
-    return { category, path: subPath, dirs, docs };
+    return { category, path: currentPath, dirs: result.dirs, docs: result.docs };
   });
 }
 
@@ -114,7 +156,7 @@ export async function navChildren(root, category, subPath, { showArchived = fals
  * @returns {Promise<import("../shared/contract.mjs").DocEntry[]>}
  */
 export async function docsFor(root, { category, prefix, showArchived = false } = {}) {
-  const { env, layout, search } = await loadEngine();
+  const { env, layout, core, identity, search } = await loadEngine();
   return env.withWikiRoot(root, () => {
     if (category !== undefined && !layout.getCategories().includes(category)) return [];
     const { documents } = search.listDocuments({
@@ -122,6 +164,30 @@ export async function docsFor(root, { category, prefix, showArchived = false } =
       prefix,
       enabled: showArchived ? undefined : true,
     });
-    return documents.map((doc) => ({ id: doc.id, name: doc.name, active: doc.enabled }));
+    return documents.map((doc) => ({
+      id: doc.id,
+      name: doc.name,
+      active: doc.enabled,
+      title: titleForId(core, identity, doc.id, doc.name),
+    }));
+  });
+}
+
+/**
+ * @param {string} root @param {string[]} ids
+ * @returns {Promise<Record<string, string>>}
+ */
+export async function titlesFor(root, ids) {
+  const { env, core, identity } = await loadEngine();
+  return env.withWikiRoot(root, () => {
+    /** @type {Record<string, string>} */
+    const titles = {};
+    for (const id of ids.slice(0, MAX_TITLE_IDS)) {
+      const fallback = id.split("/").pop() ?? id;
+      titles[id] = isWithin(env.wikiRoot(), identity.toAbs(id))
+        ? titleForId(core, identity, id, fallback)
+        : fallback;
+    }
+    return titles;
   });
 }

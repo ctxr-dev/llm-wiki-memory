@@ -4,16 +4,21 @@ import path from "node:path";
 import { setupWorkspace, cleanup } from "../../../test/harness.mjs";
 
 function seed(wiki) {
-  const write = (rel, status) => {
+  const write = (rel, status, focus) => {
     const abs = path.join(wiki, ...rel.split("/"));
     fs.mkdirSync(path.dirname(abs), { recursive: true });
-    fs.writeFileSync(abs, `---\nmemory:\n  atom_type: decision\n  status: ${status}\n---\nbody\n`);
+    const focusLine = focus ? `focus: ${focus}\n` : "";
+    fs.writeFileSync(
+      abs,
+      `---\n${focusLine}memory:\n  atom_type: decision\n  status: ${status}\n---\nbody\n`,
+    );
   };
-  write("knowledge/backend/decision/architecture/alpha.md", "active");
+  write("knowledge/backend/decision/architecture/alpha.md", "active", "Alpha Decision");
   write("knowledge/backend/decision/architecture/beta.md", "active");
   write("knowledge/backend/decision/observability/gamma.md", "active");
   write("knowledge/unscoped/untyped/general/orphan.md", "active");
   write("knowledge/frontend/reference/tooling/delta.md", "archived");
+  write("plans/general/solo.md", "active", "Solo Plan");
   const corrupt = path.join(wiki, "investigations", "security", "general", "corrupt.md");
   fs.mkdirSync(path.dirname(corrupt), { recursive: true });
   fs.writeFileSync(corrupt, "---\nfoo: [1, 2\n---\nbody\n");
@@ -47,7 +52,7 @@ test("GET /nav lists categories with layout facets and total counts", async () =
   const knowledge = categories.find((c) => c.category === "knowledge");
   expect(knowledge.label).toBe("Knowledge");
   expect(knowledge.facets).toEqual(["area", "atom_type", "subject"]);
-  expect(knowledge.count).toBeGreaterThanOrEqual(5);
+  expect(knowledge.count).toBe(4);
   expect(knowledge.hasTopology).toBe(false);
   const names = categories.map((c) => c.category);
   expect(names).toEqual(
@@ -61,7 +66,7 @@ test("GET /nav/:category drills one level, counts subtrees, relabels sentinels",
   expect(docs).toEqual([]);
   const byName = Object.fromEntries(dirs.map((d) => [d.name, d]));
   expect(byName.backend.count).toBe(3);
-  expect(byName.frontend.count).toBe(1);
+  expect(byName.frontend.count).toBe(0);
   expect(byName.unscoped.label).toBe("Unspecified");
   expect(byName.backend.label).toBe("Backend");
 });
@@ -71,12 +76,12 @@ test("GET /nav/:category?path lists active docs at a facet path; archived toggle
     method: "GET",
     url: `/api/wikis/${id}/nav/knowledge?path=${encodeURIComponent("backend/decision/architecture")}`,
   });
-  expect(
-    active
-      .json()
-      .docs.map((d) => d.name)
-      .sort(),
-  ).toEqual(["alpha.md", "beta.md"]);
+  const docs = active.json().docs;
+  expect(docs.map((d) => d.name).sort()).toEqual(["alpha.md", "beta.md"]);
+  const byName = Object.fromEntries(docs.map((d) => [d.name, d]));
+  expect(byName["alpha.md"].title).toBe("Alpha Decision");
+  expect(byName["alpha.md"].summary.atomType).toBe("decision");
+  expect(byName["beta.md"].title).toBe("beta.md");
 
   const hidden = await app.inject({
     method: "GET",
@@ -88,6 +93,15 @@ test("GET /nav/:category?path lists active docs at a facet path; archived toggle
     url: `/api/wikis/${id}/nav/knowledge?path=${encodeURIComponent("frontend/reference/tooling")}&archived=1`,
   });
   expect(shown.json().docs.map((d) => d.name)).toEqual(["delta.md"]);
+});
+
+test("navChildren collapses a lone sentinel level and reports the skipped path", async () => {
+  const res = await app.inject({ method: "GET", url: `/api/wikis/${id}/nav/plans` });
+  const body = res.json();
+  expect(body.path).toBe("general");
+  expect(body.dirs).toEqual([]);
+  expect(body.docs.map((d) => d.name)).toEqual(["solo.md"]);
+  expect(body.docs[0].title).toBe("Solo Plan");
 });
 
 test("path traversal in ?path is refused (stays inside the category)", async () => {
@@ -128,6 +142,29 @@ test("GET /docs refuses a traversal category instead of walking the filesystem",
   });
   expect(res.statusCode).toBe(200);
   expect(res.json().documents).toEqual([]);
+});
+
+test("GET /titles resolves human titles for a set of doc ids, filenames as fallback", async () => {
+  const alpha = "knowledge/backend/decision/architecture/alpha.md";
+  const beta = "knowledge/backend/decision/architecture/beta.md";
+  const res = await app.inject({
+    method: "GET",
+    url: `/api/wikis/${id}/titles?ids=${encodeURIComponent(`${alpha},${beta}`)}`,
+  });
+  expect(res.statusCode).toBe(200);
+  const { titles } = res.json();
+  expect(titles[alpha]).toBe("Alpha Decision");
+  expect(titles[beta]).toBe("beta.md");
+});
+
+test("GET /titles refuses a path-traversal id (returns the basename, never escapes the wiki)", async () => {
+  const evil = "../../../../etc/hosts";
+  const res = await app.inject({
+    method: "GET",
+    url: `/api/wikis/${id}/titles?ids=${encodeURIComponent(evil)}`,
+  });
+  expect(res.statusCode).toBe(200);
+  expect(res.json().titles[evil]).toBe("hosts");
 });
 
 test("an unknown wiki id is a 404", async () => {

@@ -40,6 +40,63 @@ memory:
     - architecture
 `;
 
+const REACT = `focus: React And Vite
+memory:
+  atom_type: decision
+  status: active
+  area: frontend
+  subject:
+    - architecture
+`;
+
+const REACT_BODY = `# React And Vite
+
+- type: decision
+- area: frontend
+- tags: react, vite
+
+We use **React** with Vite for the user interface.
+`;
+
+const ARCHIVED = `focus: Retired Tooling
+memory:
+  atom_type: reference
+  status: archived
+  area: backend
+`;
+
+const PROBE = `focus: Probe Note
+memory:
+  atom_type: investigation
+  status: active
+`;
+
+const LESSON = `focus: Preserve plan detail on rewrite
+memory:
+  atom_type: feedback-rule
+  status: active
+  area: workflow
+  task_type: planning
+`;
+
+const DIVERGENCE = `focus: RequestId divergence audit note
+memory:
+  atom_type: bug-root-cause
+  status: active
+  area: backend
+`;
+
+const DIVERGENCE_BODY = `status: verified
+
+subject:
+  - audit
+  - ofe
+
+# RequestId divergence audit note
+
+The audit topic and the ofe topic showed different requestId values for the same order.
+`;
+
 export function createFixtureWiki() {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-e2e-"));
   fs.mkdirSync(path.join(dataDir, "settings"), { recursive: true });
@@ -67,6 +124,23 @@ export function createFixtureWiki() {
     fs.writeFileSync(abs, `---\n${frontmatter}---\n${body}\n`);
   };
   leaf("knowledge/backend/decision/architecture/kafka.md", KNOWLEDGE, KNOWLEDGE_BODY);
+  leaf("knowledge/frontend/decision/architecture/react.md", REACT, REACT_BODY);
+  leaf("knowledge/backend/reference/tooling/legacy.md", ARCHIVED, "# Retired\n\nOld notes.\n");
+  leaf("knowledge/backend/bug-root-cause/general/divergence.md", DIVERGENCE, DIVERGENCE_BODY);
+  leaf("investigations/general/probe.md", PROBE, "# Probe\n\nA lone investigation.\n");
+  leaf(
+    "self_improvement/workflow/planning/general/lesson-preserve-detail.md",
+    LESSON,
+    "# Preserve detail\n\nAlways diff a plan rewrite before saving.\n",
+  );
   leaf("plans/backend/architecture/rollout.md", PLAN, "# Rollout\n\n- [x] one\n- [ ] two\n");
+  for (let i = 0; i < 60; i += 1) {
+    const n = String(i).padStart(2, "0");
+    leaf(
+      `self_improvement/bulk/implementation/general/bulk-${n}.md`,
+      `focus: Bulk Doc ${n}\nmemory:\n  atom_type: feedback-rule\n  status: active\n  area: bulk\n  task_type: implementation\n`,
+      `# Bulk Doc ${n}\n\nFiller content number ${n}.\n`,
+    );
+  }
   return dataDir;
 }

@@ -2,6 +2,7 @@ import { atomBodyMaxChars } from "../lib/settings.mjs";
 import { truncateAtWordBoundary } from "../lib/slug.mjs";
 import { ATOM_TYPES, TASK_TYPES } from "../lib/datasets.mjs";
 import { LLMOutputInvalid } from "../lib/llm.mjs";
+import { neutralizeAttribution } from "../lib/depersonalize.mjs";
 import { logBreadcrumb } from "./flush-state.mjs";
 
 /** @typedef {import("../lib/types.mjs").DistilledAtom} DistilledAtom */
@@ -65,8 +66,19 @@ export function validateAtoms(parsed) {
     /** @param {unknown} v @returns {string} */
     const oneLine = (v) => String(v || "").replace(/[\r\n]+/g, " ");
     const type = oneLine(atom.type).toLowerCase().trim();
-    const title = oneLine(atom.title).trim();
-    const body = String(atom.body || "").trim();
+    const rawTitle = oneLine(atom.title).trim();
+    const rawBody = String(atom.body || "").trim();
+    // Always-on de-personalization backstop (content-quality rule): strip obvious
+    // user-attribution/quote openers that slipped past the distiller prompt, regardless
+    // of qualityStrict. If neutralisation empties title/body, the atom was all-attribution
+    // and is dropped by the validity check below.
+    const titleClean = neutralizeAttribution(rawTitle);
+    const bodyClean = neutralizeAttribution(rawBody);
+    const title = titleClean.text;
+    const body = bodyClean.text;
+    if (titleClean.changed || bodyClean.changed) {
+      logBreadcrumb(`de-personalized attribution in atom '${rawTitle.slice(0, 40)}'`);
+    }
     if (!ATOM_TYPES.has(type) || !title || !body) continue;
     // `plan` is in ATOM_TYPES because the ExitPlanMode hook tags docs
     // with it, but the flush+compile path must NOT produce plans (they
@@ -100,7 +112,9 @@ export function validateAtoms(parsed) {
       body: truncateAtWordBoundary(body, bodyMaxChars, { preferSentence: true }),
       tags,
       metadata,
-      evidence: atom.evidence ? String(atom.evidence).slice(0, 240).trim() : undefined,
+      evidence: atom.evidence
+        ? neutralizeAttribution(String(atom.evidence).slice(0, 240).trim()).text || undefined
+        : undefined,
     });
   }
   return cleaned;

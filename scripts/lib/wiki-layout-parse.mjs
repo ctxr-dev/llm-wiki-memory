@@ -49,6 +49,16 @@ const DEFAULT_PLACEMENT_FACETS = Object.freeze({
   investigations: Object.freeze(["area"]),
 });
 
+// Name-keyed default for the per-category write-gate. self_improvement is gated
+// out of the box (its consent gate predates the layout flag); every other
+// category is ungated unless its layout entry opts in with `gated: true`. Seeded
+// onto declared-but-omitted categories so an existing layout keeps behaviour
+// without a YAML edit.
+/** @type {Record<string, boolean>} */
+const DEFAULT_GATED = Object.freeze({
+  self_improvement: true,
+});
+
 /**
  * @typedef {{ kind: "path" | "segment", vocabulary: string | null, fallback: string | null }} FacetRule
  */
@@ -63,6 +73,8 @@ const DEFAULT_PLACEMENT_FACETS = Object.freeze({
  * @property {Record<string, boolean>} topologyCategories
  * @property {Record<string, boolean>} fullCategories
  * @property {boolean} fullDefault
+ * @property {Record<string, boolean>} gatedCategories
+ * @property {Record<string, boolean>} autoDistillCategories
  */
 
 // Loose views over the ALREADY-parsed layout object. The object was produced by
@@ -84,6 +96,8 @@ const DEFAULT_PLACEMENT_FACETS = Object.freeze({
  * @property {unknown} [consolidate]
  * @property {unknown} [topology]
  * @property {unknown} [full]
+ * @property {unknown} [gated]
+ * @property {unknown} [auto_distill]
  */
 /**
  * @typedef {Object} RawLayoutDoc
@@ -139,6 +153,16 @@ export function parseLayoutObject(parsed) {
   // Per-category full-document mode (true = store whole + embed whole; absent =
   // inherit the wiki-level default). `fullDefault` is the layout-root fallback.
   const fullCategories = Object.create(null);
+  // Per-category write-gate (true = consent required) and auto-distill
+  // eligibility (true = compile may auto-promote here). Seeded with the
+  // name-keyed code defaults so an omitted key keeps historical behaviour; an
+  // explicit layout value overrides below.
+  const gatedCategories = Object.create(null);
+  const autoDistillCategories = Object.create(null);
+  for (const c of DEFAULT_CATEGORIES) {
+    gatedCategories[c] = DEFAULT_GATED[c] === true;
+    autoDistillCategories[c] = true;
+  }
 
   const doc = /** @type {RawLayoutDoc} */ (parsed && typeof parsed === "object" ? parsed : {});
   const fullDefault = doc.full === true;
@@ -190,6 +214,11 @@ export function parseLayoutObject(parsed) {
       }
       // full: true | false  (absent -> inherit the wiki-level default).
       if (e.full !== undefined) fullCategories[name] = e.full === true;
+      // gated / auto_distill: explicit value wins; else the name-keyed code
+      // default (self_improvement gated; every category auto-distilled).
+      gatedCategories[name] =
+        e.gated !== undefined ? e.gated === true : DEFAULT_GATED[name] === true;
+      autoDistillCategories[name] = e.auto_distill !== undefined ? e.auto_distill === true : true;
       // A `topology:` block means this category nests via the path-compiler,
       // not facet placement: writes must supply an explicit path.
       if (e.topology && typeof e.topology === "object") {
@@ -199,6 +228,14 @@ export function parseLayoutObject(parsed) {
     // Drop default facet keys for categories the layout did NOT declare.
     for (const k of Object.keys(facets)) {
       if (!cats.includes(k)) delete facets[k];
+    }
+    // Likewise drop seeded gate/auto-distill flags for undeclared categories,
+    // so `X in gatedCategories` reliably means "X is a declared category".
+    for (const k of Object.keys(gatedCategories)) {
+      if (!cats.includes(k)) delete gatedCategories[k];
+    }
+    for (const k of Object.keys(autoDistillCategories)) {
+      if (!cats.includes(k)) delete autoDistillCategories[k];
     }
   }
 
@@ -211,5 +248,7 @@ export function parseLayoutObject(parsed) {
     topologyCategories,
     fullCategories,
     fullDefault,
+    gatedCategories,
+    autoDistillCategories,
   };
 }

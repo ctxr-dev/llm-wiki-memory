@@ -135,6 +135,14 @@ export function normaliseMeta(metadata = {}, extra = {}) {
   if (typeof m.consolidate_truncated_at === "string" && m.consolidate_truncated_at.trim() !== "") {
     out.consolidate_truncated_at = m.consolidate_truncated_at.trim();
   }
+  // `quality`: the judge-in-the-loop verdict marker. "unverified" is stamped
+  // when a leaf was kept after the judge loop exhausted its rounds without a
+  // pass (quality-loop.mjs). It is recorded so the read side (consolidate/recall)
+  // can treat such a leaf cautiously — a reserved affordance; the marker is always
+  // preserved here. An optional pass-through: absent stays absent.
+  if (typeof m.quality === "string" && m.quality.trim() !== "") {
+    out.quality = m.quality.trim();
+  }
   // `full`: this leaf is a whole document — never shortened, embedded over its
   // entire body. Only a real `true` persists (absence = atomic default); kept
   // here (not stripped) so a maintenance re-save preserves it.

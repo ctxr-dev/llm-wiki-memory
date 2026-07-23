@@ -6,10 +6,11 @@ import { setupWorkspace, cleanup } from "../../../test/harness.mjs";
 function seed(wiki) {
   const write = (rel, body) => {
     const abs = path.join(wiki, ...rel.split("/"));
+    const area = rel.split("/")[1];
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(
       abs,
-      `---\nfocus: ${path.basename(rel, ".md")}\nmemory:\n  atom_type: decision\n  status: active\n---\n${body}\n`,
+      `---\nfocus: ${path.basename(rel, ".md")}\nmemory:\n  atom_type: decision\n  area: ${area}\n  status: active\n---\n${body}\n`,
     );
   };
   write(
@@ -58,8 +59,42 @@ test("search ranks the matching doc first and returns a snippet + score", async 
   const { results } = res.json();
   expect(results.length).toBeGreaterThan(0);
   expect(results[0].name).toBe("kafka.md");
+  expect(results[0].title).toBe("kafka");
+  expect(results[0].location).toBe("Knowledge › Backend › Decision › Architecture");
   expect(results[0].snippet).toContain("Kafka");
   expect(typeof results[0].score).toBe("number");
+});
+
+test("a search snippet is centered on the matched term", async () => {
+  const res = await app.inject({
+    method: "GET",
+    url: `/api/wikis/${id}/search?q=${encodeURIComponent("streaming")}`,
+  });
+  const kafka = res.json().results.find((r) => r.name === "kafka.md");
+  expect(kafka.snippet).toContain("streaming");
+});
+
+test("a facet filter narrows search to matching leaves", async () => {
+  const res = await app.inject({
+    method: "GET",
+    url: `/api/wikis/${id}/search?q=${encodeURIComponent("database architecture")}&area=frontend`,
+  });
+  const { results } = res.json();
+  expect(results.length).toBe(1);
+  expect(results[0].name).toBe("react.md");
+  expect(results[0].location).toContain("Frontend");
+});
+
+test("filters alone (no free text) still narrow to the matching leaves", async () => {
+  const res = await app.inject({
+    method: "GET",
+    url: `/api/wikis/${id}/search?q=&area=backend`,
+  });
+  const names = res
+    .json()
+    .results.map((r) => r.name)
+    .sort();
+  expect(names).toEqual(["kafka.md", "postgres.md"]);
 });
 
 test("an empty query returns no results", async () => {
@@ -86,6 +121,7 @@ test("ask returns a top answer plus ranked sources", async () => {
   const body = res.json();
   expect(body.answer).not.toBeNull();
   expect(body.answer.name).toBe("postgres.md");
+  expect(body.answer.title).toBe("postgres");
   expect(body.answer.content).toContain("Postgres");
   expect(body.sources.length).toBeGreaterThan(0);
 });

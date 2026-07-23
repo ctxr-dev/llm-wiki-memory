@@ -18,7 +18,7 @@ export function IssuesBoard({ wikiId, onOpen }: { wikiId: string; onOpen: (id: s
         <button
           key={card.id}
           onClick={() => onOpen(card.id)}
-          className="block w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 text-left text-sm hover:border-slate-300 dark:hover:border-slate-600"
+          className="block w-full cursor-pointer rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 text-left text-sm hover:border-slate-300 dark:hover:border-slate-600"
         >
           <div className="font-mono font-medium text-slate-800 dark:text-slate-100">
             {card.prefix}-{card.number}

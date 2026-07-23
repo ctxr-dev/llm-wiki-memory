@@ -1,4 +1,4 @@
-import { listCategories, navChildren, docsFor } from "../nav.mjs";
+import { listCategories, navChildren, docsFor, titlesFor } from "../nav.mjs";
 import { resolveWikiRoot } from "../engine.mjs";
 
 /** @param {unknown} value @returns {boolean} */
@@ -38,6 +38,21 @@ export function registerNavRoutes(app, db) {
       { showArchived: truthy(query.archived) },
       db,
     );
+  });
+
+  app.get("/api/wikis/:id/titles", async (request, reply) => {
+    const { id } = /** @type {{ id: string }} */ (request.params);
+    const query = /** @type {{ ids?: string }} */ (request.query);
+    const root = await rootFor(id);
+    if (!root) {
+      reply.code(404);
+      return { error: "no-such-wiki" };
+    }
+    const ids = String(query.ids ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return { titles: await titlesFor(root, ids) };
   });
 
   app.get("/api/wikis/:id/docs", async (request, reply) => {

@@ -1,12 +1,23 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 import { useNav, useNavChildren } from "./hooks";
+import { HoverCard } from "./HoverCard";
+import { LeafCard } from "./LeafCard";
+import { VirtualList } from "./VirtualList";
+import { CollapsibleColumn } from "./CollapsibleColumn";
+import { navItems, type NavItem } from "./navItems";
+import { crumbLabel, locationLabel } from "./crumbs";
+
+export type NavRequest = { category: string | null; path: string; token: number };
 
 export function NavPanel({
   wikiId,
   onOpenDoc,
+  request,
 }: {
   wikiId: string;
   onOpenDoc: (id: string) => void;
+  request: NavRequest;
 }) {
   const [category, setCategory] = useState<string | null>(null);
   const [path, setPath] = useState("");
@@ -14,22 +25,31 @@ export function NavPanel({
   const children = useNavChildren(wikiId, category ?? "", path, false);
 
   useEffect(() => {
-    setCategory(null);
-    setPath("");
-  }, [wikiId]);
+    setCategory(request.category);
+    setPath(request.path);
+  }, [request]);
 
-  const shell = (body: ReactNode) => (
-    <div className="w-64 shrink-0 overflow-y-auto border-r border-slate-200 dark:border-slate-700 p-2">
-      {body}
-    </div>
+  const railContext = category ? crumbLabel(category, path) : undefined;
+  const shell = (header: ReactNode, content: ReactNode) => (
+    <CollapsibleColumn
+      ariaLabel="browse"
+      railLabel="Categories"
+      railContext={railContext}
+      expandedWidthClass="w-64"
+      collapseBelowPx={1024}
+      expandToken={request.token}
+      header={header}
+    >
+      {content}
+    </CollapsibleColumn>
   );
 
   if (!category) {
     return shell(
-      <>
-        <div className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-          Categories
-        </div>
+      <div className="px-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        Categories
+      </div>,
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {nav.data?.map((entry) => (
           <button
             key={entry.category}
@@ -37,13 +57,13 @@ export function NavPanel({
               setCategory(entry.category);
               setPath("");
             }}
-            className="flex w-full items-center justify-between rounded px-2 py-1 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="flex w-full cursor-pointer items-center justify-between rounded px-2 py-1 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <span>{entry.label}</span>
             <span className="text-xs text-slate-400 dark:text-slate-500">{entry.count}</span>
           </button>
         ))}
-      </>,
+      </div>,
     );
   }
 
@@ -51,33 +71,49 @@ export function NavPanel({
   const goUp = () =>
     segments.length === 0 ? setCategory(null) : setPath(segments.slice(0, -1).join("/"));
 
-  return shell(
-    <>
+  const renderItem = (item: NavItem) =>
+    item.kind === "dir" ? (
       <button
-        onClick={goUp}
-        className="mb-2 px-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+        onClick={() => setPath(path ? `${path}/${item.name}` : item.name)}
+        className="flex w-full cursor-pointer items-center justify-between rounded px-2 py-1 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
       >
-        ← {segments.length ? segments[segments.length - 1] : category}
+        <span className="truncate">{item.label}</span>
+        <span className="ml-2 text-xs text-slate-400 dark:text-slate-500">{item.count}</span>
       </button>
-      {children.data?.dirs.map((dir) => (
+    ) : (
+      <HoverCard
+        side="right"
+        card={
+          <LeafCard
+            title={item.title}
+            name={item.name}
+            location={locationLabel(item.id)}
+            summary={item.summary}
+          />
+        }
+      >
         <button
-          key={dir.name}
-          onClick={() => setPath(path ? `${path}/${dir.name}` : dir.name)}
-          className="flex w-full items-center justify-between rounded px-2 py-1 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+          onClick={() => onOpenDoc(item.id)}
+          className="block w-full cursor-pointer truncate rounded px-2 py-1 text-left text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
         >
-          <span className="truncate">{dir.label}</span>
-          <span className="ml-2 text-xs text-slate-400 dark:text-slate-500">{dir.count}</span>
+          {item.title}
         </button>
-      ))}
-      {children.data?.docs.map((doc) => (
-        <button
-          key={doc.id}
-          onClick={() => onOpenDoc(doc.id)}
-          className="block w-full truncate rounded px-2 py-1 text-left text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-        >
-          {doc.name}
-        </button>
-      ))}
-    </>,
+      </HoverCard>
+    );
+
+  return shell(
+    <button
+      onClick={goUp}
+      className="flex cursor-pointer items-center gap-1 px-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+    >
+      <ArrowLeftIcon className="h-3.5 w-3.5" aria-hidden="true" />
+      {segments.length ? segments[segments.length - 1] : category}
+    </button>,
+    <VirtualList
+      items={navItems(children.data)}
+      estimateSize={30}
+      className="min-h-0 flex-1 px-2 pb-2"
+      renderItem={renderItem}
+    />,
   );
 }

@@ -49,6 +49,7 @@
  * @property {string} [consolidated_at] - ISO timestamp (consolidate).
  * @property {string} [last_refreshed_at] - ISO timestamp (consolidate).
  * @property {string} [consolidate_truncated_at] - ISO timestamp; set once an archived body is compress-truncated.
+ * @property {string} [quality] - judge verdict marker; "unverified" when kept after the judge loop exhausted its rounds.
  */
 
 /**
@@ -77,6 +78,7 @@
  * @property {string} [consolidated_at]
  * @property {string} [last_refreshed_at]
  * @property {string} [consolidate_truncated_at]
+ * @property {string} [quality]
  */
 
 /**

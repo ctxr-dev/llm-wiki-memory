@@ -1,5 +1,7 @@
 import { loadEngine } from "./engine.mjs";
 import { isWithin } from "./paths.mjs";
+import { cardForId } from "./leaf-title.mjs";
+import { locationOf } from "./nav-labels.mjs";
 
 /**
  * @param {string} root @param {string} docId
@@ -49,6 +51,21 @@ export async function relatedDocs(root, docId, limit = 10) {
     return records
       .filter((record) => record.documentId !== docId)
       .slice(0, limit)
-      .map((record) => ({ id: record.documentId, name: record.documentName, score: record.score }));
+      .map((record) => {
+        const { title, summary } = cardForId(
+          core,
+          identity,
+          record.documentId,
+          record.documentName,
+        );
+        return {
+          id: record.documentId,
+          name: record.documentName,
+          title,
+          location: locationOf(record.documentId),
+          score: record.score,
+          summary,
+        };
+      });
   });
 }

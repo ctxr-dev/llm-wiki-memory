@@ -79,7 +79,7 @@ test("upgrade: old .env with consolidate threshold → migrated to settings.yaml
   assert.equal(yaml.hook.maxTurns, 42);
   assert.equal(yaml.embed.model, "Xenova/bge-small-en-v1.5");
   assert.equal(yaml.consolidate.enabled, true);
-  assert.equal(yaml.gate.selfImprovementEnabled, false);
+  assert.equal(yaml.gate.enabled, false);
 
   // .env backed up.
   const bak = fs.readFileSync(path.join(dir, "settings", ".env.bak"), "utf8");

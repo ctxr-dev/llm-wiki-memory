@@ -18,16 +18,27 @@ let app;
 let db;
 let dataDir;
 let extraMount;
+let buildApp;
 
 beforeAll(async () => {
   ({ dataDir } = setupWorkspace());
   const { openAppDb } = await import("./app-db.mjs");
-  const { buildApp } = await import("./index.mjs");
+  ({ buildApp } = await import("./index.mjs"));
   db = openAppDb(path.join(dataDir, "webapp-test", "app.sqlite"));
   app = buildApp({ db });
   await app.ready();
   extraMount = makeWikiMount();
 });
+
+async function withPicker(pickFolder, run) {
+  const picker = buildApp({ db, pickFolder });
+  await picker.ready();
+  try {
+    return await run(picker);
+  } finally {
+    await picker.close();
+  }
+}
 
 afterAll(async () => {
   if (app) await app.close();
@@ -106,4 +117,114 @@ test("a place whose folder was deleted is skipped from the list, not fatal", asy
   const res = await app.inject({ method: "GET", url: "/api/wikis" });
   expect(res.statusCode).toBe(200);
   expect(res.json().wikis.some((w) => w.mountDir === gone)).toBe(false);
+});
+
+test("POST /api/pick-folder returns the natively-picked absolute path", async () => {
+  await withPicker(
+    async () => "/picked/wiki",
+    async (picker) => {
+      const res = await picker.inject({ method: "POST", url: "/api/pick-folder" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().path).toBe("/picked/wiki");
+    },
+  );
+});
+
+test("POST /api/pick-folder returns an empty path when the user cancels", async () => {
+  await withPicker(
+    async () => "",
+    async (picker) => {
+      const res = await picker.inject({ method: "POST", url: "/api/pick-folder" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().path).toBe("");
+    },
+  );
+});
+
+test("POST /api/pick-folder maps an unsupported platform to 501", async () => {
+  await withPicker(
+    async () => {
+      throw new Error("unsupported");
+    },
+    async (picker) => {
+      const res = await picker.inject({ method: "POST", url: "/api/pick-folder" });
+      expect(res.statusCode).toBe(501);
+      expect(res.json().error).toBe("unsupported");
+    },
+  );
+});
+
+test("POST /api/pick-folder maps an unexpected failure to 500", async () => {
+  await withPicker(
+    async () => {
+      throw new Error("boom");
+    },
+    async (picker) => {
+      const res = await picker.inject({ method: "POST", url: "/api/pick-folder" });
+      expect(res.statusCode).toBe(500);
+      expect(res.json().error).toBe("pick-failed");
+    },
+  );
+});
+
+test("POST /api/pick-folder rejects a cross-origin request (403) without invoking the picker", async () => {
+  let called = false;
+  await withPicker(
+    async () => {
+      called = true;
+      return "/x";
+    },
+    async (picker) => {
+      const res = await picker.inject({
+        method: "POST",
+        url: "/api/pick-folder",
+        headers: { origin: "http://evil.example", host: "127.0.0.1:4319" },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error).toBe("forbidden");
+      expect(called).toBe(false);
+    },
+  );
+});
+
+test("POST /api/pick-folder allows a same-origin request", async () => {
+  await withPicker(
+    async () => "/x",
+    async (picker) => {
+      const res = await picker.inject({
+        method: "POST",
+        url: "/api/pick-folder",
+        headers: { origin: "http://127.0.0.1:4319", host: "127.0.0.1:4319" },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().path).toBe("/x");
+    },
+  );
+});
+
+test("POST /api/pick-folder rejects a concurrent pick already in flight (409)", async () => {
+  let enter;
+  const entered = new Promise((resolve) => {
+    enter = resolve;
+  });
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  await withPicker(
+    async () => {
+      enter();
+      await gate;
+      return "/x";
+    },
+    async (picker) => {
+      const first = picker.inject({ method: "POST", url: "/api/pick-folder" });
+      await entered;
+      const second = await picker.inject({ method: "POST", url: "/api/pick-folder" });
+      expect(second.statusCode).toBe(409);
+      expect(second.json().error).toBe("busy");
+      release();
+      expect((await first).statusCode).toBe(200);
+    },
+  );
 });

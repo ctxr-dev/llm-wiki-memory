@@ -154,6 +154,7 @@ function buildSettings({ configPath, cmdProbe } = {}) {
     recall: sections.recall,
     compile: sections.compile,
     gc: sections.gc,
+    quality: sections.quality,
     gate: sections.gate,
     wiki: sections.wiki,
     providers: sections.providers,
@@ -174,6 +175,7 @@ function buildSettings({ configPath, cmdProbe } = {}) {
       recall: Object.freeze(built.recall),
       compile: Object.freeze(built.compile),
       gc: Object.freeze(built.gc),
+      quality: Object.freeze(built.quality),
       gate: Object.freeze(built.gate),
       wiki: Object.freeze(built.wiki),
       providers: Object.freeze({

@@ -134,6 +134,16 @@ const LayoutEntrySchema = z
     // atomic (today's default). A wiki-level `full` at the layout root is the
     // fallback when a category omits it.
     full: z.boolean().optional(),
+    // Per-category write-gating: leaves saved here need explicit user consent
+    // (the propose-then-confirm write-gate). Optional; a name-keyed code default
+    // seeds self_improvement=true and every other category false, so a layout
+    // that omits the key keeps historical behaviour. An explicit value overrides.
+    gated: z.boolean().optional(),
+    // Per-category auto-distill eligibility: whether `compile` may auto-promote
+    // daily captures into this category. Optional; defaults true for every
+    // category (a wiki opts a category OUT with auto_distill:false for
+    // human-only knowledge).
+    auto_distill: z.boolean().optional(),
   })
   .strict()
   .superRefine((entry, ctx) => {

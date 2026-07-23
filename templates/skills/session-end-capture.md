@@ -95,20 +95,22 @@ Do NOT invoke when:
 
 4. **Lessons learned are WRITE-GATED — propose, don't save.** If the
    session produced a generalisable lesson (not specific to this one
-   issue), PROPOSE it to the user in one short line (e.g. *"Want me to
-   save this as a lesson? Title: ..., error_pattern: ..."*) and only
-   call `save_lesson` with `userRequested:true` after explicit yes in
-   this turn. See [`self-improvement`](./self-improvement.md) for the
+   issue), PROPOSE it and only call `save_lesson` with
+   `userRequested:true` after explicit yes in this turn. On Claude Code,
+   propose via the `AskUserQuestion` tool — one call, one question PER
+   LESSON (batch ≤4), options `Save (P1)` / `Save as guardrail (P0)` /
+   `Save as contextual (P2)` / `Skip`, the text stating new-vs-update +
+   the title; on other clients use their structured equivalent, else one
+   short line. See [`self-improvement`](./self-improvement.md) for the
    propose-then-confirm contract and the lesson schema. The server
    REFUSES self_improvement writes without `userRequested:true`; the
-   Claude Code PreToolUse hook returns `permissionDecision:"ask"` to
-   the user as a defence-in-depth layer.
+   Claude Code PreToolUse hook is the defence-in-depth layer.
    **PER-LESSON CONSENT (this matters most at session-end).** When you
-   have several candidate lessons, propose and confirm them ONE AT A
-   TIME; a single "yes, save them" does NOT license a batch flush. On
-   Claude Code, after the first gated write of the turn every additional
-   self_improvement write re-prompts, and the whole gate decision trail
-   is recorded to a redacted audit ledger (`cli.mjs gate-audit`).
+   have several candidate lessons, ask one question PER lesson; a single
+   "yes, save them" does NOT license a batch flush. On Claude Code the
+   L2 hook allows only as many self_improvement writes as the user marked
+   Save this turn, and the whole gate decision trail is recorded to a
+   redacted audit ledger (`cli.mjs gate-audit`).
    (Knowledge / issue / plan writes are NOT gated, so batch those freely.)
 
 5. **DO NOT re-write plan files.** The mechanical hook

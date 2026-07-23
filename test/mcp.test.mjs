@@ -115,10 +115,22 @@ test("get_memory_config reports the wiki + categories + resolved levels", async 
   assert.ok(brain, "the wiki-owned brain level is listed");
   assert.equal(brain.depth, 0, "the brain is depth 0");
   for (const l of cfg.levels) {
-    for (const k of ["root", "mountDir", "projectModule", "ownership", "depth"]) {
+    for (const k of [
+      "root",
+      "mountDir",
+      "projectModule",
+      "ownership",
+      "depth",
+      "gated",
+      "autoDistillOff",
+    ]) {
       assert.ok(k in l, `each level carries ${k}`);
     }
+    assert.ok(Array.isArray(l.gated) && Array.isArray(l.autoDistillOff));
   }
+  // self_improvement is gated by default; nothing is auto_distill-off by default.
+  assert.ok(brain.gated.includes("self_improvement"), "self_improvement gated at the brain level");
+  assert.deepEqual(brain.autoDistillOff, [], "no category opts out of auto-distill by default");
 });
 
 test("save_lesson then recall_lessons round-trips through the server", async () => {

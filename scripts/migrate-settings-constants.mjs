@@ -77,7 +77,7 @@ const ENV_TO_SETTINGS = {
 
   MEMORY_GC_INTERVAL_DAYS: "gc.intervalDays",
 
-  MEMORY_WRITE_GATE_SELF_IMPROVEMENT: "gate.selfImprovementEnabled",
+  MEMORY_WRITE_GATE_SELF_IMPROVEMENT: "gate.enabled",
 
   MEMORY_CROSS_CUTTING_AREAS: "crossCuttingAreas",
 };
@@ -87,7 +87,7 @@ const BOOL_KEYS = new Set([
   "consolidate.llmPassesEnabled",
   "hook.exitPlanModeDisable",
   "compile.qualityStrict",
-  "gate.selfImprovementEnabled",
+  "gate.enabled",
 ]);
 
 const FLOAT_KEYS = new Set([

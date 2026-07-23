@@ -16,6 +16,10 @@ const store = await import("../scripts/lib/wiki-store.mjs");
 const { consolidateMemory } = await import("../scripts/consolidate.mjs");
 const { __setSettingsForTest, __clearSettingsForTest } =
   await import("../scripts/lib/settings.mjs");
+// Dynamic (post-setupWorkspace) so importing it does not eagerly load env.mjs
+// and freeze MEMORY_DATA_DIR at the real install path before the workspace env
+// is set (a static top-level import would).
+const { __resetMockCallIndex } = await import("../scripts/lib/llm-parse.mjs");
 
 const STATE_FILE = path.join(dataDir, "state", ".consolidate.json");
 
@@ -32,6 +36,8 @@ function clearState() {
 function resetLlmEnv() {
   delete process.env.MEMORY_LLM_MOCK_RESPONSE;
   delete process.env.MEMORY_LLM_MOCK_FILE;
+  delete process.env.MEMORY_LLM_MOCK_SEQUENCE;
+  __resetMockCallIndex();
   __clearSettingsForTest();
 }
 
@@ -356,6 +362,92 @@ test("3B refresh: action='rewrite' rewrites body, clears stale, stamps last_refr
   assert.equal(after.memory.stale, false, "stale cleared");
   assert.ok(after.memory.last_refreshed_at, "last_refreshed_at stamped");
   assert.equal(after.active, true);
+});
+
+test("3B refresh: a rewrite the judge rejects all rounds is kept, stamped quality=unverified", async () => {
+  purgeActiveLeaves();
+  clearState();
+  resetLlmEnv();
+  // The harness disables the judge for the broad suite; this test exercises it.
+  __setSettingsForTest({ quality: { judgeEnabled: true } });
+
+  const id = seedStaleLeaf({
+    name: "lesson-refresh-flagged-2026-06-01-000000000.md",
+    text: "# Old volatile note\n\nSee helper.scala:10.\nWhy: legacy.",
+    errorPattern: "refresh-flagged",
+  });
+
+  const rewrite = JSON.stringify({
+    action: "rewrite",
+    leaf_id: id,
+    rewritten_body: "Still-volatile body Foo.scala:1 Bar.scala:2 Baz.scala:3",
+    stale_after: false,
+    reason: "attempt",
+  });
+  const failVerdict = JSON.stringify({
+    pass: false,
+    score: 0.3,
+    checks: { durable: false, no_volatile_locators: false },
+    recommendation: "drop the line-number locators; state the rule conceptually",
+  });
+  // Three generate->judge rounds (decision, verdict) × 3, all failing.
+  process.env.MEMORY_LLM_MOCK_SEQUENCE = JSON.stringify([
+    rewrite,
+    failVerdict,
+    rewrite,
+    failVerdict,
+    rewrite,
+    failVerdict,
+  ]);
+  __resetMockCallIndex();
+
+  const r = await consolidateMemory({
+    llm: true,
+    now: new Date("2026-06-02T00:00:00Z"),
+    passes: ["llm-semantic-refresh"],
+  });
+  assert.equal(r.ok, true);
+
+  const after = readLeaf(id);
+  assert.match(after.text, /Still-volatile body/, "best attempt is still written (never lost)");
+  assert.equal(after.memory.quality, "unverified", "kept-but-flagged after the judge rejected it");
+  assert.equal(after.active, true);
+});
+
+test("3B refresh: a passing rewrite CLEARS a stale quality:unverified flag (self-heal)", async () => {
+  purgeActiveLeaves();
+  clearState();
+  resetLlmEnv();
+  __setSettingsForTest({ quality: { judgeEnabled: true } });
+
+  const id = seedStaleLeaf({
+    name: "lesson-refresh-selfheal-2026-06-01-000000000.md",
+    text: "# Old note\n\nSome guidance.\nWhy: legacy.",
+    errorPattern: "refresh-selfheal",
+  });
+  store.updateDocMetadata({ documentId: id, metadata: { quality: "unverified" } });
+  assert.equal(readLeaf(id).memory.quality, "unverified", "pre-condition: leaf is flagged");
+
+  const rewrite = JSON.stringify({
+    action: "rewrite",
+    leaf_id: id,
+    rewritten_body: "Durable rewrite. Why: x. How to apply: y.",
+    stale_after: false,
+    reason: "modernised",
+  });
+  const pass = JSON.stringify({ pass: true, score: 0.9, checks: {}, recommendation: "" });
+  process.env.MEMORY_LLM_MOCK_SEQUENCE = JSON.stringify([rewrite, pass]);
+  __resetMockCallIndex();
+
+  const r = await consolidateMemory({
+    llm: true,
+    now: new Date("2026-06-02T00:00:00Z"),
+    passes: ["llm-semantic-refresh"],
+  });
+  assert.equal(r.ok, true);
+  const after = readLeaf(id);
+  assert.match(after.text, /Durable rewrite/, "body rewritten");
+  assert.equal(after.memory.quality, undefined, "a passing rewrite cleared the stale flag");
 });
 
 test("3B refresh: action='archive' archives the leaf", async () => {

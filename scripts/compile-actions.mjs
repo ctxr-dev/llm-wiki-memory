@@ -1,6 +1,5 @@
 import { DRY_RUN } from "./compile-flags.mjs";
 import { LLMOutputInvalid } from "./lib/llm.mjs";
-import { callJSON } from "./lib/llm-callJSON.mjs";
 import {
   writeMemory,
   updateDocMetadata,
@@ -10,7 +9,9 @@ import {
 import { metadataForDify } from "./lib/datasets.mjs";
 import { recordGatedWrite } from "./lib/save-gate-audit.mjs";
 import { nameBuilderForAtom, parserForAtom } from "./compile-routing.mjs";
-import { buildPromotedDocText, forcedLessonUpdate } from "./compile-dedup.mjs";
+import { buildPromotedDocText } from "./compile-dedup.mjs";
+
+export { decideAction, decideActionJudged } from "./compile-decide.mjs";
 
 /** @typedef {import("./lib/types.mjs").DistilledAtom} DistilledAtom */
 /** @typedef {import("./lib/types.mjs").SearchHit} SearchHit */
@@ -34,44 +35,6 @@ import { buildPromotedDocText, forcedLessonUpdate } from "./compile-dedup.mjs";
  * @property {string} [error]
  * @property {string} [warning]
  */
-
-/**
- * @param {DistilledAtom} atom
- * @param {SearchHit[]} candidates
- * @param {string} systemPrompt
- * @returns {Promise<CompileDecision>}
- */
-export async function decideAction(atom, candidates, systemPrompt) {
-  const forced = forcedLessonUpdate(atom, candidates);
-  if (forced) return forced;
-  const userPrompt = [
-    "NEW ATOM:",
-    JSON.stringify(atom, null, 2),
-    "",
-    `EXISTING CANDIDATES (already filtered by atom_type=${atom.type} and matching metadata):`,
-    candidates.length === 0
-      ? "[]"
-      : JSON.stringify(
-          candidates.map((c) => ({
-            documentId: c.documentId,
-            documentName: c.documentName,
-            score: c.score,
-            content: String(c.content || "").slice(0, 800),
-          })),
-          null,
-          2,
-        ),
-  ].join("\n");
-  return /** @type {Promise<CompileDecision>} */ (
-    callJSON(
-      /** @type {{ systemPrompt: string, userPrompt: string, maxTokens: number, maxRetries?: number }} */ ({
-        systemPrompt,
-        userPrompt,
-        maxTokens: 800,
-      }),
-    )
-  );
-}
 
 // Observability only: record that the compile pipeline distilled a
 // self_improvement lesson into the wiki. Compile bypasses the MCP write-gate by
@@ -123,13 +86,26 @@ function readSupersededMetadata(candidate, datasetId) {
   }
 }
 
+// Stamp the judge quality flag onto the write metadata when the leaf was kept
+// after the judge loop exhausted its rounds. Merges non-destructively; the later
+// applyMetadataToWritten merge carries no `quality` key, so this survives.
+/**
+ * @param {import("./lib/types.mjs").MetadataInput} metadata
+ * @param {boolean | undefined} flagged
+ * @returns {import("./lib/types.mjs").MetadataInput}
+ */
+function withQualityFlag(metadata, flagged) {
+  return flagged ? { ...metadata, quality: "unverified" } : metadata;
+}
+
 /**
  * @param {DistilledAtom} atom
  * @param {CompileDecision} decision
  * @param {SearchHit[]} candidates
  * @param {string} targetDataset
+ * @param {{ flagged?: boolean }} [opts]
  */
-export async function executeAction(atom, decision, candidates, targetDataset) {
+export async function executeAction(atom, decision, candidates, targetDataset, opts = {}) {
   if (decision.action === "skip") {
     return { ok: true, action: "skip", reason: decision.reason };
   }
@@ -143,7 +119,12 @@ export async function executeAction(atom, decision, candidates, targetDataset) {
     // (project_module / atom_type / task_type). applyMetadataToWritten still
     // re-merges it afterwards (idempotent) for the retry/un-filterable bookkeeping.
     const result = /** @type {CompileWriteResult} */ (
-      await writeMemory({ name, text, datasetId: targetDataset, metadata: metadataForDify(atom) })
+      await writeMemory({
+        name,
+        text,
+        datasetId: targetDataset,
+        metadata: withQualityFlag(metadataForDify(atom), opts.flagged),
+      })
     );
     auditCompileLessonPromotion(atom, "create", result);
     return result;
@@ -207,7 +188,7 @@ export async function executeAction(atom, decision, candidates, targetDataset) {
         name,
         text,
         datasetId: targetDataset,
-        metadata,
+        metadata: withQualityFlag(metadata, opts.flagged),
         supersedes: decision.supersedes,
         supersedesAction: "disable",
       })

@@ -16,13 +16,15 @@ import { registerBoardRoutes } from "./routes/boards.mjs";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(HERE, "..", "dist");
 
-/** @param {{ db?: import("./app-db.mjs").AppDb }} [opts] */
-export function buildApp({ db } = {}) {
+/**
+ * @param {{ db?: import("./app-db.mjs").AppDb, pickFolder?: () => Promise<string> }} [opts]
+ */
+export function buildApp({ db, pickFolder } = {}) {
   const app = Fastify({ logger: false });
   const appDb = db ?? openAppDb();
   if (!db) app.addHook("onClose", async () => appDb.close());
   app.get("/api/health", async () => HealthSchema.parse(await memoryConfig([])));
-  registerWikiRoutes(app, appDb);
+  registerWikiRoutes(app, appDb, { pickFolder });
   registerNavRoutes(app, appDb);
   registerDocRoutes(app, appDb);
   registerSearchRoutes(app, appDb);

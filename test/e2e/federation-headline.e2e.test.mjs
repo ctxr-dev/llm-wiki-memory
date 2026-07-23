@@ -59,6 +59,8 @@ function saveViaFullChain(target, name) {
       dataset: "knowledge",
       name,
       metadata: {},
+      env: getActiveWikiContext(),
+      target,
     });
     assert.equal(refusal, null, "knowledge is not gated → gateRefusal returns null");
     const req = parseWriteRequest(getActiveWikiContext(), {

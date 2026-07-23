@@ -273,6 +273,11 @@ export function saveLesson({ title, body, metadata = {}, tags, evidence } = {}) 
   // Gated lesson: honour the user-picked priority (P0 allowed here); normaliseMeta
   // fills the rubric default (P1 for a lesson) when omitted.
   if (metadata.priority) fullMetadata.priority = metadata.priority;
+  // The quality-judge flag: the interactive gate stamps `quality:"unverified"`
+  // when a lesson was accepted after the judge rejected it (write.acceptQuality).
+  // fullMetadata is rebuilt from scratch, so pass it through explicitly — else
+  // the flag is dropped and consolidate/recall can't treat the leaf cautiously.
+  if (metadata.quality) fullMetadata.quality = metadata.quality;
 
   const result = saveDocument(
     /** @type {SaveDocumentArgs} */ ({

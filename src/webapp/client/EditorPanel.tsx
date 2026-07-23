@@ -3,6 +3,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Editor } from "./Editor";
 import { FrontmatterForm } from "./FrontmatterForm";
 import { DiffView } from "./DiffView";
+import { Modal } from "./Modal";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { Button } from "./Button";
 import { api, type DocView, type MemoryInput } from "./api";
 
 export function EditorPanel({
@@ -18,6 +21,7 @@ export function EditorPanel({
   const [body, setBody] = useState(doc.body);
   const [memory, setMemory] = useState<MemoryInput>(doc.memory as MemoryInput);
   const [showDiff, setShowDiff] = useState(false);
+  const [pendingArchive, setPendingArchive] = useState(false);
   const [consent, setConsent] = useState(false);
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
@@ -66,33 +70,31 @@ export function EditorPanel({
           Editing <span className="font-mono text-slate-700 dark:text-slate-200">{doc.name}</span>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={toggleArchive}
-            className="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+          <Button
+            variant="ghost"
+            onClick={() => (doc.active ? setPendingArchive(true) : toggleArchive())}
           >
             {doc.active ? "Archive" : "Restore"}
-          </button>
-          <button
-            onClick={() => onDone(null)}
-            className="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
-          >
+          </Button>
+          <Button variant="ghost" onClick={() => onDone(null)}>
             Cancel
-          </button>
-          <button
-            onClick={() => setShowDiff(true)}
-            className="rounded bg-slate-800 px-3 py-1 text-sm text-white"
-          >
+          </Button>
+          <Button variant="primary" onClick={() => setShowDiff(true)}>
             Save…
-          </button>
+          </Button>
         </div>
       </div>
       {error && <div className="mb-3 rounded bg-red-50 p-2 text-sm text-red-700">{error}</div>}
       {banner && (
         <div className="mb-3 flex items-center justify-between rounded bg-amber-50 p-2 text-sm text-amber-800">
           <span>{banner}</span>
-          <button onClick={() => onDone(savedId)} className="font-medium hover:underline">
+          <Button
+            variant="row"
+            onClick={() => onDone(savedId)}
+            className="font-medium text-amber-800 hover:underline"
+          >
             done
-          </button>
+          </Button>
         </div>
       )}
       <FrontmatterForm category={doc.category} memory={memory} onChange={setMemory} />
@@ -100,43 +102,47 @@ export function EditorPanel({
         <Editor initialMarkdown={doc.body} value={body} onChange={setBody} />
       </div>
       {showDiff && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
-          onClick={() => setShowDiff(false)}
+        <Modal
+          label="review changes"
+          title="Review changes"
+          onClose={() => setShowDiff(false)}
+          align="center"
+          width="max-w-2xl"
         >
-          <div
-            className="w-full max-w-2xl rounded-lg bg-white dark:bg-slate-800 p-4 shadow-xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="mb-2 font-semibold">Review changes</div>
-            <DiffView oldText={doc.body} newText={body} />
-            {gated && (
-              <label className="mt-3 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                <input
-                  type="checkbox"
-                  checked={consent}
-                  onChange={(event) => setConsent(event.target.checked)}
-                />
-                I confirm this behavioral-lesson (self_improvement) edit.
-              </label>
-            )}
-            <div className="mt-3 flex justify-end gap-2">
-              <button
-                onClick={() => setShowDiff(false)}
-                className="text-sm text-slate-500 dark:text-slate-400"
-              >
-                Back
-              </button>
-              <button
-                onClick={finish}
-                disabled={saving || (gated && !consent)}
-                className="rounded bg-slate-800 px-3 py-1 text-sm text-white disabled:opacity-40"
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </div>
+          <DiffView oldText={doc.body} newText={body} />
+          {gated && (
+            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(event) => setConsent(event.target.checked)}
+              />
+              I confirm this behavioral-lesson (self_improvement) edit.
+            </label>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setShowDiff(false)}>
+              Back
+            </Button>
+            <Button variant="primary" onClick={finish} disabled={saving || (gated && !consent)}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
           </div>
-        </div>
+        </Modal>
+      )}
+      {pendingArchive && (
+        <ConfirmDialog
+          label="archive document"
+          title="Archive this document?"
+          message={`Archive “${doc.name}”? It is hidden from active recall but not deleted — you can restore it later.`}
+          confirmLabel="Archive"
+          danger
+          onConfirm={() => {
+            setPendingArchive(false);
+            toggleArchive();
+          }}
+          onCancel={() => setPendingArchive(false)}
+        />
       )}
     </div>
   );

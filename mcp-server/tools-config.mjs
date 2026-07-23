@@ -2,6 +2,7 @@ import { z } from "zod";
 import { wikiRoot, embedCachePath, defaultProjectModule } from "../scripts/lib/env.mjs";
 import { activeBackend } from "../scripts/lib/embed.mjs";
 import { getActiveWikiContext } from "../scripts/lib/wiki-context.mjs";
+import { parseLayoutObject } from "../scripts/lib/wiki-layout-parse.mjs";
 import { getImpl } from "./mcp-reload.mjs";
 import { jsonResponse, errorResponse } from "./mcp-responses.mjs";
 import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
@@ -9,18 +10,29 @@ import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
 /**
  * The resolved scope chain as a caller-facing list, so the LLM can choose an
  * explicit `target` by path (G2) — the only way to distinguish two identical
- * sibling clones (same projectModule, different root/mountDir).
- * @returns {Array<{ root: string, mountDir: string, projectModule: string, ownership: string, depth: number }>}
+ * sibling clones (same projectModule, different root/mountDir). Each level also
+ * reports its per-wiki policy flags read from that level's own layout: `gated`
+ * (category names that require the consent gate — check this before a write) and
+ * `autoDistillOff` (categories compile will NOT auto-promote into). The top-level
+ * `categories` stays a flat string[] UNION (contract unchanged).
+ * @returns {Array<{ root: string, mountDir: string, projectModule: string, ownership: string, depth: number, gated: string[], autoDistillOff: string[] }>}
  */
 function resolvedLevels() {
   const ctx = getActiveWikiContext();
-  return (ctx?.levels ?? []).map((l) => ({
-    root: l.root,
-    mountDir: l.mountDir,
-    projectModule: l.projectModule,
-    ownership: l.ownership,
-    depth: l.depth,
-  }));
+  return (ctx?.levels ?? []).map((l) => {
+    const parsed = parseLayoutObject(l.layout);
+    return {
+      root: l.root,
+      mountDir: l.mountDir,
+      projectModule: l.projectModule,
+      ownership: l.ownership,
+      depth: l.depth,
+      gated: Object.keys(parsed.gatedCategories).filter((c) => parsed.gatedCategories[c] === true),
+      autoDistillOff: Object.keys(parsed.autoDistillCategories).filter(
+        (c) => parsed.autoDistillCategories[c] === false,
+      ),
+    };
+  });
 }
 
 /** @typedef {import("@modelcontextprotocol/sdk/server/mcp.js").McpServer} McpServer */
@@ -32,7 +44,7 @@ function registerConfigTools(server) {
     {
       title: "Get memory configuration",
       description:
-        "Inspect the local LLM-wiki memory configuration (wiki root, embed backend, categories, active LLM provider, and the resolved scope `levels`). The `levels` array lists every level in your resolved scope chain — `{root, mountDir, projectModule, ownership, depth}` — so you can choose an explicit write `target` by path (the ONLY way to distinguish two identical sibling clones, which share a projectModule but differ by root). The `llm` block reports the resolved provider, model, baseUrl (for openai / openai-compatible), and a cheap local-only `available` probe (CLI on PATH / API key in env). It does NOT touch the network. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.",
+        "Inspect the local LLM-wiki memory configuration (wiki root, embed backend, categories, active LLM provider, and the resolved scope `levels`). The `levels` array lists every level in your resolved scope chain — `{root, mountDir, projectModule, ownership, depth, gated, autoDistillOff}` — so you can choose an explicit write `target` by path (the ONLY way to distinguish two identical sibling clones, which share a projectModule but differ by root) AND know each level's write policy: `gated` names the categories that require the consent gate at that level (CHECK it before a write — self_improvement is gated by default; a wiki may opt others in), and `autoDistillOff` names categories compile will not auto-promote into. The `llm` block reports the resolved provider, model, baseUrl (for openai / openai-compatible), and a cheap local-only `available` probe (CLI on PATH / API key in env). It does NOT touch the network. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.",
       inputSchema: z.object({ scopes: ScopesSchema }).strict(),
     },
     async (args) =>

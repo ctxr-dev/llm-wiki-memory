@@ -88,8 +88,15 @@ import { DEFAULT_EMBED_MODEL } from "./settings.mjs";
  */
 
 /**
+ * @typedef {Object} QualitySection
+ * @property {boolean} judgeEnabled
+ * @property {number} maxRounds
+ */
+
+/**
  * @typedef {Object} GateSection
- * @property {boolean} selfImprovementEnabled
+ * @property {boolean} enabled
+ * @property {boolean} [selfImprovementEnabled] pre-rename alias for `enabled` (honoured on override)
  * @property {boolean} claudeHookEnabled
  * @property {boolean} auditTrailEnabled
  * @property {boolean} perLessonConsent
@@ -126,6 +133,7 @@ import { DEFAULT_EMBED_MODEL } from "./settings.mjs";
  * @property {CompileSection} compile
  * @property {GcSection} gc
  * @property {GateSection} gate
+ * @property {QualitySection} quality
  * @property {WikiSection} wiki
  * @property {ProvidersSection} providers
  * @property {string[]} crossCuttingAreas
@@ -224,8 +232,13 @@ export function structuralDefaults() {
     metadataRetryLimit: 3,
   };
   const gc = { intervalDays: 7 };
+  // The judge-in-the-loop quality gate (see scripts/lib/quality-loop.mjs).
+  // judgeEnabled fails CLOSED like the write-gate flags: a persistently-down
+  // judge halts generation rather than saving unverified leaves; set false only
+  // for offline/CI/bulk-import. maxRounds bounds the generate->judge->revise loop.
+  const quality = { judgeEnabled: true, maxRounds: 3 };
   const gate = {
-    selfImprovementEnabled: true,
+    enabled: true,
     claudeHookEnabled: true,
     auditTrailEnabled: true,
     perLessonConsent: true,
@@ -252,6 +265,7 @@ export function structuralDefaults() {
     recall,
     compile,
     gc,
+    quality,
     gate,
     wiki,
     providers,

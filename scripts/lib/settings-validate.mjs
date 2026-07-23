@@ -23,7 +23,7 @@ import {
  * @returns {void}
  */
 export function coerceSections(sections) {
-  const { consolidate, flush, hook, embed, recall, compile, gc, gate, wiki } = sections;
+  const { consolidate, flush, hook, embed, recall, compile, gc, quality, gate, wiki } = sections;
 
   consolidate.intervalDays = coerceNonNeg(consolidate.intervalDays, 1);
   consolidate.cosineThreshold = coerceFloat01(consolidate.cosineThreshold, 0.97);
@@ -92,7 +92,12 @@ export function coerceSections(sections) {
   compile.qualityStrict = coerceBool(compile.qualityStrict, false);
 
   gc.intervalDays = coerceNonNeg(gc.intervalDays, 7);
-  gate.selfImprovementEnabled = coerceBool(gate.selfImprovementEnabled, true);
+  // judgeEnabled fails CLOSED (default true) like the gate flags; maxRounds is
+  // at least 1 (a value of 0/garbage would disable the loop, not what an
+  // operator tuning it down intends — they set judgeEnabled:false for that).
+  quality.judgeEnabled = coerceBool(quality.judgeEnabled, true);
+  quality.maxRounds = coercePos(quality.maxRounds, 3);
+  gate.enabled = coerceBool(gate.enabled, true);
   gate.claudeHookEnabled = coerceBool(gate.claudeHookEnabled, true);
   gate.auditTrailEnabled = coerceBool(gate.auditTrailEnabled, true);
   gate.perLessonConsent = coerceBool(gate.perLessonConsent, true);

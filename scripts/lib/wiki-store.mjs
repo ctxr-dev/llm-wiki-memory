@@ -21,6 +21,8 @@ export {
   slotToCategory,
   isFullCategory,
   isLeafFull,
+  isGatedCategory,
+  isAutoDistillCategory,
 } from "./wiki-layout-state.mjs";
 
 export {

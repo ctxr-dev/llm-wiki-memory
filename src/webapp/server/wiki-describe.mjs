@@ -28,7 +28,7 @@ export function describeWiki(level, categories, kind) {
     mountDir: level.mountDir,
     projectModule,
     ownership: level.ownership,
-    label: level.label || prettify(projectModule),
+    label: level.label || (kind === "home" ? "Main Brain" : prettify(projectModule)),
     categories,
   };
 }

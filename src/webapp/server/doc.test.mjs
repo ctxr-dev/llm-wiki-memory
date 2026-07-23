@@ -81,8 +81,14 @@ test("GET /related/* ranks other docs by similarity and never includes the sourc
   for (const entry of related) {
     expect(typeof entry.id).toBe("string");
     expect(typeof entry.score).toBe("number");
+    expect(typeof entry.title).toBe("string");
+    expect(typeof entry.location).toBe("string");
   }
-  expect(related.some((r) => r.id.endsWith("queue.md"))).toBe(true);
+  const queue = related.find((r) => r.id.endsWith("queue.md"));
+  expect(queue).toBeTruthy();
+  expect(queue.title).toBe("queue");
+  expect(queue.location).toBe("Knowledge › Backend › Decision › Architecture");
+  expect(queue.summary.atomType).toBe("decision");
 });
 
 test("prefs round-trip per wiki (tabs persistence)", async () => {

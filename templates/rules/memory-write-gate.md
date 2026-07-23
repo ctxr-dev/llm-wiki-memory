@@ -16,16 +16,18 @@ This rule applies to every AI agent connected to the local LLM wiki memory throu
 
 > Memory is **read-freely, write-gated**. Recall as needed (`recall_lessons`, `search_memory`). NEVER call `save_lesson` or `save_to_dataset(dataset="self_improvement", ...)` on your own initiative — even when the user clearly corrected you, even when the lesson seems obvious, even when prior versions of this discipline told you to "save BEFORE replying".
 >
-> When you think a lesson is worth saving, PROPOSE it to the user in **one short sentence**:
+> When you think a lesson is worth saving, PROPOSE it and get the user's explicit yes in the same turn. **On Claude Code, propose via the `AskUserQuestion` tool — one call, one question PER LESSON** (batch up to 4 lessons; more → successive calls), options:
 >
-> > "Want me to save this as a lesson? Title: `<imperative summary>`, error_pattern: `<kebab-slug>`."
+> > `Save (P1)` · `Save as guardrail (P0)` · `Save as contextual (P2)` · `Skip`
+> >
+> > the question text stating NEW vs UPDATE (from the rule-16 dedup) + the proposed title.
 >
-> Then:
+> On a client WITHOUT AskUserQuestion, use its equivalent structured prompt, else propose in **one short sentence** and wait for the yes. Then:
 >
-> - **User says yes in this turn** → call the tool with `userRequested: true`.
-> - **User says no, ignores, redirects, or asks something else** → do NOT save. Continue helping. Bringing it up again later is fine; saving without the in-turn yes is a discipline violation.
+> - **User marks a lesson Save (P1/P0/P2)** → call the tool for THAT lesson with `userRequested: true` and the chosen priority.
+> - **User marks Skip / says no / ignores / redirects** → do NOT save that lesson. Continue helping. Bringing it up again later is fine; saving without the in-turn yes is a discipline violation.
 >
-> **One approval = one lesson.** Propose and confirm EACH lesson on its own. A single "save it" does NOT authorise a batch flush of several lessons; if you have three lessons, propose three times. (On Claude Code the L2 hook enforces this: after the first gated write of a turn, every additional self_improvement write re-prompts.)
+> **One approval = one lesson.** Each lesson is its own question and its own decision; a single "save it" does NOT authorise a batch flush of several lessons. (On Claude Code the L2 hook enforces this: it allows only as many self_improvement writes as the user marked Save this turn — any beyond that re-prompts.)
 
 ## Why this exists (the trade-off)
 
@@ -38,14 +40,14 @@ The consolidate orchestrator (search-driven, runs on the hourly maintenance cron
 Three layers, belt-and-suspenders:
 
 1. **L1 — discipline (instructions).** Every connecting client receives the discipline at `initialize`; every client also ships this rule in `.agents/rules/`, `.claude/rules/`, and `.cursor/rules/`.
-2. **L2 — Claude Code `PreToolUse` hook** (`pretooluse-gate-memory-writes.sh`). Inspects the latest user turn for explicit save phrases. Matches → `permissionDecision: "allow"`; otherwise → `permissionDecision: "ask"` (user gets a one-click yes/no prompt). **Per-lesson consent:** the save phrase auto-allows only the FIRST gated self_improvement write of a turn; each subsequent one re-prompts (`ask`), so a batch flush cannot ride one approval. Claude Code only — Cursor/Codex don't fire hooks.
+2. **L2 — Claude Code `PreToolUse` hook** (`pretooluse-gate-memory-writes.sh`). Recognises consent from the current turn: an **answered `AskUserQuestion` whose selections marked N lessons Save**, or (fallback) an explicit save phrase in typed prose. Matches → `permissionDecision: "allow"` for up to that many gated writes; otherwise → `permissionDecision: "ask"` (one-click yes/no). **Per-lesson consent:** the hook allows only as many self_improvement writes as the user actually approved this turn; any beyond that re-prompts (`ask`), so a batch flush cannot ride one approval. Claude Code only — Cursor/Codex don't fire hooks.
 3. **L3 — MCP server-side guard.** Required `userRequested: boolean` argument on `save_lesson`; required when `dataset === "self_improvement"` (or a `path` landing there) on `save_to_dataset` / `write_memory`. Server returns `{ ok: false, error: "write-gate-refused", message: ... }` when missing/false. This layer covers ALL clients.
 
 L4 (folded into L2) blocks `Write`/`Edit`/`NotebookEdit` to Claude Code's per-client memory directory (`~/.claude/projects/<workspace>/memory/...`) — that path is per-session and per-client; use the wiki instead.
 
 ## Per-lesson consent (why one save word is not enough)
 
-A single loose save word (save / remember / record / store / persist / memorise) in the user's turn used to auto-allow *every* gated write that followed in that turn, so a session-end flush could persist many lessons under one bulk approval. With `gate.perLessonConsent` on (default), the L2 hook grants that phrase to only the FIRST gated self_improvement write; the 2nd, 3rd, and so on each get a one-click `ask`. **This is enforced on Claude Code only**: for Cursor / Codex / generic clients there is no L2 hook, so per-lesson discipline rests on L1 (this rule) plus the audit trail below, which makes any batch save visible after the fact. Set `gate.perLessonConsent: false` to restore the legacy turn-level behaviour.
+A single loose save word (save / remember / record / store / persist / memorise) in the user's turn used to auto-allow *every* gated write that followed in that turn, so a session-end flush could persist many lessons under one bulk approval. With `gate.perLessonConsent` on (default), the L2 hook counts how many lessons the user actually approved this turn — the **Save** selections of an answered `AskUserQuestion`, or (fallback) a save phrase authorising the first write — and allows exactly that many gated self_improvement writes; the next one gets a one-click `ask`. **This is enforced on Claude Code only**: for Cursor / Codex / generic clients there is no L2 hook, so per-lesson discipline rests on L1 (this rule) plus the audit trail below, which makes any batch save visible after the fact. Set `gate.perLessonConsent: false` to restore the legacy turn-level behaviour.
 
 ## Audit trail
 
@@ -58,8 +60,16 @@ Inspect it with `node .llm-wiki-memory/src/scripts/cli.mjs gate-audit [--limit N
 
 ## Things the gate does NOT apply to
 
-- **Other categories** (`knowledge`, `plans`, `investigations`, `daily`, `issues`). Their routing rules in `self-improvement.md` / `investigation-capture.md` / `plan-capture.md` still apply directly — no `userRequested` flag needed.
+- **Other categories** (`knowledge`, `plans`, `investigations`, `daily`, `issues`) — BY DEFAULT. Their routing rules in `self-improvement.md` / `investigation-capture.md` / `plan-capture.md` still apply directly — no `userRequested` flag needed. BUT gating is now **layout-declared per-wiki**: a wiki may opt a category IN with `gated: true` in its `.layout/layout.yaml`, and `self_improvement` is gated by a name-keyed default (not a hardcoded rule). So do not assume the gated set — CHECK the target wiki's layout via `get_memory_config` (each `levels[]` entry reports its `gated` category names); propose via AskUserQuestion for ANY gated category, and pass `userRequested:true` on the save.
 - **System-maintenance writes.** The consolidate orchestrator runs every internal write under `withSystemMaintenance(...)` (AsyncLocalStorage frame). The MCP server detects the flag and exempts these from the gate. The model has no way to enter that frame from outside the orchestrator process.
+
+## Quality judge (interactive saves into knowledge / self_improvement)
+
+Separately from the consent gate, a save into an **atomic curated category** (`knowledge` or `self_improvement`) is checked by a **quality judge** — a second LLM call that scores the leaf against the durability + content-quality + de-personalization rubric (`content-quality.md`; for `self_improvement` also: conceptual, behavioural, validated). Plans / investigations / issues (structured lifecycle docs) and `daily` / `absorb` (raw / verbatim) are EXEMPT.
+
+- **On pass:** the write proceeds normally.
+- **On reject:** the tool returns `{ ok: false, error: "quality-judge-rejected", verdict, recommendation }` and DOES NOT write. Revise the leaf per `recommendation` and resubmit — up to 3 attempts. To store your best attempt anyway, resubmit with `write.acceptQuality: true`; it is written and stamped `memory.quality: "unverified"` — a durable marker recorded so consolidate/recall can treat it cautiously (a reserved affordance for the read side; the flag is always preserved on the leaf).
+- **Fail-closed:** if the judge LLM cannot run, the tool returns `{ ok: false, error: "quality-judge-unavailable" }` — retry when a provider is reachable (never a silent drop). The engine paths (compile / consolidate) run the same judge in-process with the generate→judge→revise loop.
 
 ## Operator override
 
@@ -69,13 +79,14 @@ Set `gate.claudeHookEnabled: false` (same file) to disable the L2 Claude Code ho
 
 Set `gate.perLessonConsent: false` to restore turn-level consent (one save phrase auto-allows the whole turn). Set `gate.auditTrailEnabled: false` to stop recording the audit ledger. Set `gate.auditKeep: <N>` to bound the ledger size. All default to the safe posture (per-lesson ON, audit ON, keep 1000).
 
+Set `quality.judgeEnabled: false` to disable the quality judge (interactive + compile + consolidate) for offline / CI / bulk-import runs; `quality.maxRounds: <N>` bounds the generate→judge→revise loop (default 3). The judge is ON by default and fails closed — a persistently-unreachable provider halts generation rather than saving unverified leaves.
+
 ## Quick reference
 
 | You observed | You do | Server outcome |
 |---|---|---|
-| User explicitly says "save this as a lesson" | call `save_lesson({ scopes, target, write:{...}, gate:{ userRequested: true } })` | Saved |
-| User said yes to your propose-then-confirm | call `save_lesson({ scopes, target, write:{...}, gate:{ userRequested: true } })` | Saved |
-| You think a lesson is warranted but the user hasn't asked | propose one line; wait for yes; do NOT call the tool until then | (no call made) |
-| You have several lessons to save | propose & confirm EACH one separately | each saved on its own yes; a 2nd+ write in one turn re-prompts (L2) |
+| User picks `Save (P1/P0/P2)` in the AskUserQuestion (or says "save this as a lesson") | call `save_lesson({ scopes, target, write:{...}, gate:{ userRequested: true } })` with the chosen priority | Saved |
+| You think a lesson is warranted but the user hasn't approved | ask via AskUserQuestion (one question per lesson); save only the ones marked Save | (only approved ones saved) |
+| You have several lessons to save | ONE AskUserQuestion, one question per lesson (batch ≤4) | each saved on its own Save; the hook allows exactly as many as marked Save (L2) |
 | Tool called without `userRequested:true` | (don't do this) | Refused with `error: "write-gate-refused"` |
 | Saving a `knowledge` / `plans` / `investigations` artefact | call `save_to_dataset` with the appropriate dataset; no flag needed | Saved |

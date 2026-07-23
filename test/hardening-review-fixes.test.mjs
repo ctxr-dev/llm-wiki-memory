@@ -188,9 +188,14 @@ function makeGateWorkspace() {
     LLM_WIKI_FIXED_TIMESTAMP: "1700000000",
     LLM_WIKI_NO_PROMPT: "1",
   };
-  // Pin lexical embed via settings.yaml (the subprocess reads it).
+  // Pin lexical embed + disable the quality judge via settings.yaml (the
+  // subprocess reads it): these are write-GATE tests, not judge tests, and a
+  // judgeable write with no mocked verdict would otherwise fail-closed.
   fs.mkdirSync(path.join(gateDir, "settings"), { recursive: true });
-  fs.writeFileSync(path.join(gateDir, "settings", "settings.yaml"), "embed:\n  backend: lexical\n");
+  fs.writeFileSync(
+    path.join(gateDir, "settings", "settings.yaml"),
+    "embed:\n  backend: lexical\nquality:\n  judgeEnabled: false\n",
+  );
   const init = spawnSync(process.execPath, [path.join(SRC, "scripts/cli.mjs"), "init"], {
     env,
     encoding: "utf8",
