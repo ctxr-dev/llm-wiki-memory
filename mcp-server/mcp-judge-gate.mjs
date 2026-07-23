@@ -8,15 +8,8 @@
 // write (a clear retry error), never a silent drop.
 
 import { jsonResponse } from "./mcp-responses.mjs";
-import { judgeLeaf, JudgeUnavailable } from "../scripts/lib/quality-loop.mjs";
+import { judgeLeaf, JudgeUnavailable, isJudgeableCategory } from "../scripts/lib/quality-loop.mjs";
 import { qualityJudgeEnabled } from "../scripts/lib/settings.mjs";
-
-// The ATOMIC curated categories the durability/quality rubric applies to. The
-// structured lifecycle docs (plans / investigations / issues) and the raw
-// daily / verbatim absorb content are EXEMPT: the atom rubric (no volatile
-// locators / has a Why-How) would wrongly fail, e.g., a plan whose clickable
-// topology-tree line links are mandated by the topology-tree rule.
-const JUDGEABLE_CATEGORIES = new Set(["knowledge", "self_improvement"]);
 
 /**
  * @typedef {{ content: Array<{ type: "text", text: string }> }} ToolResponse
@@ -28,7 +21,9 @@ const JUDGEABLE_CATEGORIES = new Set(["knowledge", "self_improvement"]);
  * @returns {Promise<JudgeGateResult>}
  */
 export async function judgeInteractiveSubmission({ dataset, title, body, acceptQuality }) {
-  if (!JUDGEABLE_CATEGORIES.has(dataset) || !qualityJudgeEnabled()) {
+  // Only the atomic curated categories are judged; structured/exempt categories
+  // (plans/investigations/issues/daily/absorb) pass through — see quality-loop.mjs.
+  if (!isJudgeableCategory(dataset) || !qualityJudgeEnabled()) {
     return { block: false, flagged: false };
   }
   let verdict;

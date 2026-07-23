@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { canonicalRepoId, gitOriginUrl } from "./project-identity.mjs";
+import { assertTestBrainIsolation } from "./real-brain-guard.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // scripts/lib/env.mjs -> project clone root is two levels up.
@@ -28,23 +29,9 @@ export const MEMORY_DATA_DIR =
     ? process.env.MEMORY_DATA_DIR
     : path.join(WORKSPACE_DIR, ".llm-wiki-memory");
 
-// TEST-SAFETY GUARD (production-inert). test/setup-guard.mjs arms
-// LWM_FORBID_REAL_BRAIN + records the real brain path in LWM_REAL_BRAIN (both
-// inherited by child procs); refuse ONLY that exact path so a test that failed to
-// isolate MEMORY_DATA_DIR (e.g. a static engine import froze it before
-// setupWorkspace) crashes loudly instead of corrupting real memory — a past
-// incident hard-deleted ~590 real leaves. A /tmp fixture install keeps working.
-if (
-  process.env.LWM_FORBID_REAL_BRAIN === "1" &&
-  process.env.LWM_REAL_BRAIN &&
-  path.resolve(MEMORY_DATA_DIR) === path.resolve(process.env.LWM_REAL_BRAIN)
-) {
-  throw new Error(
-    `LWM_FORBID_REAL_BRAIN: refusing to use the real workspace brain (${MEMORY_DATA_DIR}) in a ` +
-      "test context. A test must point MEMORY_DATA_DIR at a temp dir — call setupWorkspace() (or set " +
-      "MEMORY_DATA_DIR) BEFORE importing any engine module, since env.mjs captures it at load.",
-  );
-}
+// TEST-SAFETY GUARD (production-inert): refuse the developer's real brain in a test
+// context. See scripts/lib/real-brain-guard.mjs for the contract.
+assertTestBrainIsolation(MEMORY_DATA_DIR);
 
 const ENV_PATH = path.join(MEMORY_DATA_DIR, "settings", ".env");
 // Runtime compile state/lock live under the durable data dir (not the repo

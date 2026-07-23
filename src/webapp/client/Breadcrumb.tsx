@@ -16,7 +16,11 @@ export function Breadcrumb({
     >
       {crumbs.map((crumb, index) => (
         <span key={`${crumb.path}-${index}`} className="flex items-center gap-1">
-          {index > 0 && <span className="text-slate-300 dark:text-slate-600">›</span>}
+          {index > 0 && (
+            <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
+              ›
+            </span>
+          )}
           <button
             onClick={() => onNavigate(crumb.category, crumb.path)}
             className="cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 hover:underline"

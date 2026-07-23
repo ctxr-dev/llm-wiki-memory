@@ -93,9 +93,12 @@ export function gateRefusal(a) {
 function gateLabel(tool, dataset, path) {
   if (tool === "save_lesson") return "save_lesson";
   const key = tool === "write_memory" ? "datasetId" : "dataset";
-  return dataset === SELF_IMPROVEMENT
-    ? `${tool}(${key}="${SELF_IMPROVEMENT}")`
-    : `${tool}(path="${path}" lands in a gated category)`;
+  if (dataset === SELF_IMPROVEMENT) return `${tool}(${key}="${SELF_IMPROVEMENT}")`;
+  // A path (if given) determines the landing category; otherwise the gated
+  // dataset itself is the reason — name it rather than emitting path="undefined".
+  return path
+    ? `${tool}(path="${path}" lands in a gated category)`
+    : `${tool}(${key}="${dataset}" is a gated category)`;
 }
 
 // The two pre-write gates an interactive tool runs in order: the L3 consent gate
