@@ -75,7 +75,12 @@ export function registerWikiRoutes(app, db, { pickFolder = pickFolderNative } = 
       reply.code(409);
       return { error: "is-home" };
     }
-    db.addPlace({ root: wiki.root, mountDir: wiki.mountDir, label: wiki.label });
+    db.addPlace({
+      root: wiki.root,
+      mountDir: wiki.mountDir,
+      label: wiki.label,
+      projectModule: wiki.projectModule,
+    });
     return { wiki };
   });
 

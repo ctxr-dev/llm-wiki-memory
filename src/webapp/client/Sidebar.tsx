@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { XMarkIcon } from "@heroicons/react/24/outline";
 import { useWikis } from "./hooks";
 import { api } from "./api";
 import { AddWikiDialog } from "./AddWikiDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { Button } from "./Button";
 import { CollapsibleColumn } from "./CollapsibleColumn";
 import { HoverCard } from "./HoverCard";
+import { WikiIcon } from "./WikiIcon";
+import { WikiContextMenu } from "./WikiContextMenu";
 
 export function Sidebar({
   activeId,
@@ -20,6 +20,9 @@ export function Sidebar({
   const queryClient = useQueryClient();
   const [adding, setAdding] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<{ id: string; label: string } | null>(null);
+  const [menu, setMenu] = useState<{ id: string; label: string; x: number; y: number } | null>(
+    null,
+  );
   const activeWiki = wikis.data?.find((wiki) => wiki.id === activeId);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["wikis"] });
@@ -46,7 +49,15 @@ export function Sidebar({
     >
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {wikis.data?.map((wiki) => (
-          <div key={wiki.id} className="flex items-center gap-1">
+          <div
+            key={wiki.id}
+            className="flex items-center gap-1"
+            onContextMenu={(event) => {
+              if (wiki.kind !== "added") return;
+              event.preventDefault();
+              setMenu({ id: wiki.id, label: wiki.label, x: event.clientX, y: event.clientY });
+            }}
+          >
             <HoverCard
               side="right"
               className="min-w-0 flex-1"
@@ -61,27 +72,19 @@ export function Sidebar({
             >
               <button
                 onClick={() => onSelect(wiki.id)}
-                className={`w-full cursor-pointer truncate rounded px-2 py-1 text-left text-sm ${
+                className={`flex w-full cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-left text-sm ${
                   wiki.id === activeId
                     ? "bg-slate-200 dark:bg-slate-700 font-medium"
                     : "hover:bg-slate-100 dark:hover:bg-slate-800"
                 }`}
               >
-                {wiki.label}
-                <span className="ml-1 text-xs text-slate-400 dark:text-slate-500">
+                <WikiIcon kind={wiki.kind} className="h-4 w-4 shrink-0" />
+                <span className="truncate">{wiki.label}</span>
+                <span className="ml-auto shrink-0 text-xs text-slate-400 dark:text-slate-500">
                   {wiki.kind === "home" ? "home" : "repo"}
                 </span>
               </button>
             </HoverCard>
-            {wiki.kind === "added" && (
-              <Button
-                variant="ghost"
-                onClick={() => setPendingRemove({ id: wiki.id, label: wiki.label })}
-                aria-label={`remove ${wiki.label}`}
-                className="shrink-0 px-1 text-slate-400 hover:bg-transparent hover:text-slate-700 dark:hover:text-slate-200"
-                icon={<XMarkIcon className="h-4 w-4" />}
-              />
-            )}
           </div>
         ))}
       </div>
@@ -93,6 +96,14 @@ export function Sidebar({
           + Add wiki
         </button>
       </div>
+      {menu && (
+        <WikiContextMenu
+          x={menu.x}
+          y={menu.y}
+          onRemove={() => setPendingRemove({ id: menu.id, label: menu.label })}
+          onDismiss={() => setMenu(null)}
+        />
+      )}
       {adding && <AddWikiDialog onClose={() => setAdding(false)} onAdded={refresh} />}
       {pendingRemove && (
         <ConfirmDialog

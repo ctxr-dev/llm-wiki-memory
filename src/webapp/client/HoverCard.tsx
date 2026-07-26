@@ -11,7 +11,7 @@ export function HoverCard({
 }: {
   children: ReactNode;
   card: ReactNode;
-  side?: "left" | "right";
+  side?: "left" | "right" | "bottom";
   className?: string;
 }) {
   const anchor = useRef<HTMLDivElement>(null);
@@ -23,9 +23,14 @@ export function HoverCard({
     timer.current = setTimeout(() => {
       const rect = anchor.current?.getBoundingClientRect();
       if (!rect) return;
+      const clampX = (x: number) => Math.max(8, Math.min(x, window.innerWidth - CARD_WIDTH - 8));
+      if (side === "bottom") {
+        setPosition({ top: rect.bottom + 8, left: clampX(rect.left) });
+        return;
+      }
       const left = side === "right" ? rect.right + 8 : rect.left - CARD_WIDTH - 8;
       const top = Math.min(rect.top, window.innerHeight - 240);
-      setPosition({ top: Math.max(8, top), left: Math.max(8, left) });
+      setPosition({ top: Math.max(8, top), left: clampX(left) });
     }, 140);
   };
   const close = () => {

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { XMarkIcon } from "@heroicons/react/24/outline";
 import { Button } from "./Button";
 import { Sidebar } from "./Sidebar";
+import { TabBar } from "./TabBar";
+import { TabContextMenu } from "./TabContextMenu";
 import { NavPanel, type NavRequest } from "./NavPanel";
 import { DocView } from "./DocView";
 import { Breadcrumb } from "./Breadcrumb";
@@ -11,32 +12,44 @@ import { PlansBoard } from "./PlansBoard";
 import { IssuesBoard } from "./IssuesBoard";
 import { ThemeToggle } from "./ThemeToggle";
 import { useWikis, useTitles } from "./hooks";
-import { api } from "./api";
 import type { Facet } from "./api";
-import { parseTabs } from "./tabs";
+import { formatRef } from "./refs";
 import { availableViews } from "./views";
+import { useDocTabs } from "./useDocTabs";
 
 type PaletteInit = { filters: Facet[]; category: string | null } | null;
 
 export function App() {
   const wikis = useWikis();
   const [wikiId, setWikiId] = useState<string | null>(null);
-  const [tabs, setTabs] = useState<string[]>([]);
-  const [active, setActive] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteInit, setPaletteInit] = useState<PaletteInit>(null);
   const [askOpen, setAskOpen] = useState(false);
   const [view, setView] = useState<"docs" | "plans" | "issues">("docs");
   const [navRequest, setNavRequest] = useState<NavRequest>({ category: null, path: "", token: 0 });
-  const tabTitles = useTitles(wikiId, tabs);
-  const labelFor = (docId: string) => tabTitles.data?.[docId] ?? docId.split("/").pop() ?? docId;
   const activeWiki = wikis.data?.find((wiki) => wiki.id === wikiId);
   const views = useMemo(() => availableViews(activeWiki?.categories), [activeWiki?.categories]);
   const effectiveView = views.includes(view) ? view : "docs";
-
-  useEffect(() => {
-    if (!wikiId && wikis.data?.length) setWikiId(wikis.data[0].id);
-  }, [wikis.data, wikiId]);
+  const setDocsView = useCallback(() => setView("docs"), []);
+  const {
+    tabs,
+    active,
+    setActive,
+    pinnedTabs,
+    orientation,
+    tabMenu,
+    setTabMenu,
+    displayTabs,
+    openDoc,
+    closeTab,
+    reorderTabs,
+    closeOthers,
+    togglePin,
+    changeOrientation,
+    navigateToRef,
+  } = useDocTabs({ wikiId, setWikiId, wikis: wikis.data, activeWiki, setDocsView });
+  const tabTitles = useTitles(wikiId, tabs);
+  const labelFor = (docId: string) => tabTitles.data?.[docId] ?? docId.split("/").pop() ?? docId;
 
   useEffect(() => {
     if (!views.includes(view)) setView("docs");
@@ -53,54 +66,6 @@ export function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-
-  useEffect(() => {
-    if (!wikiId) return undefined;
-    let ignore = false;
-    setTabs([]);
-    setActive(null);
-    setView("docs");
-    api
-      .getPref(wikiId, "openTabs")
-      .then((value) => {
-        if (ignore) return;
-        const restored = parseTabs(value);
-        setTabs(restored);
-        setActive(restored[0] ?? null);
-      })
-      .catch(() => undefined);
-    return () => {
-      ignore = true;
-    };
-  }, [wikiId]);
-
-  const persist = useCallback(
-    (next: string[]) => {
-      if (wikiId) api.setPref(wikiId, "openTabs", JSON.stringify(next)).catch(() => undefined);
-    },
-    [wikiId],
-  );
-
-  const openDoc = useCallback(
-    (docId: string) => {
-      const next = tabs.includes(docId) ? tabs : [...tabs, docId];
-      setTabs(next);
-      persist(next);
-      setActive(docId);
-      setView("docs");
-    },
-    [tabs, persist],
-  );
-
-  const closeTab = useCallback(
-    (docId: string) => {
-      const next = tabs.filter((tab) => tab !== docId);
-      setTabs(next);
-      persist(next);
-      if (active === docId) setActive(next[next.length - 1] ?? null);
-    },
-    [tabs, active, persist],
-  );
 
   const selectWiki = useCallback((id: string) => {
     setWikiId(id);
@@ -124,6 +89,53 @@ export function App() {
     setPaletteOpen(false);
     setPaletteInit(null);
   }, []);
+
+  const copyTabReference = useCallback(
+    (docId: string) => {
+      if (!activeWiki || !navigator.clipboard) return;
+      navigator.clipboard.writeText(formatRef(activeWiki, docId)).catch(() => undefined);
+    },
+    [activeWiki],
+  );
+
+  const tabBar =
+    effectiveView === "docs" ? (
+      <TabBar
+        tabs={displayTabs}
+        active={active}
+        pinnedIds={pinnedTabs}
+        orientation={orientation}
+        labelFor={labelFor}
+        onSelect={setActive}
+        onClose={closeTab}
+        onReorder={reorderTabs}
+        onContextMenu={(docId, x, y) => setTabMenu({ docId, x, y })}
+      />
+    ) : null;
+  const breadcrumb =
+    effectiveView === "docs" && active ? (
+      <Breadcrumb docId={active} wiki={activeWiki} onNavigate={navigateTo} />
+    ) : null;
+  const scrollArea = (
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      {wikiId && effectiveView === "plans" && <PlansBoard wikiId={wikiId} onOpen={openDoc} />}
+      {wikiId && effectiveView === "issues" && <IssuesBoard wikiId={wikiId} onOpen={openDoc} />}
+      {effectiveView === "docs" &&
+        (wikiId && active ? (
+          <DocView
+            wikiId={wikiId}
+            docId={active}
+            onOpen={openDoc}
+            onOpenRef={navigateToRef}
+            onChipFilter={openFacetSearch}
+          />
+        ) : (
+          <div className="p-8 text-slate-400 dark:text-slate-500">
+            Select a document from the tree.
+          </div>
+        ))}
+    </div>
+  );
 
   return (
     <div className="flex h-screen text-slate-800 dark:text-slate-100">
@@ -166,55 +178,21 @@ export function App() {
           </Button>
           <ThemeToggle />
         </div>
-        {effectiveView === "docs" && (
-          <div className="flex items-center gap-1 overflow-x-auto border-b border-slate-200 dark:border-slate-700 px-2">
-            {tabs.map((tab) => (
-              <div
-                key={tab}
-                className={`flex items-center gap-1 border-b-2 px-3 py-2 text-sm ${
-                  tab === active
-                    ? "border-slate-800"
-                    : "border-transparent text-slate-500 dark:text-slate-400"
-                }`}
-              >
-                <button
-                  onClick={() => setActive(tab)}
-                  className="max-w-[16rem] cursor-pointer truncate"
-                  title={tab}
-                >
-                  {labelFor(tab)}
-                </button>
-                <Button
-                  variant="ghost"
-                  onClick={() => closeTab(tab)}
-                  aria-label="close tab"
-                  className="px-1 text-slate-400 hover:bg-transparent dark:text-slate-500"
-                  icon={<XMarkIcon className="h-4 w-4" />}
-                />
-              </div>
-            ))}
+        {effectiveView === "docs" && orientation === "vertical" ? (
+          <div className="flex min-h-0 flex-1">
+            {tabBar}
+            <div className="flex min-w-0 flex-1 flex-col">
+              {breadcrumb}
+              {scrollArea}
+            </div>
           </div>
+        ) : (
+          <>
+            {tabBar}
+            {breadcrumb}
+            {scrollArea}
+          </>
         )}
-        {effectiveView === "docs" && active && (
-          <Breadcrumb docId={active} onNavigate={navigateTo} />
-        )}
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {wikiId && effectiveView === "plans" && <PlansBoard wikiId={wikiId} onOpen={openDoc} />}
-          {wikiId && effectiveView === "issues" && <IssuesBoard wikiId={wikiId} onOpen={openDoc} />}
-          {effectiveView === "docs" &&
-            (wikiId && active ? (
-              <DocView
-                wikiId={wikiId}
-                docId={active}
-                onOpen={openDoc}
-                onChipFilter={openFacetSearch}
-              />
-            ) : (
-              <div className="p-8 text-slate-400 dark:text-slate-500">
-                Select a document from the tree.
-              </div>
-            ))}
-        </div>
       </main>
       {paletteOpen && wikiId && (
         <CommandPalette
@@ -222,13 +200,33 @@ export function App() {
           wikiId={wikiId}
           onOpenDoc={openDoc}
           onSwitchWiki={selectWiki}
+          onOpenRef={navigateToRef}
           onClose={closePalette}
           initialFilters={paletteInit?.filters ?? []}
           initialCategory={paletteInit?.category ?? null}
         />
       )}
       {askOpen && wikiId && (
-        <AskPanel wikiId={wikiId} onOpenDoc={openDoc} onClose={() => setAskOpen(false)} />
+        <AskPanel
+          wikiId={wikiId}
+          onOpenDoc={openDoc}
+          onOpenRef={navigateToRef}
+          onClose={() => setAskOpen(false)}
+        />
+      )}
+      {tabMenu && (
+        <TabContextMenu
+          x={tabMenu.x}
+          y={tabMenu.y}
+          isPinned={pinnedTabs.includes(tabMenu.docId)}
+          orientation={orientation}
+          onCloseTab={() => closeTab(tabMenu.docId)}
+          onCloseOthers={() => closeOthers(tabMenu.docId)}
+          onTogglePin={() => togglePin(tabMenu.docId)}
+          onCopyReference={() => copyTabReference(tabMenu.docId)}
+          onSetOrientation={changeOrientation}
+          onDismiss={() => setTabMenu(null)}
+        />
       )}
     </div>
   );

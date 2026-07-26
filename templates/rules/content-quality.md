@@ -72,6 +72,28 @@ Litmus test: *if a teammate refactored this code next week without changing its 
 the leaf still be true and useful?* If a rename or a shifted line would falsify it, rewrite it
 conceptually.
 
+## Cross-document references — canonical, portable, same-wiki
+
+When a leaf needs to point at ANOTHER leaf, reference it by its **canonical reference**
+`<source>:<path>`, never by a filesystem path:
+
+- `<source>` is the knowledge base: `brain` for the home wiki, or a repo wiki's canonical
+  `org/repo` identity (its `projectModule`). It is a **placeholder** — derive it from the live
+  wiki, and NEVER hardcode a specific repo/org name into a rule or template.
+- `<path>` is the target document's id within that wiki (its `/`-joined path including `.md`).
+- **NEVER** use an absolute or relative **filesystem path** to point at a wiki document — those
+  are machine-specific and rot (the same failure mode as a line number). A code/config path that
+  is NOT a wiki document stays a dated, re-verifiable hint (see Durability), not a reference.
+- References resolve **within the same knowledge base only** (no cross-wiki references), and the
+  web app renders them as clickable in-app links.
+- Do not confuse this with the `source:` **frontmatter** provenance key — the reference grammar
+  uses the wiki prefix (`brain:` / `org/repo:`), not a literal `source:` token.
+
+Example: `brain:knowledge/backend/decision/general/postgres.md`, or
+`<org>/<repo>:knowledge/infra/deploy.md` — resolved and linkified by the app, and portable across
+machines. It stays valid under a file move only while the target's id is stable (a facet change
+moves the leaf and changes its id).
+
 ## Scope — what this does NOT govern
 
 - **`daily`** is the RAW pre-distill capture layer by design; it is EXEMPT. Polish is applied

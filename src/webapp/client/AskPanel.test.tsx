@@ -109,14 +109,21 @@ test("a question with no match shows the empty state", async () => {
 });
 
 test("no request is made until a question is submitted (empty query stays idle)", async () => {
-  const fetchSpy = vi.fn(() =>
-    Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY) } as unknown as Response),
+  const requested: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: string | URL) => {
+      requested.push(String(input));
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(EMPTY),
+      } as unknown as Response);
+    }),
   );
-  vi.stubGlobal("fetch", fetchSpy);
   renderPanel();
   fireEvent.change(screen.getByPlaceholderText(/Ask your memory/), { target: { value: "draft" } });
   await new Promise((r) => setTimeout(r, 50));
-  expect(fetchSpy).not.toHaveBeenCalled();
+  expect(requested.some((url) => url.includes("/ask"))).toBe(false);
 });
 
 test("the close button and Escape both close the panel", async () => {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "./Button";
-import { useDoc, useRelated } from "./hooks";
+import { useDoc, useRelated, useWikis } from "./hooks";
 import { Markdown } from "./Markdown";
 import { FrontmatterCard } from "./FrontmatterCard";
 import { MetaBlock } from "./MetaBlock";
@@ -16,15 +16,19 @@ export function DocView({
   wikiId,
   docId,
   onOpen,
+  onOpenRef,
   onChipFilter,
 }: {
   wikiId: string;
   docId: string;
   onOpen: (id: string) => void;
+  onOpenRef?: (wikiId: string, docId: string) => void;
   onChipFilter: (facet: Facet) => void;
 }) {
   const doc = useDoc(wikiId, docId);
   const related = useRelated(wikiId, docId);
+  const wikis = useWikis();
+  const wikiList = wikis.data ?? [];
   const [editing, setEditing] = useState(false);
   const toc = useMemo(() => (doc.data ? extractToc(doc.data.body) : []), [doc.data]);
   const meta = useMemo(() => (doc.data ? splitBodyMeta(doc.data.body) : null), [doc.data]);
@@ -48,7 +52,7 @@ export function DocView({
     );
   }
   return (
-    <div className="flex items-start gap-6 p-6">
+    <div className="flex min-h-full items-start gap-6 p-6">
       <article className="min-w-0 flex-1">
         <div className="mb-2 flex justify-end">
           <Button variant="secondary" onClick={() => setEditing(true)}>
@@ -58,12 +62,12 @@ export function DocView({
         <FrontmatterCard doc={doc.data} onChip={onChipFilter} />
         {meta && meta.metaList.length > 0 ? (
           <>
-            <Markdown body={meta.heading ?? ""} />
+            <Markdown body={meta.heading ?? ""} wikis={wikiList} onOpenRef={onOpenRef} />
             <MetaBlock lines={meta.metaList} />
-            <Markdown body={meta.prose} />
+            <Markdown body={meta.prose} wikis={wikiList} onOpenRef={onOpenRef} />
           </>
         ) : (
-          <Markdown body={doc.data.body} />
+          <Markdown body={doc.data.body} wikis={wikiList} onOpenRef={onOpenRef} />
         )}
       </article>
       <CollapsibleColumn
@@ -73,7 +77,9 @@ export function DocView({
         railLabel="TOC & Related Docs"
         expandedWidthClass="w-56"
         collapseBelowPx={768}
-        className="sticky top-0 max-h-screen self-start"
+        className="sticky top-0"
+        collapsedClassName="self-stretch"
+        expandedClassName="max-h-screen self-start"
         header={<span />}
       >
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-1 pb-2">

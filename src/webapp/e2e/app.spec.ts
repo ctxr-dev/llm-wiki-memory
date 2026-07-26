@@ -37,8 +37,9 @@ test("category counts exclude archived leaves", async ({ page }) => {
 
 test("open tabs show the document title, not the filename", async ({ page }) => {
   await openKafka(page);
-  const tab = page.locator('button[title="knowledge/backend/decision/architecture/kafka.md"]');
-  await expect(tab).toHaveText("Kafka choice");
+  const tab = page.locator('[draggable="true"]').filter({ hasText: "Kafka choice" });
+  await expect(tab).toBeVisible();
+  await expect(tab).not.toContainText("kafka.md");
 });
 
 test("a lone sentinel level is collapsed, so no 'Unspecified' step appears", async ({ page }) => {

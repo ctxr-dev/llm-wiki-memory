@@ -52,6 +52,15 @@ export async function listWikis(places = []) {
   const { env, context, layout } = await loadEngine();
   const resolved = context.resolveWikiContext([]);
   const homeCategories = env.withWikiRoot(resolved.brain.root, () => layout.getCategories());
+  const { canonicalRepoId, gitOriginUrl } =
+    await import("../../../scripts/lib/project-identity.mjs");
+  const canonicalFor = (/** @type {string} */ mountDir) => {
+    try {
+      return canonicalRepoId(gitOriginUrl(mountDir)) || undefined;
+    } catch {
+      return undefined;
+    }
+  };
   const wikis = [describeWiki(resolved.brain, homeCategories, "home")];
   const seen = new Set([samePathKey(resolved.brain.root)]);
   for (const place of places) {
@@ -59,7 +68,8 @@ export async function listWikis(places = []) {
     if (!fs.existsSync(path.join(place.root, ".layout", "layout.yaml"))) continue;
     try {
       const categories = env.withWikiRoot(place.root, () => layout.getCategories());
-      wikis.push(describeWiki({ ...place, ownership: "repo" }, categories, "added"));
+      const projectModule = place.projectModule || canonicalFor(place.mountDir);
+      wikis.push(describeWiki({ ...place, projectModule, ownership: "repo" }, categories, "added"));
       seen.add(samePathKey(place.root));
     } catch {
       continue;

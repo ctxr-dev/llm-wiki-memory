@@ -121,6 +121,41 @@ test("a change to expandToken force-expands a collapsed column", () => {
   expect(screen.getByText("Body content")).toBeTruthy();
 });
 
+function renderStated() {
+  return render(
+    <CollapsibleColumn
+      as="aside"
+      side="right"
+      ariaLabel="toc"
+      railLabel="TOC"
+      expandedWidthClass="w-56"
+      collapseBelowPx={768}
+      collapsedClassName="self-stretch"
+      expandedClassName="max-h-screen self-start"
+      header={<span />}
+    >
+      <div>Body content</div>
+    </CollapsibleColumn>,
+  );
+}
+
+test("applies collapsedClassName (not expandedClassName) while collapsed", () => {
+  mockMatchMedia(true);
+  const { container } = renderStated();
+  const root = container.querySelector("aside") as HTMLElement;
+  expect(root.className).toContain("self-stretch");
+  expect(root.className).not.toContain("max-h-screen");
+});
+
+test("applies expandedClassName (not collapsedClassName) while expanded", () => {
+  mockMatchMedia(false);
+  const { container } = renderStated();
+  const root = container.querySelector("aside") as HTMLElement;
+  expect(root.className).toContain("max-h-screen");
+  expect(root.className).toContain("self-start");
+  expect(root.className).not.toContain("self-stretch");
+});
+
 test("renders as the requested element for a right-side column", () => {
   mockMatchMedia(false);
   const { container } = render(

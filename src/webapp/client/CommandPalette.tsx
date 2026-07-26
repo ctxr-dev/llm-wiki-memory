@@ -4,9 +4,13 @@ import { useSearch, useWikis } from "./hooks";
 import { useDebounced } from "./useDebounced";
 import { Highlight } from "./Highlight";
 import { Button } from "./Button";
+import { resolveRef } from "./refs";
 import type { Facet, SearchResult, Wiki } from "./api";
 
-type Row = { kind: "wiki"; wiki: Wiki } | { kind: "doc"; result: SearchResult };
+type Row =
+  | { kind: "wiki"; wiki: Wiki }
+  | { kind: "doc"; result: SearchResult }
+  | { kind: "ref"; wikiId: string; docId: string; wiki?: Wiki };
 
 function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
@@ -27,6 +31,7 @@ export function CommandPalette({
   wikiId,
   onOpenDoc,
   onSwitchWiki,
+  onOpenRef,
   onClose,
   initialFilters = [],
   initialCategory = null,
@@ -34,6 +39,7 @@ export function CommandPalette({
   wikiId: string;
   onOpenDoc: (id: string) => void;
   onSwitchWiki: (id: string) => void;
+  onOpenRef?: (wikiId: string, docId: string) => void;
   onClose: () => void;
   initialFilters?: Facet[];
   initialCategory?: string | null;
@@ -52,11 +58,25 @@ export function CommandPalette({
   const wikis = useWikis();
   const constrained = filters.length > 0 || !!category;
   const showWikis = debounced.trim().length === 0 && !constrained;
+  const resolvedRef = useMemo(
+    () => (showWikis ? null : resolveRef(wikis.data ?? [], debounced)),
+    [showWikis, wikis.data, debounced],
+  );
+  const refRows: Row[] = resolvedRef
+    ? [
+        {
+          kind: "ref",
+          wikiId: resolvedRef.wikiId,
+          docId: resolvedRef.docId,
+          wiki: wikis.data?.find((wiki) => wiki.id === resolvedRef.wikiId),
+        },
+      ]
+    : [];
   const rows: Row[] = showWikis
     ? (wikis.data ?? [])
         .filter((wiki) => wiki.id !== wikiId)
         .map((wiki) => ({ kind: "wiki", wiki }))
-    : (search.data ?? []).map((result) => ({ kind: "doc", result }));
+    : [...refRows, ...(search.data ?? []).map((result) => ({ kind: "doc", result }) as Row)];
 
   useEffect(() => setSelected(0), [debounced, scope, showWikis, filterObject, category]);
 
@@ -64,7 +84,11 @@ export function CommandPalette({
     const row = rows[index];
     if (!row) return;
     if (row.kind === "wiki") onSwitchWiki(row.wiki.id);
-    else if (row.result.wikiId && row.result.wikiId !== wikiId) onSwitchWiki(row.result.wikiId);
+    else if (row.kind === "ref") {
+      if (onOpenRef) onOpenRef(row.wikiId, row.docId);
+      else if (row.wikiId !== wikiId) onSwitchWiki(row.wikiId);
+      else onOpenDoc(row.docId);
+    } else if (row.result.wikiId && row.result.wikiId !== wikiId) onSwitchWiki(row.result.wikiId);
     else onOpenDoc(row.result.id);
     onClose();
   };
@@ -111,7 +135,7 @@ export function CommandPalette({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search or jump to a wiki…"
-            className="min-w-[8rem] flex-1 px-2 py-1 text-sm outline-none"
+            className="min-w-[8rem] flex-1 bg-transparent px-2 py-1 text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
           {!showWikis && (
             <button
@@ -131,17 +155,41 @@ export function CommandPalette({
         </div>
         <ul className="min-h-0 flex-1 overflow-y-auto p-1">
           {rows.map((row, index) => (
-            <li key={row.kind === "wiki" ? `w-${row.wiki.id}` : `d-${row.result.id}`}>
+            <li
+              key={
+                row.kind === "wiki"
+                  ? `w-${row.wiki.id}`
+                  : row.kind === "ref"
+                    ? `r-${row.wikiId}-${row.docId}`
+                    : `d-${row.result.id}`
+              }
+            >
               <button
                 onMouseEnter={() => setSelected(index)}
                 onClick={() => choose(index)}
                 className={`block w-full cursor-pointer rounded px-2 py-1.5 text-left text-sm ${
-                  index === selected ? "bg-slate-100 dark:bg-slate-800" : ""
+                  row.kind === "ref"
+                    ? "bg-emerald-50 dark:bg-emerald-950/40"
+                    : index === selected
+                      ? "bg-slate-100 dark:bg-slate-800"
+                      : ""
                 }`}
               >
                 {row.kind === "wiki" ? (
                   <span>
                     Switch to <b>{row.wiki.label}</b>
+                  </span>
+                ) : row.kind === "ref" ? (
+                  <span className="flex items-center gap-2">
+                    <span className="rounded bg-emerald-600 px-1.5 py-0.5 text-xs font-medium text-white">
+                      Reference
+                    </span>
+                    <span className="font-medium">{row.docId}</span>
+                    {row.wiki && (
+                      <span className="text-xs text-slate-400 dark:text-slate-500">
+                        {row.wiki.label}
+                      </span>
+                    )}
                   </span>
                 ) : (
                   <span className="block">

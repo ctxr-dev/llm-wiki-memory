@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS places (
   root TEXT PRIMARY KEY,
   mount_dir TEXT NOT NULL,
   label TEXT,
+  project_module TEXT,
   added_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS doc_stats (
@@ -28,7 +29,7 @@ CREATE TABLE IF NOT EXISTS prefs (
 `;
 
 /**
- * @typedef {{ root: string, mountDir: string, label: string | null }} Place
+ * @typedef {{ root: string, mountDir: string, label: string | null, projectModule: string | null }} Place
  * @typedef {ReturnType<typeof openAppDb>} AppDb
  */
 
@@ -42,13 +43,23 @@ export function openAppDb(dbPath = DEFAULT_DB_PATH, { now = () => Date.now() } =
   db.pragma("journal_mode = WAL");
   db.pragma("busy_timeout = 5000");
   db.exec(SCHEMA);
+  const placeCols = /** @type {{ name: string }[]} */ (
+    db.prepare("PRAGMA table_info(places)").all()
+  );
+  if (!placeCols.some((col) => col.name === "project_module")) {
+    db.exec("ALTER TABLE places ADD COLUMN project_module TEXT");
+  }
 
   const insertPlace = db.prepare(
-    "INSERT INTO places(root, mount_dir, label, added_at) VALUES (@root, @mountDir, @label, @addedAt) " +
-      "ON CONFLICT(root) DO UPDATE SET mount_dir = excluded.mount_dir, label = COALESCE(excluded.label, label)",
+    "INSERT INTO places(root, mount_dir, label, project_module, added_at) " +
+      "VALUES (@root, @mountDir, @label, @projectModule, @addedAt) " +
+      "ON CONFLICT(root) DO UPDATE SET mount_dir = excluded.mount_dir, " +
+      "label = COALESCE(excluded.label, label), " +
+      "project_module = COALESCE(excluded.project_module, project_module)",
   );
   const selectPlaces = db.prepare(
-    "SELECT root, mount_dir AS mountDir, label FROM places ORDER BY added_at ASC, root ASC",
+    "SELECT root, mount_dir AS mountDir, label, project_module AS projectModule " +
+      "FROM places ORDER BY added_at ASC, root ASC",
   );
   const deletePlace = db.prepare("DELETE FROM places WHERE root = ?");
   const upsertPref = db.prepare(
@@ -65,12 +76,13 @@ export function openAppDb(dbPath = DEFAULT_DB_PATH, { now = () => Date.now() } =
   );
 
   return {
-    /** @param {{ root: string, mountDir: string, label?: string | null }} place */
+    /** @param {{ root: string, mountDir: string, label?: string | null, projectModule?: string | null }} place */
     addPlace: (place) =>
       insertPlace.run({
         root: place.root,
         mountDir: place.mountDir,
         label: place.label ?? null,
+        projectModule: place.projectModule ?? null,
         addedAt: now(),
       }),
     /** @returns {Place[]} */

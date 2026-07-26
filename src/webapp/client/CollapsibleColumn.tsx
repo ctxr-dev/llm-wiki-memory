@@ -48,6 +48,8 @@ export function CollapsibleColumn({
   expandedWidthClass,
   collapseBelowPx,
   className = "",
+  collapsedClassName = "",
+  expandedClassName = "",
   expandToken,
   header,
   children,
@@ -60,6 +62,8 @@ export function CollapsibleColumn({
   expandedWidthClass: string;
   collapseBelowPx: number;
   className?: string;
+  collapsedClassName?: string;
+  expandedClassName?: string;
   expandToken?: number;
   header: ReactNode;
   children: ReactNode;
@@ -99,7 +103,7 @@ export function CollapsibleColumn({
       aria-label={ariaLabel}
       className={`flex shrink-0 flex-col overflow-hidden border-slate-200 transition-[width] duration-200 ease-in-out dark:border-slate-700 ${borderClass} ${
         collapsed ? "w-10" : expandedWidthClass
-      } ${className}`}
+      } ${className} ${collapsed ? collapsedClassName : expandedClassName}`}
     >
       {collapsed ? (
         <button
