@@ -8,7 +8,7 @@ import { defangFenceMarkers } from "../lib/fence.mjs";
 /**
  * @typedef {Object} HookInput
  * @property {{ plan?: unknown }} [tool_input]
- * @property {{ approved?: boolean }} [tool_response]
+ * @property {unknown} [tool_response] prose string, content blocks, or a legacy `{approved}` flag
  * @property {string} [transcript_path]
  */
 
@@ -147,13 +147,73 @@ export function resolvePlanBody(hookInput) {
   return planFromToolInput(hookInput) ?? planFromScratchDir() ?? planFromTranscript(hookInput);
 }
 
+const PLAN_APPROVED_RE = /\buser has approved your plan\b/i;
+const PLAN_REJECTED_RE =
+  /tool use was rejected|does(?:n't| not) want to proceed|user (?:rejected|declined)/i;
+
+/**
+ * Flatten a hook `tool_response` to text. Claude Code has sent it as a bare
+ * string, as `{ content }`, and as content blocks, so accept all three.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function responseText(value) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(responseText).join("\n");
+  if (value && typeof value === "object") {
+    const o = /** @type {Record<string, unknown>} */ (value);
+    if (typeof o.content === "string") return o.content;
+    if (Array.isArray(o.content)) return responseText(o.content);
+    if (typeof o.text === "string") return o.text;
+  }
+  return "";
+}
+
+/**
+ * Whether the user approved the plan. Claude Code reports the outcome as PROSE
+ * ("User has approved your plan…" / "The tool use was rejected…"), NOT as a flag,
+ * so the original strict `approved === true` test skipped every real plan and the
+ * hook captured nothing. A rejection is decisive; the boolean is still honoured so
+ * a structured caller (and the existing tests) keep working.
+ * @param {unknown} toolResponse
+ * @returns {boolean}
+ */
+export function planApproved(toolResponse) {
+  if (toolResponse && typeof toolResponse === "object" && !Array.isArray(toolResponse)) {
+    const flag = /** @type {Record<string, unknown>} */ (toolResponse).approved;
+    if (flag === true) return true;
+    if (flag === false) return false;
+  }
+  const text = responseText(toolResponse);
+  if (!text || PLAN_REJECTED_RE.test(text)) return false;
+  return PLAN_APPROVED_RE.test(text);
+}
+
+/**
+ * A short, non-sensitive description of what arrived, so a skip is diagnosable
+ * from the log without dumping the plan body.
+ * @param {unknown} toolResponse
+ * @returns {string}
+ */
+export function describeToolResponse(toolResponse) {
+  if (toolResponse === undefined) return "tool_response absent";
+  if (toolResponse === null) return "tool_response null";
+  if (typeof toolResponse === "string") {
+    return `string(${toolResponse.length}) ${JSON.stringify(toolResponse.slice(0, 60))}`;
+  }
+  if (Array.isArray(toolResponse)) return `array(${toolResponse.length})`;
+  if (typeof toolResponse === "object") {
+    return `object keys=[${Object.keys(toolResponse).join(",")}]`;
+  }
+  return typeof toolResponse;
+}
+
 /**
  * @param {HookInput} hookInput
  * @param {{ maxBytes?: number }} [opts]
  */
 export function planDocSpec(hookInput, { maxBytes = DEFAULT_MAX_PLAN_BYTES } = {}) {
-  const tool_response = hookInput?.tool_response ?? {};
-  if (tool_response.approved !== true) return { skip: "not-approved" };
+  if (!planApproved(hookInput?.tool_response)) return { skip: "not-approved" };
   const raw = resolvePlanBody(hookInput);
   if (raw == null) return { skip: "empty-plan" };
   // Coercing { foo: 1 } would yield "[object Object]" garbage; skip cleanly.

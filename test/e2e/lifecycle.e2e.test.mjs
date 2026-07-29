@@ -207,9 +207,13 @@ test("4. save_to_dataset upserts knowledge/plans/investigations", () => {
 });
 
 test("4b. ExitPlanMode hook captures an approved plan into plans/", () => {
+  // The tool_response must be the PROSE Claude Code actually sends. This test
+  // previously used an invented `{approved:true}` object, so it passed while the
+  // hook skipped every real plan as "not-approved" and captured nothing.
   const hookInput = JSON.stringify({
     tool_input: { plan: "# Ship the widget\n\nStep 1. Do the thing." },
-    tool_response: { approved: true },
+    tool_response:
+      "User has approved your plan. You can now start coding. Start with updating your todo list if applicable",
   });
   const r = runScript("scripts/hooks/exit-plan-mode.mjs", [], { stdin: hookInput });
   assert.equal(r.status, 0, `exit-plan-mode exit 0: ${r.stderr}`);

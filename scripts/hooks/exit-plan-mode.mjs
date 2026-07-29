@@ -8,11 +8,13 @@ import { withBrainContextSafe } from "../lib/wiki-context.mjs";
 import { hookExitPlanModeDisable, hookExitPlanModeMaxBytes } from "../lib/settings.mjs";
 import {
   DEFAULT_MAX_PLAN_BYTES,
+  describeToolResponse,
   extractTitle,
   fencePlanBody,
   planDocSpec,
   resolvePlanBody,
 } from "./exit-plan-mode-spec.mjs";
+import { logBreadcrumb } from "./flush-state.mjs";
 
 // Pure plan-body resolution + doc-spec building live in ./exit-plan-mode-spec.mjs.
 // Re-exported here so the module's public surface is unchanged for importers/tests.
@@ -64,7 +66,13 @@ async function main() {
   const maxBytes = hookExitPlanModeMaxBytes() || DEFAULT_MAX_PLAN_BYTES;
   const hookInput = /** @type {HookInput} */ (parseJsonMaybe(readStdin()) || {});
   const spec = planDocSpec(hookInput, { maxBytes });
-  if (spec.skip) throw new SkipPlanCapture(spec.skip);
+  if (spec.skip) {
+    // stderr alone is invisible in Claude Code, which is how a silent
+    // "not-approved" skip went unnoticed and lost every captured plan.
+    throw new SkipPlanCapture(
+      `${spec.skip} [${describeToolResponse(hookInput?.tool_response)}]`,
+    );
+  }
 
   // Refuse cleanly if the wiki hasn't been materialised yet.
   const wiki = wikiRoot();
@@ -116,10 +124,11 @@ async function main() {
     }
 
     const note = notes.length ? ` (${notes.join("; ")})` : "";
-    console.error(
-      `exit-plan-mode.mjs: wrote ${spec.name} to ${spec.datasetSlot}` +
-        `${lifecycleStatus ? ` [status=${lifecycleStatus}]` : ""}${note}`,
-    );
+    const outcome =
+      `exit-plan-mode: captured ${spec.name} -> ${spec.datasetSlot}` +
+      `${lifecycleStatus ? ` [status=${lifecycleStatus}]` : ""}${note}`;
+    logBreadcrumb(outcome);
+    console.error(`exit-plan-mode.mjs: ${outcome}`);
   } catch (err) {
     if (err instanceof WikiStoreUnavailable) {
       throw new SkipPlanCapture(`wiki store unavailable: ${err.message || err}`);
@@ -152,12 +161,13 @@ if (invokedAsCli) {
     await withBrainContextSafe(() => main());
   } catch (err) {
     if (err instanceof SkipPlanCapture) {
+      logBreadcrumb(`exit-plan-mode: skipped (${err.message})`);
       console.error(`exit-plan-mode.mjs: skipped (${err.message})`);
       process.exit(0);
     }
-    console.error(
-      `exit-plan-mode.mjs: failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    const reason = err instanceof Error ? err.message : String(err);
+    logBreadcrumb(`exit-plan-mode: FAILED ${reason}`);
+    console.error(`exit-plan-mode.mjs: failed: ${reason}`);
     // Hooks must NEVER block the agent. Exit 0 even on unexpected
     // errors; the stderr message is the breadcrumb for diagnosis.
     process.exit(0);
