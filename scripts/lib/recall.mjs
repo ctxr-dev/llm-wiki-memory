@@ -1,6 +1,7 @@
 import { defaultProjectModule } from "./env.mjs";
 import { recallScoreThreshold, recallPriorityBand } from "./settings.mjs";
 import { searchMemoryFiltered, saveDocument, rerankWithinBands } from "./wiki-store.mjs";
+import { defaultColdBudget } from "./embed-chunk.mjs";
 import { lessonDocName } from "./slug.mjs";
 
 // searchMemory lives in recall-search.mjs (the cross-category search door);
@@ -78,7 +79,7 @@ export async function recallLessons({
   const limit = maxResults || 5;
   const withGlance = Array.isArray(sections) && sections.includes("frontmatter");
   // Caller-supplied threshold wins; otherwise fall back to the configured
-  // floor (settings.recall.scoreThreshold, default 0.05 — a small floor that
+  // floor (settings.recall.scoreThreshold, default 0.12 — a small floor that
   // drops noise-level matches without over-pruning). Before this the setting was
   // dead config — wired into the loader, template, and migrator but read nowhere.
   const threshold = scoreThreshold ?? recallScoreThreshold();
@@ -119,10 +120,14 @@ export async function recallLessons({
   const seen = new Set();
   const lessonHits = [];
   const ladderUsed = [];
+  // One ledger for the whole recall: rungs + the knowledge cross-ref share the
+  // cold-embed bound instead of each resetting it.
+  const coldBudget = defaultColdBudget();
   for (let rungIdx = 0; rungIdx < ladder.length; rungIdx += 1) {
     const filters = ladder[rungIdx];
     const { records } = /** @type {{ records: SearchHit[] }} */ (
       await searchMemoryFiltered({
+        coldBudget,
         query,
         datasetId: "self_improvement",
         filters,
@@ -168,6 +173,7 @@ export async function recallLessons({
     for (const t of KNOWLEDGE_CROSSREF_ATOM_TYPES) {
       const { records } = /** @type {{ records: SearchHit[] }} */ (
         await searchMemoryFiltered({
+          coldBudget,
           query,
           datasetId: "knowledge",
           filters: { atom_type: t, project_module: effectiveProjectModule },

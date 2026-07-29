@@ -29,14 +29,14 @@ consolidate:
   # Cadence (days) for the throttled consolidate orchestrator. 0/off disables.
   intervalDays: 1
   # Cosine threshold above which a cluster pair counts as a dedup candidate.
-  cosineThreshold: 0.97
+  cosineThreshold: 0.975
   # Same threshold when the embedding backend has fallen back to the lexical
   # hash scorer — scores inflate, so we need a tighter cut to avoid false
   # positives.
   cosineLexicalThreshold: 0.995
   # Per-leaf cluster scope.
   clusterTopK: 12
-  clusterScoreThreshold: 0.75
+  clusterScoreThreshold: 0.7
   # Optional LLM-only "merge band": when set (valid range [0.8, cosineThreshold)),
   # cluster pairs scoring at/above this floor but BELOW cosineThreshold are
   # flagged as band candidates. Band candidates are acted on ONLY by the LLM
@@ -101,10 +101,23 @@ hook:
   exitPlanModeMaxBytes: 256000
 
 embed:
-  # transformers (default, on-device bge-large) | lexical (no model download).
+  # transformers (default, on-device EmbeddingGemma) | lexical (no model download).
   backend: transformers
-  model: Xenova/bge-large-en-v1.5
-  # Length-aware recall: a note longer than the model's ~512-token window is
+  # Google EmbeddingGemma-300m (768-dim, 2048-token window, q4 ~197MB). Retrieval
+  # prompts are applied automatically. See the README model table for alternatives
+  # (e.g. Xenova/bge-large-en-v1.5, the previous default).
+  model: onnx-community/embeddinggemma-300m-ONNX
+  # Quantization: "" resolves per model family (EmbeddingGemma: q4, BERT-family: q8).
+  dtype: ""
+  # onnxruntime intra-op threads per forward pass; 0 = ORT default (all cores).
+  # 2 keeps a background warm near 200% CPU so the machine stays usable.
+  threads: 2
+  # Most leaves ONE search/recall may cold-embed before it gives up and leaves the
+  # rest to the background warm — bounds worst-case latency on a cold cache.
+  # Skipped leaves rank last for that one read and stay queued for the warm.
+  # 0 = unlimited.
+  maxColdPerRead: 32
+  # Length-aware recall: a note longer than the model's token window is
   # split into <=maxChunks pieces and scored by its best piece minus
   # penalty*(pieces-1). Recall-only; short notes and consolidate are unchanged.
   #
@@ -125,7 +138,7 @@ recall:
   # A small relevance FLOOR: hits below this cosine are dropped before ranking, so
   # noise-level matches (from any tree) can't be depth-boosted above a strong hit or
   # crowd the results. 0 keeps every hit; tune per embedding backend.
-  scoreThreshold: 0.05
+  scoreThreshold: 0.12
   # Cosine proximity within which `priority` (P0/P1/P2) breaks ties at recall.
   # Relevance stays dominant: a hit more than this far below the band leader keeps
   # its cosine rank; only near-equally-relevant hits are ordered P0 > P1 > P2.

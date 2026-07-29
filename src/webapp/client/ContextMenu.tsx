@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 
 export const contextMenuItemClass =
-  "block w-full cursor-pointer px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700";
+  "flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700";
 
 export function ContextMenu({
   x,

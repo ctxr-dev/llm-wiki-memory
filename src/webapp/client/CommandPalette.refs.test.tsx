@@ -27,6 +27,7 @@ const RESULT = {
   category: "knowledge",
   score: 0.9,
   snippet: "kafka",
+  active: true,
 };
 
 const homeWiki = {

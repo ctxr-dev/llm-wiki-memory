@@ -8,6 +8,11 @@ function firstString(value) {
   return typeof scalar === "string" ? scalar : undefined;
 }
 
+/** @param {unknown} value @returns {boolean} */
+function truthy(value) {
+  return value === "1" || value === "true";
+}
+
 /** @param {Record<string, unknown>} query */
 function filtersFrom(query) {
   const parsed = SearchFilterSchema.safeParse({
@@ -40,7 +45,11 @@ export function registerSearchRoutes(app, db) {
       reply.code(404);
       return { error: "no-such-wiki" };
     }
-    const opts = { filters: filtersFrom(query), category: query.category };
+    const opts = {
+      filters: filtersFrom(query),
+      category: query.category,
+      includeArchived: truthy(query.archived),
+    };
     if (query.scope === "all") {
       const wikis = await listWikis(db.listPlaces());
       return { results: await searchAll(wikis, query.q ?? "", opts) };
@@ -50,12 +59,12 @@ export function registerSearchRoutes(app, db) {
 
   app.get("/api/wikis/:id/ask", async (request, reply) => {
     const { id } = /** @type {{ id: string }} */ (request.params);
-    const query = /** @type {{ q?: string }} */ (request.query);
+    const query = /** @type {{ q?: string, archived?: string }} */ (request.query);
     const root = await rootFor(id);
     if (!root) {
       reply.code(404);
       return { error: "no-such-wiki" };
     }
-    return ask(root, query.q ?? "");
+    return ask(root, query.q ?? "", { includeArchived: truthy(query.archived) });
   });
 }

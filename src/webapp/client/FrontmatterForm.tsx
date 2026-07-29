@@ -1,34 +1,31 @@
 import type { ReactNode } from "react";
-import type { MemoryInput } from "./api";
+import type { FacetsResponse, MemoryInput } from "./api";
+import { Select } from "./Select";
+import { Combobox } from "./Combobox";
+import { TagInput } from "./TagInput";
+import { FieldLabel } from "./FieldLabel";
+import { PriorityBadge } from "./PriorityBadge";
+import {
+  ATOM_TYPES,
+  TASK_TYPES,
+  PRIORITY_ORDER,
+  PRIORITY_META,
+  humanizeValue,
+  type Priority,
+} from "./facets";
 
-const ATOM_TYPES = [
-  "decision",
-  "bug-root-cause",
-  "feedback-rule",
-  "project-lore",
-  "reference",
-  "pattern-gotcha",
-  "self-improvement-lesson",
-  "plan",
-];
-const TASK_TYPES = [
-  "planning",
-  "implementation",
-  "debugging",
-  "refactor",
-  "review",
-  "deploy",
-  "docs",
-  "unknown",
-];
-const PRIORITIES = ["P0", "P1", "P2"];
+function priorityValue(value: string) {
+  return <PriorityBadge priority={value} />;
+}
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function priorityOption(value: string) {
   return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</span>
-      {children}
-    </label>
+    <span className="flex items-start gap-2">
+      <PriorityBadge priority={value} className="mt-0.5 shrink-0" />
+      <span className="whitespace-normal text-slate-500 dark:text-slate-400">
+        {PRIORITY_META[value as Priority]?.explanation}
+      </span>
+    </span>
   );
 }
 
@@ -36,60 +33,72 @@ export function FrontmatterForm({
   category,
   memory,
   onChange,
+  facets,
 }: {
   category: string;
   memory: MemoryInput;
   onChange: (memory: MemoryInput) => void;
+  facets?: FacetsResponse;
 }) {
+  const meta = facets?.meta ?? {};
   const get = (key: string) => (typeof memory[key] === "string" ? (memory[key] as string) : "");
-  const subject = Array.isArray(memory.subject) ? (memory.subject as string[]).join(", ") : "";
+  const subject = Array.isArray(memory.subject) ? (memory.subject as string[]) : [];
   const set = (key: string, value: unknown) => onChange({ ...memory, [key]: value });
-  const input = "rounded border border-slate-200 dark:border-slate-700 px-2 py-1 text-sm";
 
-  const select = (key: string, options: string[]) => (
-    <select
-      value={get(key)}
-      onChange={(event) => set(key, event.target.value || undefined)}
-      className={input}
-    >
-      <option value="">—</option>
-      {options.map((option) => (
-        <option key={option} value={option}>
-          {option}
-        </option>
-      ))}
-    </select>
+  const fieldId = (key: string) => `fm-${key}`;
+  const label = (key: string) => (
+    <FieldLabel facet={key} htmlFor={fieldId(key)} description={meta[key]?.description} />
+  );
+
+  const selectField = (
+    key: string,
+    options: string[],
+    render?: {
+      valueLabel?: (value: string) => ReactNode;
+      optionLabel?: (value: string) => ReactNode;
+    },
+  ) => (
+    <div className="flex flex-col gap-1">
+      {label(key)}
+      <Select
+        id={fieldId(key)}
+        value={get(key)}
+        options={options}
+        valueLabel={render?.valueLabel ?? humanizeValue}
+        optionLabel={render?.optionLabel ?? humanizeValue}
+        onChange={(value) => set(key, value || undefined)}
+      />
+    </div>
   );
 
   return (
     <div className="grid grid-cols-2 gap-3 rounded border border-slate-200 dark:border-slate-700 p-3 lg:grid-cols-3">
-      <Field label="area">
-        <input
+      <div className="flex flex-col gap-1">
+        {label("area")}
+        <Combobox
+          id={fieldId("area")}
           value={get("area")}
-          onChange={(e) => set("area", e.target.value || undefined)}
-          className={input}
+          options={facets?.areas ?? []}
+          labelFor={humanizeValue}
+          onChange={(value) => set("area", value || undefined)}
         />
-      </Field>
-      <Field label="atom_type">{select("atom_type", ATOM_TYPES)}</Field>
-      {category === "self_improvement" && (
-        <Field label="task_type">{select("task_type", TASK_TYPES)}</Field>
-      )}
-      <Field label="priority">{select("priority", PRIORITIES)}</Field>
-      <Field label="subject (comma-separated)">
-        <input
+      </div>
+      {selectField("atom_type", ATOM_TYPES)}
+      {category === "self_improvement" && selectField("task_type", TASK_TYPES)}
+      {selectField("priority", PRIORITY_ORDER, {
+        valueLabel: priorityValue,
+        optionLabel: priorityOption,
+      })}
+      <div className="flex flex-col gap-1">
+        {label("subject")}
+        <TagInput
+          id={fieldId("subject")}
           value={subject}
-          onChange={(e) =>
-            set(
-              "subject",
-              e.target.value
-                .split(",")
-                .map((part) => part.trim())
-                .filter(Boolean),
-            )
-          }
-          className={input}
+          options={facets?.subjects ?? []}
+          labelFor={humanizeValue}
+          onChange={(value) => set("subject", value)}
         />
-      </Field>
+      </div>
     </div>
   );
 }

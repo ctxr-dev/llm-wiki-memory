@@ -26,14 +26,14 @@ export function coerceSections(sections) {
   const { consolidate, flush, hook, embed, recall, compile, gc, quality, gate, wiki } = sections;
 
   consolidate.intervalDays = coerceNonNeg(consolidate.intervalDays, 1);
-  consolidate.cosineThreshold = coerceFloat01(consolidate.cosineThreshold, 0.97);
+  consolidate.cosineThreshold = coerceFloat01(consolidate.cosineThreshold, 0.975);
   consolidate.cosineLexicalThreshold = coerceFloat01(consolidate.cosineLexicalThreshold, 0.995);
   consolidate.cosineBandFloor = coerceBandFloor(
     consolidate.cosineBandFloor,
     consolidate.cosineThreshold,
   );
   consolidate.clusterTopK = coercePos(consolidate.clusterTopK, 12);
-  consolidate.clusterScoreThreshold = coerceFloat01(consolidate.clusterScoreThreshold, 0.75);
+  consolidate.clusterScoreThreshold = coerceFloat01(consolidate.clusterScoreThreshold, 0.7);
   consolidate.orphanTtlDays = coercePos(consolidate.orphanTtlDays, 365);
   consolidate.staleAfterMonths = coercePos(consolidate.staleAfterMonths, 6);
   consolidate.archiveBodyMax = coercePos(consolidate.archiveBodyMax, 1200);
@@ -66,6 +66,9 @@ export function coerceSections(sections) {
 
   if (typeof embed.backend !== "string") embed.backend = "transformers";
   if (typeof embed.model !== "string") embed.model = DEFAULT_EMBED_MODEL;
+  if (typeof embed.dtype !== "string") embed.dtype = "";
+  embed.threads = coerceNonNeg(embed.threads, 2);
+  embed.maxColdPerRead = coerceNonNeg(embed.maxColdPerRead, 32);
   if (typeof embed.chunk !== "object" || embed.chunk === null)
     embed.chunk = /** @type {import("./settings-defaults.mjs").EmbedChunkSection} */ ({});
   embed.chunk.enabled = coerceBool(embed.chunk.enabled, true);
@@ -75,7 +78,7 @@ export function coerceSections(sections) {
   // coerceFloat01 (not coercePos): 0 is the intended default and must survive.
   embed.chunk.fullPenalty = coerceFloat01(embed.chunk.fullPenalty, 0);
 
-  recall.scoreThreshold = coerceFloat01(recall.scoreThreshold, 0.05);
+  recall.scoreThreshold = coerceFloat01(recall.scoreThreshold, 0.12);
   recall.priorityBand = coerceFloat01(recall.priorityBand, 0.05);
   recall.recentActivityDays = coerceNonNeg(recall.recentActivityDays, 3);
   recall.planContextMax = coerceNonNeg(recall.planContextMax, 2);

@@ -25,6 +25,12 @@ function seed(wiki) {
     "knowledge/frontend/decision/architecture/react.md",
     "The UI is built with React and Vite components.",
   );
+  const archived = path.join(wiki, "knowledge", "backend", "decision", "observability", "grafana.md");
+  fs.mkdirSync(path.dirname(archived), { recursive: true });
+  fs.writeFileSync(
+    archived,
+    `---\nfocus: grafana\nmemory:\n  atom_type: decision\n  area: backend\n  priority: P0\n  status: archived\n---\nGrafana dashboards for observability metrics and tracing.\n`,
+  );
 }
 
 let app;
@@ -63,6 +69,28 @@ test("search ranks the matching doc first and returns a snippet + score", async 
   expect(results[0].location).toBe("Knowledge › Backend › Decision › Architecture");
   expect(results[0].snippet).toContain("Kafka");
   expect(typeof results[0].score).toBe("number");
+  expect(results[0].active).toBe(true);
+  expect(results[0].priority).toBe("P1");
+});
+
+test("search excludes archived leaves by default", async () => {
+  const res = await app.inject({
+    method: "GET",
+    url: `/api/wikis/${id}/search?q=${encodeURIComponent("grafana observability dashboards tracing")}`,
+  });
+  const names = res.json().results.map((r) => r.name);
+  expect(names).not.toContain("grafana.md");
+});
+
+test("search includes archived leaves with ?archived=1 and marks them active:false", async () => {
+  const res = await app.inject({
+    method: "GET",
+    url: `/api/wikis/${id}/search?q=${encodeURIComponent("grafana observability dashboards tracing")}&archived=1`,
+  });
+  const hit = res.json().results.find((r) => r.name === "grafana.md");
+  expect(hit).toBeTruthy();
+  expect(hit.active).toBe(false);
+  expect(hit.priority).toBe("P0");
 });
 
 test("a search snippet is centered on the matched term", async () => {

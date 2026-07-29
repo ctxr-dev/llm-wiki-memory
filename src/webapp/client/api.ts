@@ -3,6 +3,7 @@ import {
   WikiListSchema,
   WikiSchema,
   NavCategoriesSchema,
+  FacetsResponseSchema,
   NavChildrenSchema,
   DocListSchema,
   DocViewSchema,
@@ -32,11 +33,13 @@ export type EditResult = z.infer<typeof EditResultSchema>;
 export type PlansBoard = z.infer<typeof PlansBoardSchema>;
 export type IssuesBoard = z.infer<typeof IssuesBoardSchema>;
 export type MemoryInput = Record<string, unknown>;
+export type FacetsResponse = z.infer<typeof FacetsResponseSchema>;
 export type Facet = { key: string; value: string };
 export type SearchArgs = {
   scope: "wiki" | "all";
   filters?: Record<string, string>;
   category?: string | null;
+  archived?: boolean;
 };
 export type CreateInput = {
   category: string;
@@ -93,14 +96,17 @@ export const api = {
     if (!response.ok) throw new Error(String(body?.error ?? `error-${response.status}`));
     return PickFolderResponse.parse(body).path;
   },
-  nav: (id: string) =>
-    getJson(`/api/wikis/${id}/nav`, NavCategoriesSchema).then((r) => r.categories),
+  nav: (id: string, archived: boolean) =>
+    getJson(`/api/wikis/${id}/nav${archived ? "?archived=1" : ""}`, NavCategoriesSchema).then(
+      (r) => r.categories,
+    ),
+  facets: (id: string) => getJson(`/api/wikis/${id}/facets`, FacetsResponseSchema),
   navChildren: (id: string, category: string, path: string, archived: boolean) =>
     getJson(
       `/api/wikis/${id}/nav/${category}?path=${encodeURIComponent(path)}${flag(archived)}`,
       NavChildrenSchema,
     ),
-  titles: (id: string, ids: string[]): Promise<Record<string, string>> =>
+  titles: (id: string, ids: string[]): Promise<Record<string, { title: string; active: boolean }>> =>
     ids.length === 0
       ? Promise.resolve({})
       : getJson(
@@ -108,12 +114,16 @@ export const api = {
           TitlesSchema,
         ).then((r) => r.titles),
   doc: (id: string, docId: string) => getJson(`/api/wikis/${id}/doc/${docId}`, DocViewSchema),
-  related: (id: string, docId: string) =>
-    getJson(`/api/wikis/${id}/related/${docId}`, RelatedListSchema).then((r) => r.related),
+  related: (id: string, docId: string, archived: boolean) =>
+    getJson(
+      `/api/wikis/${id}/related/${docId}${archived ? "?archived=1" : ""}`,
+      RelatedListSchema,
+    ).then((r) => r.related),
   search: (id: string, q: string, args: SearchArgs) => {
     const params = new URLSearchParams({ q });
     if (args.scope === "all") params.set("scope", "all");
     if (args.category) params.set("category", args.category);
+    if (args.archived) params.set("archived", "1");
     for (const [key, value] of Object.entries(args.filters ?? {})) {
       if (value) params.set(key, value);
     }
@@ -121,8 +131,11 @@ export const api = {
       (r) => r.results,
     );
   },
-  ask: (id: string, q: string) =>
-    getJson(`/api/wikis/${id}/ask?q=${encodeURIComponent(q)}`, AskResponseSchema),
+  ask: (id: string, q: string, archived: boolean) =>
+    getJson(
+      `/api/wikis/${id}/ask?q=${encodeURIComponent(q)}${archived ? "&archived=1" : ""}`,
+      AskResponseSchema,
+    ),
   editDoc: (
     id: string,
     docId: string,
@@ -130,6 +143,8 @@ export const api = {
   ) => sendJson(`/api/wikis/${id}/doc/${docId}`, "PUT", payload, EditResultSchema),
   archiveDoc: (id: string, docId: string, archive: boolean) =>
     sendJson(`/api/wikis/${id}/archive/${docId}`, "POST", { archive }, EditResultSchema),
+  deleteDoc: (id: string, docId: string) =>
+    sendJson(`/api/wikis/${id}/doc/${docId}`, "DELETE", {}, EditResultSchema),
   createDoc: (id: string, payload: CreateInput) =>
     sendJson(`/api/wikis/${id}/create`, "POST", payload, EditResultSchema),
   plans: (id: string) => getJson(`/api/wikis/${id}/plans`, PlansBoardSchema),

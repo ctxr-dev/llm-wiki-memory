@@ -1,5 +1,7 @@
 import { settings } from "./settings.mjs";
 
+export const DEFAULT_MAX_COLD_PER_READ = 32;
+
 // Convenience helpers (mirror the OLD env.mjs API so the call-site refactor
 // is one-line per call). Each just reads from settings().<section>.<key>.
 
@@ -107,6 +109,20 @@ export function embedBackend() {
 }
 export function embedModel() {
   return settings().embed.model;
+}
+export function embedDtype() {
+  return settings().embed.dtype;
+}
+export function embedThreads() {
+  return settings().embed.threads;
+}
+// Only a literal 0 means "no bound". Anything malformed falls back to the default
+// rather than to Infinity — failing OPEN here would silently remove the very
+// protection that keeps one request from cold-embedding a whole corpus.
+export function embedMaxColdPerRead() {
+  const configured = settings().embed.maxColdPerRead;
+  if (configured === 0) return Infinity;
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_MAX_COLD_PER_READ;
 }
 /** @returns {import("./settings-defaults.mjs").EmbedChunkSection} */
 export function embedChunk() {

@@ -48,6 +48,7 @@ export function HoverCard({
       onMouseLeave={close}
       onFocus={open}
       onBlur={close}
+      onContextMenu={close}
     >
       {children}
       {position !== null &&

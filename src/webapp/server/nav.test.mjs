@@ -60,6 +60,20 @@ test("GET /nav lists categories with layout facets and total counts", async () =
   );
 });
 
+test("GET /nav?archived=1 counts archived leaves in the category total", async () => {
+  const { categories } = (
+    await app.inject({ method: "GET", url: `/api/wikis/${id}/nav?archived=1` })
+  ).json();
+  const knowledge = categories.find((c) => c.category === "knowledge");
+  expect(knowledge.count).toBe(5);
+});
+
+test("GET /nav/:category?archived=1 counts archived leaves in the subtree dir counts", async () => {
+  const res = await app.inject({ method: "GET", url: `/api/wikis/${id}/nav/knowledge?archived=1` });
+  const byName = Object.fromEntries(res.json().dirs.map((d) => [d.name, d]));
+  expect(byName.frontend.count).toBe(1);
+});
+
 test("GET /nav/:category drills one level, counts subtrees, relabels sentinels", async () => {
   const res = await app.inject({ method: "GET", url: `/api/wikis/${id}/nav/knowledge` });
   const { dirs, docs } = res.json();
@@ -144,17 +158,19 @@ test("GET /docs refuses a traversal category instead of walking the filesystem",
   expect(res.json().documents).toEqual([]);
 });
 
-test("GET /titles resolves human titles for a set of doc ids, filenames as fallback", async () => {
+test("GET /titles resolves human titles + active flags, filenames as fallback", async () => {
   const alpha = "knowledge/backend/decision/architecture/alpha.md";
   const beta = "knowledge/backend/decision/architecture/beta.md";
+  const archived = "knowledge/frontend/reference/tooling/delta.md";
   const res = await app.inject({
     method: "GET",
-    url: `/api/wikis/${id}/titles?ids=${encodeURIComponent(`${alpha},${beta}`)}`,
+    url: `/api/wikis/${id}/titles?ids=${encodeURIComponent(`${alpha},${beta},${archived}`)}`,
   });
   expect(res.statusCode).toBe(200);
   const { titles } = res.json();
-  expect(titles[alpha]).toBe("Alpha Decision");
-  expect(titles[beta]).toBe("beta.md");
+  expect(titles[alpha]).toEqual({ title: "Alpha Decision", active: true });
+  expect(titles[beta].title).toBe("beta.md");
+  expect(titles[archived].active).toBe(false);
 });
 
 test("GET /titles refuses a path-traversal id (returns the basename, never escapes the wiki)", async () => {
@@ -164,7 +180,7 @@ test("GET /titles refuses a path-traversal id (returns the basename, never escap
     url: `/api/wikis/${id}/titles?ids=${encodeURIComponent(evil)}`,
   });
   expect(res.statusCode).toBe(200);
-  expect(res.json().titles[evil]).toBe("hosts");
+  expect(res.json().titles[evil].title).toBe("hosts");
 });
 
 test("an unknown wiki id is a 404", async () => {

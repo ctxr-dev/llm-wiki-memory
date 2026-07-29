@@ -60,7 +60,7 @@ export const KNOWN_PROVIDERS = [
 // The canonical default ships in templates/settings.yaml; this is the one model
 // name that legitimately lives in code, because it backstops a missing config
 // rather than being a swappable provider/model choice.
-export const DEFAULT_EMBED_MODEL = "Xenova/bge-large-en-v1.5";
+export const DEFAULT_EMBED_MODEL = "onnx-community/embeddinggemma-300m-ONNX";
 
 // Structural-only fallback (no model name strings here). The provider chain
 // priority IS a structural choice — it controls auto-detect ORDER, not which

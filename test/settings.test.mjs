@@ -138,7 +138,7 @@ test("malformed USER YAML does NOT throw — falls back to shipped defaults (sys
       s = settings({ cmdProbe: () => false });
     }, "must not throw on a malformed user file");
     // Served the shipped default, not garbage.
-    assert.equal(s.consolidate.cosineThreshold, 0.97);
+    assert.equal(s.consolidate.cosineThreshold, 0.975);
     assert.equal(s.flush.chunkTargetK, 5);
   });
 });
@@ -512,7 +512,7 @@ test("coercion: a string cosineThreshold falls back to the default (NOT a corrup
   withYaml(`consolidate:\n  cosineThreshold: high\n`, () => {
     assert.equal(
       consolidateCosineThreshold(),
-      0.97,
+      0.975,
       "string → structural default, not NaN/garbage",
     );
   });
@@ -521,17 +521,17 @@ test("coercion: a string cosineThreshold falls back to the default (NOT a corrup
 test("coercion: empty-string / null cosineThreshold does NOT become 0 (would archive everything)", () => {
   clearEnv();
   withYaml(`consolidate:\n  cosineThreshold: ""\n`, () => {
-    assert.equal(consolidateCosineThreshold(), 0.97, "empty string must NOT coerce to 0");
+    assert.equal(consolidateCosineThreshold(), 0.975, "empty string must NOT coerce to 0");
   });
   withYaml(`consolidate:\n  cosineThreshold:\n`, () => {
-    assert.equal(consolidateCosineThreshold(), 0.97, "null (bare key) must NOT coerce to 0");
+    assert.equal(consolidateCosineThreshold(), 0.975, "null (bare key) must NOT coerce to 0");
   });
 });
 
 test("coercion: out-of-range float (>1) falls back; in-range survives", () => {
   clearEnv();
   withYaml(`consolidate:\n  cosineThreshold: 1.5\n`, () => {
-    assert.equal(consolidateCosineThreshold(), 0.97);
+    assert.equal(consolidateCosineThreshold(), 0.975);
   });
   withYaml(`consolidate:\n  cosineThreshold: 0.6\n`, () => {
     assert.equal(consolidateCosineThreshold(), 0.6);
@@ -823,7 +823,7 @@ test("cosineBandFloor: valid value passes, invalid/out-of-range values fail-safe
   clearEnv();
   withYaml("consolidate:\n  cosineBandFloor: 0.9\n", () => {
     const s = settings();
-    assert.equal(s.consolidate.cosineBandFloor, 0.9, "0.9 under the 0.97 threshold is accepted");
+    assert.equal(s.consolidate.cosineBandFloor, 0.9, "0.9 under the 0.975 threshold is accepted");
   });
   withYaml("consolidate:\n  cosineBandFloor: 0.5\n", () => {
     assert.equal(settings().consolidate.cosineBandFloor, null, "below 0.8 disables the band");

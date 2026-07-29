@@ -120,7 +120,7 @@ The single tree in the seam picture is one *level*. The shipped engine is
 | Layout contract — **body interpretation** (placement facets, `topology:`) | ❌ | ✅ |
 | Facet placement (`area`, `atom_type`/`task_type`) + **subject axis** | ❌ | ✅ |
 | Custom tracker topology (`issues/JIRA/…` tree, `to_path`/`from_path`) | ❌ | ✅ |
-| Embeddings (Xenova `bge-large`) + vector cache + throttled GC | ❌ | ✅ |
+| Embeddings (EmbeddingGemma-300m ONNX) + vector cache + throttled GC | ❌ | ✅ |
 | Semantic recall + the drop-rung recall ladder | ❌ | ✅ |
 | Memory atoms / atom types / lessons / datasets | ❌ | ✅ |
 | Plan lifecycle sync (checkbox → status/progress → folder move) | ❌ | ✅ |
@@ -177,7 +177,7 @@ memory/atom/lesson/Jira concepts. Leaf `type` is only `primary | overlay`.
 | `topology-runtime` + `path-compiler` | Load a layout's `topology:` block; run forward `to_path` / reverse `from_path` (tracker `issues/…` trees) with a mandatory **round-trip** check; inline JS runs in a locked-down `vm` sandbox. |
 | `layout-validator` | Strict Zod schema over `layout.yaml` with line:col errors. |
 | `topology-validator` | Sample-facet round-trip pre-flight for a topology. |
-| `embed` | Xenova `bge-large-en-v1.5` (lexical fallback); model-stamped on-disk vector cache; throttled GC (`gc-embeddings --if-due`, `gc.intervalDays` in `settings.yaml`, `.embed-gc.json`). |
+| `embed` | `onnx-community/embeddinggemma-300m-ONNX` via `@huggingface/transformers`, inference in a worker thread (lexical fallback); model-stamped on-disk vector cache; throttled GC (`gc-embeddings --if-due`, `gc.intervalDays` in `settings.yaml`, `.embed-gc.json`). |
 | `recall` | Drop-rung recall ladder (error_pattern → language → task_type → area → project_module), fanned out across the federated scope chain (per-repo levels + the brain), with knowledge cross-refs appended. |
 | `plan-sync` + `plan-frontmatter` + `tracker-parse` | Rewrite plan status/progress/flip-log from checkboxes; relocate the leaf into the matching lifecycle folder. |
 | `fs-prune` | Remove ancestor dirs a move/delete emptied (no orphan `index.md`). |

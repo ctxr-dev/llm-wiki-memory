@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ClipboardIcon, FolderIcon } from "@heroicons/react/24/outline";
+import { ClipboardIcon, FolderIcon, PlusIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { api } from "./api";
 import { Modal } from "./Modal";
 import { Button } from "./Button";
@@ -94,7 +94,7 @@ export function AddWikiDialog({
               setError(null);
             }}
             placeholder="/absolute/path (contains .llm-wiki-memory)"
-            className="min-w-0 flex-1 rounded border border-slate-200 px-2 py-1.5 text-xs outline-none dark:border-slate-700 dark:bg-slate-900"
+            className="min-w-0 flex-1 rounded border border-slate-200 px-2 py-1.5 text-xs text-slate-800 outline-none placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
           <Button
             variant="secondary"
@@ -121,10 +121,16 @@ export function AddWikiDialog({
             variant="primary"
             disabled={busy || !folder.trim()}
             className="px-3 py-1.5 text-xs"
+            icon={<PlusIcon className="h-4 w-4" />}
           >
             Add
           </Button>
-          <Button variant="ghost" onClick={onClose} className="px-3 py-1.5 text-xs">
+          <Button
+            variant="ghost"
+            onClick={onClose}
+            className="px-3 py-1.5 text-xs"
+            icon={<XMarkIcon className="h-4 w-4" />}
+          >
             Cancel
           </Button>
         </div>

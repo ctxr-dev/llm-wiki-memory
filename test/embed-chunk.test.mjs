@@ -10,11 +10,23 @@ import path from "node:path";
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "embed-chunk-test-"));
 process.env.MEMORY_DATA_DIR = TMP;
 fs.mkdirSync(path.join(TMP, "settings"), { recursive: true });
-fs.writeFileSync(path.join(TMP, "settings", "settings.yaml"), "embed:\n  backend: lexical\n");
+fs.writeFileSync(
+  path.join(TMP, "settings", "settings.yaml"),
+  "embed:\n  backend: lexical\n  model: test/plain-model\n",
+);
 after(() => fs.rmSync(TMP, { recursive: true, force: true }));
 
-const { chunkTexts, scoreLeaf, tokenCount, EMBED_WINDOW, cachedLeafVectors, scoreTree } =
-  await import("../scripts/lib/embed-chunk.mjs");
+const {
+  chunkTexts,
+  scoreLeaf,
+  tokenCount,
+  EMBED_WINDOW,
+  cachedLeafVectors,
+  scoreTree,
+  makeColdBudget,
+  scoreCandidates,
+  COLD_SKIP_SCORE,
+} = await import("../scripts/lib/embed-chunk.mjs");
 const { embed } = await import("../scripts/lib/embed.mjs");
 
 // A word-per-token fake tokenizer: deterministic, round-trips, no specials — so
@@ -121,7 +133,7 @@ test("scoreLeaf: recovers a leaf whose WHOLE-leaf vector misses but a chunk matc
   assert.ok(chunkAwareHit > 0.9, `a matching tail chunk recovers the leaf (${chunkAwareHit})`);
 });
 
-test("EMBED_WINDOW is the bge-large window", () => {
+test("EMBED_WINDOW is the legacy BERT-family window fallback", () => {
   assert.equal(EMBED_WINDOW, 512);
 });
 
@@ -133,6 +145,51 @@ const opts = (needChunks) => ({
   window: 30,
   maxChunks: 6,
   margin: 4,
+});
+
+test("a text budget bounds one call: budgeted leaves embed, the rest are skipped and NOT cached", async () => {
+  const cache = { entries: {} };
+  const items = [1, 2, 3, 4, 5].map((n) => item(`b${n}.md`, bodyOf(5)));
+  const out = await cachedLeafVectors(cache, items, { ...opts(false), budget: makeColdBudget(2) });
+  const embedded = out.filter((o) => o.vector.length > 0).length;
+  const skipped = out.filter((o) => o.vector.length === 0).length;
+  assert.equal(embedded, 2, "only the budget was embedded");
+  assert.equal(skipped, 3, "the rest returned an empty vector (scores 0 via cosine)");
+  assert.equal(Object.keys(cache.entries).length, 2, "skipped leaves wrote NO cache entry");
+  assert.ok(cache.entries["b1.md"] && cache.entries["b2.md"], "the first two were cached");
+});
+
+test("a skipped leaf stays a miss, so a later unlimited call embeds it", async () => {
+  const cache = { entries: {} };
+  const items = [1, 2, 3].map((n) => item(`c${n}.md`, bodyOf(5)));
+  await cachedLeafVectors(cache, items, { ...opts(false), budget: makeColdBudget(1) });
+  assert.equal(Object.keys(cache.entries).length, 1);
+  const out = await cachedLeafVectors(cache, items, opts(false));
+  assert.equal(Object.keys(cache.entries).length, 3, "the warm picked up what the read skipped");
+  assert.ok(
+    out.every((o) => o.vector.length > 0),
+    "every leaf now has a real vector",
+  );
+});
+
+test("an absent budget is unlimited (the background warm must never be throttled)", async () => {
+  const cache = { entries: {} };
+  const items = [1, 2, 3, 4].map((n) => item(`d${n}.md`, bodyOf(5)));
+  const out = await cachedLeafVectors(cache, items, opts(false));
+  assert.equal(Object.keys(cache.entries).length, 4);
+  assert.ok(out.every((o) => o.vector.length > 0));
+});
+
+test("a budget-exhausted leaf with a WARM vector keeps it (only chunk refinement is skipped)", async () => {
+  const cache = { entries: {} };
+  const long = item("e1.md", bodyOf(200));
+  await cachedLeafVectors(cache, [long], opts(true));
+  const warmChunks = cache.entries["e1.md"].chunks.length;
+  assert.ok(warmChunks > 1, "chunks built while unlimited");
+  const cold = item("e2.md", bodyOf(5));
+  const out = await cachedLeafVectors(cache, [long, cold], { ...opts(true), budget: makeColdBudget(1) });
+  assert.ok(out[0].vector.length > 0, "the warm leaf still scores on its whole-leaf vector");
+  assert.equal(cache.entries["e1.md"].chunks.length, warmChunks, "its chunks are preserved");
 });
 
 test("cachedLeafVectors: every leaf gets a vector; a short leaf has no chunks", async () => {
@@ -172,6 +229,17 @@ test("cachedLeafVectors: vector reused on a hash hit (same cached array)", async
   const b = await cachedLeafVectors(cache, it, opts(true));
   assert.deepEqual(b[0].vector, a[0].vector);
   assert.equal(cache.entries["d.md"].vector, b[0].vector);
+});
+
+test("cachedLeafVectors: _dirty is set on a cold miss and NOT on a warm all-hit pass", async () => {
+  const it = [item("h.md", bodyOf(5))];
+  const cold = { entries: {} };
+  await cachedLeafVectors(cold, it, opts(true));
+  assert.equal(cold._dirty, true, "cold miss embedded a new vector -> dirty");
+
+  const warm = { entries: cold.entries };
+  await cachedLeafVectors(warm, it, opts(true));
+  assert.equal(warm._dirty, undefined, "all-hit pass embeds nothing -> not dirty (save skippable)");
 });
 
 test("cachedLeafVectors: legacy {hash,vector}-only entry on a truncated leaf -> chunks added, vector kept", async () => {
@@ -313,4 +381,54 @@ test("scoreTree: a SHORT leaf scores identically under chunkAware true/false (no
     maxChunks: 6,
   });
   assert.equal(aware.get(key), whole.get(key), "short leaf: chunk-aware is a no-op");
+});
+
+test("a system-maintenance read is exempt from the budget (consolidate must not under-merge)", async () => {
+  const { withSystemMaintenance } = await import("../scripts/lib/maintenance-tag.mjs");
+  const cache = { entries: {} };
+  const items = [1, 2, 3, 4, 5].map((n) => item(`m${n}.md`, bodyOf(5)));
+  const cacheFor = () => cache;
+  const cands = items.map((it) => ({ ...it, datasetId: "knowledge", text: it.body }));
+  await withSystemMaintenance(async () => {
+    await scoreCandidates(cands, cacheFor, await embed("q"), false);
+  });
+  assert.equal(Object.keys(cache.entries).length, 5, "maintenance embedded every leaf");
+});
+
+test("ONE ledger bounds the whole request, not each category (the multiplication bug)", async () => {
+  const caches = new Map();
+  const cacheFor = (cat) => {
+    if (!caches.has(cat)) caches.set(cat, { entries: {} });
+    return caches.get(cat);
+  };
+  const cands = [];
+  for (const cat of ["knowledge", "plans", "daily", "issues"]) {
+    for (let n = 0; n < 5; n += 1) {
+      cands.push({ id: `${cat}/${n}.md`, datasetId: cat, embedText: HEADER + bodyOf(5), text: bodyOf(5) });
+    }
+  }
+  const budget = makeColdBudget(6);
+  const scores = await scoreTree(cands, cacheFor, await embed("q"), {
+    chunkAware: false,
+    tokenizer: null,
+    penalty: 0.015,
+    maxChunks: 6,
+    budget,
+  });
+  const cached = [...caches.values()].reduce((n, c) => n + Object.keys(c.entries).length, 0);
+  assert.equal(cached, 6, `4 categories shared ONE budget of 6; got ${cached}`);
+  const dropped = [...scores.values()].filter((s) => s === COLD_SKIP_SCORE).length;
+  assert.equal(dropped, 14, "the remaining 14 are marked cold-skip, not scored 0");
+});
+
+test("a chunk set costs its TEXT count, not one unit (a full leaf cannot blow the bound)", async () => {
+  const cache = { entries: {} };
+  const long = item("big.md", bodyOf(200));
+  const budget = makeColdBudget(3);
+  const out = await cachedLeafVectors(cache, [long], { ...opts(true), budget });
+  assert.ok(budget.spent <= 3, `never overspends; spent ${budget.spent}`);
+  assert.ok(
+    out[0].skipped || !cache.entries["big.md"]?.chunks,
+    "a chunk set that does not fit is refused rather than partially embedded",
+  );
 });

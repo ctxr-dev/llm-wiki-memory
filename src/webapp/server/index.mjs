@@ -12,9 +12,39 @@ import { registerDocRoutes } from "./routes/doc.mjs";
 import { registerSearchRoutes } from "./routes/search.mjs";
 import { registerEditRoutes } from "./routes/edit.mjs";
 import { registerBoardRoutes } from "./routes/boards.mjs";
+import { registerFacetsRoutes } from "./routes/facets.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(HERE, "..", "dist");
+const WARM_START_DELAY_MS = 15_000;
+
+/**
+ * Warms the home wiki's embedding caches inside THIS daemon, gradually: inference
+ * runs in the embed worker thread (event loop stays free) in small duty-cycled
+ * slices, so a cold brain warms at low average CPU while a warm brain is an
+ * all-hit no-op. One process, one model copy. Opt out with LWM_WEBAPP_NO_WARM=1.
+ * @returns {Promise<void>}
+ */
+export async function warmHomeWikiGradually() {
+  if (process.env.LWM_WEBAPP_NO_WARM === "1") return;
+  try {
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, WARM_START_DELAY_MS);
+      timer.unref?.();
+    });
+    const { env } = await import("./engine.mjs").then((m) => m.loadEngine());
+    const { warmWikiEmbeddings } = await import("../../../scripts/lib/embed-warm.mjs");
+    const stats = await warmWikiEmbeddings(env.wikiRoot());
+    if (stats.embedded > 0) {
+      process.stderr.write(
+        `webapp: warmed ${stats.embedded}/${stats.leaves} leaves across ${stats.categories} categories\n`,
+      );
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`webapp: gradual warm failed (${message})\n`);
+  }
+}
 
 /**
  * @param {{ db?: import("./app-db.mjs").AppDb, pickFolder?: () => Promise<string> }} [opts]
@@ -30,6 +60,7 @@ export function buildApp({ db, pickFolder } = {}) {
   registerSearchRoutes(app, appDb);
   registerEditRoutes(app, appDb);
   registerBoardRoutes(app, appDb);
+  registerFacetsRoutes(app, appDb);
   if (fs.existsSync(path.join(DIST, "index.html"))) {
     app.register(fastifyStatic, { root: DIST });
     app.setNotFoundHandler((request, reply) => {
@@ -59,6 +90,7 @@ const HOST = process.env.LWM_WEBAPP_HOST || "127.0.0.1";
 export async function start() {
   const app = buildApp();
   await app.listen({ port: PORT, host: HOST });
+  void warmHomeWikiGradually();
   return app;
 }
 

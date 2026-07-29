@@ -15,7 +15,7 @@ function seed(wiki) {
   };
   const knowledge = (name) =>
     `focus: ${name}\nmemory:\n  atom_type: decision\n  status: active\n  area: backend\n  subject:\n    - architecture\n`;
-  for (const name of ["editbody", "relocate", "archive", "vocab", "prio"]) {
+  for (const name of ["editbody", "relocate", "archive", "vocab", "prio", "todelete"]) {
     writeLeaf(`${KDIR}/${name}.md`, knowledge(name), `${name} body.`);
   }
   writeLeaf(
@@ -52,6 +52,15 @@ afterAll(async () => {
   if (app) await app.close();
   if (db) db.close();
   if (dataDir) cleanup(dataDir);
+});
+
+test("DELETE removes a leaf and a subsequent read is a 404", async () => {
+  const docId = `${KDIR}/todelete.md`;
+  expect((await get(docId)).statusCode).toBe(200);
+  const res = await app.inject({ method: "DELETE", url: `/api/wikis/${id}/doc/${docId}` });
+  expect(res.statusCode).toBe(200);
+  expect(res.json().ok).toBe(true);
+  expect((await get(docId)).statusCode).toBe(404);
 });
 
 test("PUT edits the body through the engine (re-read reflects it)", async () => {

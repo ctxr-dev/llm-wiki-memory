@@ -45,6 +45,17 @@ export const NavCategorySchema = z.object({
 
 export const NavCategoriesSchema = z.object({ categories: z.array(NavCategorySchema) });
 
+export const FacetMetaSchema = z.object({
+  description: z.string().optional(),
+  examples: z.array(z.string()).optional(),
+});
+
+export const FacetsResponseSchema = z.object({
+  meta: z.record(z.string(), FacetMetaSchema),
+  areas: z.array(z.string()),
+  subjects: z.array(z.string()),
+});
+
 export const NavDirSchema = z.object({
   name: z.string(),
   label: z.string(),
@@ -92,6 +103,7 @@ export const RelatedEntrySchema = z.object({
   title: z.string(),
   location: z.string(),
   score: z.number(),
+  active: z.boolean(),
   summary: LeafSummarySchema.optional(),
 });
 
@@ -109,6 +121,8 @@ export const SearchResultSchema = z.object({
   category: z.string(),
   score: z.number(),
   snippet: z.string(),
+  active: z.boolean(),
+  priority: z.string().optional(),
   wikiId: z.string().optional(),
   wikiLabel: z.string().optional(),
 });
@@ -127,7 +141,9 @@ export const SearchFilterSchema = z
 
 export const SearchResultsSchema = z.object({ results: z.array(SearchResultSchema) });
 
-export const TitlesSchema = z.object({ titles: z.record(z.string()) });
+export const TitlesSchema = z.object({
+  titles: z.record(z.object({ title: z.string(), active: z.boolean() })),
+});
 
 export const AskAnswerSchema = z
   .object({
@@ -136,6 +152,8 @@ export const AskAnswerSchema = z
     title: z.string(),
     category: z.string(),
     content: z.string(),
+    active: z.boolean(),
+    priority: z.string().optional(),
   })
   .nullable();
 

@@ -1,3 +1,4 @@
+import { TrashIcon } from "@heroicons/react/24/outline";
 import { ContextMenu, contextMenuItemClass } from "./ContextMenu";
 
 export function WikiContextMenu({
@@ -21,6 +22,7 @@ export function WikiContextMenu({
           onDismiss();
         }}
       >
+        <TrashIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
         Remove
       </button>
     </ContextMenu>

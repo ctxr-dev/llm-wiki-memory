@@ -22,15 +22,15 @@ function readActiveLeaf(core, abs) {
   return { data, active: core.isActive(data) };
 }
 
-/** @param {any} core @param {string} absDir @returns {number} */
-function countUnder(core, absDir) {
+/** @param {any} core @param {string} absDir @param {boolean} [includeArchived] @returns {number} */
+function countUnder(core, absDir, includeArchived = false) {
   try {
-    let active = 0;
+    let count = 0;
     for (const leaf of core.walkLeaves(absDir)) {
       const read = readActiveLeaf(core, leaf);
-      if (read && read.active) active += 1;
+      if (read && (includeArchived || read.active)) count += 1;
     }
-    return active;
+    return count;
   } catch {
     return 0;
   }
@@ -38,19 +38,21 @@ function countUnder(core, absDir) {
 
 /**
  * @param {import("./app-db.mjs").AppDb} db @param {any} core
- * @param {string} root @param {string} facetPath @param {string} absDir @returns {number}
+ * @param {string} root @param {string} facetPath @param {string} absDir
+ * @param {boolean} [includeArchived] @returns {number}
  */
-function cachedCount(db, core, root, facetPath, absDir) {
+function cachedCount(db, core, root, facetPath, absDir, includeArchived = false) {
   let token;
   try {
     token = String(fs.statSync(absDir).mtimeMs);
   } catch {
     return 0;
   }
-  const cached = db.getStat(root, facetPath);
+  const key = includeArchived ? `${facetPath}:all` : facetPath;
+  const cached = db.getStat(root, key);
   if (cached && cached.mtimeToken === token) return cached.count;
-  const count = countUnder(core, absDir);
-  db.setStat(root, facetPath, count, token);
+  const count = countUnder(core, absDir, includeArchived);
+  db.setStat(root, key, count, token);
   return count;
 }
 
@@ -87,7 +89,7 @@ function computeChildren(deps, root, category, subPath, showArchived, db) {
       dirs.push({
         name: entry.name,
         label: relabel(entry.name),
-        count: cachedCount(db, core, root, rel, childAbs),
+        count: cachedCount(db, core, root, rel, childAbs, showArchived),
       });
     } else if (entry.name.endsWith(".md")) {
       const read = readActiveLeaf(core, childAbs);
@@ -109,16 +111,17 @@ function computeChildren(deps, root, category, subPath, showArchived, db) {
 
 /**
  * @param {string} root @param {import("./app-db.mjs").AppDb} db
+ * @param {{ showArchived?: boolean }} [opts]
  * @returns {Promise<import("../shared/contract.mjs").NavCategory[]>}
  */
-export async function listCategories(root, db) {
+export async function listCategories(root, db, { showArchived = false } = {}) {
   const { env, layout, core, identity } = await loadEngine();
   return env.withWikiRoot(root, () =>
     layout.getCategories().map((category) => ({
       category,
       label: categoryLabel(category),
       facets: layout.getPlacementFacets(category),
-      count: cachedCount(db, core, root, category, identity.toAbs(category)),
+      count: cachedCount(db, core, root, category, identity.toAbs(category), showArchived),
       hasTopology: layout.categoryHasTopology(category),
       isFull: layout.isFullCategory(category),
     })),
@@ -175,18 +178,26 @@ export async function docsFor(root, { category, prefix, showArchived = false } =
 
 /**
  * @param {string} root @param {string[]} ids
- * @returns {Promise<Record<string, string>>}
+ * @returns {Promise<Record<string, { title: string, active: boolean }>>}
  */
 export async function titlesFor(root, ids) {
   const { env, core, identity } = await loadEngine();
   return env.withWikiRoot(root, () => {
-    /** @type {Record<string, string>} */
+    /** @type {Record<string, { title: string, active: boolean }>} */
     const titles = {};
     for (const id of ids.slice(0, MAX_TITLE_IDS)) {
       const fallback = id.split("/").pop() ?? id;
-      titles[id] = isWithin(env.wikiRoot(), identity.toAbs(id))
-        ? titleForId(core, identity, id, fallback)
-        : fallback;
+      if (!isWithin(env.wikiRoot(), identity.toAbs(id))) {
+        titles[id] = { title: fallback, active: true };
+        continue;
+      }
+      let active = true;
+      try {
+        active = core.isActive(core.readLeaf(identity.toAbs(id)).data);
+      } catch {
+        active = true;
+      }
+      titles[id] = { title: titleForId(core, identity, id, fallback), active };
     }
     return titles;
   });

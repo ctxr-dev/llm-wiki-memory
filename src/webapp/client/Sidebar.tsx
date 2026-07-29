@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { PlusIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { useWikis } from "./hooks";
 import { api } from "./api";
 import { AddWikiDialog } from "./AddWikiDialog";
@@ -91,9 +92,10 @@ export function Sidebar({
       <div className="shrink-0 border-t border-slate-200 dark:border-slate-700 p-2">
         <button
           onClick={() => setAdding(true)}
-          className="w-full cursor-pointer rounded px-2 py-1 text-left text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+          className="flex w-full cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-left text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
         >
-          + Add wiki
+          <PlusIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
+          Add wiki
         </button>
       </div>
       {menu && (
@@ -111,6 +113,7 @@ export function Sidebar({
           title="Remove wiki?"
           message={`Remove “${pendingRemove.label}” from the sidebar? Its files are not deleted — only unlinked here.`}
           confirmLabel="Remove"
+          confirmIcon={<TrashIcon className="h-4 w-4" />}
           danger
           onConfirm={() => {
             const id = pendingRemove.id;

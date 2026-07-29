@@ -26,13 +26,25 @@ test("nav leaf shows its title and a rich hover popup with details", async ({ pa
   const tip = page.getByRole("tooltip");
   await expect(tip).toBeVisible();
   await expect(tip).toContainText("Knowledge › Backend › Decision");
-  await expect(tip).toContainText("decision");
+  await expect(tip).toContainText("Type");
   await expect(tip).toContainText("kafka.md");
 });
 
 test("category counts exclude archived leaves", async ({ page }) => {
   await openCategories(page);
   await expect(tree(page).getByRole("button", { name: /^Knowledge/ })).toContainText("3");
+});
+
+test("the Show archived toggle includes archived leaves in the category counts", async ({
+  page,
+}) => {
+  await openCategories(page);
+  const browse = tree(page);
+  await expect(browse.getByRole("button", { name: /^Knowledge/ })).toContainText("3");
+  await browse.getByRole("button", { name: "Category settings" }).click();
+  await page.getByRole("switch", { name: "Show archived" }).click();
+  await page.keyboard.press("Escape");
+  await expect(browse.getByRole("button", { name: /^Knowledge/ })).toContainText("4");
 });
 
 test("open tabs show the document title, not the filename", async ({ page }) => {
@@ -105,7 +117,7 @@ test("the Add wiki dialog offers a path input, clipboard paste, and a native fol
 }) => {
   await openCategories(page);
   const wikisNav = page.getByRole("navigation", { name: "wikis" });
-  await wikisNav.getByRole("button", { name: "+ Add wiki" }).click();
+  await wikisNav.getByRole("button", { name: "Add wiki" }).click();
   const dialog = page.getByRole("dialog", { name: "add wiki" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByPlaceholder(/absolute\/path/)).toBeVisible();
@@ -118,7 +130,7 @@ test("the Add wiki dialog offers a path input, clipboard paste, and a native fol
 test("adding a non-wiki folder surfaces a friendly error", async ({ page }) => {
   await openCategories(page);
   const wikisNav = page.getByRole("navigation", { name: "wikis" });
-  await wikisNav.getByRole("button", { name: "+ Add wiki" }).click();
+  await wikisNav.getByRole("button", { name: "Add wiki" }).click();
   await page.getByPlaceholder(/absolute\/path/).fill("/nonexistent-wiki-xyz");
   await wikisNav.getByRole("button", { name: "Add", exact: true }).click();
   await expect(page.getByText(/No .llm-wiki-memory found/)).toBeVisible();
@@ -154,8 +166,8 @@ test("the body metadata block is split out and collapsible", async ({ page }) =>
 
 test("a facet chip opens a focused search with a titled, located result", async ({ page }) => {
   await openKafka(page);
-  await page.getByRole("button", { name: /area: backend/ }).click();
-  await expect(page.getByRole("button", { name: "remove area: backend" })).toBeVisible();
+  await page.getByRole("button", { name: /area: Backend/ }).click();
+  await expect(page.getByRole("button", { name: "remove Area: backend" })).toBeVisible();
   await expect(page.getByText(/Knowledge › Backend › Decision/).first()).toBeVisible({
     timeout: 15000,
   });

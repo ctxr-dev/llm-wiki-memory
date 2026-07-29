@@ -2,6 +2,7 @@ import { test, beforeAll, afterAll, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { setupWorkspace, cleanup } from "../../../test/harness.mjs";
+import { categoryCacheIsCold } from "./doc.mjs";
 
 function seed(wiki) {
   const write = (rel, body) => {
@@ -15,6 +16,12 @@ function seed(wiki) {
   write("knowledge/backend/decision/architecture/kafka.md", "We chose Kafka for the event bus.");
   write("knowledge/backend/decision/architecture/queue.md", "Kafka topics and event streaming.");
   write("knowledge/backend/decision/observability/tracing.md", "Distributed tracing with spans.");
+  const archived = path.join(wiki, "knowledge", "backend", "decision", "architecture", "retired.md");
+  fs.mkdirSync(path.dirname(archived), { recursive: true });
+  fs.writeFileSync(
+    archived,
+    `---\nfocus: retired\nmemory:\n  atom_type: decision\n  status: archived\n  subject:\n    - architecture\n---\nKafka event streaming, a retired approach.\n`,
+  );
 }
 
 let app;
@@ -83,12 +90,42 @@ test("GET /related/* ranks other docs by similarity and never includes the sourc
     expect(typeof entry.score).toBe("number");
     expect(typeof entry.title).toBe("string");
     expect(typeof entry.location).toBe("string");
+    expect(typeof entry.active).toBe("boolean");
   }
   const queue = related.find((r) => r.id.endsWith("queue.md"));
   expect(queue).toBeTruthy();
   expect(queue.title).toBe("queue");
   expect(queue.location).toBe("Knowledge › Backend › Decision › Architecture");
   expect(queue.summary.atomType).toBe("decision");
+});
+
+test("GET /related excludes archived docs by default", async () => {
+  const { related } = (
+    await app.inject({ method: "GET", url: `/api/wikis/${id}/related/${DOC}` })
+  ).json();
+  expect(related.some((r) => r.name === "retired.md")).toBe(false);
+});
+
+test("GET /related?archived=1 includes archived docs, marked active:false", async () => {
+  const { related } = (
+    await app.inject({ method: "GET", url: `/api/wikis/${id}/related/${DOC}?archived=1` })
+  ).json();
+  const hit = related.find((r) => r.name === "retired.md");
+  expect(hit).toBeTruthy();
+  expect(hit.active).toBe(false);
+});
+
+test("categoryCacheIsCold guards only a cold transformer cache, never lexical", () => {
+  const env = { wikiRoot: () => "/w", embedCacheFor: (root, cat) => `${root}/${cat}` };
+  const coldTransformers = { activeBackend: () => "transformers", loadCache: () => ({ entries: {} }) };
+  const warmTransformers = {
+    activeBackend: () => "transformers",
+    loadCache: () => ({ entries: { a: { vector: [] } } }),
+  };
+  const coldLexical = { activeBackend: () => "lexical", loadCache: () => ({ entries: {} }) };
+  expect(categoryCacheIsCold(env, coldTransformers, "knowledge")).toBe(true);
+  expect(categoryCacheIsCold(env, warmTransformers, "knowledge")).toBe(false);
+  expect(categoryCacheIsCold(env, coldLexical, "knowledge")).toBe(false);
 });
 
 test("prefs round-trip per wiki (tabs persistence)", async () => {

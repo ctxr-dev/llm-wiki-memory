@@ -59,6 +59,35 @@ const DEFAULT_GATED = Object.freeze({
   self_improvement: true,
 });
 
+// Built-in per-facet help text, surfaced by the webapp editor as a field-label
+// tooltip. This is the single source of the DEFAULT descriptions; a wiki's
+// `facet_meta` in layout.yaml overrides any of them per field (and may add help
+// for its own facets). Kept here beside the other baked-in layout defaults.
+/** @typedef {{ description?: string, examples?: string[] }} FacetMeta */
+/** @type {Record<string, FacetMeta>} */
+const DEFAULT_FACET_META = Object.freeze({
+  area: {
+    description:
+      "The sub-module this note belongs to (e.g. backend, frontend, infra) — never the project name.",
+  },
+  atom_type: {
+    description:
+      "The kind of note: a decision, a bug root-cause, a reusable lesson, reference material, and so on.",
+  },
+  task_type: {
+    description:
+      "The kind of task this lesson came from (planning, implementation, debugging, review, …).",
+  },
+  priority: {
+    description:
+      "How strongly this note is applied and ranked in recall: P0 = hard constraint, P1 = strong default, P2 = contextual.",
+  },
+  subject: {
+    description:
+      "What the note is about — one or more topic tags used to group and find related notes.",
+  },
+});
+
 /**
  * @typedef {{ kind: "path" | "segment", vocabulary: string | null, fallback: string | null }} FacetRule
  */
@@ -75,6 +104,7 @@ const DEFAULT_GATED = Object.freeze({
  * @property {boolean} fullDefault
  * @property {Record<string, boolean>} gatedCategories
  * @property {Record<string, boolean>} autoDistillCategories
+ * @property {Record<string, FacetMeta>} facetMeta
  */
 
 // Loose views over the ALREADY-parsed layout object. The object was produced by
@@ -102,6 +132,7 @@ const DEFAULT_GATED = Object.freeze({
 /**
  * @typedef {Object} RawLayoutDoc
  * @property {Record<string, unknown>} [vocabularies]
+ * @property {Record<string, { description?: unknown, examples?: unknown }>} [facet_meta]
  * @property {RawLayoutEntry[]} [layout]
  * @property {unknown} [full]
  */
@@ -166,6 +197,23 @@ export function parseLayoutObject(parsed) {
 
   const doc = /** @type {RawLayoutDoc} */ (parsed && typeof parsed === "object" ? parsed : {});
   const fullDefault = doc.full === true;
+
+  // Per-facet help metadata: start from the built-in defaults, then let the
+  // layout's `facet_meta` override any facet's fields (or add its own).
+  /** @type {Record<string, FacetMeta>} */
+  const facetMeta = Object.create(null);
+  for (const [k, v] of Object.entries(DEFAULT_FACET_META)) {
+    facetMeta[k] = { ...v };
+  }
+  if (doc.facet_meta && typeof doc.facet_meta === "object") {
+    for (const [k, v] of Object.entries(doc.facet_meta)) {
+      if (!v || typeof v !== "object") continue;
+      const entry = facetMeta[k] || {};
+      if (typeof v.description === "string") entry.description = v.description;
+      if (Array.isArray(v.examples)) entry.examples = v.examples.map((x) => String(x));
+      facetMeta[k] = entry;
+    }
+  }
 
   // Controlled value sets referenced by `kind: path` facet rules.
   if (doc.vocabularies && typeof doc.vocabularies === "object") {
@@ -250,5 +298,6 @@ export function parseLayoutObject(parsed) {
     fullDefault,
     gatedCategories,
     autoDistillCategories,
+    facetMeta,
   };
 }

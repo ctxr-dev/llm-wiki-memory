@@ -15,12 +15,15 @@ export function registerNavRoutes(app, db) {
 
   app.get("/api/wikis/:id/nav", async (request, reply) => {
     const { id } = /** @type {{ id: string }} */ (request.params);
+    const query = /** @type {{ archived?: string }} */ (request.query);
     const root = await rootFor(id);
     if (!root) {
       reply.code(404);
       return { error: "no-such-wiki" };
     }
-    return { categories: await listCategories(root, db) };
+    return {
+      categories: await listCategories(root, db, { showArchived: truthy(query.archived) }),
+    };
   });
 
   app.get("/api/wikis/:id/nav/:category", async (request, reply) => {

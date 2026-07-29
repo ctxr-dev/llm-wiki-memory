@@ -1,4 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  MagnifyingGlassIcon,
+  SparklesIcon,
+  DocumentTextIcon,
+  ClipboardDocumentCheckIcon,
+  TicketIcon,
+} from "@heroicons/react/24/outline";
 import { Button } from "./Button";
 import { Sidebar } from "./Sidebar";
 import { TabBar } from "./TabBar";
@@ -11,13 +18,20 @@ import { AskPanel } from "./AskPanel";
 import { PlansBoard } from "./PlansBoard";
 import { IssuesBoard } from "./IssuesBoard";
 import { ThemeToggle } from "./ThemeToggle";
-import { useWikis, useTitles } from "./hooks";
+import { useWikis, useTitles, useDoc } from "./hooks";
 import type { Facet } from "./api";
 import { formatRef } from "./refs";
 import { availableViews } from "./views";
 import { useDocTabs } from "./useDocTabs";
+import { useShowArchived } from "./useShowArchived";
 
 type PaletteInit = { filters: Facet[]; category: string | null } | null;
+
+const VIEW_ICONS: Record<string, typeof DocumentTextIcon> = {
+  docs: DocumentTextIcon,
+  plans: ClipboardDocumentCheckIcon,
+  issues: TicketIcon,
+};
 
 export function App() {
   const wikis = useWikis();
@@ -28,6 +42,8 @@ export function App() {
   const [view, setView] = useState<"docs" | "plans" | "issues">("docs");
   const [navRequest, setNavRequest] = useState<NavRequest>({ category: null, path: "", token: 0 });
   const activeWiki = wikis.data?.find((wiki) => wiki.id === wikiId);
+  const { showArchived, setShowArchived } = useShowArchived(wikiId);
+  const [editing, setEditing] = useState(false);
   const views = useMemo(() => availableViews(activeWiki?.categories), [activeWiki?.categories]);
   const effectiveView = views.includes(view) ? view : "docs";
   const setDocsView = useCallback(() => setView("docs"), []);
@@ -49,7 +65,12 @@ export function App() {
     navigateToRef,
   } = useDocTabs({ wikiId, setWikiId, wikis: wikis.data, activeWiki, setDocsView });
   const tabTitles = useTitles(wikiId, tabs);
-  const labelFor = (docId: string) => tabTitles.data?.[docId] ?? docId.split("/").pop() ?? docId;
+  const labelFor = (docId: string) =>
+    tabTitles.data?.[docId]?.title ?? docId.split("/").pop() ?? docId;
+  const archivedTabIds = tabs.filter((tab) => tabTitles.data?.[tab]?.active === false);
+  const activeDoc = useDoc(wikiId, active);
+
+  useEffect(() => setEditing(false), [active]);
 
   useEffect(() => {
     if (!views.includes(view)) setView("docs");
@@ -57,10 +78,14 @@ export function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        setPaletteInit(null);
-        setPaletteOpen((open) => !open);
+        if (event.shiftKey) {
+          setAskOpen(true);
+        } else {
+          setPaletteInit(null);
+          setPaletteOpen((open) => !open);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -106,6 +131,7 @@ export function App() {
         pinnedIds={pinnedTabs}
         orientation={orientation}
         labelFor={labelFor}
+        archivedIds={archivedTabIds}
         onSelect={setActive}
         onClose={closeTab}
         onReorder={reorderTabs}
@@ -114,7 +140,14 @@ export function App() {
     ) : null;
   const breadcrumb =
     effectiveView === "docs" && active ? (
-      <Breadcrumb docId={active} wiki={activeWiki} onNavigate={navigateTo} />
+      <Breadcrumb
+        docId={active}
+        wiki={activeWiki}
+        onNavigate={navigateTo}
+        onEdit={() => setEditing(true)}
+        editing={editing}
+        archived={activeDoc.data ? !activeDoc.data.active : false}
+      />
     ) : null;
   const scrollArea = (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -125,6 +158,16 @@ export function App() {
           <DocView
             wikiId={wikiId}
             docId={active}
+            editing={editing}
+            onEditDone={(newId) => {
+              setEditing(false);
+              if (newId && newId !== active) openDoc(newId);
+            }}
+            onDeleted={() => {
+              setEditing(false);
+              if (active) closeTab(active);
+            }}
+            showArchived={showArchived}
             onOpen={openDoc}
             onOpenRef={navigateToRef}
             onChipFilter={openFacetSearch}
@@ -140,41 +183,56 @@ export function App() {
   return (
     <div className="flex h-screen text-slate-800 dark:text-slate-100">
       <Sidebar activeId={wikiId} onSelect={selectWiki} />
-      {wikiId && <NavPanel wikiId={wikiId} onOpenDoc={openDoc} request={navRequest} />}
+      {wikiId && (
+        <NavPanel
+          wikiId={wikiId}
+          onOpenDoc={openDoc}
+          request={navRequest}
+          showArchived={showArchived}
+          onToggleArchived={setShowArchived}
+        />
+      )}
       <main className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 px-3 py-1.5">
           <div className="flex gap-1 text-sm">
-            {views.map((name) => (
-              <button
-                key={name}
-                onClick={() => setView(name)}
-                disabled={!wikiId}
-                className={`cursor-pointer rounded px-2 py-1 capitalize disabled:opacity-40 ${
-                  effectiveView === name
-                    ? "bg-slate-200 dark:bg-slate-700 font-medium"
-                    : "hover:bg-slate-100 dark:hover:bg-slate-800"
-                }`}
-              >
-                {name}
-              </button>
-            ))}
+            {views.map((name) => {
+              const ViewIcon = VIEW_ICONS[name];
+              return (
+                <button
+                  key={name}
+                  onClick={() => setView(name)}
+                  disabled={!wikiId}
+                  className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1 capitalize disabled:opacity-40 ${
+                    effectiveView === name
+                      ? "bg-slate-200 dark:bg-slate-700 font-medium"
+                      : "hover:bg-slate-100 dark:hover:bg-slate-800"
+                  }`}
+                >
+                  {ViewIcon && <ViewIcon className="h-4 w-4" aria-hidden="true" />}
+                  {name}
+                </button>
+              );
+            })}
           </div>
           <button
             onClick={() => {
               setPaletteInit(null);
               setPaletteOpen(true);
             }}
-            className="flex-1 cursor-pointer rounded border border-slate-200 dark:border-slate-700 px-3 py-1 text-left text-sm text-slate-400 dark:text-slate-500 hover:border-slate-300 dark:hover:border-slate-600"
+            className="flex flex-1 cursor-pointer items-center gap-2 rounded border border-slate-200 dark:border-slate-700 px-3 py-1 text-left text-sm text-slate-400 dark:text-slate-500 hover:border-slate-300 dark:hover:border-slate-600"
           >
-            Search or jump… <span className="ml-1 text-xs">⌘K</span>
+            <MagnifyingGlassIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
+            Search or jump…
+            <span className="ml-auto text-xs">⌘K</span>
           </button>
           <Button
             variant="primary"
             onClick={() => setAskOpen(true)}
             disabled={!wikiId}
             className="px-3 py-1"
+            icon={<SparklesIcon className="h-4 w-4" />}
           >
-            Ask
+            Ask <span className="ml-1 text-xs opacity-70">⌘⇧K</span>
           </Button>
           <ThemeToggle />
         </div>
@@ -204,6 +262,7 @@ export function App() {
           onClose={closePalette}
           initialFilters={paletteInit?.filters ?? []}
           initialCategory={paletteInit?.category ?? null}
+          showArchived={showArchived}
         />
       )}
       {askOpen && wikiId && (
@@ -212,6 +271,7 @@ export function App() {
           onOpenDoc={openDoc}
           onOpenRef={navigateToRef}
           onClose={() => setAskOpen(false)}
+          showArchived={showArchived}
         />
       )}
       {tabMenu && (

@@ -1,3 +1,4 @@
+import { ArchiveBoxIcon } from "@heroicons/react/24/outline";
 import type { RelatedEntry } from "./api";
 import { HoverCard } from "./HoverCard";
 import { LeafCard } from "./LeafCard";
@@ -29,11 +30,17 @@ export function RelatedPanel({
               }
             >
               <button
-                className="w-full cursor-pointer truncate text-left text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
+                className="flex w-full cursor-pointer items-center gap-1 text-left text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
                 onClick={() => onOpen(entry.id)}
               >
-                {entry.title}{" "}
-                <span className="text-xs text-slate-400 dark:text-slate-500">
+                {!entry.active && (
+                  <ArchiveBoxIcon
+                    className="h-3.5 w-3.5 shrink-0 text-slate-400"
+                    aria-label="archived"
+                  />
+                )}
+                <span className="truncate">{entry.title}</span>
+                <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">
                   {entry.score.toFixed(2)}
                 </span>
               </button>

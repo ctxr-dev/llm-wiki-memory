@@ -85,3 +85,23 @@ test("with no wikis passed, references are inert (backward compatible)", () => {
   expect(screen.queryByRole("link")).toBeNull();
   expect(screen.getByText(/See brain:knowledge\/a.md here/)).toBeTruthy();
 });
+
+test("renders safe raw HTML (a <pre> block) instead of escaping it", () => {
+  render(<Markdown body={"<pre>root\n  └─ leaf</pre>"} />);
+  const text = screen.getByText(/root/);
+  expect(text.closest("pre")).toBeTruthy();
+});
+
+test("strips dangerous raw HTML: script tags are removed", () => {
+  const { container } = render(<Markdown body={"ok<script>window.x = 1</script>"} />);
+  expect(container.querySelector("script")).toBeNull();
+  expect(screen.getByText(/ok/)).toBeTruthy();
+});
+
+test("strips remote iframes from raw HTML", () => {
+  const { container } = render(
+    <Markdown body={'<iframe src="https://evil.example"></iframe>after'} />,
+  );
+  expect(container.querySelector("iframe")).toBeNull();
+  expect(screen.getByText(/after/)).toBeTruthy();
+});

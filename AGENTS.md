@@ -55,8 +55,11 @@ These govern DEVELOPING llm-wiki-memory; the rules shipped into consumer install
   with `node scripts/cli.mjs nest`.
 - `scripts/migrate-nest.mjs`: `cli.mjs nest` - moves pre-existing flat leaves into the nested
   layout by reading each leaf's frontmatter facets (idempotent; `--dry-run`, `--check`).
-- `scripts/lib/embed.mjs`: MiniLM embeddings (`@xenova/transformers`), cosine, content-hash
-  cache, lexical fallback. The only retrieval engine (the skill has no query command).
+- `scripts/lib/embed.mjs`: transformer embeddings (default EmbeddingGemma-300m via
+  `@huggingface/transformers`, inference in a worker thread so the event loop never blocks),
+  cosine, content-hash cache, lexical fallback. Model families, retrieval prompts, and
+  per-family dtype defaults resolve in `embed-inference.mjs`. The only retrieval engine
+  (the skill has no query command).
 - `scripts/lib/recall.mjs`: `recallLessons` (fall-back ladder), `searchMemory`, `saveLesson`.
 - `scripts/lib/discipline.mjs`: single source of the memory discipline (MCP `instructions`
   and the SessionStart context).

@@ -1,6 +1,7 @@
 import { cosine } from "./embed-lexical.mjs";
-import { embedMany, contentHash, getTokenizer } from "./embed.mjs";
-import { embedChunk } from "./settings.mjs";
+import { embedMany, contentHash, getTokenizer, embedWindow } from "./embed.mjs";
+import { embedChunk, embedMaxColdPerRead } from "./settings.mjs";
+import { isSystemMaintenance } from "./maintenance-tag.mjs";
 
 /** @typedef {import("./embed.mjs").EmbedCache} EmbedCache */
 /** @typedef {import("./embed.mjs").EmbedCacheEntry} EmbedCacheEntry */
@@ -13,7 +14,47 @@ import { embedChunk } from "./settings.mjs";
 // out-rank atomic leaves just by having more chances. Short leaves are one
 // chunk and score exactly as before.
 
+// Legacy fixed window, kept as the fallback when no model is resolvable; the
+// live default comes from embedWindow() (model-aware: EmbeddingGemma reads 2048).
 export const EMBED_WINDOW = 512;
+
+// Marks a leaf the cold budget refused: it was never scored, so a caller must
+// DROP it rather than treat it as a zero-relevance hit.
+export const COLD_SKIP_SCORE = -Infinity;
+
+// A cold-embed ledger: ONE per user request, shared across every category, wiki
+// level and recall rung, so the bound is "this request may run N forward passes"
+// — not N per call. It counts TEXTS (chunk sets cost their chunk count; a `full`
+// leaf can be 256) because texts are what the model actually runs. Spending is
+// all-or-nothing per leaf: a partially embedded chunk set would cache a broken
+// entry.
+// The ledger a fresh request should carry: the configured bound, or null (no
+// bound) inside a maintenance pass.
+/**
+ * @returns {{ take: (n: number) => boolean, spent: number, skipped: number } | null}
+ */
+export function defaultColdBudget() {
+  return isSystemMaintenance() ? null : makeColdBudget(embedMaxColdPerRead());
+}
+
+/**
+ * @param {number} maxTexts
+ * @returns {{ take: (n: number) => boolean, spent: number, skipped: number }}
+ */
+export function makeColdBudget(maxTexts) {
+  return {
+    spent: 0,
+    skipped: 0,
+    take(n) {
+      if (this.spent + n > maxTexts) {
+        this.skipped += 1;
+        return false;
+      }
+      this.spent += n;
+      return true;
+    },
+  };
+}
 
 /**
  * Token count as the model sees it (special tokens included) — matches where
@@ -32,24 +73,26 @@ export function tokenCount(tokenizer, text) {
  * window after the header + special tokens, capped at maxChunks.
  * @param {string} embedText the full title.tags.subject header + body
  * @param {string} body the raw body (embedText ends with it)
- * @param {{ encode: (t: string, pair?: unknown, opts?: unknown) => unknown[], decode: (ids: unknown[], opts?: unknown) => string } | null} tokenizer
+ * @param {{ encode: (t: string, opts?: unknown) => unknown[], decode: (ids: unknown[], opts?: unknown) => string } | null} tokenizer
  * @param {{ window?: number, maxChunks?: number, margin?: number }} [opts]
  * @returns {string[]}
  */
 export function chunkTexts(embedText, body, tokenizer, opts = {}) {
-  const window = opts.window ?? EMBED_WINDOW;
+  const window = opts.window ?? embedWindow();
   const maxChunks = opts.maxChunks ?? 6;
-  const margin = opts.margin ?? 8;
+  // 12 leaves headroom for the model's special tokens PLUS the retrieval prompt
+  // applyPrompt prepends at inference (~6 tokens for the Gemma document prefix).
+  const margin = opts.margin ?? 12;
   if (!tokenizer) return [embedText];
   if (tokenCount(tokenizer, embedText) <= window) return [embedText];
 
   const text = String(body || "");
   const header = embedText.slice(0, embedText.length - text.length);
-  const headerTokens = tokenizer.encode(header, null, { add_special_tokens: false }).length;
+  const headerTokens = tokenizer.encode(header, { add_special_tokens: false }).length;
   const budget = window - headerTokens - margin;
   if (budget <= 0) return [embedText];
 
-  const bodyIds = tokenizer.encode(text, null, { add_special_tokens: false });
+  const bodyIds = tokenizer.encode(text, { add_special_tokens: false });
   /** @type {string[]} */
   const chunks = [];
   for (let i = 0; i < bodyIds.length && chunks.length < maxChunks; i += budget) {
@@ -88,9 +131,10 @@ export function scoreLeaf(queryVec, vecList, penalty, cos = cosine) {
  * @param {(cat: string) => EmbedCache} cacheFor
  * @param {number[]} queryVec
  * @param {boolean} chunkAware
+ * @param {{ take: (n: number) => boolean } | null} [budget]
  * @returns {Promise<Map<string, number>>}
  */
-export async function scoreCandidates(candidates, cacheFor, queryVec, chunkAware) {
+export async function scoreCandidates(candidates, cacheFor, queryVec, chunkAware, budget) {
   const { enabled, maxChunks, penalty, fullMaxChunks, fullPenalty } = embedChunk();
   const tokenizer = chunkAware && enabled ? await getTokenizer() : null;
   return scoreTree(candidates, cacheFor, queryVec, {
@@ -100,6 +144,12 @@ export async function scoreCandidates(candidates, cacheFor, queryVec, chunkAware
     maxChunks,
     fullMaxChunks,
     fullPenalty,
+    // A caller that spans several reads (the federated fanout, a recall ladder)
+    // passes ONE ledger so the whole request shares the bound. A lone read gets
+    // its own. Maintenance (consolidate) is exempt: it needs every vector or its
+    // dedup clustering silently under-merges, and it runs detached where a long
+    // embed costs nobody's latency.
+    budget: budget ?? defaultColdBudget(),
   });
 }
 
@@ -113,7 +163,7 @@ export async function scoreCandidates(candidates, cacheFor, queryVec, chunkAware
  * @param {{ id: string, datasetId: string, embedText: string, text: string, full?: boolean }[]} candidates
  * @param {(cat: string) => EmbedCache} cacheFor
  * @param {number[]} queryVec
- * @param {{ chunkAware: boolean, tokenizer: import("./embed.mjs").Tokenizer | null, penalty: number, maxChunks: number, fullPenalty?: number, fullMaxChunks?: number }} opts
+ * @param {{ chunkAware: boolean, tokenizer: import("./embed.mjs").Tokenizer | null, penalty: number, maxChunks: number, fullPenalty?: number, fullMaxChunks?: number, budget?: { take: (n: number) => boolean } | null }} opts
  * @returns {Promise<Map<string, number>>}
  */
 export async function scoreTree(candidates, cacheFor, queryVec, opts) {
@@ -141,9 +191,17 @@ export async function scoreTree(candidates, cacheFor, queryVec, opts) {
       needChunks: chunkAware,
       maxChunks,
       fullMaxChunks,
+      budget: opts.budget,
     });
     items.forEach((it, i) => {
       const v = perLeaf[i];
+      // A budget-skipped leaf is UNKNOWN, not irrelevant: scoring it 0 would let
+      // it through a `scoreThreshold: 0` gate and occupy a result slot. The
+      // sentinel lets the caller drop it instead.
+      if (v.skipped) {
+        scoreByKey.set(`${cat}\0${it.id}`, COLD_SKIP_SCORE);
+        return;
+      }
       const pen = it.full ? fullPenalty : penalty;
       const score = chunkAware
         ? scoreLeaf(queryVec, v.chunks ?? [v.vector], pen)
@@ -167,8 +225,11 @@ export async function scoreTree(candidates, cacheFor, queryVec, opts) {
  * byte-identical and a full leaf becomes fully searchable.
  * @param {EmbedCache} cache
  * @param {{ id: string, embedText: string, body: string, full?: boolean }[]} items
- * @param {{ tokenizer: import("./embed.mjs").Tokenizer | null, needChunks: boolean, window?: number, maxChunks?: number, margin?: number, fullMaxChunks?: number }} opts
- * @returns {Promise<{ vector: number[], chunks?: number[][] }[]>}
+ * `budget` (a makeColdBudget ledger) bounds how many TEXTS this call may embed;
+ * omit it for the unlimited path the background warm relies on. A leaf the budget
+ * refuses comes back `{ skipped: true }` and is left out of the cache.
+ * @param {{ tokenizer: import("./embed.mjs").Tokenizer | null, needChunks: boolean, window?: number, maxChunks?: number, margin?: number, fullMaxChunks?: number, batchSize?: number, budget?: { take: (n: number) => boolean } | null }} opts
+ * @returns {Promise<{ vector: number[], chunks?: number[][], skipped?: boolean }[]>}
  */
 export async function cachedLeafVectors(cache, items, opts) {
   const list = Array.isArray(items) ? items : [];
@@ -177,10 +238,11 @@ export async function cachedLeafVectors(cache, items, opts) {
   const missTexts = [];
   /** @type {{ kind: "vector" | "chunk", i: number, k?: number }[]} */
   const missRefs = [];
-  /** @typedef {{ id: string, hash: string, vector?: number[], chunkHashes?: string[], chunkVecs?: number[][], preserve?: import("./embed.mjs").EmbedChunkVec[] }} LeafStage */
+  /** @typedef {{ id: string, hash: string, vector?: number[], chunkHashes?: string[], chunkVecs?: number[][], preserve?: import("./embed.mjs").EmbedChunkVec[], skipped?: boolean }} LeafStage */
   /** @type {LeafStage[]} */
   const staged = new Array(list.length);
 
+  const budget = opts?.budget ?? null;
   for (let i = 0; i < list.length; i += 1) {
     const { id, embedText, body, full } = list[i];
     // A full leaf embeds its whole body (fullMaxChunks); others cap at maxChunks.
@@ -197,9 +259,16 @@ export async function cachedLeafVectors(cache, items, opts) {
     const stage = { id, hash };
     staged[i] = stage;
     if (vectorHit) stage.vector = vectorHit;
-    else {
+    else if (!budget || budget.take(1)) {
       missRefs.push({ kind: "vector", i });
       missTexts.push(embedText);
+    } else {
+      // Budget spent: leave this leaf unembedded AND uncached, so it ranks last
+      // for this one read (cosine returns 0 on a length mismatch) and the next
+      // background warm still sees it as a miss. Skipping the chunk work below
+      // also skips its tokenization, keeping the read off the CPU entirely.
+      stage.skipped = true;
+      continue;
     }
 
     const texts =
@@ -211,15 +280,19 @@ export async function cachedLeafVectors(cache, items, opts) {
         prev &&
         prev.length === chunkHashes.length &&
         chunkHashes.every((h, k) => prev[k]?.hash === h && Array.isArray(prev[k]?.vector));
-      stage.chunkHashes = chunkHashes;
-      if (hit) stage.chunkVecs = prev.map((c) => c.vector);
-      else {
+      if (hit) {
+        stage.chunkHashes = chunkHashes;
+        stage.chunkVecs = prev.map((c) => c.vector);
+      } else if (!budget || budget.take(texts.length)) {
+        stage.chunkHashes = chunkHashes;
         stage.chunkVecs = new Array(texts.length);
         texts.forEach((t, k) => {
           missRefs.push({ kind: "chunk", i, k });
           missTexts.push(t);
         });
       }
+      // Budget spent on a leaf whose WHOLE-LEAF vector is warm: keep that vector
+      // and skip only the chunk refinement, so the leaf still scores normally.
     } else if (vectorHit && existing.chunks) {
       // Not chunking this call (consolidate/compile, or not truncated) but the
       // body is unchanged (vector hit) — keep the chunks a prior recall built.
@@ -228,7 +301,8 @@ export async function cachedLeafVectors(cache, items, opts) {
   }
 
   if (missTexts.length > 0) {
-    const vecs = await embedMany(missTexts);
+    cache._dirty = true;
+    const vecs = await embedMany(missTexts, { batchSize: opts?.batchSize, kind: "document" });
     missRefs.forEach((ref, m) => {
       if (ref.kind === "vector") staged[ref.i].vector = vecs[m];
       else
@@ -237,10 +311,16 @@ export async function cachedLeafVectors(cache, items, opts) {
     });
   }
 
-  /** @type {{ vector: number[], chunks?: number[][] }[]} */
+  /** @type {{ vector: number[], chunks?: number[][], skipped?: boolean }[]} */
   const out = new Array(list.length);
   for (let i = 0; i < list.length; i += 1) {
     const s = staged[i];
+    if (s.skipped) {
+      // Writing NO cache entry keeps the leaf a genuine miss for the next warm —
+      // caching a zero vector under a matching hash would poison it permanently.
+      out[i] = { vector: [], skipped: true };
+      continue;
+    }
     const vector = /** @type {number[]} */ (s.vector);
     const chunkVecs = s.chunkVecs;
     /** @type {EmbedCacheEntry} */

@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
-import { isLossless } from "./losslessGuard";
+import { useCallback, useMemo, useState } from "react";
 import { LexicalEditor } from "./LexicalEditor";
 import { CodeMirrorSource } from "./CodeMirrorSource";
+import { deliteralize, isEditableLossless, literalize } from "./markdownLiteral";
 
 export function Editor({
   initialMarkdown,
@@ -12,8 +12,19 @@ export function Editor({
   value: string;
   onChange: (markdown: string) => void;
 }) {
-  const lossless = useMemo(() => isLossless(initialMarkdown), [initialMarkdown]);
-  const [mode, setMode] = useState<"wysiwyg" | "source">(lossless ? "wysiwyg" : "source");
+  /**
+   * Blocks the editor cannot represent ride along as literal fences, so rich editing
+   * is offered for every document. `safe` is a last-resort assertion that the encoding
+   * truly round-trips THIS input: nothing in a real corpus fails it, but anything that
+   * did would keep its content instead of being mangled.
+   */
+  const safe = useMemo(() => isEditableLossless(initialMarkdown), [initialMarkdown]);
+  const [mode, setMode] = useState<"wysiwyg" | "source">("wysiwyg");
+  const richMarkdown = useMemo(() => literalize(value), [value]);
+  const onRichChange = useCallback(
+    (markdown: string) => onChange(deliteralize(markdown)),
+    [onChange],
+  );
 
   const tab = (target: "wysiwyg" | "source", label: string, disabled = false) => (
     <button
@@ -32,16 +43,20 @@ export function Editor({
   return (
     <div>
       <div className="mb-2 flex items-center gap-2 text-xs">
-        {tab("wysiwyg", "Rich", !lossless)}
+        {tab("wysiwyg", "Rich", !safe)}
         {tab("source", "Source")}
-        {!lossless && (
+        {!safe && (
           <span className="text-amber-600">
-            rich editing off — this document uses markdown the editor can’t round-trip losslessly
+            rich editing off — this document cannot be re-encoded without changing it
           </span>
         )}
       </div>
-      {mode === "wysiwyg" ? (
-        <LexicalEditor key={initialMarkdown} initialMarkdown={value} onChange={onChange} />
+      {mode === "wysiwyg" && safe ? (
+        <LexicalEditor
+          key={initialMarkdown}
+          initialMarkdown={richMarkdown}
+          onChange={onRichChange}
+        />
       ) : (
         <CodeMirrorSource value={value} onChange={onChange} />
       )}

@@ -1,5 +1,5 @@
 import { Fragment, useState } from "react";
-import { XMarkIcon } from "@heroicons/react/24/outline";
+import { ArchiveBoxIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { Button } from "./Button";
 import { HoverCard } from "./HoverCard";
 import { LeafCard } from "./LeafCard";
@@ -11,6 +11,7 @@ export function TabBar({
   tabs,
   active,
   pinnedIds = [],
+  archivedIds = [],
   orientation = "horizontal",
   labelFor,
   onSelect,
@@ -21,6 +22,7 @@ export function TabBar({
   tabs: string[];
   active: string | null;
   pinnedIds?: string[];
+  archivedIds?: string[];
   orientation?: TabOrientation;
   labelFor: (docId: string) => string;
   onSelect: (docId: string) => void;
@@ -31,6 +33,7 @@ export function TabBar({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const pinned = new Set(pinnedIds);
+  const archived = new Set(archivedIds);
   const vertical = orientation === "vertical";
 
   const endDrag = () => {
@@ -111,11 +114,17 @@ export function TabBar({
               >
                 <button
                   onClick={() => onSelect(tab)}
-                  className={`cursor-pointer truncate group-hover:pr-5 ${
+                  className={`flex cursor-pointer items-center gap-1 group-hover:pr-5 ${
                     vertical ? "w-full text-left" : "max-w-[14rem]"
                   }`}
                 >
-                  {labelFor(tab)}
+                  {archived.has(tab) && (
+                    <ArchiveBoxIcon
+                      className="h-3.5 w-3.5 shrink-0 text-slate-400"
+                      aria-label="archived"
+                    />
+                  )}
+                  <span className="truncate">{labelFor(tab)}</span>
                 </button>
               </HoverCard>
               <Button

@@ -35,7 +35,8 @@ consolidate-side can never drift apart.
 
 ### Long leaves — length-aware chunking (recall only)
 
-The model reads only the first ~512 tokens of a leaf's embed text, so a long
+The model reads only its input window — 2048 tokens for the default
+EmbeddingGemma, 512 for the BERT-family models — so a long
 leaf (a plan, investigation, tracker issue, or daily capture) would otherwise
 lose the rest — its later sections become unfindable, and even its early content
 retrieves poorly because one mean-pooled vector over a long multi-topic body
@@ -82,17 +83,36 @@ false everywhere).
 
 | Backend | What it is | When |
 |---|---|---|
-| `transformers` (default) | `Xenova/bge-large-en-v1.5`, mean-pooled, L2-normalized, quantized ONNX via `@xenova/transformers` (onnxruntime-node). ~340 MB, downloaded once, then offline. | Default. |
+| `transformers` (default) | `onnx-community/embeddinggemma-300m-ONNX` — Google EmbeddingGemma-300m (308M params, 768-dim, 2048-token window), quantized ONNX (q4, ~197 MB) via `@huggingface/transformers` v4 (onnxruntime-node). Downloaded once, then offline. BERT-family alternatives (`bge-*`, MiniLM) run mean-pooled + L2-normalized. | Default. |
 | `lexical` (fallback) | Deterministic hashed bag-of-tokens into a fixed 256-dim vector. Not semantic, but stable and dependency-free. | When the model can't load (offline first run, download failure), or forced via `embed.backend: lexical`. |
 
 The backend is resolved once per process and latched: a mid-run
 transformer→lexical fallback sticks for the rest of the process, and the cache
 records which backend produced its vectors (see caching).
 
-Change the model with `embed.model` in `settings.yaml` (e.g. a lighter
-`Xenova/bge-small-en-v1.5`); the old `MEMORY_EMBED_MODEL` env var was folded into
-settings and is now ignored. A model change invalidates the vector cache (it is
-stamped with the model), so vectors recompute on the next search.
+Change the model with `embed.model` in `settings.yaml` (e.g. the previous
+default `Xenova/bge-large-en-v1.5`, or a lighter `Xenova/bge-small-en-v1.5` —
+see the model table in [configuration.md](configuration.md)); the old
+`MEMORY_EMBED_MODEL` env var was folded into settings and is now ignored. A
+model change invalidates the per-category vector caches (each is stamped with
+model + backend + dim), so vectors recompute via the gradual warm or the next
+search.
+
+EmbeddingGemma's retrieval prompts (query: `task: search result | query: `,
+document: `title: none | text: `) are applied automatically at inference time
+and never enter cache hashes, so leaf identity stays content-based; BERT-family
+models embed the raw text. Two further knobs: `embed.dtype` (`""` resolves per
+model family — EmbeddingGemma → `q4`, BERT-family → `q8`) and `embed.threads`
+(ONNX intra-op threads per forward pass, default 2 — a background warm then sits
+near 200% CPU instead of saturating the machine; `0` = all cores), and
+`embed.maxColdPerRead` (default 32) which caps how many texts ONE read may
+cold-embed before it leaves the rest to the background warm.
+
+Recall latency is shielded two ways: inference runs in a worker thread, so a
+forward pass never blocks the event loop (a search issued mid-warm stays
+responsive), and a cold cache re-embeds via a **gradual warm** — small
+duty-cycled slices with persisted progress — while any search embeds only the
+leaves it actually touches.
 
 ---
 
@@ -129,25 +149,30 @@ next writable search is the correctness net.
 
 This is the load-bearing guarantee, verified in code and empirically.
 
-- **The pipeline is a per-process singleton.** `embed.mjs` holds one memoized
-  `_extractorPromise`; every `embed()` / `embedMany()` call reuses it. ES modules
-  are per-process singletons, so there is exactly **one** model instance per
-  Node process.
+- **The model is a per-process singleton.** Inference runs in one dedicated
+  worker thread (the onnxruntime forward pass is a synchronous native call that
+  would otherwise block the event loop); `embed.mjs` holds one worker handle,
+  plus one memoized in-process fallback embedder, and every `embed()` /
+  `embedMany()` call reuses them — exactly **one** model instance per Node
+  process.
 - **Federated fan-out reuses that one model.** A multi-level search
   (`searchMemoryFiltered` → per-level `searchOneTree`) runs each level inside a
   `withWikiRoot` frame that swaps only the wiki *path* (an AsyncLocalStorage
   value) — it never re-imports or re-instantiates the pipeline. N levels = N
   searches, **1 model**. Measured: RSS stays flat across a full multi-level run.
 
-### Why not a worker-thread pool
+### One worker thread — never a pool
 
-Each Node `worker_thread` is a separate V8 isolate with its own module
-registry, so importing the model inside each worker loads its **own** ~340 MB
+Inference lives in a **single** worker thread so the event loop never blocks
+(opt out with `LWM_EMBED_NO_WORKER=1`); a worker failure routes to the same
+lexical-fallback window as a model failure. A **pool** of workers stays
+rejected: each Node `worker_thread` is a separate V8 isolate with its own
+module registry, so importing the model inside each worker loads its **own**
 copy — RAM ≈ pool size × model. A live onnxruntime session cannot be shared
 across workers (it's a native handle bound to one isolate). A worker pool would
 therefore multiply the model, and it would not even be faster (see the
 thread-scaling result below — a single inference does not speed up with more
-threads on this stack). **Rejected by design.**
+threads on this stack).
 
 ### Batching (the safe parallelism)
 
@@ -171,6 +196,11 @@ into `ceil(N / batch)` forward passes.
 Measured on an **Apple M4 Pro (14 cores), Node v25, `@xenova/transformers`
 2.17.2**, model `Xenova/bge-large-en-v1.5` already downloaded (warm), the
 content-hash cache **bypassed** to measure raw embed cost.
+
+*These measurements predate the current `onnx-community/embeddinggemma-300m-ONNX`
+/ `@huggingface/transformers` v4 default and remain representative of the
+BERT-family (`bge-*`) path; the shape of the findings (batching, thread scaling,
+single-model memory) carries over.*
 
 ### Embedding the same document 1000× (one model, no reload)
 
@@ -213,15 +243,17 @@ baseline across every batch size** (B=8 → 64). One model, regardless of batch.
 4. **The biggest single speed lever is model size**, not parallelism. `bge-large`
    is the heavy end (~45–87 ms/doc); a quantized `bge-small`/MiniLM is ~3–5×
    faster per doc at a small quality cost — set `embed.model` in `settings.yaml` to switch.
-   The default stays `bge-large` for retrieval quality.
+   (`bge-large` was the default when these numbers were measured; the default is
+   now EmbeddingGemma-300m.)
 
 ### Reproducing
 
 Load the pipeline once, warm it, then time N serial `extractor(doc, {pooling:
 'mean', normalize: true})` calls and the same N split into batched array calls;
 track `process.memoryUsage().rss` at each stage. Run from inside the engine's
-`src/` (so `@xenova/transformers` resolves) against the already-downloaded model
-cache under `node_modules/@xenova/transformers/.cache`.
+`src/` (so the transformers library resolves) against the already-downloaded
+model cache — its location is resolved via `@huggingface/transformers`, and
+`MEMORY_EMBED_CACHE_DIR` still overrides it.
 
 ---
 

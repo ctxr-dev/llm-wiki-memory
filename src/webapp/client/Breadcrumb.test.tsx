@@ -68,6 +68,39 @@ test("renders no copy button until the active wiki is known", () => {
   expect(screen.queryByLabelText("copy reference")).toBeNull();
 });
 
+test("shows an Edit icon that triggers onEdit when not already editing", () => {
+  const onEdit = vi.fn();
+  render(
+    <Breadcrumb
+      docId="knowledge/foo.md"
+      wiki={brain}
+      onNavigate={vi.fn()}
+      onEdit={onEdit}
+      editing={false}
+    />,
+  );
+  fireEvent.click(screen.getByLabelText("edit"));
+  expect(onEdit).toHaveBeenCalled();
+});
+
+test("hides the Edit icon while editing", () => {
+  render(
+    <Breadcrumb
+      docId="knowledge/foo.md"
+      wiki={brain}
+      onNavigate={vi.fn()}
+      onEdit={vi.fn()}
+      editing={true}
+    />,
+  );
+  expect(screen.queryByLabelText("edit")).toBeNull();
+});
+
+test("shows an archive icon when the document is archived", () => {
+  render(<Breadcrumb docId="knowledge/foo.md" wiki={brain} onNavigate={vi.fn()} archived />);
+  expect(screen.getByLabelText("archived")).toBeTruthy();
+});
+
 test("clicking copy is a safe no-op when the clipboard API is unavailable", () => {
   render(<Breadcrumb docId="knowledge/foo.md" wiki={brain} onNavigate={vi.fn()} />);
   expect(() => fireEvent.click(screen.getByLabelText("copy reference"))).not.toThrow();

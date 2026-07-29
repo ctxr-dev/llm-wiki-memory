@@ -1,6 +1,6 @@
 import { EditDocRequest, ArchiveRequest, CreateDocRequest } from "../../shared/contract.mjs";
 import { resolveWiki } from "../engine.mjs";
-import { editDoc, setArchived, createDoc } from "../edit.mjs";
+import { editDoc, setArchived, deleteDoc, createDoc } from "../edit.mjs";
 
 /** @param {string | undefined} error @returns {number} */
 function statusFor(error) {
@@ -49,6 +49,19 @@ export function registerEditRoutes(app, db) {
       return { ok: false, error: "invalid-request" };
     }
     const result = await setArchived(wiki.root, wiki.ownership, docId, parsed.data.archive);
+    if (!result.ok) reply.code(statusFor(result.error));
+    return result;
+  });
+
+  app.delete("/api/wikis/:id/doc/*", async (request, reply) => {
+    const { id } = /** @type {{ id: string }} */ (request.params);
+    const docId = /** @type {{ "*": string }} */ (request.params)["*"];
+    const wiki = await wikiFor(id);
+    if (!wiki) {
+      reply.code(404);
+      return { ok: false, error: "no-such-wiki" };
+    }
+    const result = await deleteDoc(wiki.root, wiki.ownership, docId);
     if (!result.ok) reply.code(statusFor(result.error));
     return result;
   });

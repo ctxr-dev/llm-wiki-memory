@@ -15,9 +15,9 @@ const doc: DocView = {
 
 test("shows facet chips and toggles the raw frontmatter", () => {
   render(<FrontmatterCard doc={doc} />);
-  expect(screen.getByText(/backend/)).toBeTruthy();
-  expect(screen.getByText(/decision/)).toBeTruthy();
-  expect(screen.getByText(/architecture/)).toBeTruthy();
+  expect(screen.getByText(/Backend/)).toBeTruthy();
+  expect(screen.getByText(/Decision/)).toBeTruthy();
+  expect(screen.getByText(/Architecture/)).toBeTruthy();
   expect(screen.getByText(/P1/)).toBeTruthy();
   expect(screen.queryByText(/"focus"/)).toBeNull();
   fireEvent.click(screen.getByText("frontmatter"));

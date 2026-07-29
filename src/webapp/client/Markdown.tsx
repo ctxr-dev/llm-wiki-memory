@@ -1,10 +1,20 @@
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSlug from "rehype-slug";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { CodeBlock } from "./CodeBlock";
 import { Mermaid } from "./Mermaid";
 import { resolveRef } from "./refs";
 import type { Wiki } from "./api";
+
+const SANITIZE_SCHEMA: typeof defaultSchema = {
+  ...defaultSchema,
+  protocols: {
+    ...defaultSchema.protocols,
+    href: [...(defaultSchema.protocols?.href ?? []), "brain"],
+  },
+};
 
 type OpenRef = (wikiId: string, docId: string) => void;
 
@@ -61,7 +71,7 @@ export function Markdown({
     <div className="md-body min-w-0">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkRefs]}
-        rehypePlugins={[rehypeSlug]}
+        rehypePlugins={[rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], rehypeSlug]}
         urlTransform={(url) => (resolveRef(wikis, url) ? url : defaultUrlTransform(url))}
         components={{
           a({ href, children }) {

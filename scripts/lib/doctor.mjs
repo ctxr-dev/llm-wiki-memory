@@ -23,6 +23,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { wikiRoot } from "./env.mjs";
+import { embedBackend } from "./settings.mjs";
 import { indexRebuildOne } from "./wiki-cli.mjs";
 import { recordWikiChange } from "./wiki-commit.mjs";
 import {
@@ -42,6 +43,7 @@ import {
  * @typedef {{ stray: string, reason: string }} StrayEntry
  * @typedef {{ orphan: string }} OrphanEntry
  * @typedef {{ index: string, fixed: string[] }} FixedEntry
+ * @typedef {{ cache: string, backend: string, expected: string, dim: number, entries: number }} CacheMismatchEntry
  * @typedef {{
  *   ok: boolean,
  *   wiki: string,
@@ -50,7 +52,8 @@ import {
  *   unlisted: UnlistedEntry[],
  *   strays: StrayEntry[],
  *   orphans: OrphanEntry[],
- *   summary: { brokenRefs: number, unlisted: number, strays: number, orphans: number },
+ *   cacheMismatches: CacheMismatchEntry[],
+ *   summary: { brokenRefs: number, unlisted: number, strays: number, orphans: number, cacheMismatches: number },
  *   fixed?: FixedEntry[]
  * }} DoctorReport
  */
@@ -154,6 +157,50 @@ export function findStrayLeaves(wiki = wikiRoot()) {
   return found;
 }
 
+// loadCache silently rejects a backend-mismatched cache and cold-re-embeds the
+// whole category on the next search; this surfaces that corruption first.
+// Backend only: a model swap transiently mismatches every cache mid-migration,
+// so flagging model/dim here would cry wolf.
+/**
+ * @param {string} [wiki]
+ * @returns {CacheMismatchEntry[]}
+ */
+export function findBackendMismatchedCaches(wiki = wikiRoot()) {
+  const configured = (embedBackend() || "").toLowerCase();
+  if (!configured) return [];
+  /** @type {CacheMismatchEntry[]} */
+  const found = [];
+  let dirEntries;
+  try {
+    dirEntries = fs.readdirSync(wiki, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  for (const e of dirEntries) {
+    if (!e.isDirectory() || isHidden(e.name)) continue;
+    const cachePath = path.join(wiki, e.name, ".embeddings", "embeddings.json");
+    let stamp;
+    try {
+      stamp = JSON.parse(fs.readFileSync(cachePath, "utf8"));
+    } catch {
+      continue;
+    }
+    const backend = String(stamp?.backend || "").toLowerCase();
+    if (backend && backend !== configured) {
+      const entryCount =
+        stamp.entries && typeof stamp.entries === "object" ? Object.keys(stamp.entries).length : 0;
+      found.push({
+        cache: rel(wiki, cachePath),
+        backend: stamp.backend,
+        expected: configured,
+        dim: typeof stamp.dim === "number" ? stamp.dim : 0,
+        entries: entryCount,
+      });
+    }
+  }
+  return found;
+}
+
 // A curated leaf that no index.md anywhere references (the inverse of a broken ref).
 /**
  * @param {string} [wiki]
@@ -236,11 +283,13 @@ export function doctor(wiki = wikiRoot(), { fix = false } = {}) {
   const unlisted = findUnlistedChildren(w);
   const strays = findStrayLeaves(w);
   const orphans = findOrphanLeaves(w);
+  const cacheMismatches = findBackendMismatchedCaches(w);
   const summary = {
     brokenRefs: brokenRefs.reduce((n, r) => n + r.broken.length, 0),
     unlisted: unlisted.reduce((n, r) => n + r.unlisted.length, 0),
     strays: strays.length,
     orphans: orphans.length,
+    cacheMismatches: cacheMismatches.length,
   };
   const ok = Object.values(summary).every((n) => n === 0);
   /** @type {DoctorReport} */
@@ -252,6 +301,7 @@ export function doctor(wiki = wikiRoot(), { fix = false } = {}) {
     unlisted,
     strays,
     orphans,
+    cacheMismatches,
     summary,
   };
   if (fix) report.fixed = fixed || [];

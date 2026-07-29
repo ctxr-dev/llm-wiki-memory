@@ -1,29 +1,10 @@
 import path from "node:path";
 import { loadEngine } from "./engine.mjs";
 import { isWithin } from "./paths.mjs";
+import { ATOM_TYPES, TASK_TYPES, PRIORITY_VALUES } from "../../../scripts/lib/datasets.mjs";
 
 const GATED = "self_improvement";
-const ATOM_TYPES = new Set([
-  "decision",
-  "bug-root-cause",
-  "feedback-rule",
-  "project-lore",
-  "reference",
-  "pattern-gotcha",
-  "self-improvement-lesson",
-  "plan",
-]);
-const TASK_TYPES = new Set([
-  "planning",
-  "implementation",
-  "debugging",
-  "refactor",
-  "review",
-  "deploy",
-  "docs",
-  "unknown",
-]);
-const PRIORITIES = new Set(["P0", "P1", "P2"]);
+const PRIORITIES = new Set(PRIORITY_VALUES);
 
 /** @param {string} id @returns {string} */
 function firstSegment(id) {
@@ -125,6 +106,22 @@ export async function setArchived(root, ownership, docId, archive) {
       : store.enableDocument({ documentId: docId, datasetId: category });
     if (!result.ok) return { ok: false, error: "no-such-doc" };
     return { ok: true, id: docId, status: result.status, shared: ownership === "repo" };
+  });
+}
+
+/**
+ * @param {string} root @param {"wiki" | "repo"} ownership @param {string} docId
+ * @returns {Promise<import("../shared/contract.mjs").EditResult>}
+ */
+export async function deleteDoc(root, ownership, docId) {
+  const { env, identity, store } = await loadEngine();
+  const category = identity.categoryOfId(docId);
+  return env.withWikiRoot(root, () => {
+    if (!isWithin(env.wikiRoot(), identity.toAbs(docId)))
+      return { ok: false, error: "no-such-doc" };
+    const result = store.deleteDocument({ documentId: docId, datasetId: category });
+    if (!result.ok) return { ok: false, error: "no-such-doc" };
+    return { ok: true, id: docId, shared: ownership === "repo" };
   });
 }
 

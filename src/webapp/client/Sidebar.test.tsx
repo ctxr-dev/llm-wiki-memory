@@ -72,7 +72,7 @@ test("adds a wiki through the folder input and shows it", async () => {
     return respond(true, 200, {});
   });
   await waitFor(() => expect(screen.getByText("Brain")).toBeTruthy());
-  fireEvent.click(screen.getByText("+ Add wiki"));
+  fireEvent.click(screen.getByText("Add wiki"));
   fireEvent.change(screen.getByPlaceholderText(/absolute\/path/), { target: { value: "/repo" } });
   fireEvent.click(screen.getByRole("button", { name: "Add" }));
   await waitFor(() => expect(screen.getByText("Repo")).toBeTruthy());
@@ -87,7 +87,7 @@ test("shows a friendly error when the folder is not a wiki", async () => {
     return respond(true, 200, {});
   });
   await waitFor(() => expect(screen.getByText("Brain")).toBeTruthy());
-  fireEvent.click(screen.getByText("+ Add wiki"));
+  fireEvent.click(screen.getByText("Add wiki"));
   fireEvent.change(screen.getByPlaceholderText(/absolute\/path/), { target: { value: "/nope" } });
   fireEvent.click(screen.getByRole("button", { name: "Add" }));
   await waitFor(() => expect(screen.getByText(/No .llm-wiki-memory found/)).toBeTruthy());

@@ -5,12 +5,12 @@ test("the Wikis and Categories columns collapse to a rail and expand back", asyn
   await openCategories(page);
 
   const wikis = page.getByRole("navigation", { name: "wikis" });
-  await expect(wikis.getByRole("button", { name: "+ Add wiki" })).toBeVisible();
+  await expect(wikis.getByRole("button", { name: "Add wiki" })).toBeVisible();
   await wikis.getByRole("button", { name: "collapse Wikis" }).click();
-  await expect(wikis.getByRole("button", { name: "+ Add wiki" })).toBeHidden();
+  await expect(wikis.getByRole("button", { name: "Add wiki" })).toBeHidden();
   await expect(wikis.getByRole("button", { name: "expand Wikis" })).toBeVisible();
   await wikis.getByRole("button", { name: "expand Wikis" }).click();
-  await expect(wikis.getByRole("button", { name: "+ Add wiki" })).toBeVisible();
+  await expect(wikis.getByRole("button", { name: "Add wiki" })).toBeVisible();
 
   const browse = page.getByRole("navigation", { name: "browse" });
   await expect(browse.getByRole("button", { name: /^Knowledge/ })).toBeVisible();

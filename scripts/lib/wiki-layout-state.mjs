@@ -36,6 +36,7 @@ import { loadMergedLayout, readMergedLayout } from "./layout-merge.mjs";
  * @property {boolean} fullDefault wiki-level full default (inherited when a category omits `full`)
  * @property {Record<string, boolean>} gatedCategories per-category write-gate flag (seeded defaults + overrides)
  * @property {Record<string, boolean>} autoDistillCategories per-category auto-distill flag (default true)
+ * @property {Record<string, import("./wiki-layout-parse.mjs").FacetMeta>} facetMeta per-facet help metadata (built-in defaults + layout overrides)
  * @property {number} sharedMtime mtime (ms) of layout.yaml when built (0 if absent)
  * @property {number} localMtime mtime (ms) of layout.local.yaml when built (0 if absent)
  */
@@ -232,6 +233,24 @@ export function placementRulesFor(category) {
 export function vocabularyFor(name) {
   const vocabs = ensureLayoutLoaded().vocabs;
   return Object.hasOwn(vocabs, name) ? vocabs[name] : null;
+}
+
+// Per-facet help metadata for the CURRENT root: the built-in defaults merged
+// with any `facet_meta` overrides declared in the wiki's layout. Returns a fresh
+// copy so callers can't mutate the cached snapshot.
+/**
+ * @returns {Record<string, import("./wiki-layout-parse.mjs").FacetMeta>}
+ */
+export function getFacetMeta() {
+  const snap = ensureLayoutLoaded();
+  /** @type {Record<string, import("./wiki-layout-parse.mjs").FacetMeta>} */
+  const out = {};
+  for (const [k, v] of Object.entries(snap.facetMeta || {})) {
+    const copy = { ...v };
+    if (Array.isArray(v.examples)) copy.examples = [...v.examples];
+    out[k] = copy;
+  }
+  return out;
 }
 
 /**

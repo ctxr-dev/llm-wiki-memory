@@ -1,13 +1,18 @@
 # Performance characteristics
 
 Empirical latency for `llm-wiki-memory` — the Xenova `bge-large-en-v1.5`
-embedder + the `@ctxr/skill-llm-wiki` index pipeline.
+embedder (the default at the time of measurement) + the `@ctxr/skill-llm-wiki`
+index pipeline.
 
 > **Measured:** Apple **M4 Pro** (14 cores) · **Node 25.9** · macOS · production
 > backend (real `bge-large`, model already cached on disk) · an **isolated**
 > throwaway wiki grown to **~280 leaves** (the live install is never touched).
 > Numbers are medians of repeated runs. Re-measure on your own hardware for
 > absolute values — the *shape* (what dominates what) is what transfers.
+
+*These measurements predate the current `onnx-community/embeddinggemma-300m-ONNX`
+/ `@huggingface/transformers` v4 default and remain representative of the
+BERT-family (`bge-*`) path.*
 
 ---
 

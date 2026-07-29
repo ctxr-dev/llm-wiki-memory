@@ -43,10 +43,17 @@ const RESULT = {
   category: "knowledge",
   score: 0.9,
   snippet: "kafka",
+  active: true,
 };
 
 beforeAll(() => {
   SearchResultSchema.parse(RESULT);
+});
+
+test("focuses the search input on open", () => {
+  stubFetch({ "/api/wikis": { wikis: [] } });
+  renderPalette();
+  expect(screen.getByPlaceholderText(/Search or jump/)).toBe(document.activeElement);
 });
 
 test("typing a query shows titled results with location; clicking opens the doc and closes", async () => {
@@ -58,6 +65,16 @@ test("typing a query shows titled results with location; clicking opens the doc 
   fireEvent.click(screen.getByText("Alpha Decision"));
   expect(onOpenDoc).toHaveBeenCalledWith("knowledge/a.md");
   expect(onClose).toHaveBeenCalled();
+});
+
+test("an archived result shows an archive icon and a colored priority tag", async () => {
+  const archived = { ...RESULT, id: "knowledge/z.md", title: "Retired Note", active: false, priority: "P0" };
+  stubFetch({ "/search": { results: [archived] }, "/api/wikis": { wikis: [] } });
+  renderPalette();
+  fireEvent.change(screen.getByPlaceholderText(/Search or jump/), { target: { value: "kafka" } });
+  await waitFor(() => expect(screen.getByText("Retired Note")).toBeTruthy());
+  expect(screen.getByLabelText("archived")).toBeTruthy();
+  expect(screen.getByText("P0").className).toContain("bg-red-100");
 });
 
 test("an initial facet filter searches with no free text and is removable", async () => {
@@ -83,11 +100,11 @@ test("an initial facet filter searches with no free text and is removable", asyn
       />
     </QueryClientProvider>,
   );
-  expect(screen.getByText("area: backend")).toBeTruthy();
+  expect(screen.getByText("Area: backend")).toBeTruthy();
   await waitFor(() => expect(screen.getByText("Alpha Decision")).toBeTruthy());
   expect(requested.some((url) => url.includes("area=backend"))).toBe(true);
-  fireEvent.click(screen.getByLabelText("remove area: backend"));
-  expect(screen.queryByText("area: backend")).toBeNull();
+  fireEvent.click(screen.getByLabelText("remove Area: backend"));
+  expect(screen.queryByText("Area: backend")).toBeNull();
 });
 
 test("with an empty query it lists wikis to switch to", async () => {
@@ -217,10 +234,10 @@ test("an initial category chip constrains the search and is removable", async ()
       />
     </QueryClientProvider>,
   );
-  expect(screen.getByText("category: knowledge")).toBeTruthy();
+  expect(screen.getByText("Category: knowledge")).toBeTruthy();
   await waitFor(() =>
     expect(requested.some((url) => url.includes("category=knowledge"))).toBe(true),
   );
-  fireEvent.click(screen.getByLabelText("remove category: knowledge"));
-  expect(screen.queryByText("category: knowledge")).toBeNull();
+  fireEvent.click(screen.getByLabelText("remove Category: knowledge"));
+  expect(screen.queryByText("Category: knowledge")).toBeNull();
 });

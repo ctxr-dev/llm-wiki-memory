@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
-import { XMarkIcon } from "@heroicons/react/24/outline";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { ArchiveBoxIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { useSearch, useWikis } from "./hooks";
 import { useDebounced } from "./useDebounced";
 import { Highlight } from "./Highlight";
+import { PriorityBadge } from "./PriorityBadge";
+import { humanizeFacet } from "./facets";
 import { Button } from "./Button";
 import { resolveRef } from "./refs";
 import type { Facet, SearchResult, Wiki } from "./api";
@@ -35,6 +37,7 @@ export function CommandPalette({
   onClose,
   initialFilters = [],
   initialCategory = null,
+  showArchived = false,
 }: {
   wikiId: string;
   onOpenDoc: (id: string) => void;
@@ -43,6 +46,7 @@ export function CommandPalette({
   onClose: () => void;
   initialFilters?: Facet[];
   initialCategory?: string | null;
+  showArchived?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<"wiki" | "all">("wiki");
@@ -54,7 +58,12 @@ export function CommandPalette({
     () => Object.fromEntries(filters.map((facet) => [facet.key, facet.value])),
     [filters],
   );
-  const search = useSearch(wikiId, debounced, { scope, filters: filterObject, category });
+  const search = useSearch(wikiId, debounced, {
+    scope,
+    filters: filterObject,
+    category,
+    archived: showArchived,
+  });
   const wikis = useWikis();
   const constrained = filters.length > 0 || !!category;
   const showWikis = debounced.trim().length === 0 && !constrained;
@@ -78,6 +87,8 @@ export function CommandPalette({
         .map((wiki) => ({ kind: "wiki", wiki }))
     : [...refRows, ...(search.data ?? []).map((result) => ({ kind: "doc", result }) as Row)];
 
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => inputRef.current?.focus(), []);
   useEffect(() => setSelected(0), [debounced, scope, showWikis, filterObject, category]);
 
   const choose = (index: number) => {
@@ -121,16 +132,20 @@ export function CommandPalette({
       >
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 dark:border-slate-800 p-2">
           {category && (
-            <FilterChip label={`category: ${category}`} onRemove={() => setCategory(null)} />
+            <FilterChip
+              label={`${humanizeFacet("category")}: ${category}`}
+              onRemove={() => setCategory(null)}
+            />
           )}
           {filters.map((facet) => (
             <FilterChip
               key={facet.key}
-              label={`${facet.key}: ${facet.value}`}
+              label={`${humanizeFacet(facet.key)}: ${facet.value}`}
               onRemove={() => setFilters((current) => current.filter((f) => f.key !== facet.key))}
             />
           ))}
           <input
+            ref={inputRef}
             autoFocus
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -193,8 +208,19 @@ export function CommandPalette({
                   </span>
                 ) : (
                   <span className="block">
-                    <span className="font-medium">
-                      <Highlight text={row.result.title} query={debounced} />
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      {!row.result.active && (
+                        <ArchiveBoxIcon
+                          className="h-3.5 w-3.5 shrink-0 text-slate-400"
+                          aria-label="archived"
+                        />
+                      )}
+                      <span className="truncate font-medium">
+                        <Highlight text={row.result.title} query={debounced} />
+                      </span>
+                      {row.result.priority && (
+                        <PriorityBadge priority={row.result.priority} className="shrink-0" />
+                      )}
                     </span>
                     <span className="ml-1 text-xs text-slate-400 dark:text-slate-500">
                       {row.result.wikiLabel ? `${row.result.wikiLabel} · ` : ""}

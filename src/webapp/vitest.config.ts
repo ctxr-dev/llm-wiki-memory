@@ -4,6 +4,7 @@ export default defineConfig({
   esbuild: { jsx: "automatic", jsxImportSource: "react" },
   test: {
     globals: true,
+    setupFiles: ["../../test/setup-guard.mjs"],
     include: [
       "server/**/*.test.mjs",
       "shared/**/*.test.mjs",

@@ -4,7 +4,7 @@ import { priorityForAtomType, normalisePriority, priorityRank } from "./datasets
 import { embedCacheFor } from "./env.mjs";
 import { recallPriorityBand } from "./settings.mjs";
 import { loadCache, saveCache, embed } from "./embed.mjs";
-import { scoreCandidates } from "./embed-chunk.mjs";
+import { scoreCandidates, COLD_SKIP_SCORE } from "./embed-chunk.mjs";
 import {
   WikiStoreUnavailable,
   root,
@@ -180,16 +180,22 @@ export function rerankWithinBands(sortedDesc, band, scoreOf = (r) => r.score) {
 // (wiki-search-fanout.mjs → the public `searchMemoryFiltered`) runs it once per
 // level inside a `withWikiRoot` frame and merges the results.
 /**
- * @param {{ query?: string, datasetId?: string, limit?: number, filters?: SearchFilters, scoreThreshold?: number, withGlance?: boolean, chunkAware?: boolean }} [opts]
+ * `coldBudget` is a shared makeColdBudget ledger: pass ONE across a multi-read
+ * request (the federated fanout, a recall ladder) so the cold-embed bound covers
+ * the whole request instead of resetting per read.
+ * @param {{ query?: string, queryKind?: "query" | "document", coldBudget?: { take: (n: number) => boolean } | null, datasetId?: string, limit?: number, filters?: SearchFilters, scoreThreshold?: number, withGlance?: boolean, chunkAware?: boolean, includeArchived?: boolean }} [opts]
  */
 export async function searchOneTree({
   query,
+  queryKind = "query",
+  coldBudget,
   datasetId,
   limit = 5,
   filters,
   scoreThreshold,
   withGlance = false,
   chunkAware = false,
+  includeArchived = false,
 } = {}) {
   ensureLayoutLoaded();
   const cats = datasetId
@@ -210,7 +216,8 @@ export async function searchOneTree({
         );
         continue;
       }
-      if (!isActive(data)) continue;
+      const active = isActive(data);
+      if (!includeArchived && !active) continue;
       const mem = leafMemory(data);
       if (!metaMatchesFilters(mem, filters)) continue;
       candidates.push({
@@ -219,6 +226,7 @@ export async function searchOneTree({
         embedText: embedTextForLeaf(data, body),
         documentName: path.basename(leaf),
         datasetId: cat,
+        active,
         // A full leaf embeds its whole body + scores without the many-chunks penalty.
         full: isLeafFull(cat, mem),
         // Lazy-default legacy leaves that predate the priority field by the
@@ -235,7 +243,7 @@ export async function searchOneTree({
   // Embed the query FIRST so the backend is resolved before any cache load
   // (loadCache stamps against the resolved backend + dim, dropping a stale or
   // cross-backend category cache instead of scoring it as all-zero).
-  const queryVec = await embed(String(query || ""));
+  const queryVec = await embed(String(query || ""), queryKind);
   const wiki = root();
   /** @type {Map<string, import("./embed.mjs").EmbedCache>} */
   const cacheByCat = new Map();
@@ -251,12 +259,23 @@ export async function searchOneTree({
   // Batch cold-cache misses per category (one embedMany pass, not a serial call
   // per candidate). Under chunkAware (recall) a long leaf scores by its best
   // chunk; otherwise it's the whole-leaf cosine (byte-identical to before).
-  const scoreByKey = await scoreCandidates(candidates, cacheFor, queryVec, chunkAware);
-  const scored = candidates.map((c) => ({
-    ...c,
-    score: scoreByKey.get(`${c.datasetId}\0${c.id}`) ?? 0,
-  }));
+  const scoreByKey = await scoreCandidates(
+    candidates,
+    cacheFor,
+    queryVec,
+    chunkAware,
+    coldBudget,
+  );
+  // Drop leaves the cold budget refused: they hold no comparable score, so
+  // ranking them (even at 0) would let an unembedded leaf take a result slot.
+  const scored = candidates
+    .map((c) => ({ ...c, score: scoreByKey.get(`${c.datasetId}\0${c.id}`) ?? 0 }))
+    .filter((r) => r.score !== COLD_SKIP_SCORE);
   for (const [cat, cache] of cacheByCat) {
+    // Only persist a cache that actually embedded new vectors this pass — a warm
+    // (all-hit) search rewrites byte-identical entries, so skipping the save
+    // avoids a multi-MB JSON.stringify + fsync per query on the hot path.
+    if (!cache._dirty) continue;
     // Best-effort persist: vectors are already scored in-memory, so this is only a
     // latency optimization — a READ-ONLY shared tree must not make search throw.
     try {
@@ -280,6 +299,7 @@ export async function searchOneTree({
       documentName: r.documentName,
       score: r.score,
       priority: r.priority,
+      active: r.active,
       content: r.text,
     };
     return withGlance ? { ...base, ...glanceFields(r.data, r.mem, r.text) } : base;

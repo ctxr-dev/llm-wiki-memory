@@ -1,6 +1,7 @@
 import { defaultProjectModule } from "./env.mjs";
 import { recallScoreThreshold } from "./settings.mjs";
 import { searchMemoryFiltered, scopedCategories } from "./wiki-store.mjs";
+import { defaultColdBudget } from "./embed-chunk.mjs";
 
 /** @typedef {import("./types.mjs").SearchResponse} SearchResponse */
 /** @typedef {import("./types.mjs").SearchHit} SearchHit */
@@ -47,10 +48,14 @@ export async function searchMemory({
 
   const all = [];
   const errors = [];
+  // One cold-embed ledger for the whole cross-category search, so scanning N
+  // categories cannot cost N times the bound.
+  const coldBudget = defaultColdBudget();
   for (const slot of slots) {
     try {
       const { records } = /** @type {{ records: SearchHit[] }} */ (
         await searchMemoryFiltered({
+          coldBudget,
           query,
           datasetId: slot,
           filters: /** @type {Record<string, unknown> | undefined} */ (

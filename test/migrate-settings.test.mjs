@@ -373,7 +373,7 @@ test("malformed numeric env value is dropped + reported in droppedEnvKeys (not s
   );
   // settings.yaml keeps the template default (not the garbage value).
   const yaml = readYaml(dir, "settings.yaml");
-  assert.equal(yaml.consolidate.cosineThreshold, 0.97);
+  assert.equal(yaml.consolidate.cosineThreshold, 0.975);
 });
 
 // ─── round-trip: migrate → buildSettings → accessor returns migrated value ─

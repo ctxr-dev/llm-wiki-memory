@@ -142,7 +142,22 @@ test("vertical tabs truncate the label to fit the column (no overflow)", () => {
   );
   const label = screen.getByText(/would\/overflow\.md/);
   expect(label.className).toContain("truncate");
-  expect(label.className).toContain("w-full");
+  expect(label.closest("button")?.className).toContain("w-full");
+});
+
+test("shows an archive icon only on archived tabs", () => {
+  render(
+    <TabBar
+      tabs={["knowledge/a.md", "knowledge/b.md"]}
+      active="knowledge/a.md"
+      archivedIds={["knowledge/b.md"]}
+      labelFor={(id) => id.split("/").pop() ?? id}
+      onSelect={vi.fn()}
+      onClose={vi.fn()}
+      onReorder={vi.fn()}
+    />,
+  );
+  expect(screen.getAllByLabelText("archived")).toHaveLength(1);
 });
 
 test("the close button is in the DOM but hover-revealed (not always visible)", () => {

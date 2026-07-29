@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import { Button } from "./Button";
+import { useMemo } from "react";
 import { useDoc, useRelated, useWikis } from "./hooks";
 import { Markdown } from "./Markdown";
 import { FrontmatterCard } from "./FrontmatterCard";
@@ -15,50 +14,41 @@ import type { Facet } from "./api";
 export function DocView({
   wikiId,
   docId,
+  editing,
+  onEditDone,
+  onDeleted,
+  showArchived,
   onOpen,
   onOpenRef,
   onChipFilter,
 }: {
   wikiId: string;
   docId: string;
+  editing: boolean;
+  onEditDone: (newId: string | null) => void;
+  onDeleted: () => void;
+  showArchived: boolean;
   onOpen: (id: string) => void;
   onOpenRef?: (wikiId: string, docId: string) => void;
   onChipFilter: (facet: Facet) => void;
 }) {
   const doc = useDoc(wikiId, docId);
-  const related = useRelated(wikiId, docId);
+  const related = useRelated(wikiId, docId, showArchived);
   const wikis = useWikis();
   const wikiList = wikis.data ?? [];
-  const [editing, setEditing] = useState(false);
   const toc = useMemo(() => (doc.data ? extractToc(doc.data.body) : []), [doc.data]);
   const meta = useMemo(() => (doc.data ? splitBodyMeta(doc.data.body) : null), [doc.data]);
-
-  useEffect(() => setEditing(false), [docId]);
 
   if (doc.isPending) return <div className="p-6 text-slate-400 dark:text-slate-500">Loading…</div>;
   if (doc.error || !doc.data) {
     return <div className="p-6 text-red-600">{String(doc.error ?? "Not found")}</div>;
   }
   if (editing) {
-    return (
-      <EditorPanel
-        wikiId={wikiId}
-        doc={doc.data}
-        onDone={(newId) => {
-          setEditing(false);
-          if (newId && newId !== docId) onOpen(newId);
-        }}
-      />
-    );
+    return <EditorPanel wikiId={wikiId} doc={doc.data} onDone={onEditDone} onDeleted={onDeleted} />;
   }
   return (
     <div className="flex min-h-full items-start gap-6 p-6">
       <article className="min-w-0 flex-1">
-        <div className="mb-2 flex justify-end">
-          <Button variant="secondary" onClick={() => setEditing(true)}>
-            Edit
-          </Button>
-        </div>
         <FrontmatterCard doc={doc.data} onChip={onChipFilter} />
         {meta && meta.metaList.length > 0 ? (
           <>

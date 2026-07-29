@@ -26,11 +26,27 @@ export async function readDoc(root, docId) {
 }
 
 /**
- * @param {string} root @param {string} docId @param {number} [limit]
+ * A cold transformer cache would cold-embed the whole category on this request —
+ * a synchronous ONNX pass that freezes the event loop — so related skips instead.
+ * Lexical embeds are cheap pure JS and may warm on demand.
+ * @param {typeof import("../../../scripts/lib/env.mjs")} env
+ * @param {typeof import("../../../scripts/lib/embed.mjs")} embed
+ * @param {string} category
+ * @returns {boolean}
+ */
+export function categoryCacheIsCold(env, embed, category) {
+  if (embed.activeBackend() !== "transformers") return false;
+  const cache = embed.loadCache(env.embedCacheFor(env.wikiRoot(), category));
+  return Object.keys(cache.entries || {}).length === 0;
+}
+
+/**
+ * @param {string} root @param {string} docId
+ * @param {{ limit?: number, includeArchived?: boolean }} [opts]
  * @returns {Promise<import("../shared/contract.mjs").RelatedEntry[]>}
  */
-export async function relatedDocs(root, docId, limit = 10) {
-  const { env, core, identity, search } = await loadEngine();
+export async function relatedDocs(root, docId, { limit = 10, includeArchived = false } = {}) {
+  const { env, core, identity, search, embed } = await loadEngine();
   return env.withWikiRoot(root, async () => {
     const abs = identity.toAbs(docId);
     if (!isWithin(env.wikiRoot(), abs)) return [];
@@ -41,12 +57,16 @@ export async function relatedDocs(root, docId, limit = 10) {
     } catch {
       return [];
     }
+    const category = identity.categoryOfId(docId);
+    if (categoryCacheIsCold(env, embed, category)) return [];
     const { records } = await search.searchOneTree({
       query: queryText,
-      datasetId: identity.categoryOfId(docId),
+      queryKind: "document",
+      datasetId: category,
       limit: limit + 1,
       chunkAware: false,
       scoreThreshold: 0,
+      includeArchived,
     });
     return records
       .filter((record) => record.documentId !== docId)
@@ -64,6 +84,7 @@ export async function relatedDocs(root, docId, limit = 10) {
           title,
           location: locationOf(record.documentId),
           score: record.score,
+          active: record.active !== false,
           summary,
         };
       });

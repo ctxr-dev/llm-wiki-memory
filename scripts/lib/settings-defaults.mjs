@@ -58,6 +58,9 @@ import { DEFAULT_EMBED_MODEL } from "./settings.mjs";
  * @typedef {Object} EmbedSection
  * @property {string} backend
  * @property {string} model
+ * @property {string} dtype
+ * @property {number} threads
+ * @property {number} maxColdPerRead
  * @property {EmbedChunkSection} chunk
  */
 
@@ -148,11 +151,13 @@ export function structuralDefaults() {
   const consolidate = {
     enabled: false,
     intervalDays: 1,
-    cosineThreshold: 0.97,
+    // Empirically remapped for EmbeddingGemma (2026-07-28): true near-duplicates
+    // scored >=0.9925, the highest non-duplicate pair <0.956 on a 537-leaf corpus.
+    cosineThreshold: 0.975,
     cosineLexicalThreshold: 0.995,
     cosineBandFloor: null,
     clusterTopK: 12,
-    clusterScoreThreshold: 0.75,
+    clusterScoreThreshold: 0.7,
     orphanTtlDays: 365,
     staleAfterMonths: 6,
     archiveBodyMax: 1200,
@@ -187,6 +192,17 @@ export function structuralDefaults() {
   const embed = {
     backend: "transformers",
     model: DEFAULT_EMBED_MODEL,
+    // "" resolves per model family (EmbeddingGemma: q4, classic BERT-family: q8).
+    dtype: "",
+    // onnxruntime intra-op threads per forward pass; 0 = ORT default (all cores).
+    // 2 keeps a background warm at roughly 200% CPU — slower, but it leaves the
+    // machine usable, which matters more than warm throughput.
+    threads: 2,
+    // Most leaves ONE read may cold-embed before it stops and leaves the rest to
+    // the background warm. Bounds worst-case search latency on a cold/partial
+    // cache (a whole category inline used to stall a request for minutes).
+    // 0 = unlimited (pre-budget behaviour).
+    maxColdPerRead: 32,
     // Length-aware recall: a leaf whose embed text exceeds the model's token
     // window is split into <=maxChunks windows; recall scores it by its best
     // chunk minus penalty*(chunks-1) so a long doc can't win on chunk count.
@@ -198,7 +214,9 @@ export function structuralDefaults() {
     // A small relevance FLOOR: hits below this cosine are dropped before ranking,
     // so noise-level matches (from any tree) can't be depth-boosted above a strong
     // hit or crowd the results. Small by default; tune per embedding backend.
-    scoreThreshold: 0.05,
+    // EmbeddingGemma's unrelated-pair cosines sit near 0.14 (bge's sat near 0.05),
+    // so the noise floor moves with the model (quantile-equivalent ~0.139).
+    scoreThreshold: 0.12,
     // Cosine proximity within which priority breaks ties at recall (a relevant
     // P0/P1 orders above an equally-relevant P2). Relevance stays dominant: a
     // hit more than this far below the band leader keeps its cosine rank.

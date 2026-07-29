@@ -8,7 +8,8 @@ const { dataDir, wiki } = setupWorkspace();
 after(() => cleanup(dataDir));
 
 const store = await import("../scripts/lib/wiki-store.mjs");
-const { doctor, findBrokenIndexRefs, findStrayLeaves, findUnlistedChildren } =
+const { embedBackend } = await import("../scripts/lib/settings.mjs");
+const { doctor, findBrokenIndexRefs, findStrayLeaves, findUnlistedChildren, findBackendMismatchedCaches } =
   await import("../scripts/lib/doctor.mjs");
 
 // Add a flat curated (consolidate:none) category + a topology category, so we
@@ -101,6 +102,34 @@ test("a real child missing from its index is flagged unlisted", () => {
   assert.ok(
     unlisted.some((u) => u.unlisted.some((x) => x.name === "Extra.md")),
     `Extra.md unlisted; got ${JSON.stringify(unlisted)}`,
+  );
+});
+
+test("backend-mismatched embed cache is flagged; a matching cache is not", () => {
+  resetNotes();
+  w("Notes/Real.md", FM("Real"));
+  w("Notes/index.md", INDEX("| [Real.md](Real.md) | primary | Real |"));
+  const configured = embedBackend();
+  const other = configured === "lexical" ? "transformers" : "lexical";
+  const cachePath = path.join(wiki, "Notes", ".embeddings", "embeddings.json");
+  fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+  fs.writeFileSync(
+    cachePath,
+    JSON.stringify({ backend: other, dim: 999, entries: { a: { hash: "h", vector: [] } } }),
+  );
+  const mismatched = findBackendMismatchedCaches(wiki);
+  assert.ok(
+    mismatched.some(
+      (m) => m.cache.includes("Notes") && m.backend === other && m.expected === configured,
+    ),
+    `mismatch flagged; got ${JSON.stringify(mismatched)}`,
+  );
+  assert.equal(doctor(wiki).ok, false, "a backend mismatch makes doctor unhealthy");
+  fs.writeFileSync(cachePath, JSON.stringify({ backend: configured, dim: 1, entries: {} }));
+  assert.equal(
+    findBackendMismatchedCaches(wiki).length,
+    0,
+    "a matching-backend cache is not flagged",
   );
 });
 

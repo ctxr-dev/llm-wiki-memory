@@ -3,14 +3,19 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
-vi.mock("./api", () => ({ api: { titles: vi.fn() } }));
+vi.mock("./api", () => ({ api: { titles: vi.fn(), related: vi.fn() } }));
 import { api } from "./api";
-import { useTitles } from "./hooks";
+import { useTitles, useRelated } from "./hooks";
+
+type Titles = Record<string, { title: string; active: boolean }>;
+type Related = Awaited<ReturnType<typeof api.related>>;
 
 test("useTitles keeps the previous titles while the next batch loads (no flicker)", async () => {
-  let resolveSecond: (value: Record<string, string>) => void = () => undefined;
+  const alpha: Titles = { a: { title: "Alpha", active: true } };
+  const both: Titles = { a: { title: "Alpha", active: true }, b: { title: "Beta", active: false } };
+  let resolveSecond: (value: Titles) => void = () => undefined;
   vi.mocked(api.titles)
-    .mockResolvedValueOnce({ a: "Alpha" })
+    .mockResolvedValueOnce(alpha)
     .mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -27,12 +32,44 @@ test("useTitles keeps the previous titles while the next batch loads (no flicker
     initialProps: { ids: ["a"] },
   });
 
-  await waitFor(() => expect(result.current.data).toEqual({ a: "Alpha" }));
+  await waitFor(() => expect(result.current.data).toEqual(alpha));
 
   rerender({ ids: ["a", "b"] });
-  expect(result.current.data).toEqual({ a: "Alpha" });
+  expect(result.current.data).toEqual(alpha);
   expect(result.current.isPlaceholderData).toBe(true);
 
-  resolveSecond({ a: "Alpha", b: "Beta" });
-  await waitFor(() => expect(result.current.data).toEqual({ a: "Alpha", b: "Beta" }));
+  resolveSecond(both);
+  await waitFor(() => expect(result.current.data).toEqual(both));
+});
+
+test("useRelated keeps the previous related list while the next doc's loads (no flicker)", async () => {
+  const first = [{ id: "a-rel" }] as unknown as Related;
+  const second = [{ id: "b-rel" }] as unknown as Related;
+  let resolveSecond: () => void = () => undefined;
+  vi.mocked(api.related)
+    .mockResolvedValueOnce(first)
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSecond = () => resolve(second);
+        }),
+    );
+
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const Wrapper = ({ children }: { children: ReactNode }) =>
+    createElement(QueryClientProvider, { client }, children);
+
+  const { result, rerender } = renderHook(({ docId }) => useRelated("w", docId, false), {
+    wrapper: Wrapper,
+    initialProps: { docId: "a" },
+  });
+
+  await waitFor(() => expect(result.current.data).toEqual(first));
+
+  rerender({ docId: "b" });
+  expect(result.current.data).toEqual(first);
+  expect(result.current.isPlaceholderData).toBe(true);
+
+  resolveSecond();
+  await waitFor(() => expect(result.current.data).toEqual(second));
 });

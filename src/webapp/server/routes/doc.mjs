@@ -28,12 +28,14 @@ export function registerDocRoutes(app, db) {
   app.get("/api/wikis/:id/related/*", async (request, reply) => {
     const { id } = /** @type {{ id: string }} */ (request.params);
     const docId = /** @type {{ "*": string }} */ (request.params)["*"];
+    const query = /** @type {{ archived?: string }} */ (request.query);
     const root = await rootFor(id);
     if (!root) {
       reply.code(404);
       return { error: "no-such-wiki" };
     }
-    return { related: await relatedDocs(root, docId) };
+    const includeArchived = query.archived === "1" || query.archived === "true";
+    return { related: await relatedDocs(root, docId, { includeArchived }) };
   });
 
   app.get("/api/wikis/:id/prefs/:key", async (request, reply) => {

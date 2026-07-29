@@ -92,6 +92,14 @@ test("the tab context menu copies the canonical reference", async ({ page, conte
   expect(clip).toBe(KAFKA_REF);
 });
 
+test("Cmd+Shift+K opens the Ask dialog with its input focused", async ({ page }) => {
+  await openKafka(page);
+  await page.keyboard.press("Meta+Shift+KeyK");
+  const input = page.getByPlaceholder("Ask your memory…");
+  await expect(input).toBeVisible();
+  await expect(input).toBeFocused();
+});
+
 test("the tab context menu switches orientation to vertical, and it persists", async ({ page }) => {
   await openKafka(page);
   const strip = tabStrip(page);

@@ -11,6 +11,7 @@ const ANSWER = {
     title: "Postgres is the database of record",
     category: "knowledge",
     content: "We use Postgres for durable relational storage.",
+    active: true,
   },
   sources: [
     {
@@ -21,6 +22,7 @@ const ANSWER = {
       category: "knowledge",
       score: 0.64,
       snippet: "Kafka topics",
+      active: true,
     },
     {
       id: "knowledge/backend/decision/general/redis.md",
@@ -30,6 +32,7 @@ const ANSWER = {
       category: "knowledge",
       score: 0.52,
       snippet: "Redis cache",
+      active: true,
     },
   ],
 };
@@ -70,6 +73,26 @@ const submit = (q: string) => {
   fireEvent.change(screen.getByPlaceholderText(/Ask your memory/), { target: { value: q } });
   fireEvent.click(screen.getByRole("button", { name: "Ask" }));
 };
+
+test("focuses the question input on open", () => {
+  stubAsk(EMPTY);
+  renderPanel();
+  expect(screen.getByPlaceholderText(/Ask your memory/)).toBe(document.activeElement);
+});
+
+test("archived answers and sources show an archive icon and a colored priority tag", async () => {
+  const withArchived = {
+    answer: { ...ANSWER.answer, active: false, priority: "P0" },
+    sources: [{ ...ANSWER.sources[0], active: false, priority: "P2" }],
+  };
+  stubAsk(withArchived);
+  renderPanel();
+  submit("databases");
+  await waitFor(() => expect(screen.getByText(/Postgres is the database/)).toBeTruthy());
+  expect(screen.getAllByLabelText("archived").length).toBeGreaterThanOrEqual(2);
+  expect(screen.getByText("P0").className).toContain("bg-red-100");
+  expect(screen.getByText("P2").className).toContain("bg-slate-200");
+});
 
 test("submitting a question renders the answer title and its ranked sources", async () => {
   stubAsk(ANSWER);

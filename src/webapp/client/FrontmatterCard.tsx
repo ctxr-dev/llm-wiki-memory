@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { DocView, Facet } from "./api";
 import { CodeBlock } from "./CodeBlock";
+import { PriorityBadge } from "./PriorityBadge";
+import { humanizeValue } from "./facets";
 
-type ChipData = { label: string; value: string; facet?: Facet };
+type ChipData = { label: string; value: ReactNode; facet?: Facet };
 
 function Chip({ chip, onChip }: { chip: ChipData; onChip?: (facet: Facet) => void }) {
   const body = (
@@ -30,32 +32,40 @@ function Chip({ chip, onChip }: { chip: ChipData; onChip?: (facet: Facet) => voi
 function chipsFor(doc: DocView): ChipData[] {
   const mem = doc.memory;
   const chips: ChipData[] = [
-    { label: "category", value: doc.category, facet: { key: "category", value: doc.category } },
+    {
+      label: "category",
+      value: humanizeValue(doc.category),
+      facet: { key: "category", value: doc.category },
+    },
   ];
   if (typeof mem.area === "string")
-    chips.push({ label: "area", value: mem.area, facet: { key: "area", value: mem.area } });
+    chips.push({
+      label: "area",
+      value: humanizeValue(mem.area),
+      facet: { key: "area", value: mem.area },
+    });
   if (typeof mem.atom_type === "string")
     chips.push({
       label: "type",
-      value: mem.atom_type,
+      value: humanizeValue(mem.atom_type),
       facet: { key: "atom_type", value: mem.atom_type },
     });
   if (typeof mem.task_type === "string")
     chips.push({
       label: "task",
-      value: mem.task_type,
+      value: humanizeValue(mem.task_type),
       facet: { key: "task_type", value: mem.task_type },
     });
   if (Array.isArray(mem.subject) && mem.subject.length)
     chips.push({
       label: "subject",
-      value: mem.subject.join(" / "),
+      value: mem.subject.map((item) => humanizeValue(String(item))).join(" / "),
       facet: { key: "subject", value: String(mem.subject[0]) },
     });
   if (typeof mem.priority === "string")
     chips.push({
       label: "priority",
-      value: mem.priority,
+      value: <PriorityBadge priority={mem.priority} />,
       facet: { key: "priority", value: mem.priority },
     });
   if (!doc.active) chips.push({ label: "status", value: "archived" });
