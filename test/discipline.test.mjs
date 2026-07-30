@@ -307,3 +307,26 @@ test("curated cron-path dirs are filesystem paths only (no provider/model name l
     );
   }
 });
+
+test("INSTRUCTIONS encodes the large-body / edit-the-file discipline (rule 21)", () => {
+  assert.match(INSTRUCTIONS, /NEVER INLINE A LARGE DOCUMENT/);
+  // The failure is client-side, so the symptom an agent will actually see is named.
+  assert.match(INSTRUCTIONS, /input JSON failed to parse/);
+  assert.match(INSTRUCTIONS, /save-leaf --file/, "names the file-based route");
+  assert.match(INSTRUCTIONS, /UPDATING a large leaf is the case that matters most/);
+  assert.match(
+    INSTRUCTIONS,
+    /save-leaf` refuses `self_improvement`/,
+    "the file route must not read as a way around the consent gate",
+  );
+});
+
+test("the large-body warning reaches agents on the write tools themselves", () => {
+  const src = fs.readFileSync(path.join(SRC, "mcp-server/tools-write.mjs"), "utf8");
+  assert.match(src, /LARGE_BODY_NOTE/, "a shared note exists");
+  const uses = src.match(/^\s*LARGE_BODY_NOTE \+$/gm) || [];
+  assert.equal(uses.length, 2, "attached to the two body-carrying writers");
+  // save_lesson bodies are short and consent-gated; the note would be noise there.
+  const lessonBlock = src.slice(src.indexOf('"save_lesson"'), src.indexOf('"save_to_dataset"'));
+  assert.ok(!lessonBlock.includes("LARGE_BODY_NOTE"), "not on save_lesson");
+});

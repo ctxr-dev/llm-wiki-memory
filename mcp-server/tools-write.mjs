@@ -30,6 +30,18 @@ const TARGET_DESCRIPTION =
 
 const NESTED_NOTE = " Inputs are a single nested context object; unknown keys are rejected.";
 
+// Agents reach for this tool while holding a whole document in context, so the
+// size trap belongs in the description they are reading at that moment: an inline
+// body of a few tens of KB is refused by the CLIENT before this server ever sees it
+// ("input JSON failed to parse"), and re-emitting an unchanged body to change one
+// line is the slowest step in the loop by far (the write itself is sub-second).
+const LARGE_BODY_NOTE =
+  " LARGE BODIES: do NOT inline a body over ~20KB. Write it to a file and save by" +
+  " path instead: `node <clone>/scripts/cli.mjs save-leaf --file <path> --dataset" +
+  " <name> [--path <dir>] [--area=…]`. To UPDATE an existing large leaf, edit the" +
+  " file in place and re-run save-leaf — never re-send an unchanged body to flip a" +
+  " status or tick a checkbox.";
+
 /** @param {McpServer} server */
 function registerWriteTools(server) {
   server.registerTool(
@@ -116,6 +128,7 @@ function registerWriteTools(server) {
       title: "Upsert a document into a named category",
       description:
         'Write `write.text` as a wiki leaf with the exact `write.name`, replacing any existing leaf in the category with the same name. Send `write:{dataset, name, text, path?, metadata?}` and, only for a self_improvement write, `gate:{userRequested:true}`. `write.dataset` is a category name (knowledge, plans, investigations, self_improvement, or any extra category declared in <wiki>/.layout/layout.yaml). `write.path` is a relative directory under the wiki root (e.g. "issues/JIRA/DEV/129/95/7") that overrides facet-derived placement so the leaf is written verbatim at <path>/<name>. `write.path` is REQUIRED for any category with a `topology:` block (e.g. tracker issues) and REFUSED if missing/mismatched; optional for default facet categories. WRITE-GATED for dataset="self_improvement" only. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.' +
+        LARGE_BODY_NOTE +
         NESTED_NOTE +
         TARGET_DESCRIPTION,
       inputSchema: z
@@ -188,6 +201,7 @@ function registerWriteTools(server) {
       title: "Write project memory",
       description:
         'Create a new wiki leaf from concise memory text. Send `write:{name, text, datasetId, supersedes?, supersedesAction?, path?, metadata?}` and, only for a self_improvement write, `gate:{userRequested:true}`. Optionally supersede an existing leaf by passing `write.supersedes` (its documentId; the old leaf is archived, or deleted with supersedesAction="delete"). `write.path` overrides facet-derived placement and is REQUIRED for a topology category (REFUSED if missing/mismatched), optional otherwise. WRITE-GATED for datasetId="self_improvement" only. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.' +
+        LARGE_BODY_NOTE +
         NESTED_NOTE +
         TARGET_DESCRIPTION,
       inputSchema: z
