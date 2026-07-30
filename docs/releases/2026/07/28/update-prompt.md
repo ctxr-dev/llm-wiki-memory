@@ -29,8 +29,9 @@ them by hand (Decisions below).
   Terms of Use (the previous default was MIT). The previous default
   `Xenova/bge-large-en-v1.5` remains fully supported via `embed.model`.
 - **(settings, NEW) `embed.dtype`** ("" = per-family default: EmbeddingGemma q4,
-  BERT-family q8) and **`embed.threads`** (onnxruntime intra-op threads per forward
-  pass, default **4**, 0 = all cores) — the thread cap was impossible on v2.
+  BERT-family q8), **`embed.threads`** (onnxruntime intra-op threads per forward
+  pass, default **2**, 0 = all cores — the cap was impossible on v2), and
+  **`embed.maxColdPerRead`** (default **32** texts; see DECISIONS).
 - **(settings, REMAPPED DEFAULTS — model-coupled)** measured on a real 537-leaf
   corpus embedded with both models (true near-duplicates scored ≥0.9925 in Gemma;
   the highest non-duplicate pair <0.956; unrelated-pair noise sits ~0.14 vs bge's
@@ -75,8 +76,10 @@ them by hand (Decisions below).
      (skip any you deliberately customised).
    - Keeping bge: pin `embed.model: Xenova/bge-large-en-v1.5` and keep the old
      thresholds; nothing else changes for you.
-4. Restart long-running processes: `llm-wiki-webapp restart`; the MCP server picks
-   the change up on its next session. On a model change the webapp's gradual warm
+4. Restart long-running processes: `npm run webapp -- restart` from the engine
+   clone; the MCP server picks the change up on its next session. (There is a
+   `llm-wiki-webapp` bin, but a clone install never puts it on `PATH` — run
+   `npm link` once if you want the short command.) On a model change the gradual warm
    re-embeds every category in the background (a few hundred leaves ≈ 5–15 min at
    low CPU); recall self-heals lazily on other clients.
 5. One-shot alternative to the gradual warm (full speed, ~2–6 min at high CPU):

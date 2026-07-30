@@ -7,12 +7,26 @@ and write-gate rules the CLI and MCP use — nothing is reimplemented.
 
 ## Run
 
+From the engine clone (`<workspace>/.llm-wiki-memory/src`):
+
 ```
-llm-wiki-webapp start      # detached daemon; opens http://localhost:4319
-llm-wiki-webapp status
-llm-wiki-webapp stop
-llm-wiki-webapp restart
+npm run webapp -- start      # detached daemon; opens http://localhost:4319
+npm run webapp -- status
+npm run webapp -- stop
+npm run webapp -- restart
 ```
+
+From anywhere, call the CLI by path:
+
+```
+node <workspace>/.llm-wiki-memory/src/scripts/webapp-cli.mjs start
+```
+
+The package declares a `llm-wiki-webapp` bin, but it is installed by cloning rather
+than from a registry, so nothing puts it on your `PATH`. If you want the short
+command, link it once from the clone — `npm link` — after which
+`llm-wiki-webapp start` works from anywhere (`npm unlink -g llm-wiki-memory` undoes
+it). Every example below uses the `npm run webapp --` form, which needs no linking.
 
 `start` is non-blocking; the PID and logs live under `<MEMORY_DATA_DIR>/webapp/`.
 `LWM_WEBAPP_OPEN=0` skips opening the browser, `--port <n>` changes the port, and
@@ -44,8 +58,8 @@ npm run test:e2e   # Playwright in a real browser (npx playwright install chromi
 ```
 
 `npm run dev` runs both halves together (Vite proxies `/api` to the API server),
-so you do not also run `llm-wiki-webapp` while developing. For a normal (non-dev)
-run, use the daemon: `llm-wiki-webapp start`.
+so you do not also run the daemon while developing. For a normal (non-dev) run,
+start the daemon: `npm run webapp -- start` from the engine clone.
 
 ## Layout
 

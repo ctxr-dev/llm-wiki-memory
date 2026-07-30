@@ -32,6 +32,7 @@
     "test:e2e": "cross-env MEMORY_EMBED_BACKEND=lexical node --import ./test/setup-guard.mjs --test test/e2e/*.test.mjs",
     "test:llm-live": "cross-env MEMORY_LLM_LIVE=1 MEMORY_EMBED_BACKEND=lexical node --import ./test/setup-guard.mjs --test test/e2e/quality-judge.e2e.test.mjs",
     "mcp": "node mcp-server/index.mjs",
+    "webapp": "node scripts/webapp-cli.mjs",
     "typecheck": "tsc -p jsconfig.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
