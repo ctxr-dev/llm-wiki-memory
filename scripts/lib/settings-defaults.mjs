@@ -187,7 +187,7 @@ export function structuralDefaults() {
     sessionEndMinTurns: 1,
     precompactMinTurns: 5,
     exitPlanModeDisable: false,
-    exitPlanModeMaxBytes: 256_000,
+    exitPlanModeMaxBytes: 1_048_576,
   };
   const embed = {
     backend: "transformers",

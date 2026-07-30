@@ -22,6 +22,7 @@ import {
   handleDoctor,
   handleBackfillPriority,
   handleMoveLeaf,
+  handleSaveLeaf,
 } from "./cli-maintenance.mjs";
 import { handleWhere, handleRecall, handleSearch } from "./cli-query.mjs";
 import { handleCronJob, handleCronHealth } from "./cli-cron.mjs";
@@ -40,7 +41,7 @@ function cmdCompile(args) {
 }
 
 const USAGE =
-  "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|migrate-identity [--dry-run|--check]|doctor|move-leaf <from> <to>|absorb <path...> --category=<name> [--match=<glob>]... [--area=|--subject=|--atom-type=] [--target=<sel>] [--dry-run]|monitor --title <t> [...] | --resolve <file>|monitoring-health|gate-audit [--limit N]|recall <q>|search <q>|redistill --leaf <path> | --session <id> | --all>\n\n" +
+  "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|migrate-identity [--dry-run|--check]|doctor|save-leaf --file <path> --dataset <name> [--name|--path|--area=|--atom-type=|--task-type=|--subject=|--tags=]|move-leaf <from> <to>|absorb <path...> --category=<name> [--match=<glob>]... [--area=|--subject=|--atom-type=] [--target=<sel>] [--dry-run]|monitor --title <t> [...] | --resolve <file>|monitoring-health|gate-audit [--limit N]|recall <q>|search <q>|redistill --leaf <path> | --session <id> | --all>\n\n" +
   `Docs (any OS, via WebFetch): ${REPO_RAW_BASE}/ — README.md · AI-INSTALL-PROMPT.md · ARCHITECTURE.md · docs/{shared-wikis,consolidate,embeddings}.md`;
 
 async function main() {
@@ -89,6 +90,8 @@ async function main() {
       return handleDoctor(rest);
     case "backfill-priority":
       return handleBackfillPriority(rest);
+    case "save-leaf":
+      return handleSaveLeaf(rest);
     case "move-leaf":
       return handleMoveLeaf(rest);
     case "monitor":

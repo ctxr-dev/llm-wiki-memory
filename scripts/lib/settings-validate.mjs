@@ -61,7 +61,7 @@ export function coerceSections(sections) {
   hook.maxChars = coercePos(hook.maxChars, 80_000);
   hook.sessionEndMinTurns = coercePos(hook.sessionEndMinTurns, 1);
   hook.precompactMinTurns = coercePos(hook.precompactMinTurns, 5);
-  hook.exitPlanModeMaxBytes = coercePos(hook.exitPlanModeMaxBytes, 256_000);
+  hook.exitPlanModeMaxBytes = coercePos(hook.exitPlanModeMaxBytes, 1_048_576);
   hook.exitPlanModeDisable = coerceBool(hook.exitPlanModeDisable, false);
 
   if (typeof embed.backend !== "string") embed.backend = "transformers";

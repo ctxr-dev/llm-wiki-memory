@@ -13,11 +13,12 @@ import { defangFenceMarkers } from "../lib/fence.mjs";
  */
 
 export const PLANS_SLOT = "plans";
-// 256KB default cap on plan body size. Dify create-by-text accepts
-// larger but the API gateway in front of it (nginx) typically caps at
-// 1MB; bigger bodies also burn embedding budget for marginal recall
-// value. Tunable via MEMORY_HOOK_EXITPLANMODE_MAX_BYTES.
-export const DEFAULT_MAX_PLAN_BYTES = 256_000;
+// 1MB cap on plan body size. This is a sanity bound only: a wiki write is local
+// file I/O, so there is no gateway or request limit to respect (the former 256KB
+// figure was sized for an HTTP bridge that no longer exists). The remaining cost of
+// a very large plan is embedding it, which chunks and is paid once. Tunable via
+// hook.exitPlanModeMaxBytes.
+export const DEFAULT_MAX_PLAN_BYTES = 1_048_576;
 
 // Origin marker fenced around the persisted plan body. Future agents
 // reading this doc via search_memory / recall_lessons see explicit

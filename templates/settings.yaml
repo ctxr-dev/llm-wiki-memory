@@ -98,7 +98,7 @@ hook:
   precompactMinTurns: 5
   # ExitPlanMode auto-capture knobs.
   exitPlanModeDisable: false
-  exitPlanModeMaxBytes: 256000
+  exitPlanModeMaxBytes: 1048576
 
 embed:
   # transformers (default, on-device EmbeddingGemma) | lexical (no model download).
