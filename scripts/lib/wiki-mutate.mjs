@@ -25,7 +25,7 @@ import {
 import { upsertEmbedding, renameEmbedding } from "./wiki-embed-cache.mjs";
 import { deleteDocument, disableDocument } from "./wiki-lifecycle.mjs";
 
-// public API — parity with dify-write.mjs
+// public API
 
 /** @typedef {import("./types.mjs").MetadataInput} MetadataInput */
 

@@ -2,7 +2,7 @@ import { DRY_RUN, EX_UNAVAILABLE } from "./compile-flags.mjs";
 import { compileQualityStrict } from "./lib/settings.mjs";
 import {
   isAutoDistillCategory,
-  WikiStoreUnavailable as DifyBridgeUnavailable,
+  WikiStoreUnavailable,
 } from "./lib/wiki-store.mjs";
 import { LLMProviderUnavailable, LLMOutputInvalid } from "./lib/llm.mjs";
 import { scoreAtomQuality } from "./compile-atoms.mjs";
@@ -178,7 +178,7 @@ export async function processAtom({
       atomTitle: atom.title,
       error: err instanceof Error ? err.message : String(err),
     });
-    if (err instanceof DifyBridgeUnavailable || err instanceof LLMProviderUnavailable) {
+    if (err instanceof WikiStoreUnavailable || err instanceof LLMProviderUnavailable) {
       // Persist any in-memory state mutations (action counts, prior
       // dailies' retry counters) before exiting so the next compile
       // run sees the latest state.

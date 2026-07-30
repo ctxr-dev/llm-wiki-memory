@@ -222,7 +222,7 @@ export function planDocSpec(hookInput, { maxBytes = DEFAULT_MAX_PLAN_BYTES } = {
   // Redact secrets BEFORE slugifying or persisting (parity with flush.mjs).
   const plan = redact(raw).trim();
   if (!plan) return { skip: "empty-plan" };
-  // Size cap: refuse outsized bodies before they hit the bridge / Dify.
+  // Sanity cap: refuse an absurd body before it is written.
   if (Buffer.byteLength(plan, "utf8") > maxBytes) {
     return { skip: `plan-too-large (>${maxBytes} bytes)` };
   }

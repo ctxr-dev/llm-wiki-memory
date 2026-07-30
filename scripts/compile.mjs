@@ -6,7 +6,7 @@ import { compileLockStaleMs, flushSlotName } from "./lib/settings.mjs";
 import { acquireLock, installLockReleaseHandlers } from "./lib/lock.mjs";
 import { withWikiCommit } from "./lib/wiki-commit.mjs";
 import { withBrainContextSafe } from "./lib/wiki-context.mjs";
-import { listDocuments, WikiStoreUnavailable as DifyBridgeUnavailable } from "./lib/wiki-store.mjs";
+import { listDocuments, WikiStoreUnavailable } from "./lib/wiki-store.mjs";
 import { parseDailyDocName } from "./lib/slug.mjs";
 import { FORCE, DRY_RUN } from "./compile-flags.mjs";
 import { loadPrompt } from "./compile-atoms.mjs";
@@ -42,7 +42,7 @@ async function main() {
     const result = await listDocuments(listOpts);
     dailies = Array.isArray(result?.documents) ? result.documents : [];
   } catch (err) {
-    if (err instanceof DifyBridgeUnavailable) {
+    if (err instanceof WikiStoreUnavailable) {
       console.error(`compile.mjs: bridge unavailable: ${err.message}`);
       process.exit(0);
     }

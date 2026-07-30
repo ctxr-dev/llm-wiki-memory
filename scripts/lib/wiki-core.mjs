@@ -6,7 +6,7 @@ import { wikiRoot } from "./env.mjs";
 /** @typedef {import("./types.mjs").LeafFrontmatter} LeafFrontmatter */
 /** @typedef {import("./types.mjs").MemoryMetadata} MemoryMetadata */
 
-// Drop-in replacement for the boilerplate's dify-write.mjs. Same exported
+// The leaf read/write primitives the store is built on. Same exported
 // function names/shapes, but every document is a leaf in the local hosted
 // wiki and retrieval is local embeddings. Downstream code (flush, compile,
 // exit-plan-mode, the MCP server) calls only these functions.

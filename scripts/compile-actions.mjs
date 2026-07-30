@@ -4,9 +4,9 @@ import {
   writeMemory,
   updateDocMetadata,
   readDocument,
-  WikiStoreUnavailable as DifyBridgeUnavailable,
+  WikiStoreUnavailable,
 } from "./lib/wiki-store.mjs";
-import { metadataForDify } from "./lib/datasets.mjs";
+import { metadataForLeaf } from "./lib/datasets.mjs";
 import { recordGatedWrite } from "./lib/save-gate-audit.mjs";
 import { nameBuilderForAtom, parserForAtom } from "./compile-routing.mjs";
 import { buildPromotedDocText } from "./compile-dedup.mjs";
@@ -123,7 +123,7 @@ export async function executeAction(atom, decision, candidates, targetDataset, o
         name,
         text,
         datasetId: targetDataset,
-        metadata: withQualityFlag(metadataForDify(atom), opts.flagged),
+        metadata: withQualityFlag(metadataForLeaf(atom), opts.flagged),
       })
     );
     auditCompileLessonPromotion(atom, "create", result);
@@ -164,14 +164,14 @@ export async function executeAction(atom, decision, candidates, targetDataset, o
       };
     }
     // An `update` REPLACES the superseded lesson (writeMemory + supersedes:disable),
-    // and metadataForDify carries only the NEW atom's fields. Preserve the
+    // and metadataForLeaf carries only the NEW atom's fields. Preserve the
     // superseded leaf's apply-strength + workspace identity so the merge doesn't
     // rebuild a user-gated P0 lesson at the atom_type rubric default (P1) or reset a
     // deliberately cross-project lesson to defaultProjectModule().
-    const metadata = metadataForDify(atom);
+    const metadata = metadataForLeaf(atom);
     const superseded = readSupersededMetadata(candidate, targetDataset);
     if (superseded) {
-      // priority: preserve unless the atom carries its own (metadataForDify only
+      // priority: preserve unless the atom carries its own (metadataForLeaf only
       // emits priority when the atom set one).
       if (!metadata.priority && superseded.priority) metadata.priority = superseded.priority;
       // project_module: preserve ONLY from a POST-SPLIT leaf (one carrying `area`,
@@ -199,7 +199,7 @@ export async function executeAction(atom, decision, candidates, targetDataset, o
   throw new Error(`unknown decision action: ${decision.action}`);
 }
 
-// After writeMemory creates the new document, set the per-document Dify
+// After writeMemory creates the new document, set the per-document
 // metadata so subsequent retrieve calls can filter on it. Failure is
 // recorded but does not abort the compile run - EXCEPT bridge-unavailable
 // errors are re-thrown so the outer per-atom catch can fire `process.exit(0)`
@@ -214,13 +214,13 @@ export async function applyMetadataToWritten(atom, writeResult, targetDataset) {
   if (!writeResult || writeResult.dryRun) return null;
   const docId = writeResult?.created?.document?.id || writeResult?.created?.id;
   if (!docId) return { ok: false, reason: "writeMemory response missing created.document.id" };
-  const md = metadataForDify(atom);
+  const md = metadataForLeaf(atom);
   try {
     return /** @type {MutationResult} */ (
       await updateDocMetadata({ datasetId: targetDataset, documentId: docId, metadata: md })
     );
   } catch (err) {
-    if (err instanceof DifyBridgeUnavailable) throw err;
+    if (err instanceof WikiStoreUnavailable) throw err;
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }

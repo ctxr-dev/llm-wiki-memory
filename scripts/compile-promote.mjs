@@ -3,7 +3,7 @@ import { compileMetadataRetryLimit } from "./lib/settings.mjs";
 import {
   readDocument,
   disableDocument,
-  WikiStoreUnavailable as DifyBridgeUnavailable,
+  WikiStoreUnavailable,
 } from "./lib/wiki-store.mjs";
 import { parseAtomsFromMarkdown } from "./compile-atoms.mjs";
 import { appendCompileLog, writeState } from "./compile-state.mjs";
@@ -49,7 +49,7 @@ export async function processDaily({
       document: daily.name,
       error: /** @type {{ message?: string }} */ (err).message || String(err),
     });
-    if (err instanceof DifyBridgeUnavailable) {
+    if (err instanceof WikiStoreUnavailable) {
       console.error(`compile.mjs: aborting, bridge gone: ${err.message}`);
       process.exit(0);
     }
