@@ -140,9 +140,9 @@ DECISIONS:
 - **A tool of yours parsed compile's exit code** and treated non-zero as a
   crash → teach it exit 69 = "providers unavailable, work pending, retry
   later". The stderr breadcrumb on that path is exactly
-  `compile.mjs: aborting (LLMProviderUnavailable): <detail>` (a wiki-store /
-  Dify-bridge outage prints `WikiStoreUnavailable` in the parens instead —
-  the emitted name is the error class's own).
+  `compile.mjs: aborting (LLMProviderUnavailable): <detail>` (a wiki-store
+  outage prints `WikiStoreUnavailable` in the parens instead — the emitted
+  name is the error class's own).
 - New issue reports under `.llm-wiki-memory/issues/<yyyy>/<mm>/<dd>/` named
   `<signature>.<version>.md` whose body mentions `system:compile-llm-providers`
   or `system:consolidate-llm-providers` → the new escalation signal doing its
