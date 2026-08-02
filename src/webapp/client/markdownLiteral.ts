@@ -59,7 +59,10 @@ const ESC_CLOSE = "⟫";
 export function escapeFences(content: string): string {
   return content
     .replace(new RegExp(ESC_OPEN, "g"), `${ESC_OPEN}E${ESC_CLOSE}`)
-    .replace(/^([ \t]*)(`{3,})/gm, (_m, ws, ticks) => `${ws}${ESC_OPEN}F${ticks.length}${ESC_CLOSE}`);
+    .replace(
+      /^([ \t]*)(`{3,})/gm,
+      (_m, ws, ticks) => `${ws}${ESC_OPEN}F${ticks.length}${ESC_CLOSE}`,
+    );
 }
 
 export function unescapeFences(content: string): string {

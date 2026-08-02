@@ -16,7 +16,14 @@ function seed(wiki) {
   write("knowledge/backend/decision/architecture/kafka.md", "We chose Kafka for the event bus.");
   write("knowledge/backend/decision/architecture/queue.md", "Kafka topics and event streaming.");
   write("knowledge/backend/decision/observability/tracing.md", "Distributed tracing with spans.");
-  const archived = path.join(wiki, "knowledge", "backend", "decision", "architecture", "retired.md");
+  const archived = path.join(
+    wiki,
+    "knowledge",
+    "backend",
+    "decision",
+    "architecture",
+    "retired.md",
+  );
   fs.mkdirSync(path.dirname(archived), { recursive: true });
   fs.writeFileSync(
     archived,
@@ -117,7 +124,10 @@ test("GET /related?archived=1 includes archived docs, marked active:false", asyn
 
 test("categoryCacheIsCold guards only a cold transformer cache, never lexical", () => {
   const env = { wikiRoot: () => "/w", embedCacheFor: (root, cat) => `${root}/${cat}` };
-  const coldTransformers = { activeBackend: () => "transformers", loadCache: () => ({ entries: {} }) };
+  const coldTransformers = {
+    activeBackend: () => "transformers",
+    loadCache: () => ({ entries: {} }),
+  };
   const warmTransformers = {
     activeBackend: () => "transformers",
     loadCache: () => ({ entries: { a: { vector: [] } } }),

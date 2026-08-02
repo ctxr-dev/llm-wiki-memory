@@ -35,7 +35,11 @@ test("persistSuspended is true when a NON-lexical config resolves to lexical (de
   assert.equal(persistSuspended("lexical", "lexical"), false);
   assert.equal(persistSuspended("lexical", "transformers"), false);
   assert.equal(persistSuspended("transformers", null), false);
-  assert.equal(persistSuspended("transformer", "lexical"), true, "a misspelled backend still guards");
+  assert.equal(
+    persistSuspended("transformer", "lexical"),
+    true,
+    "a misspelled backend still guards",
+  );
 });
 
 test("fallbackActive is true only for a lexical backend still inside the retry window", () => {
@@ -52,7 +56,11 @@ test("saveCache suspends persistence in a degraded transformers->lexical fallbac
     const p = tmpFile();
     __setBackendStateForTest({ backend: "lexical", fallbackUntil: Number.MAX_SAFE_INTEGER });
     saveCache(p, { entries: { a: { hash: "h", vector: [0.1] } } });
-    assert.equal(fs.existsSync(p), false, "a degraded fallback must NOT overwrite the on-disk cache");
+    assert.equal(
+      fs.existsSync(p),
+      false,
+      "a degraded fallback must NOT overwrite the on-disk cache",
+    );
   });
 });
 

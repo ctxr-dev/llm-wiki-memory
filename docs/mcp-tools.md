@@ -11,6 +11,7 @@
 | `consolidate_memory` | Run the deterministic + LLM consolidation passes. System-maintenance; not write-gated. |
 | `disable_document` / `enable_document` / `delete_document` | Archive (reversible) or remove a leaf. |
 | `move_document` | Relocate a leaf within the curated (non-facet) zone, preserving content + embedding + both `index.md` files. Facet / topology categories relocate by metadata / compiler path instead, and are refused here. |
+| `update_document_metadata` | Patch an existing leaf's frontmatter facets (area, subject, tags, atom_type, task_type, language, error_pattern, priority) with **NO body** — the door to use instead of re-saving a whole document to fix one field. `select:{documentId, metadata, dataset?, pin?}`. A facet change relocates the leaf and CHANGES its documentId (read the returned `documentId` + `placement`); `pin:true` patches in place; a topology (`issues`) leaf is always pinned. `status` is refused (use `disable_document` / `enable_document`); the facet vocabulary and the P0-scarcity guard apply exactly as on a write. |
 | `audit_memory` | Surface duplicate keys, missing metadata, and cleanup candidates. |
 | `list_datasets`, `get_memory_config`, `reload_provider`, `reload_layout` | Inspect categories, config, LLM provider, and force-refresh caches. |
 | `validate_layout`, `validate_topology`, `test_path_compiler` | Layout + topology + placement-compiler sanity checks. |

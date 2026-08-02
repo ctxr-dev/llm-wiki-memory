@@ -16,17 +16,10 @@ fs.writeFileSync(
 );
 after(() => fs.rmSync(TMP, { recursive: true, force: true }));
 
-const {
-  chunkTexts,
-  scoreLeaf,
-  tokenCount,
-  EMBED_WINDOW,
-  cachedLeafVectors,
-  scoreTree,
-  makeColdBudget,
-  scoreCandidates,
-  COLD_SKIP_SCORE,
-} = await import("../scripts/lib/embed-chunk.mjs");
+const { cachedLeafVectors, scoreTree, makeColdBudget, scoreCandidates, COLD_SKIP_SCORE } =
+  await import("../scripts/lib/embed-chunk.mjs");
+const { chunkTexts, scoreLeaf, tokenCount, EMBED_WINDOW } =
+  await import("../scripts/lib/embed-chunk-text.mjs");
 const { embed } = await import("../scripts/lib/embed.mjs");
 
 // A word-per-token fake tokenizer: deterministic, round-trips, no specials — so
@@ -187,7 +180,10 @@ test("a budget-exhausted leaf with a WARM vector keeps it (only chunk refinement
   const warmChunks = cache.entries["e1.md"].chunks.length;
   assert.ok(warmChunks > 1, "chunks built while unlimited");
   const cold = item("e2.md", bodyOf(5));
-  const out = await cachedLeafVectors(cache, [long, cold], { ...opts(true), budget: makeColdBudget(1) });
+  const out = await cachedLeafVectors(cache, [long, cold], {
+    ...opts(true),
+    budget: makeColdBudget(1),
+  });
   assert.ok(out[0].vector.length > 0, "the warm leaf still scores on its whole-leaf vector");
   assert.equal(cache.entries["e1.md"].chunks.length, warmChunks, "its chunks are preserved");
 });
@@ -404,7 +400,12 @@ test("ONE ledger bounds the whole request, not each category (the multiplication
   const cands = [];
   for (const cat of ["knowledge", "plans", "daily", "issues"]) {
     for (let n = 0; n < 5; n += 1) {
-      cands.push({ id: `${cat}/${n}.md`, datasetId: cat, embedText: HEADER + bodyOf(5), text: bodyOf(5) });
+      cands.push({
+        id: `${cat}/${n}.md`,
+        datasetId: cat,
+        embedText: HEADER + bodyOf(5),
+        text: bodyOf(5),
+      });
     }
   }
   const budget = makeColdBudget(6);
@@ -419,6 +420,61 @@ test("ONE ledger bounds the whole request, not each category (the multiplication
   assert.equal(cached, 6, `4 categories shared ONE budget of 6; got ${cached}`);
   const dropped = [...scores.values()].filter((s) => s === COLD_SKIP_SCORE).length;
   assert.equal(dropped, 14, "the remaining 14 are marked cold-skip, not scored 0");
+});
+
+test("a counting ledger reports chunk-only work — the signal the warm paces on", async () => {
+  // THE bug this guards: a leaf whose whole-leaf vector is already warm but whose
+  // CHUNK set is missing. The warm's old pre-check looked only at the vector, so it
+  // reported "no miss", skipped its duty-cycle pause and its periodic checkpoint,
+  // and ran the largest inference burst in the system flat out. `spent` counts what
+  // was really embedded, so chunk-only work is now visible.
+  const cache = { entries: {} };
+  const long = item("chunky.md", bodyOf(200));
+  await cachedLeafVectors(cache, [long], opts(false)); // vector only, no chunks
+  assert.ok(cache.entries["chunky.md"].vector, "precondition: whole-leaf vector is warm");
+  assert.equal(cache.entries["chunky.md"].chunks, undefined, "precondition: no chunk set");
+
+  const ledger = makeColdBudget(Infinity);
+  await cachedLeafVectors(cache, [long], { ...opts(true), budget: ledger });
+  assert.ok(ledger.spent > 0, "chunk-only work is reported as real inference");
+  assert.ok(cache.entries["chunky.md"].chunks.length > 1, "and the chunk set was built");
+
+  const second = makeColdBudget(Infinity);
+  await cachedLeafVectors(cache, [long], { ...opts(true), budget: second });
+  assert.equal(second.spent, 0, "a fully warm leaf reports zero — so the warm won't pause");
+});
+
+test("an unbounded ledger never refuses, so it bounds nothing while it counts", async () => {
+  const cache = { entries: {} };
+  const items = [1, 2, 3, 4, 5].map((n) => item(`inf${n}.md`, bodyOf(200)));
+  const ledger = makeColdBudget(Infinity);
+  const out = await cachedLeafVectors(cache, items, { ...opts(true), budget: ledger });
+  assert.equal(
+    out.filter((o) => o.skipped).length,
+    0,
+    "nothing is skipped under an unbounded ledger",
+  );
+  assert.equal(ledger.skipped, 0, "and no leaf is counted as dropped");
+  assert.ok(ledger.spent >= 5, `spent counts every text; got ${ledger.spent}`);
+});
+
+test("WHOLE-LEAF vectors come before chunk refinement, so a long leaf can't starve later ones", async () => {
+  // Vectors-first: with a budget of 3 and a long leaf up front, all three leaves
+  // still get a vector (and rank), and only the chunk refinement defers. Under the
+  // old interleaved order the long leaf spent 1+n up front and the later leaves
+  // came back `skipped` — dropped from the result set entirely.
+  const cache = { entries: {} };
+  const items = [
+    item("long.md", bodyOf(200)),
+    item("mid.md", bodyOf(5)),
+    item("last.md", bodyOf(5)),
+  ];
+  const budget = makeColdBudget(3);
+  const out = await cachedLeafVectors(cache, items, { ...opts(true), budget });
+  assert.equal(out.filter((o) => o.skipped).length, 0, "no leaf was dropped from the result set");
+  assert.equal(out.filter((o) => o.vector.length > 0).length, 3, "every leaf got a vector");
+  assert.equal(budget.skipped, 0, "`skipped` counts DROPPED leaves, not deferred chunk sets");
+  assert.equal(cache.entries["long.md"].chunks, undefined, "only the chunk refinement deferred");
 });
 
 test("a chunk set costs its TEXT count, not one unit (a full leaf cannot blow the bound)", async () => {

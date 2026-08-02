@@ -167,6 +167,7 @@
  * @property {boolean} [deleted]
  * @property {{ from: string, to: string }} [relocated]
  * @property {{ existing?: string, destination: string }} [conflict]
+ * @property {string} [field] - the offending frontmatter field on a refusal (e.g. "status").
  * @property {string} [error]
  */
 

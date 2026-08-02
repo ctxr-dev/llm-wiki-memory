@@ -83,9 +83,9 @@ the `repo` layout (a single `ownership: repo` `knowledge` tree); on a clone that
 already carries one it **adopts** it. Either way it — in place, with no engine
 clone — writes the mount `.gitignore` (un-ignores the shared contract, ignores the
 private/derived parts), initialises a separate private git repo for your personal
-notes, installs three git hooks that keep the shared embeddings warm, and upserts
-exactly ONE machine-independent remote-read block into `AGENTS.md`/`CLAUDE.md`. It
-runs **no git** on the wiki — **you** commit the shared tree.
+notes, and installs three git hooks that keep the shared embeddings warm. It writes
+NOTHING outside the mount. It runs **no git** on the wiki — **you** commit the
+shared tree.
 
 > **The `repo` template is a FULL-doc team wiki.** Unlike the private brain (which
 > distils short atomic notes), the shipped shared `knowledge` category is
@@ -106,19 +106,17 @@ Code hooks are registered **globally** in each developer's home config
 (`~/.claude.json` + `~/.claude/settings.json`, Cursor `~/.cursor/mcp.json`, Codex
 `~/.codex/config.toml`, Claude Desktop) by `bootstrap.sh`, never per-repo. So the
 only things in the project repo are the wiki data + yaml (`wiki/**`, `layout.yaml`,
-`layout.local.yaml`) + the mount `.gitignore`, PLUS exactly ONE machine-independent
-remote-read block in `AGENTS.md`/`CLAUDE.md` pointing at
-`https://raw.githubusercontent.com/ctxr-dev/llm-wiki-memory/main/templates/agents-memory-instructions.md`.
-A teammate just installs the engine globally once (`bootstrap.sh`, which registers
-the MCP server + hooks in their home config), runs the `mount-init` above, and
-picks up the memory discipline from that committed remote-read block.
+`layout.local.yaml`) + the mount `.gitignore`. A shared mount receives NOTHING outside its own `.llm-wiki-memory/` directory: no `AGENTS.md`/`CLAUDE.md` block, no rule or skill pointers, no client config. The one per-machine engine install already supplies every rule, skill and the discipline to every directory on that machine, so a per-repo copy would only duplicate them into a teammate's repository — and nothing in the engine ever reads such a file back. Artifacts an older engine wrote there are stripped on the next `mount-init`; a doc that held only our block is deleted, one the team also wrote in keeps their content.
+A teammate installs the engine globally once (`bootstrap.sh`, which registers the
+MCP server + hooks in their home config) and runs the `mount-init` above; their own
+install is what carries the discipline, in that repo and every other.
 
 **What's git-tracked vs ignored** (the mount `.gitignore` contract):
 
 | Committed into the project repo | Kept out of git |
 |---|---|
 | `wiki/.layout/layout.yaml` (the shared layout) | `layout.local.yaml` (your personal per-repo overrides) |
-| the ONE machine-independent remote-read block in `AGENTS.md`/`CLAUDE.md` | any per-repo client config or `~/…` @-pointer (never written — MCP/hooks are global) |
+| nothing else — the repo gets no `AGENTS.md`/`CLAUDE.md` block | any per-repo client config, `~/…` @-pointer, or doc block (never written — MCP/hooks/rules/skills are all global) |
 | each `ownership: repo` category dir + its `.md` leaves (the shared knowledge) | any non-shared category |
 | `.gitignore` itself | `.embeddings/` (vector caches) and every `index.md` (regenerated locally) |
 | | `personal/` (your private git for this repo) + engine internals / runtime state |

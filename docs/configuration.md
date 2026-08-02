@@ -5,7 +5,7 @@ Settings live in **two** files in `./.llm-wiki-memory/settings/`:
 - **`.env`** — secrets, provider switches, deployment paths, workspace identity, test seams. Things that genuinely need shell precedence. See [`../templates/env.example`](../templates/env.example).
 - **`settings.yaml`** — every other knob, nested by concern (`consolidate`, `flush`, `hook`, `embed`, `recall`, `compile`, `gc`, `gate`, `wiki`, `providers`) plus the top-level `crossCuttingAreas` list. See [`../templates/settings.yaml`](../templates/settings.yaml).
 
-The `.env` file's strict subset overrides the YAML where it overlaps (e.g. `MEMORY_LLM_PROVIDER` collapses the YAML chain). As of the [2026-06-03 v2 release](releases/2026/06/03/v2/update-prompt.md), every `MEMORY_*` env var NOT on the strict allow-list is a silent no-op — application config moved into `settings.yaml`.
+The `.env` file's strict subset overrides the YAML where it overlaps (e.g. `MEMORY_LLM_PROVIDER` collapses the YAML chain). Since the 2026-06-03 release, every `MEMORY_*` env var NOT on the strict allow-list is a silent no-op — application config moved into `settings.yaml`.
 
 ## Strict-subset `.env` keys
 
@@ -38,11 +38,13 @@ The knobs you're most likely to flip — the full annotated set is in [`../templ
 | `embed.dtype` | `""` | ONNX quantization. `""` resolves per model family: EmbeddingGemma → `q4`, BERT-family → `q8`. |
 | `embed.threads` | `2` | ONNX intra-op threads per forward pass — a background warm then sits near 200% CPU rather than saturating the machine. `0` = all cores. |
 | `embed.maxColdPerRead` | `32` | Most texts ONE search/recall may cold-embed before leaving the rest to the background warm. Skipped leaves are dropped from that result set (never scored 0) and stay queued. `0` = unlimited. Consolidate is exempt automatically. |
+| `embed.warmIntervalMinutes` | `30` | How often a scheduler (hourly cron, webapp timer, `cli.mjs warm --if-due`) may re-run the gradual cache warm for a wiki. Throttled by a per-wiki-root stamp in `state/.embed-warm.json` and serialised by a lock. `0` = no scheduled warm (recall still self-heals lazily, at search latency). |
 | `recall.recentActivityDays` | `3` | SessionStart "🧠 Recently" window (days of recent notes surfaced). `0` disables. |
 | `recall.planContextMax` | `2` | Max plans surfaced at SessionStart. `0` hides plans. |
 | `gate.selfImprovementEnabled` | `true` | Operator escape hatch for the server-side write-gate. |
 | `gate.claudeHookEnabled` | `true` | Enable/disable the Claude Code PreToolUse write-gate hook. |
 | `gate.perLessonConsent` | `true` | One save phrase auto-allows only the first gated write of a turn (Claude Code). |
+| `gate.maxInlineBodyBytes` | `32768` | Byte cap on an inline `text` sent to `save_lesson` / `save_to_dataset` / `write_memory`; over it the write is refused with `inline-body-too-large` and a pointer to `cli.mjs save-leaf --file` / `update_document_metadata`. Independent of `gate.enabled` (that flag is consent; this is a token/latency bound). `absorb_document` is exempt. `0` = unlimited; a malformed value falls back to the default, never to unlimited. |
 | `wiki.autoCommit` | `true` | Auto-commit every wiki change to the wiki's own git repo. |
 | `flush.chunkTargetK` | `5` | Target chunk count for map-reduce distillation. |
 | `flush.reduceModelPromote` | `true` | Use a one-tier-stronger model for the reduce step. |

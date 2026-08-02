@@ -173,6 +173,7 @@ export function brainTargetClient(client) {
     "enable_document",
     "delete_document",
     "move_document",
+    "update_document_metadata",
   ]);
   const call = client.callTool.bind(client);
   client.callTool = (params, ...rest) => {

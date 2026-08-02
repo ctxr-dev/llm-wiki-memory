@@ -36,11 +36,14 @@ const NESTED_NOTE = " Inputs are a single nested context object; unknown keys ar
 // ("input JSON failed to parse"), and re-emitting an unchanged body to change one
 // line is the slowest step in the loop by far (the write itself is sub-second).
 const LARGE_BODY_NOTE =
-  " LARGE BODIES: do NOT inline a body over ~20KB. Write it to a file and save by" +
-  " path instead: `node <clone>/scripts/cli.mjs save-leaf --file <path> --dataset" +
-  " <name> [--path <dir>] [--area=…]`. To UPDATE an existing large leaf, edit the" +
-  " file in place and re-run save-leaf — never re-send an unchanged body to flip a" +
-  " status or tick a checkbox.";
+  " LARGE BODIES: do NOT inline a body over ~20KB — past a configurable cap this" +
+  " server REFUSES the write with `inline-body-too-large` (see" +
+  " gate.maxInlineBodyBytes), and retrying with the same body will not help." +
+  " Write it to a file and save by path instead: `node <clone>/scripts/cli.mjs" +
+  " save-leaf --file <path> --dataset <name> [--path <dir>] [--area=…]`. To UPDATE" +
+  " an existing large leaf, edit the file in place and re-run save-leaf — never" +
+  " re-send an unchanged body to flip a status or tick a checkbox. To change only" +
+  " FRONTMATTER, use update_document_metadata (it takes no body at all).";
 
 /** @param {McpServer} server */
 function registerWriteTools(server) {

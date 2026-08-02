@@ -35,6 +35,7 @@ import { settingsPath } from "../scripts/lib/settings.mjs";
  * @property {(args: { documentId: string, datasetId?: string }) => MutationResult} enableDocument
  * @property {(args: { documentId: string, datasetId?: string }) => MutationResult} deleteDocument
  * @property {(args: { documentId: string, datasetId?: string, toPath: string }) => MutationResult} moveDocument
+ * @property {(args: { documentId: string, datasetId?: string, metadata?: MetadataInput, placementOverride?: string | null, commitReason?: string }) => MutationResult} updateDocMetadata
  * @property {(args: { datasetId?: string, enabled?: string, prefix?: string }) => { documents: DocumentSummary[] }} listDocuments
  * @property {(args: { documentId: string, datasetId?: string }) => DocumentContent} readDocument
  */

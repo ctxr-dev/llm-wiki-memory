@@ -11,12 +11,12 @@ const GEMMA_PROMPTS = Object.freeze({
 });
 
 /** @param {string} model @returns {boolean} */
-export function isGemmaFamily(model) {
+function isGemmaFamily(model) {
   return /embeddinggemma/i.test(String(model || ""));
 }
 
 /** @param {string} model @returns {PromptPair | null} */
-export function promptsFor(model) {
+function promptsFor(model) {
   return isGemmaFamily(model) ? GEMMA_PROMPTS : null;
 }
 

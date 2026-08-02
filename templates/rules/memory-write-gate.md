@@ -45,6 +45,25 @@ Three layers, belt-and-suspenders:
 
 L4 (folded into L2) blocks `Write`/`Edit`/`NotebookEdit` to Claude Code's per-client memory directory (`~/.claude/projects/<workspace>/memory/...`) — that path is per-session and per-client; use the wiki instead.
 
+### The gap L4 does NOT cover: a direct file edit of a wiki leaf
+
+L4 guards the *client's* memory directory, **not the wiki**. So a plain `Edit` of a
+leaf file under `<wiki>/…` reaches disk with **no consent prompt, no quality judge,
+and no audit record** — every one of those lives on the MCP write path the edit
+bypassed.
+
+That is *sanctioned* for a large **non-gated** leaf: editing a 46KB plan in place and
+re-running `save-leaf --file` is the whole point of the large-body discipline, and
+those categories were never consent-gated.
+
+It is **forbidden** for `self_improvement` — or any category a wiki declares
+`gated:` in its layout. Editing such a leaf by file is a discipline violation with
+exactly the effect the gate exists to prevent: a lesson persisted that the user never
+approved. **Nothing enforces this deterministically** — it is L1 discipline, which is
+precisely why the CLI door refuses the gated category too (`save-leaf` rejects
+`self_improvement` outright) and why the gated categories must be reached only
+through `save_lesson` / `save_to_dataset` with `userRequested:true`.
+
 ## Per-lesson consent (why one save word is not enough)
 
 A single loose save word (save / remember / record / store / persist / memorise) in the user's turn used to auto-allow *every* gated write that followed in that turn, so a session-end flush could persist many lessons under one bulk approval. With `gate.perLessonConsent` on (default), the L2 hook counts how many lessons the user actually approved this turn — the **Save** selections of an answered `AskUserQuestion`, or (fallback) a save phrase authorising the first write — and allows exactly that many gated self_improvement writes; the next one gets a one-click `ask`. **This is enforced on Claude Code only**: for Cursor / Codex / generic clients there is no L2 hook, so per-lesson discipline rests on L1 (this rule) plus the audit trail below, which makes any batch save visible after the fact. Set `gate.perLessonConsent: false` to restore the legacy turn-level behaviour.

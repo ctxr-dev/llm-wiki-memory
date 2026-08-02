@@ -22,6 +22,7 @@ const {
   writeGateAuditTrailEnabled,
   writeGatePerLessonConsent,
   writeGateAuditKeep,
+  writeGateMaxInlineBodyBytes,
   resolvedChain,
   pickStrongerModel,
   isCliProvider,
@@ -113,6 +114,34 @@ test("gate: null/bare audit + per-lesson keys FAIL CLOSED to true (not Boolean(n
     assert.equal(writeGatePerLessonConsent(), true, "bare perLessonConsent must stay ON");
     assert.equal(writeGateAuditKeep(), 1000, "garbage auditKeep must fall back to default");
   });
+});
+
+test("gate.maxInlineBodyBytes: default, explicit, 0=unlimited, and fail-closed on garbage", () => {
+  clearEnv();
+  withYaml(null, () => {
+    settings({ cmdProbe: () => false });
+    assert.equal(writeGateMaxInlineBodyBytes(), 32768, "ships a finite default");
+  });
+  withYaml(`gate:\n  maxInlineBodyBytes: 4096\n`, () => {
+    settings({ cmdProbe: () => false });
+    assert.equal(writeGateMaxInlineBodyBytes(), 4096, "an explicit cap is honoured");
+  });
+  withYaml(`gate:\n  maxInlineBodyBytes: 0\n`, () => {
+    settings({ cmdProbe: () => false });
+    assert.equal(writeGateMaxInlineBodyBytes(), Infinity, "only a literal 0 removes the bound");
+  });
+  // Each of these must fall back to the DEFAULT, never to Infinity: failing open
+  // here would silently delete the bound a typo was meant to adjust.
+  for (const bad of ["nonsense", "", "-1", "true"]) {
+    withYaml(`gate:\n  maxInlineBodyBytes: ${bad}\n`, () => {
+      settings({ cmdProbe: () => false });
+      assert.equal(
+        writeGateMaxInlineBodyBytes(),
+        32768,
+        `malformed value ${JSON.stringify(bad)} must fail CLOSED to the default`,
+      );
+    });
+  }
 });
 
 test("user YAML overrides template", () => {

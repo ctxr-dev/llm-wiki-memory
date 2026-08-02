@@ -69,6 +69,7 @@ export function coerceSections(sections) {
   if (typeof embed.dtype !== "string") embed.dtype = "";
   embed.threads = coerceNonNeg(embed.threads, 2);
   embed.maxColdPerRead = coerceNonNeg(embed.maxColdPerRead, 32);
+  embed.warmIntervalMinutes = coerceNonNeg(embed.warmIntervalMinutes, 30);
   if (typeof embed.chunk !== "object" || embed.chunk === null)
     embed.chunk = /** @type {import("./settings-defaults.mjs").EmbedChunkSection} */ ({});
   embed.chunk.enabled = coerceBool(embed.chunk.enabled, true);
@@ -105,5 +106,6 @@ export function coerceSections(sections) {
   gate.auditTrailEnabled = coerceBool(gate.auditTrailEnabled, true);
   gate.perLessonConsent = coerceBool(gate.perLessonConsent, true);
   gate.auditKeep = coercePos(gate.auditKeep, 1000);
+  gate.maxInlineBodyBytes = coerceNonNeg(gate.maxInlineBodyBytes, 32_768);
   wiki.autoCommit = coerceBool(wiki.autoCommit, true);
 }

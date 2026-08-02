@@ -45,46 +45,17 @@ PowerShell form (`--commit-memory` → `-CommitMemory`, `--template repo` →
      `./.llm-wiki-memory/src` of the current project unless the user directs
      otherwise.
 
-3. **It DOES exist → update.** Releases may contain BREAKING changes; each
-   ships a runbook at `docs/releases/<yyyy>/<mm>/<dd>[/vN]/update-prompt.md`.
-   Never just pull and re-run bootstrap blindly. Procedure:
-   1. Print the current local state — this is the last applied update:
-      `git -C .llm-wiki-memory/src log -1 --format='%h %cI'`
-   2. `git -C .llm-wiki-memory/src fetch origin`
-   3. List exactly the runbooks NOT yet applied locally (released after the
-      local state):
-      `git -C .llm-wiki-memory/src diff --name-only HEAD origin/main -- docs/releases | grep 'update-prompt\.md$' | sort`
-      Apply order = this sorted list: dates ascend, and within one day the bare
-      folder comes before `v2`, `v3`, … (numeric `vN` order).
-   4. Read EVERY listed runbook, oldest first, from the fetched ref (do NOT
-      merge yet): `git -C .llm-wiki-memory/src show origin/main:<path>`
-   5. Build ONE short consolidated update plan from all of them in that order:
-      a later runbook supersedes an earlier one where they touch the same file
-      or setting; keep every DECISIONS fork and every VERIFICATION block. Show
-      the user the plan as a few bullets before executing.
-   6. Execute the plan:
-      `git -C .llm-wiki-memory/src merge --ff-only origin/main` — if it is not
-      a clean fast-forward, STOP and show the user the divergence (never
-      force); `( cd .llm-wiki-memory/src && npm install --no-audit --no-fund )`;
-      then the consolidated runbook steps — typically a re-run of
-      `./.llm-wiki-memory/src/bootstrap.sh` (idempotent) plus any one-shot
-      migration commands the runbooks name. A **SHARED team wiki** (its layout
-      declares an `ownership: repo` category) is auto-detected on any re-run and
-      stays git-tracked — a bare re-run does NOT revert it to private and needs no
-      special flag. Optional check after: the workspace `.gitignore` fenced block
-      still re-includes the shared categories, no `wiki/.git` exists, and the three
-      `post-*` sync hooks are present. See `docs/shared-wikis.md` § "Upgrading a
-      shared install".
-   7. Verify with EVERY runbook's VERIFICATION block, oldest first; finish with
-      `node .llm-wiki-memory/src/scripts/cli.mjs cron-health` reporting
-      `healthy:true`. (On a box where daily docs are pending but NO LLM
-      provider CLI is reachable, `healthy:false` with a
-      `system:compile-llm-providers` escalation is the EXPECTED honest signal,
-      not an install failure — fix provider availability, then re-check.)
-   8. If step 3.3 lists nothing but HEAD differs from `origin/main`, it is a
-      non-breaking update: ff-merge, npm install, re-run bootstrap, check
-      cron-health. If HEAD already equals `origin/main`, say "already up to
-      date" and stop.
+3. **It DOES exist → update.** Breaking changes ship idempotent, state-detecting
+   MIGRATIONS, not runbooks, so there is nothing to read in order and no
+   how-far-behind branch. Procedure, whatever the local state:
+   1. `git -C .llm-wiki-memory/src fetch origin`
+   2. `git -C .llm-wiki-memory/src merge --ff-only origin/main`
+      (not a clean fast-forward → STOP and surface the divergence; never force-merge)
+   3. `( cd .llm-wiki-memory/src && npm install --no-audit --no-fund )`
+   4. `./.llm-wiki-memory/src/bootstrap.sh` — runs every pending migration, skips
+      the settled ones, ABORTS loudly if one fails.
+   5. Read bootstrap's migration summary. If it reports decisions it auto-defaulted,
+      surface those lines to the user; review with `cli.mjs migrations --explain`.
 
 4. **Offer self-observability (opt-in — ask once).** After bootstrap finishes,
    check whether `.llm-wiki-memory/settings/self-observability.enabled` exists.
@@ -132,15 +103,13 @@ node ~/.llm-wiki-memory/src/scripts/mount-init.mjs "$PWD"
   block. The user commits the shared category; the engine never commits it.
 
 A shared repo carries ZERO machine-dependent files — **no engine clone**, no
-per-repo client config, no `~/…` @-pointer files: only the wiki data + yaml
-(`wiki/**`, `layout.yaml`, `layout.local.yaml`) + the mount `.gitignore`, PLUS
-exactly ONE machine-independent remote-read block in `AGENTS.md`/`CLAUDE.md`
-pointing at the discipline on
-`https://raw.githubusercontent.com/ctxr-dev/llm-wiki-memory/main/templates/agents-memory-instructions.md`.
-The MCP server + hooks live in each developer's home config (from `bootstrap.sh`),
-so a teammate who clones installs the engine globally once, runs the `mount-init`
-above, and picks up the discipline from that committed remote-read block. (The
-PRIVATE brain install is unchanged — it wires local `@~/.llm-wiki-memory/src/…`
+per-repo client config, no `~/…` @-pointer files, and **no `AGENTS.md`/`CLAUDE.md`
+block**: only the wiki data + yaml (`wiki/**`, `layout.yaml`, `layout.local.yaml`)
++ the mount `.gitignore`. The MCP server + hooks + rules + skills + the discipline
+all live in each developer's home install (from `bootstrap.sh`) and apply in every
+directory on their machine, so a teammate who clones installs the engine globally
+once, runs the `mount-init` above, and is done — nothing is injected into the repo.
+(The PRIVATE brain install is unchanged — it wires local `@~/.llm-wiki-memory/src/…`
 pointers into `.agents/rules`/`.claude/skills`/`.claude/rules`/`.cursor/rules`.)
 
 > **Legacy:** `./.llm-wiki-memory/src/bootstrap.sh --template repo --commit-memory`

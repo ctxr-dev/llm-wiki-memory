@@ -25,7 +25,11 @@ test("parseLayoutObject: layout facet_meta overrides a default and adds a new fa
   });
   assert.equal(p.facetMeta.area.description, "custom area help", "override wins per field");
   assert.ok(p.facetMeta.atom_type.description.length > 0, "an untouched default is kept");
-  assert.equal(p.facetMeta.language.description, "the programming language", "a new facet is added");
+  assert.equal(
+    p.facetMeta.language.description,
+    "the programming language",
+    "a new facet is added",
+  );
   assert.deepEqual(p.facetMeta.language.examples, ["scala", "ruby"]);
 });
 

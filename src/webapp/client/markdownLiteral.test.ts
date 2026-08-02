@@ -54,16 +54,7 @@ test("deliteralize inverts literalize line-for-line (trailing whitespace aside)"
 });
 
 test("escapeFences/unescapeFences round-trip any backtick run and the marker itself", () => {
-  const cases = [
-    "```",
-    "````",
-    "   ```js",
-    "⟪",
-    "⟪E⟫",
-    "⟪F3⟫",
-    "a ⟪ b ⟫ c",
-    "```\n⟪\n````\n",
-  ];
+  const cases = ["```", "````", "   ```js", "⟪", "⟪E⟫", "⟪F3⟫", "a ⟪ b ⟫ c", "```\n⟪\n````\n"];
   for (const c of cases) expect(unescapeFences(escapeFences(c))).toBe(c);
 });
 

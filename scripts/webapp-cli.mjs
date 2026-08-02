@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 import fs from "node:fs";
-import net from "node:net";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { MEMORY_DATA_DIR, envInt } from "./lib/env.mjs";
+import { findFreePort, alive, readPid, readPort, rmQuiet, waitDead } from "./lib/webapp-proc.mjs";
+
+// Re-exported: findFreePort is part of this CLI's tested surface even though the
+// process/port primitives now live in their own module.
+export { findFreePort };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ENTRY = path.join(HERE, "..", "src", "webapp", "server", "index.mjs");
 const DEFAULT_PORT = 4319;
-const MAX_PORT_PROBES = 50;
 const STOP_GRACE_MS = 3000;
 
 /** @returns {{ pidPath: string, portPath: string, logPath: string, entry: string, port: number }} */
@@ -22,77 +25,6 @@ function config() {
     entry: process.env.LWM_WEBAPP_SERVER_ENTRY || DEFAULT_ENTRY,
     port: envInt("LWM_WEBAPP_PORT", DEFAULT_PORT),
   };
-}
-
-/**
- * Resolve the first free TCP port at or above `startPort` on the loopback host,
- * so a busy configured port transparently rolls to the next one. There is a tiny
- * window between the probe closing and the server binding; the caller writes the
- * resolved port to disk so `status`/the opened URL always reflect the real port.
- * @param {number} startPort
- * @param {number} [maxProbes]
- * @returns {Promise<number>}
- */
-export function findFreePort(startPort, maxProbes = MAX_PORT_PROBES) {
-  const host = process.env.LWM_WEBAPP_HOST || "127.0.0.1";
-  return new Promise((resolve, reject) => {
-    let port = startPort;
-    let probes = 0;
-    const probe = () => {
-      const srv = net.createServer();
-      srv.once("error", (err) => {
-        srv.close();
-        if (/** @type {{ code?: string }} */ (err).code === "EADDRINUSE" && probes < maxProbes) {
-          probes += 1;
-          port += 1;
-          probe();
-        } else {
-          reject(err);
-        }
-      });
-      srv.once("listening", () => srv.close(() => resolve(port)));
-      srv.listen(port, host);
-    };
-    probe();
-  });
-}
-
-/** @param {number} pid @returns {boolean} */
-function alive(pid) {
-  if (!pid || Number.isNaN(pid)) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return /** @type {{ code?: string }} */ (err).code === "EPERM";
-  }
-}
-
-/** @param {string} pidPath @returns {number} */
-function readPid(pidPath) {
-  try {
-    return Number(fs.readFileSync(pidPath, "utf8").trim()) || 0;
-  } catch {
-    return 0;
-  }
-}
-
-/** @param {string} portPath @returns {number} */
-function readPort(portPath) {
-  try {
-    return Number(fs.readFileSync(portPath, "utf8").trim()) || 0;
-  } catch {
-    return 0;
-  }
-}
-
-/** @param {string} p */
-function rmQuiet(p) {
-  try {
-    fs.rmSync(p);
-  } catch {
-    /* absent is fine */
-  }
 }
 
 const SOURCE_DIRS = ["client", "server", "shared"];
@@ -163,17 +95,6 @@ function openBrowser(url) {
   } catch {
     /* opening a browser is best-effort */
   }
-}
-
-/** @param {number} pid @param {number} ms @returns {boolean} */
-function waitDead(pid, ms) {
-  const buf = new Int32Array(new SharedArrayBuffer(4));
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    if (!alive(pid)) return true;
-    Atomics.wait(buf, 0, 0, 50);
-  }
-  return !alive(pid);
 }
 
 /** @returns {{ running: boolean, pid: number, url: string }} */

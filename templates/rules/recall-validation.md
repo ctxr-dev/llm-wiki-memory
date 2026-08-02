@@ -37,7 +37,10 @@ according to its category and that category's discipline:
 - **`knowledge` / `plans` / `investigations` / `issues` (non-gated):** UPDATE the leaf in place —
   search-then-upsert by the same `name` (rule 16), or `write_memory` with `supersedes` — carrying
   its identity forward, and REPORT what you changed. An `issues` update keeps its topology `path`
-  (see `topology-path-routing`).
+  (see `topology-path-routing`). Match the door to the correction: when only the FRONTMATTER is
+  stale (a facet, a tag, the priority) use `update_document_metadata`, which sends no body at all;
+  when the BODY is stale, edit the leaf file and re-save by path (`cli.mjs save-leaf --file`)
+  rather than re-emitting the whole document through a tool argument.
 - If you cannot tell whether the divergence is genuine staleness or a local exception that should
   NOT rewrite the leaf, ASK the user rather than guessing.
 

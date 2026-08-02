@@ -19,6 +19,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { MEMORY_DATA_DIR } from "../lib/env.mjs";
 
 const WATCHED_TOOLS = new Set(["Write", "Edit", "NotebookEdit"]);
 
@@ -88,6 +89,25 @@ async function main() {
     path.join(os.homedir(), ".claude", "projects"),
     path.join(homeReal, ".claude", "projects"),
   ];
+
+  // Engine-written bookkeeping: <dataDir>/state/**. The migration ledger, the
+  // embed/consolidate throttles and the consent audit log are all maintained by
+  // the engine; a hand-edited one silently corrupts a decision the engine will
+  // later make (a skipped migration, a suppressed warm, a falsified ledger).
+  // READS stay allowed, so diagnosis is unaffected.
+  const stateRoots = [
+    path.join(MEMORY_DATA_DIR, "state"),
+    path.join(os.homedir(), ".llm-wiki-memory", "state"),
+    path.join(homeReal, ".llm-wiki-memory", "state"),
+  ];
+  for (const stateRoot of stateRoots) {
+    const rel = path.relative(stateRoot, resolved);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) continue;
+    deny(
+      `memory-state-deny: ${targetRaw} is inside llm-wiki-memory's engine-written state directory. That tree (the migration ledger, embed/consolidate throttles, the consent audit ledger) is maintained by the engine and must never be hand-edited — a wrong value there makes the engine skip work it still needs to do. Use the CLI instead: \`cli.mjs migrations --explain\` / \`--remigrate\`, \`cli.mjs warm\`, \`cli.mjs gate-audit\`. Reading these files is fine.`,
+    );
+    return;
+  }
 
   for (const projectsRoot of projectsCandidates) {
     const rel = path.relative(projectsRoot, resolved);

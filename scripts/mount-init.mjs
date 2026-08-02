@@ -37,15 +37,15 @@ const MOUNT_TEMPLATE = "repo";
  * knowledge-only `repo` template first, so a mount is a repo-owned brain by
  * construction. No-op (returns `skipped`) when the resolved layout declares no
  * shared category (e.g. a private-brain layout was seeded here on purpose).
- * With `wireRemote`, ALSO write the machine-independent remote-read block into
- * the repo's AGENTS.md/CLAUDE.md (and strip any stray home-relative pointer
- * files) — making this the complete no-clone shared setup. Default off so
- * bootstrap's own wire step and programmatic callers keep their exact contract.
+ * Writes NOTHING outside the mount: no AGENTS.md/CLAUDE.md block, no rule or
+ * skill pointers. The one per-machine engine install already supplies those
+ * everywhere, so a per-repo copy would only duplicate them into a teammate's
+ * repository. Any such artifact an OLDER engine wrote here is stripped.
  * @param {string} mountDir directory that HOLDS the `.llm-wiki-memory` mount
- * @param {{ template?: string, wireRemote?: boolean }} [opts] seed template + shared-block toggle
+ * @param {{ template?: string }} [opts] seed template
  * @returns {Record<string, unknown>}
  */
-export function initMount(mountDir, { template = MOUNT_TEMPLATE, wireRemote = false } = {}) {
+export function initMount(mountDir, { template = MOUNT_TEMPLATE } = {}) {
   const dataDir = path.join(mountDir, MOUNT_DIRNAME);
   const wikiRootDir = path.join(dataDir, "wiki");
   const layoutDir = path.join(wikiRootDir, ".layout");
@@ -72,11 +72,12 @@ export function initMount(mountDir, { template = MOUNT_TEMPLATE, wireRemote = fa
     results.hostIgnore = { ok: false, message: err instanceof Error ? err.message : String(err) };
   }
   results.syncHook = installSyncEmbeddingsHook(mountDir);
-  // A shared mount carries the machine-INDEPENDENT remote-read block (no `~/…`
-  // pointers) so a teammate who clones discovers the discipline. Idempotent, so
-  // a re-run / adopt upserts the same block. Only reached for a real shared
-  // mount (the no-shared-category path returned above), so the brain is untouched.
-  if (wireRemote) results.remoteInclude = wireSharedRepo(mountDir);
+  // A shared mount receives NOTHING outside its own `.llm-wiki-memory/` dir: the
+  // one per-machine engine install already supplies every rule, skill and the
+  // discipline everywhere. This call is CLEANUP-ONLY — it removes any pointer or
+  // AGENTS/CLAUDE block an older engine wrote here. Idempotent; only reached for a
+  // real shared mount (the no-shared-category path returned above).
+  results.strippedInjections = wireSharedRepo(mountDir);
   return results;
 }
 
@@ -91,7 +92,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = process.argv.slice(2);
   helpGuard(args, HELP);
   refuseFlagAsPath(args[0], HELP);
-  const res = initMount(args[0] || process.cwd(), { wireRemote: true });
+  const res = initMount(args[0] || process.cwd());
   process.stdout.write(`${JSON.stringify(res, null, 2)}\n`);
   const host = /** @type {{ ok?: boolean, message?: string }} */ (res.hostIgnore);
   if (host && host.ok === false) process.stderr.write(`WARNING: ${host.message}\n`);

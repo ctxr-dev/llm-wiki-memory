@@ -114,6 +114,33 @@ responsive), and a cold cache re-embeds via a **gradual warm** — small
 duty-cycled slices with persisted progress — while any search embeds only the
 leaves it actually touches.
 
+### Who runs the gradual warm
+
+The warm is offered by two schedulers, and `embed.warmIntervalMinutes`
+(default 30, `0` = off) decides whether a given offer actually runs. A per-wiki-root
+stamp in `state/.embed-warm.json` throttles it and a lock in the same directory
+stops two schedulers warming one wiki at once:
+
+- **the hourly cron job** — this is the one that matters for correctness. It runs
+  the warm step **before** the `consolidate.enabled` master switch, so it works on
+  a default install where consolidate is off. Install it with
+  `bootstrap.sh --schedule hourly`.
+- **the webapp daemon** — once ~15s after boot, then on its own timer. This is a
+  latency optimisation for a machine that happens to be running the web client;
+  opt out with `LWM_WEBAPP_NO_WARM=1`.
+- **`cli.mjs warm [--if-due]`** — the manual form. Without `--if-due` it ignores
+  the interval and the stamp, which is what you want after a model change or a
+  bulk import.
+
+**If you run neither the cron job nor the webapp, nothing warms in the
+background.** Recall still self-heals — a cold leaf is embedded the first time a
+search touches it — but that cost lands inside somebody's request, bounded by
+`embed.maxColdPerRead` and with the leaves over that bound dropped from that one
+result set. An MCP-only install should install the cron job.
+
+The warm never warms from the MCP server itself: N connected clients would mean N
+concurrent warms, each competing with its own requests for the inference threads.
+
 ---
 
 ## Caching

@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { setupWorkspace, cleanup } from "./harness.mjs";
-import { warmWikiEmbeddings, pauseAfterSlice } from "../scripts/lib/embed-warm.mjs";
-import { loadCache } from "../scripts/lib/embed.mjs";
+import { warmWikiEmbeddings, pauseAfterSlice, sliceIsWarm } from "../scripts/lib/embed-warm.mjs";
+import { loadCache, contentHash } from "../scripts/lib/embed.mjs";
 import { embedCacheFor } from "../scripts/lib/env.mjs";
 
 const { dataDir, wiki } = setupWorkspace();
@@ -61,6 +61,60 @@ test("the warm covers ARCHIVED leaves too (they are searchable, so they must not
   assert.ok(stats.embedded >= 1, `the archived leaf was embedded; got ${JSON.stringify(stats)}`);
   const cache = loadCache(embedCacheFor(wiki, "knowledge"));
   assert.ok(cache.entries["knowledge/retired.md"], "archived leaf is in the cache");
+});
+
+// The all-warm skip must be CONSERVATIVE: reporting a leaf warm when it still
+// needs work is how the warm silently stops converging, so every "warm" verdict
+// here has to be one we can prove.
+test("sliceIsWarm only reports warm when there is provably nothing left to do", () => {
+  const short = { id: "k/short.md", embedText: "tiny" };
+  const long = { id: "k/long.md", embedText: "x".repeat(500) };
+  const hash = (t) => contentHash(t);
+  const withEntry = (item, entry) => ({ entries: { [item.id]: entry } });
+
+  assert.equal(sliceIsWarm({ entries: {} }, [short], 100), false, "no entry at all");
+  assert.equal(
+    sliceIsWarm(withEntry(short, { hash: "stale", vector: [1] }), [short], 100),
+    false,
+    "a stale hash (the leaf was edited) is never warm",
+  );
+  assert.equal(
+    sliceIsWarm(withEntry(short, { hash: hash(short.embedText) }), [short], 100),
+    false,
+    "an entry with no vector is not warm",
+  );
+  assert.equal(
+    sliceIsWarm(withEntry(short, { hash: hash(short.embedText), vector: [1] }), [short], 100),
+    true,
+    "short enough that a chunk set is impossible -> warm",
+  );
+  assert.equal(
+    sliceIsWarm(withEntry(long, { hash: hash(long.embedText), vector: [1] }), [long], 100),
+    false,
+    "long enough to POSSIBLY need chunks and none present -> not warm",
+  );
+  assert.equal(
+    sliceIsWarm(
+      withEntry(long, {
+        hash: hash(long.embedText),
+        vector: [1],
+        chunks: [{ hash: "c", vector: [1] }],
+      }),
+      [long],
+      100,
+    ),
+    true,
+    "long but already carries a chunk set -> warm",
+  );
+  assert.equal(
+    sliceIsWarm(
+      { entries: { [short.id]: { hash: hash(short.embedText), vector: [1] } } },
+      [short, long],
+      100,
+    ),
+    false,
+    "one cold leaf makes the whole slice not warm",
+  );
 });
 
 test("a second warm over the same content is an all-hit no-op with zero pauses", async () => {

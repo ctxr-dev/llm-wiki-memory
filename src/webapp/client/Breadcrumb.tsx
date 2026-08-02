@@ -1,10 +1,5 @@
 import { useState } from "react";
-import {
-  ArchiveBoxIcon,
-  LinkIcon,
-  CheckIcon,
-  PencilSquareIcon,
-} from "@heroicons/react/24/outline";
+import { ArchiveBoxIcon, LinkIcon, CheckIcon, PencilSquareIcon } from "@heroicons/react/24/outline";
 import { docCrumbs } from "./crumbs";
 import { formatRef } from "./refs";
 import { Button } from "./Button";

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import matter from "gray-matter";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { setupWorkspace, cleanup, SRC, runScript } from "./harness.mjs";
@@ -195,6 +196,29 @@ test("recall-validation discipline is mirrored on the template rule surface", ()
   assert.match(rule, /never fix or flag silently/i, "always surface");
 });
 
+test("every shipped SKILL template has PARSEABLE frontmatter with a name + description", () => {
+  // The generated Claude Code SKILL.md copies these two fields, and Claude Code
+  // lists a skill by them — so a template whose YAML does not parse (the classic
+  // cause: an unquoted `: ` inside a plain scalar) ships a nameless, effectively
+  // undiscoverable skill. Caught here rather than at install time.
+  const dir = path.join(SRC, "templates/skills");
+  const files = fs.readdirSync(dir).filter((n) => n.endsWith(".md"));
+  assert.ok(files.length > 0, "skills are shipped");
+  for (const f of files) {
+    const raw = fs.readFileSync(path.join(dir, f), "utf8");
+    let parsed;
+    assert.doesNotThrow(() => {
+      parsed = matter(raw);
+    }, `${f}: frontmatter must parse (quote the description if it contains ": ")`);
+    const data = /** @type {{ name?: unknown, description?: unknown }} */ (parsed?.data || {});
+    assert.equal(typeof data.name, "string", `${f}: has a name`);
+    assert.ok(
+      typeof data.description === "string" && data.description.trim().length > 0,
+      `${f}: has a non-empty description`,
+    );
+  }
+});
+
 test("every MCP tool description carries the required-scopes clause (all three surfaces move together)", () => {
   const files = [
     "tools-config",
@@ -208,7 +232,7 @@ test("every MCP tool description carries the required-scopes clause (all three s
     const raw = fs.readFileSync(path.join(SRC, `mcp-server/${f}.mjs`), "utf8");
     total += (raw.match(/REQUIRES `scopes`/g) || []).length;
   }
-  assert.equal(total, 18, `all 18 tool descriptions carry the scopes clause (got ${total})`);
+  assert.equal(total, 19, `all 19 tool descriptions carry the scopes clause (got ${total})`);
   const readme = fs.readFileSync(path.join(SRC, "README.md"), "utf8");
   assert.match(
     readme,
@@ -313,11 +337,28 @@ test("INSTRUCTIONS encodes the large-body / edit-the-file discipline (rule 21)",
   // The failure is client-side, so the symptom an agent will actually see is named.
   assert.match(INSTRUCTIONS, /input JSON failed to parse/);
   assert.match(INSTRUCTIONS, /save-leaf --file/, "names the file-based route");
-  assert.match(INSTRUCTIONS, /UPDATING a large leaf is the case that matters most/);
+  assert.match(INSTRUCTIONS, /inline-body-too-large/, "names the server-side refusal too");
   assert.match(
     INSTRUCTIONS,
     /save-leaf` refuses `self_improvement`/,
     "the file route must not read as a way around the consent gate",
+  );
+  // The three-way decision: which door for WHICH kind of change.
+  assert.match(INSTRUCTIONS, /PICK THE DOOR BY WHAT YOU ARE ACTUALLY CHANGING/);
+  assert.match(
+    INSTRUCTIONS,
+    /FRONTMATTER ONLY[\s\S]{0,200}update_document_metadata/,
+    "a facet-only change is routed to the no-body door",
+  );
+  assert.match(
+    INSTRUCTIONS,
+    /NEVER edit a `self_improvement`[\s\S]{0,200}gated/,
+    "the Edit route is explicitly closed for gated categories",
+  );
+  assert.match(
+    INSTRUCTIONS,
+    /never tick the last checkbox/i,
+    "a derived plan status means the confirmation gate is the LAST CHECKBOX, not a status write",
   );
 });
 

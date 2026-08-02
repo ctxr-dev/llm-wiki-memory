@@ -41,7 +41,7 @@ import { defaultColdBudget } from "./embed-chunk.mjs";
  * @property {number} [scoreThreshold]
  * @property {boolean} [withGlance]
  * @property {boolean} [chunkAware] score long leaves by best chunk (recall only)
- * @property {{ take: (n: number) => boolean } | null} [coldBudget] shared cold-embed ledger for one request
+ * @property {import("./embed-chunk.mjs").ColdBudget | null} [coldBudget] shared cold-embed ledger for one request
  * @property {"query" | "document"} [queryKind] which retrieval prompt the query uses
  */
 

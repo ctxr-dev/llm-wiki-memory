@@ -9,8 +9,13 @@ after(() => cleanup(dataDir));
 
 const store = await import("../scripts/lib/wiki-store.mjs");
 const { embedBackend } = await import("../scripts/lib/settings.mjs");
-const { doctor, findBrokenIndexRefs, findStrayLeaves, findUnlistedChildren, findBackendMismatchedCaches } =
-  await import("../scripts/lib/doctor.mjs");
+const {
+  doctor,
+  findBrokenIndexRefs,
+  findStrayLeaves,
+  findUnlistedChildren,
+  findBackendMismatchedCaches,
+} = await import("../scripts/lib/doctor.mjs");
 
 // Add a flat curated (consolidate:none) category + a topology category, so we
 // can exercise both the curated heuristics AND the topology-skip.

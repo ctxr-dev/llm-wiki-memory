@@ -13,9 +13,11 @@ import {
 } from "./cli-validate.mjs";
 import { handleConsolidate } from "./cli-consolidate.mjs";
 import { handleAbsorb } from "./cli-absorb.mjs";
+import { handleMigrations } from "./cli-migrations.mjs";
 import {
   handleHeal,
   handleGcEmbeddings,
+  handleWarm,
   handleNest,
   handleMigrate,
   handleMigrateIdentity,
@@ -41,7 +43,7 @@ function cmdCompile(args) {
 }
 
 const USAGE =
-  "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|migrate-identity [--dry-run|--check]|doctor|save-leaf --file <path> --dataset <name> [--name|--path|--area=|--atom-type=|--task-type=|--subject=|--tags=]|move-leaf <from> <to>|absorb <path...> --category=<name> [--match=<glob>]... [--area=|--subject=|--atom-type=] [--target=<sel>] [--dry-run]|monitor --title <t> [...] | --resolve <file>|monitoring-health|gate-audit [--limit N]|recall <q>|search <q>|redistill --leaf <path> | --session <id> | --all>\n\n" +
+  "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|warm [--if-due]|migrations [--explain|--remigrate|--phase <settings|data>]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|migrate-identity [--dry-run|--check]|doctor|save-leaf --file <path> --dataset <name> [--name|--path|--area=|--atom-type=|--task-type=|--subject=|--tags=]|move-leaf <from> <to>|absorb <path...> --category=<name> [--match=<glob>]... [--area=|--subject=|--atom-type=] [--target=<sel>] [--dry-run]|monitor --title <t> [...] | --resolve <file>|monitoring-health|gate-audit [--limit N]|recall <q>|search <q>|redistill --leaf <path> | --session <id> | --all>\n\n" +
   `Docs (any OS, via WebFetch): ${REPO_RAW_BASE}/ — README.md · AI-INSTALL-PROMPT.md · ARCHITECTURE.md · docs/{shared-wikis,consolidate,embeddings}.md`;
 
 async function main() {
@@ -62,6 +64,10 @@ async function main() {
       return handleHeal();
     case "gc-embeddings":
       return handleGcEmbeddings(rest);
+    case "warm":
+      return handleWarm(rest);
+    case "migrations":
+      return handleMigrations(rest);
     case "consolidate":
       return handleConsolidate(rest);
     case "absorb":

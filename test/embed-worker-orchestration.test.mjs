@@ -37,17 +37,24 @@ test("embedMany routes through the worker and resolves its vectors", async () =>
   __setBackendStateForTest();
   __setWorkerFactoryForTest(() =>
     makeFakeWorker((msg, worker) => {
-      worker.emit("message", { id: msg.id, ok: true, vectors: msg.texts.map((t, i) => [i, t.length]) });
+      worker.emit("message", {
+        id: msg.id,
+        ok: true,
+        vectors: msg.texts.map((t, i) => [i, t.length]),
+      });
     }),
   );
-  await withSettingsOverride({ embed: { backend: "transformers", model: "test/plain-model" } }, async () => {
-    const vectors = await embedMany(["ab", "cdef"]);
-    assert.deepEqual(vectors, [
-      [0, 2],
-      [1, 4],
-    ]);
-    assert.equal(activeBackend(), "transformers");
-  });
+  await withSettingsOverride(
+    { embed: { backend: "transformers", model: "test/plain-model" } },
+    async () => {
+      const vectors = await embedMany(["ab", "cdef"]);
+      assert.deepEqual(vectors, [
+        [0, 2],
+        [1, 4],
+      ]);
+      assert.equal(activeBackend(), "transformers");
+    },
+  );
 });
 
 test("embed() delegates through the worker path", async () => {
@@ -57,9 +64,12 @@ test("embed() delegates through the worker path", async () => {
       worker.emit("message", { id: msg.id, ok: true, vectors: [[0.5, 0.25]] });
     }),
   );
-  await withSettingsOverride({ embed: { backend: "transformers", model: "test/plain-model" } }, async () => {
-    assert.deepEqual(await embed("hello"), [0.5, 0.25]);
-  });
+  await withSettingsOverride(
+    { embed: { backend: "transformers", model: "test/plain-model" } },
+    async () => {
+      assert.deepEqual(await embed("hello"), [0.5, 0.25]);
+    },
+  );
 });
 
 test("a worker error falls back to lexical vectors and opens the retry window", async () => {
@@ -69,12 +79,15 @@ test("a worker error falls back to lexical vectors and opens the retry window", 
       worker.emit("message", { id: msg.id, ok: false, error: "boom" });
     }),
   );
-  await withSettingsOverride({ embed: { backend: "transformers", model: "test/plain-model" } }, async () => {
-    const vectors = await embedMany(["hello world"]);
-    assert.equal(vectors.length, 1);
-    assert.ok(Array.isArray(vectors[0]) && vectors[0].length > 0);
-    assert.equal(activeBackend(), "lexical");
-  });
+  await withSettingsOverride(
+    { embed: { backend: "transformers", model: "test/plain-model" } },
+    async () => {
+      const vectors = await embedMany(["hello world"]);
+      assert.equal(vectors.length, 1);
+      assert.ok(Array.isArray(vectors[0]) && vectors[0].length > 0);
+      assert.equal(activeBackend(), "lexical");
+    },
+  );
 });
 
 test("a dead worker rejects only its own requests; a successor worker serves fresh ones", async () => {
@@ -91,17 +104,20 @@ test("a dead worker rejects only its own requests; a successor worker serves fre
       worker.emit("message", { id: msg.id, ok: true, vectors: [[9]] });
     });
   });
-  await withSettingsOverride({ embed: { backend: "transformers", model: "test/plain-model" } }, async () => {
-    const degraded = await embedMany(["first"]);
-    assert.equal(activeBackend(), "lexical", "worker death degrades to lexical");
-    assert.equal(degraded.length, 1);
+  await withSettingsOverride(
+    { embed: { backend: "transformers", model: "test/plain-model" } },
+    async () => {
+      const degraded = await embedMany(["first"]);
+      assert.equal(activeBackend(), "lexical", "worker death degrades to lexical");
+      assert.equal(degraded.length, 1);
 
-    __setBackendStateForTest();
-    const recovered = await embedMany(["second"]);
-    assert.deepEqual(recovered, [[9]]);
-    assert.equal(activeBackend(), "transformers");
-    assert.equal(spawned, 2, "a replacement worker was spawned");
-  });
+      __setBackendStateForTest();
+      const recovered = await embedMany(["second"]);
+      assert.deepEqual(recovered, [[9]]);
+      assert.equal(activeBackend(), "transformers");
+      assert.equal(spawned, 2, "a replacement worker was spawned");
+    },
+  );
 });
 
 test("EmbeddingGemma retrieval prompts reach the worker; hashes upstream stay raw", async () => {

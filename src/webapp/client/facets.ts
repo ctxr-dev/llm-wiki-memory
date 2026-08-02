@@ -2,7 +2,10 @@ export type Priority = "P0" | "P1" | "P2";
 
 export const PRIORITY_ORDER: Priority[] = ["P0", "P1", "P2"];
 
-export const PRIORITY_META: Record<Priority, { label: string; explanation: string; classes: string }> = {
+export const PRIORITY_META: Record<
+  Priority,
+  { label: string; explanation: string; classes: string }
+> = {
   P0: {
     label: "P0",
     explanation: "Hard constraint — a guardrail that must be honoured; governs on conflict.",

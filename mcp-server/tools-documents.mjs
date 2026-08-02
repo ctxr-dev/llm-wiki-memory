@@ -4,6 +4,7 @@ import { getImpl } from "./mcp-reload.mjs";
 import { jsonResponse, errorResponse } from "./mcp-responses.mjs";
 import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
 import { withResolvedWriteTarget } from "./mcp-write-target.mjs";
+import { MetadataSelectSchema, runMetadataMutate } from "./mcp-metadata-patch.mjs";
 import { getActiveWikiContext } from "../scripts/lib/wiki-context.mjs";
 import { parseMutateRequest, MUTATE_OP } from "../scripts/lib/context/mutate.mjs";
 import { MCP_OPS, MCP_ACTOR } from "../scripts/lib/context/enums.mjs";
@@ -41,12 +42,16 @@ const MUTATE_COMMIT = Object.freeze({
   [MUTATE_OP.ENABLE]: MCP_OPS.ENABLE,
   [MUTATE_OP.DELETE]: MCP_OPS.DELETE,
   [MUTATE_OP.MOVE]: MCP_OPS.MOVE,
+  [MUTATE_OP.METADATA]: MCP_OPS.UPDATE_METADATA,
 });
 
 /**
  * Run the store mutation for a parsed op. The store owns the faceted/topology/
  * daily move refusal and the disable/enable/delete not-found handling — those
  * stay runtime invariants; this only routes the op to its store method.
+ * The METADATA op is deliberately NOT dispatched here (it has its own router in
+ * mcp-metadata-patch.mjs, with the facet/priority gates a bare relocate lacks) —
+ * so it fails loud rather than falling through to moveDocument with no toPath.
  * @param {MutateOp} op
  * @param {{ documentId: string, datasetId: string | undefined, toPath: string | undefined }} sel
  */
@@ -55,7 +60,10 @@ function storeMutate(op, { documentId, datasetId, toPath }) {
   if (op === MUTATE_OP.DISABLE) return impl.disableDocument({ documentId, datasetId });
   if (op === MUTATE_OP.ENABLE) return impl.enableDocument({ documentId, datasetId });
   if (op === MUTATE_OP.DELETE) return impl.deleteDocument({ documentId, datasetId });
-  return impl.moveDocument({ documentId, datasetId, toPath: /** @type {string} */ (toPath) });
+  if (op === MUTATE_OP.MOVE) {
+    return impl.moveDocument({ documentId, datasetId, toPath: /** @type {string} */ (toPath) });
+  }
+  throw new Error(`mutate op "${op}" is not routed here; a metadata patch has its own dispatcher`);
 }
 
 /**
@@ -172,6 +180,30 @@ function registerDocumentTools(server) {
       withToolScopes(args, async () => {
         try {
           return runMutate(MUTATE_OP.MOVE, args);
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }),
+  );
+
+  server.registerTool(
+    "update_document_metadata",
+    {
+      title: "Patch a leaf's frontmatter facets WITHOUT re-sending its body",
+      description:
+        "Change an existing leaf's metadata (area, subject, tags, atom_type, task_type, language, error_pattern, priority) with NO `text` at all — use this instead of re-saving a whole document just to fix a facet. Send `select:{documentId, metadata, dataset?, pin?}`. " +
+        "A facet change RELOCATES the leaf, which CHANGES its documentId — read the returned `documentId` and `placement` (relocated | unchanged | pinned) rather than reusing the one you sent. `pin:true` patches the frontmatter and leaves the leaf where it is. A topology (`issues`) leaf is ALWAYS pinned: this tool can never move it between lifecycle folders — re-save it with a compiler-derived path for that. " +
+        "`status` is REJECTED here: use disable_document / enable_document (they also update the embedding cache), and note a plan's status is derived from its checkboxes. The title and body cannot be changed here (edit the file, or re-save via `cli.mjs save-leaf --file`), and `updated` / `focus` / `covers` are not re-stamped. " +
+        "REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki." +
+        TARGET_DESCRIPTION,
+      inputSchema: z
+        .object({ target: TargetSchema, select: MetadataSelectSchema, scopes: ScopesSchema })
+        .strict(),
+    },
+    async (args) =>
+      withToolScopes(args, async () => {
+        try {
+          return runMetadataMutate(args);
         } catch (error) {
           return errorResponse(error);
         }

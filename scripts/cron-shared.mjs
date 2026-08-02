@@ -1,5 +1,5 @@
 import path from "node:path";
-import { MEMORY_DATA_DIR } from "./lib/env.mjs";
+import { MEMORY_DATA_DIR, wikiRoot } from "./lib/env.mjs";
 import {
   consolidateAttemptsKeep,
   consolidateFullLogRetentionDays,
@@ -38,4 +38,23 @@ export const collapse = (v) =>
 /** @param {string} abs */
 export function relToDataDir(abs) {
   return path.relative(MEMORY_DATA_DIR, abs);
+}
+
+/**
+ * Offer the gradual warm, swallowing every failure. Isolated from the cron's
+ * pass/fail bookkeeping on purpose (see the call site).
+ * @returns {Promise<void>}
+ */
+export async function warmIfDueQuietly() {
+  try {
+    const { warmWikiEmbeddingsIfDue } = await import("./lib/embed-warm.mjs");
+    const res = await warmWikiEmbeddingsIfDue(wikiRoot());
+    if (!res.skipped && res.embedded > 0) {
+      process.stderr.write(`cron-job: warmed ${res.embedded} texts across ${res.leaves} leaves\n`);
+    }
+  } catch (error) {
+    process.stderr.write(
+      `cron-job: warm skipped (${error instanceof Error ? error.message : String(error)})\n`,
+    );
+  }
 }

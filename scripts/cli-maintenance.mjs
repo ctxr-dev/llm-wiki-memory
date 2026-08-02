@@ -22,6 +22,21 @@ export async function handleGcEmbeddings(rest) {
 }
 
 /** @param {string[]} rest */
+export async function handleWarm(rest) {
+  // Gradual, duty-cycled warm of this wiki's embedding caches. --if-due honours
+  // embed.warmIntervalMinutes and the cross-process lock (what the hourly cron
+  // and the webapp timer use); a plain run warms unconditionally, which is the
+  // form to reach for after a model change or a bulk import.
+  const { warmWikiEmbeddings, warmWikiEmbeddingsIfDue } = await import("./lib/embed-warm.mjs");
+  const root = wikiRoot();
+  return out(
+    rest.includes("--if-due")
+      ? await warmWikiEmbeddingsIfDue(root)
+      : { ok: true, ...(await warmWikiEmbeddings(root)) },
+  );
+}
+
+/** @param {string[]} rest */
 export async function handleNest(rest) {
   const { migrateNest } = await import("./migrate-nest.mjs");
   const res = await migrateNest({
@@ -179,7 +194,9 @@ export async function handleSaveLeaf(rest) {
   try {
     text = fs.readFileSync(file, "utf8");
   } catch (err) {
-    process.stderr.write(`save-leaf: cannot read ${file}: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.stderr.write(
+      `save-leaf: cannot read ${file}: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
     process.exit(66);
   }
   if (!text.trim()) {
@@ -193,7 +210,14 @@ export async function handleSaveLeaf(rest) {
     ...(flag("area") ? { area: flag("area") } : {}),
     ...(flag("atom-type") ? { atom_type: flag("atom-type") } : {}),
     ...(flag("task-type") ? { task_type: flag("task-type") } : {}),
-    ...(subject ? { subject: subject.split(",").map((s) => s.trim()).filter(Boolean) } : {}),
+    ...(subject
+      ? {
+          subject: subject
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+        }
+      : {}),
     ...(flag("tags") ? { tags: flag("tags") } : {}),
   };
   const placementOverride = flag("path");

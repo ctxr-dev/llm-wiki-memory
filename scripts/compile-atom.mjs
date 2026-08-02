@@ -1,9 +1,6 @@
 import { DRY_RUN, EX_UNAVAILABLE } from "./compile-flags.mjs";
 import { compileQualityStrict } from "./lib/settings.mjs";
-import {
-  isAutoDistillCategory,
-  WikiStoreUnavailable,
-} from "./lib/wiki-store.mjs";
+import { isAutoDistillCategory, WikiStoreUnavailable } from "./lib/wiki-store.mjs";
 import { LLMProviderUnavailable, LLMOutputInvalid } from "./lib/llm.mjs";
 import { scoreAtomQuality } from "./compile-atoms.mjs";
 import { targetDatasetForAtom } from "./compile-routing.mjs";

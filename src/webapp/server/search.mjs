@@ -35,7 +35,11 @@ function hasFilters(filters) {
  * @param {{ limit?: number, filters?: Record<string, unknown>, category?: string, includeArchived?: boolean }} [opts]
  * @returns {Promise<import("../shared/contract.mjs").SearchResult[]>}
  */
-export async function searchWiki(root, query, { limit = 15, filters, category, includeArchived = false } = {}) {
+export async function searchWiki(
+  root,
+  query,
+  { limit = 15, filters, category, includeArchived = false } = {},
+) {
   const trimmed = (query ?? "").trim();
   if (!trimmed && !hasFilters(filters) && !category) return [];
   const { env, core, identity, search } = await loadEngine();

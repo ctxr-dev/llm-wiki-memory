@@ -31,7 +31,9 @@ export function LeafCard({
       {location && <Row label="Location" value={location} />}
       {summary?.atomType && <Row label="Type" value={humanizeValue(summary.atomType)} />}
       {summary?.area && <Row label="Area" value={humanizeValue(summary.area)} />}
-      {summary?.priority && <Row label="Priority" value={<PriorityBadge priority={summary.priority} />} />}
+      {summary?.priority && (
+        <Row label="Priority" value={<PriorityBadge priority={summary.priority} />} />
+      )}
       {summary?.updated && <Row label="Updated" value={summary.updated} />}
       {typeof score === "number" && <Row label="Score" value={score.toFixed(3)} />}
       {summary?.tags && summary.tags.length > 0 && (

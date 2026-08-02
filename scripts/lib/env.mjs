@@ -282,6 +282,6 @@ export function llmModel() {
 
 // NOTE: all OTHER configuration (consolidate / flush / hook / embed / recall /
 // compile / gc / gate / providers) lives in <data>/settings/settings.yaml.
-// Read via scripts/lib/settings.mjs. The 2026-06-03/v2 release removed every
+// Read via scripts/lib/settings.mjs. The 2026-06-03 release removed every
 // MEMORY_FOO env var on the non-strict surface — setting them at the shell
-// is now a SILENT no-op. See docs/releases/2026/06/03/v2/update-prompt.md.
+// is now a SILENT no-op.

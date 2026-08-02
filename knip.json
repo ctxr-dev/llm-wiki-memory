@@ -6,6 +6,7 @@
       "entry": [
         "scripts/*.mjs",
         "scripts/hooks/*.mjs",
+        "scripts/migrations/**/*.mjs",
         "test/**/*.test.mjs",
         "test/setup-guard.mjs"
       ],

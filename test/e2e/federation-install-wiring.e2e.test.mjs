@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import matter from "gray-matter";
 import { wireMemorySurfaces } from "../../scripts/wire-memory-surfaces.mjs";
 import { uninstall } from "../../scripts/lib/uninstall.mjs";
 import { HASH_MARKER_START, HASH_MARKER_END } from "../../scripts/lib/memory-surface-constants.mjs";
@@ -33,14 +34,21 @@ function freshWs() {
   return ws;
 }
 
-/** @param {string} ws @returns {string[]} every pointer file across the four surfaces */
+/**
+ * Every pointer FILE across the four surfaces. `.claude/skills` holds directories
+ * (`<skill>/SKILL.md`, the only shape Claude Code discovers) while the rule surfaces
+ * hold flat files, so descend one level into a prefixed directory.
+ * @param {string} ws @returns {string[]}
+ */
 function pointerFiles(ws) {
   const out = [];
   for (const s of [".agents/rules", ".claude/skills", ".claude/rules", ".cursor/rules"]) {
     const dir = path.join(ws, s);
     if (!fs.existsSync(dir)) continue;
-    for (const f of fs.readdirSync(dir)) {
-      if (f.startsWith("llm-wiki-memory-")) out.push(path.join(dir, f));
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!e.name.startsWith("llm-wiki-memory-")) continue;
+      if (e.isDirectory()) out.push(path.join(dir, e.name, "SKILL.md"));
+      else out.push(path.join(dir, e.name));
     }
   }
   return out;
@@ -64,26 +72,44 @@ test("install-wiring: every @-pointer written against the REAL src resolves to a
       fs.existsSync(target),
       `pointer ${path.basename(f)} → ${target} must exist (no dead reference)`,
     );
-    // It is a POINTER, not a copy: the file IS the @-line + fallback, not the target's body.
+    // It is a POINTER, not a copy: the file IS the @-line + fallback, not the target's
+    // body. A generated SKILL.md also carries frontmatter (the name + description
+    // Claude Code lists it by), which is why the bound is per-shape.
+    const isSkill = path.basename(f) === "SKILL.md";
+    const limit = isSkill ? 1200 : 400;
     assert.ok(
-      body.length < 400,
-      `pointer ${path.basename(f)} is a thin pointer, not a copied body`,
+      body.length < limit,
+      `pointer ${path.basename(f)} is a thin pointer, not a copied body (${body.length} >= ${limit})`,
     );
   }
 });
 
-test("install-wiring: the shipped skills each land on .claude/skills as a prefixed pointer, none as a copy", () => {
+test("install-wiring: every shipped skill lands on .claude/skills as a DISCOVERABLE <dir>/SKILL.md", () => {
   const ws = freshWs();
   wireMemorySurfaces({ srcDir: SRC, workspaceDir: ws, home: HOME, selfObsEnabled: false });
 
   const skills = fs
     .readdirSync(path.join(SRC, "templates/skills"))
     .filter((n) => n.endsWith(".md"));
+  assert.ok(skills.length >= 9, `all shipped skills are wired, got ${skills.length}`);
   for (const name of skills) {
-    const pointer = path.join(ws, ".claude/skills", `llm-wiki-memory-${name}`);
-    assert.ok(fs.existsSync(pointer), `skill ${name} wired as a pointer`);
-    // The unprefixed name (a hard copy) must NOT exist.
+    const stem = `llm-wiki-memory-${name.replace(/\.md$/, "")}`;
+    const entry = path.join(ws, ".claude/skills", stem, "SKILL.md");
+    assert.ok(fs.existsSync(entry), `skill ${name} wired as ${stem}/SKILL.md`);
+    // Claude Code lists a skill by these two frontmatter fields; without them it
+    // registers nameless and is effectively undiscoverable.
+    const parsed = matter(fs.readFileSync(entry, "utf8"));
+    assert.equal(parsed.data.name, stem, `${name}: skill name matches its directory`);
+    assert.ok(
+      typeof parsed.data.description === "string" && parsed.data.description.trim(),
+      `${name}: carries a non-empty description`,
+    );
+    // Neither a hard copy nor the old flat pointer may remain.
     assert.ok(!fs.existsSync(path.join(ws, ".claude/skills", name)), `no hard copy of ${name}`);
+    assert.ok(
+      !fs.existsSync(path.join(ws, ".claude/skills", `llm-wiki-memory-${name}`)),
+      `no dead flat pointer for ${name}`,
+    );
   }
 });
 

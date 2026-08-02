@@ -64,7 +64,11 @@ test("save-leaf reports a usage error when --file or --dataset is missing", () =
 
 test("save-leaf fails clearly on a missing or empty file", () => {
   const missing = runScript("scripts/cli.mjs", [
-    "save-leaf", "--file", "/definitely/not/here.md", "--dataset", "plans",
+    "save-leaf",
+    "--file",
+    "/definitely/not/here.md",
+    "--dataset",
+    "plans",
   ]);
   assert.equal(missing.status, 66);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-empty-"));

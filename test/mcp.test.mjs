@@ -285,6 +285,158 @@ test("move_document refuses a facet-category free-path move (structured, no cras
   assert.match(res.reason, /facet/, `structured refusal reason: ${JSON.stringify(res)}`);
 });
 
+test("update_document_metadata is registered", async () => {
+  const { tools } = await client.listTools();
+  assert.ok(
+    tools.map((t) => t.name).includes("update_document_metadata"),
+    "update_document_metadata registered",
+  );
+});
+
+/**
+ * Seed a knowledge leaf for the metadata-patch tests and return its id + the
+ * on-disk bytes of its body, so a patch can be proven not to touch the content.
+ */
+async function seedForPatch(name, metadata = {}) {
+  const text = `# ${name}\n\nA body the metadata door must never re-send or rewrite.`;
+  const saved = parse(
+    await client.callTool({
+      name: "save_to_dataset",
+      arguments: {
+        write: {
+          dataset: "knowledge",
+          name,
+          text,
+          metadata: { atom_type: "reference", area: "patchprobe", ...metadata },
+        },
+      },
+    }),
+  );
+  assert.equal(saved.ok, true, `seeded ${name}: ${JSON.stringify(saved)}`);
+  return saved.created.document.id;
+}
+
+function rawLeaf(id) {
+  return fs.readFileSync(path.join(dataDir, "wiki", ...id.split("/")), "utf8");
+}
+
+function bodyOf(id) {
+  return rawLeaf(id).split("---\n").pop();
+}
+
+// The MCP surface has no read_document tool, so assert the persisted frontmatter
+// straight off disk (the server child process writes to the same dataDir).
+function memoryFieldOf(id, key) {
+  const m = rawLeaf(id).match(new RegExp(`^\\s+${key}:\\s*(.+)$`, "m"));
+  return m ? m[1].trim() : undefined;
+}
+
+test("update_document_metadata patches a facet with NO body and reports the new documentId", async () => {
+  const id = await seedForPatch("knowledge-patch-relocate.md");
+  const before = bodyOf(id);
+  const res = parse(
+    await client.callTool({
+      name: "update_document_metadata",
+      arguments: {
+        select: { documentId: id, dataset: "knowledge", metadata: { area: "patched" } },
+      },
+    }),
+  );
+  assert.equal(res.ok, true, JSON.stringify(res));
+  assert.equal(res.placement, "relocated", "a facet change moves the leaf");
+  assert.notEqual(res.documentId, id, "the documentId changed with the relocation");
+  assert.ok(res.documentId.includes("/patched/"), `landed under the new area: ${res.documentId}`);
+  assert.equal(bodyOf(res.documentId), before, "the BODY is byte-identical — no re-send happened");
+});
+
+test("update_document_metadata with pin:true patches in place (no relocation)", async () => {
+  const id = await seedForPatch("knowledge-patch-pinned.md");
+  const res = parse(
+    await client.callTool({
+      name: "update_document_metadata",
+      arguments: {
+        select: { documentId: id, metadata: { area: "pinnedelsewhere" }, pin: true },
+      },
+    }),
+  );
+  assert.equal(res.ok, true, JSON.stringify(res));
+  assert.equal(res.placement, "pinned");
+  assert.equal(res.documentId, id, "a pinned patch keeps the id");
+  assert.equal(
+    memoryFieldOf(id, "area"),
+    "pinnedelsewhere",
+    "the facet WAS applied, just not placed on",
+  );
+});
+
+test("update_document_metadata REFUSES status with an actionable envelope", async () => {
+  const id = await seedForPatch("knowledge-patch-status.md");
+  const res = await client.callTool({
+    name: "update_document_metadata",
+    arguments: { select: { documentId: id, metadata: { status: "archived" } } },
+  });
+  assert.equal(res.isError, true, "a status patch is rejected at the wire");
+  const body = JSON.parse(res.content[0].text);
+  assert.equal(body.field, "status");
+  assert.deepEqual(body.allowed, ["disable_document", "enable_document"]);
+  assert.match(body.reason, /disable_document/);
+});
+
+test("update_document_metadata coerces a scarce P0 to P1 and says so", async () => {
+  const id = await seedForPatch("knowledge-patch-p0.md");
+  const res = parse(
+    await client.callTool({
+      name: "update_document_metadata",
+      arguments: { select: { documentId: id, metadata: { priority: "P0" }, pin: true } },
+    }),
+  );
+  assert.equal(res.ok, true, JSON.stringify(res));
+  assert.match(res.priorityNote, /P0 coerced to P1/, "the coercion is reported, never silent");
+  assert.equal(
+    memoryFieldOf(id, "priority"),
+    "P1",
+    "P0 did not reach disk through the mutate door",
+  );
+});
+
+test("update_document_metadata closes the facet vocabulary (same envelope as a write)", async () => {
+  const id = await seedForPatch("knowledge-patch-vocab.md");
+  const res = await client.callTool({
+    name: "update_document_metadata",
+    arguments: { select: { documentId: id, metadata: { task_type: "frobnicating" } } },
+  });
+  assert.equal(res.isError, true, "an off-vocab facet cannot slip through the mutate door");
+  const body = JSON.parse(res.content[0].text);
+  assert.equal(body.field, "task_type");
+});
+
+test("update_document_metadata reports a missing leaf as ok:false, not a crash", async () => {
+  const res = parse(
+    await client.callTool({
+      name: "update_document_metadata",
+      arguments: {
+        select: { documentId: "knowledge/nope/knowledge-absent.md", metadata: { area: "x" } },
+      },
+    }),
+  );
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /not found/);
+});
+
+test("update_document_metadata rejects an omitted metadata and a legacy flat shape", async () => {
+  const id = await seedForPatch("knowledge-patch-shape.md");
+  const omitted = await client.callTool({
+    name: "update_document_metadata",
+    arguments: { select: { documentId: id } },
+  });
+  assert.equal(omitted.isError, true, "metadata is required");
+  const flat = await client.callTool({
+    name: "update_document_metadata",
+    arguments: { documentId: id, metadata: { area: "x" }, target: "brain" },
+  });
+  assert.equal(flat.isError, true, "the legacy flat shape is rejected by the strict wire");
+});
+
 test("audit_memory groups two same-key lessons into a duplicate-error-pattern finding (dispatchAudit)", async () => {
   // Seed two DISTINCT-title self_improvement lessons that share area+error_pattern,
   // so dispatchAudit's byErrorPattern grouping + the ids.length>1 check fire. A
@@ -319,6 +471,15 @@ test("search_memory excerpts oversized hit bodies at the MCP boundary; fullConte
   const marker = "zqxoverflowmarker";
   const huge = `# Huge note\n\n${`${marker} padding sentence number. `.repeat(400)}`;
   assert.ok(huge.length > 5000, "body is genuinely large");
+  // This fixture must stay comfortably UNDER gate.maxInlineBodyBytes (default
+  // 32768) or the write below is refused and this test starts failing for a
+  // reason that has nothing to do with excerpting. Asserted here so a future
+  // `.repeat()` bump fails loudly at this line instead of tripping an
+  // invisible cap several frames away.
+  assert.ok(
+    Buffer.byteLength(huge, "utf8") < 24_000,
+    `fixture must stay well under the inline-body cap, got ${Buffer.byteLength(huge, "utf8")}`,
+  );
   const saved = parse(
     await client.callTool({
       name: "save_to_dataset",

@@ -6,6 +6,7 @@ import { jsonResponse } from "./mcp-responses.mjs";
 import {
   assertTopologyPathValid,
   refuseWriteGate,
+  refuseInlineBody,
   targetsGatedCategory,
   auditGatedL3,
   guardScarcePriority,
@@ -101,11 +102,19 @@ function gateLabel(tool, dataset, path) {
     : `${tool}(${key}="${dataset}" is a gated category)`;
 }
 
-// The two pre-write gates an interactive tool runs in order: the L3 consent gate
-// ({@link gateRefusal}) then the quality judge ({@link judgeInteractiveSubmission}).
-// Returns `{ blocked }` with the response to return early (a consent refusal or a
-// judge rejection), else `{ writeMetadata }` — the metadata to persist, stamped
-// `quality:"unverified"` when the judge kept a flagged best attempt.
+// The three pre-write gates an interactive tool runs IN ORDER: the L3 consent gate
+// ({@link gateRefusal}), the inline-body size bound ({@link refuseInlineBody}),
+// then the quality judge ({@link judgeInteractiveSubmission}).
+//
+// The order is load-bearing in both directions. Consent stays FIRST (C8): a gated
+// write with no consent must be refused and audited as a consent violation
+// whatever else is wrong with it. The size bound goes BEFORE the judge because the
+// judge is an LLM round-trip — refusing afterwards would burn a provider call on a
+// body we were never going to store.
+//
+// Returns `{ blocked }` with the response to return early (a consent refusal, a
+// size refusal, or a judge rejection), else `{ writeMetadata }` — the metadata to
+// persist, stamped `quality:"unverified"` when the judge kept a flagged best attempt.
 /**
  * @param {{ tool: string, dataset: string, path?: string, name: string, text: string, metadata?: MetadataInput, userRequested?: boolean, target: string, acceptQuality?: boolean }} a
  * @returns {Promise<{ blocked?: ReturnType<typeof refuseWriteGate>, writeMetadata?: MetadataInput }>}
@@ -123,6 +132,8 @@ export async function runWriteGates(a) {
     target: a.target,
   });
   if (refusal) return { blocked: refusal };
+  const oversize = refuseInlineBody(a.tool, a.text);
+  if (oversize) return { blocked: oversize };
   const judgeGate = await judgeInteractiveSubmission({
     dataset: a.dataset,
     title: a.name,

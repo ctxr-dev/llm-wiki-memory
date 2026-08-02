@@ -69,9 +69,7 @@ async function main() {
   if (spec.skip) {
     // stderr alone is invisible in Claude Code, which is how a silent
     // "not-approved" skip went unnoticed and lost every captured plan.
-    throw new SkipPlanCapture(
-      `${spec.skip} [${describeToolResponse(hookInput?.tool_response)}]`,
-    );
+    throw new SkipPlanCapture(`${spec.skip} [${describeToolResponse(hookInput?.tool_response)}]`);
   }
 
   // Refuse cleanly if the wiki hasn't been materialised yet.

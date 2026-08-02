@@ -109,6 +109,9 @@ export function applyYamlOverlay(sections, raw) {
   if (raw.gate && raw.gate.auditKeep !== undefined) {
     gate.auditKeep = raw.gate.auditKeep;
   }
+  if (raw.gate && raw.gate.maxInlineBodyBytes !== undefined) {
+    gate.maxInlineBodyBytes = raw.gate.maxInlineBodyBytes;
+  }
   if (raw.wiki && raw.wiki.autoCommit !== undefined) {
     wiki.autoCommit = raw.wiki.autoCommit;
   }

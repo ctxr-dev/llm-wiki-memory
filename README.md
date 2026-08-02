@@ -35,8 +35,13 @@ Or run it yourself — **macOS / Linux**:
 ```bash
 git clone https://github.com/ctxr-dev/llm-wiki-memory ./.llm-wiki-memory/src
 ./.llm-wiki-memory/src/bootstrap.sh                    # add --commit-memory to git-track the wiki (you commit it)
-./.llm-wiki-memory/src/bootstrap.sh --schedule hourly  # optional: hourly cron / launchd
+./.llm-wiki-memory/src/bootstrap.sh --schedule hourly  # recommended: hourly cron / launchd
 ```
+
+The `--schedule hourly` job is **recommended, not cosmetic**: it is what runs the
+gradual embedding warm in the background. Without it (and without a running
+webapp daemon) nothing warms ahead of time — recall still self-heals, but each
+cold note is embedded inside the first search that touches it.
 
 **Windows** (PowerShell — the native installer, same flags): `bootstrap.ps1` / `-CommitMemory` / `-Schedule hourly`.
 

@@ -17,6 +17,11 @@ import { registerFacetsRoutes } from "./routes/facets.mjs";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(HERE, "..", "dist");
 const WARM_START_DELAY_MS = 15_000;
+/**
+ * The timer only OFFERS a warm; embed.warmIntervalMinutes decides whether the offer
+ * is due, so ticking more often than the interval costs one cheap stamp read.
+ */
+const WARM_TICK_MS = 5 * 60_000;
 
 /**
  * Warms the home wiki's embedding caches inside THIS daemon, gradually: inference
@@ -87,10 +92,44 @@ const NOT_BUILT_HTML =
 const PORT = Number(process.env.PORT || 4319);
 const HOST = process.env.LWM_WEBAPP_HOST || "127.0.0.1";
 
+/**
+ * Re-check the warm on a timer, not just at boot: a leaf saved after startup used
+ * to stay cold until the daemon was restarted, and the first search touching it
+ * paid the embedding cost inline. The engine's own due-stamp and lock decide
+ * whether a tick does anything, so this timer is only a scheduler — the hourly
+ * cron is what makes an install without a running webapp converge.
+ *
+ * unref'd so it never holds the process open, and in-flight-guarded so a warm
+ * that outlives its interval is not started twice.
+ * @returns {{ stop: () => void } | null}
+ */
+export function startWarmTimer() {
+  if (process.env.LWM_WEBAPP_NO_WARM === "1") return null;
+  let inFlight = false;
+  const tick = async () => {
+    if (inFlight) return;
+    inFlight = true;
+    try {
+      const { env } = await import("./engine.mjs").then((m) => m.loadEngine());
+      const { warmWikiEmbeddingsIfDue } = await import("../../../scripts/lib/embed-warm.mjs");
+      await warmWikiEmbeddingsIfDue(env.wikiRoot());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`webapp: scheduled warm failed (${message})\n`);
+    } finally {
+      inFlight = false;
+    }
+  };
+  const timer = setInterval(tick, WARM_TICK_MS);
+  timer.unref?.();
+  return { stop: () => clearInterval(timer) };
+}
+
 export async function start() {
   const app = buildApp();
   await app.listen({ port: PORT, host: HOST });
   void warmHomeWikiGradually();
+  startWarmTimer();
   return app;
 }
 

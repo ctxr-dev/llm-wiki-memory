@@ -1,6 +1,7 @@
 import { settings } from "./settings.mjs";
 
-export const DEFAULT_MAX_COLD_PER_READ = 32;
+const DEFAULT_MAX_COLD_PER_READ = 32;
+const DEFAULT_MAX_INLINE_BODY_BYTES = 32_768;
 
 // Convenience helpers (mirror the OLD env.mjs API so the call-site refactor
 // is one-line per call). Each just reads from settings().<section>.<key>.
@@ -124,6 +125,9 @@ export function embedMaxColdPerRead() {
   if (configured === 0) return Infinity;
   return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_MAX_COLD_PER_READ;
 }
+export function embedWarmIntervalMinutes() {
+  return settings().embed.warmIntervalMinutes;
+}
 /** @returns {import("./settings-defaults.mjs").EmbedChunkSection} */
 export function embedChunk() {
   return settings().embed.chunk;
@@ -199,6 +203,15 @@ export function writeGatePerLessonConsent() {
 }
 export function writeGateAuditKeep() {
   return settings().gate.auditKeep;
+}
+// The inline-body byte cap for an MCP write. INDEPENDENT of `gate.enabled` (that
+// flag is about user CONSENT; this is a token/latency bound). Only a literal 0
+// means "no cap"; anything malformed falls back to the default rather than to
+// Infinity, so a typo can never silently remove the bound.
+export function writeGateMaxInlineBodyBytes() {
+  const configured = settings().gate.maxInlineBodyBytes;
+  if (configured === 0) return Infinity;
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_MAX_INLINE_BODY_BYTES;
 }
 export function wikiAutoCommit() {
   return Boolean(settings().wiki.autoCommit);

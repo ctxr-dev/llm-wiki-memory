@@ -117,6 +117,15 @@ embed:
   # Skipped leaves rank last for that one read and stay queued for the warm.
   # 0 = unlimited.
   maxColdPerRead: 32
+  # How often a scheduler may re-run the gradual, duty-cycled cache warm for a
+  # given wiki: the hourly cron job, the webapp's own timer, and
+  # `cli.mjs warm --if-due` all honour it. Before this, warming ran ONCE at webapp
+  # boot — so a note saved afterwards stayed cold until a restart, and an install
+  # that only uses the MCP server never warmed at all (every cold leaf was then
+  # embedded inline, inside somebody's search). A due-stamp is kept per wiki root
+  # in state/.embed-warm.json and a lock stops two schedulers warming at once.
+  # 0 = no scheduled warm (recall still self-heals lazily, at search latency).
+  warmIntervalMinutes: 30
   # Length-aware recall: a note longer than the model's token window is
   # split into <=maxChunks pieces and scored by its best piece minus
   # penalty*(pieces-1). Recall-only; short notes and consolidate are unchanged.
@@ -200,6 +209,20 @@ gate:
   perLessonConsent: true
   # Max records kept in the audit log; older lines are front-truncated.
   auditKeep: 1000
+  # Byte cap on an INLINE body sent to save_lesson / save_to_dataset /
+  # write_memory. INDEPENDENT of `enabled` above: that flag is about user
+  # CONSENT, this is a token/latency bound. It is NOT a fix for the client-side
+  # "input JSON failed to parse — <n> bytes" error (an MCP client refuses a
+  # far-oversized argument before the server ever sees it); it exists because an
+  # agent re-emitting a 46KB document spends ~12k output tokens and tens of
+  # seconds to do what a file-based save does in under a second. Over the cap the
+  # write is refused with a message naming the doors that need no body:
+  # `cli.mjs save-leaf --file <path>` to create/replace, and
+  # update_document_metadata to change frontmatter only.
+  # absorb_document is exempt by design (whole documents, stored VERBATIM).
+  # 0 = unlimited. A malformed value falls back to this default, never to
+  # unlimited, so a typo cannot silently remove the bound.
+  maxInlineBodyBytes: 32768
 
 wiki:
   # Auto-commit every wiki change to the wiki's OWN git repo: one commit per

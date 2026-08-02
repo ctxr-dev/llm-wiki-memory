@@ -10,10 +10,10 @@ Rules for working ON this repo are canonical in `.agents/rules/`:
 `dev-principles.md` (durability / parsing / injection / config invariants, cross-client
 portability, wiki placement, LLM-pipeline contracts, hook design),
 `testing.md` (harness + mocking conventions, the `/tmp/lwm-*` leak trap),
-`releases-docs-authoring.md` (when and how to write a
-`docs/releases/yyyy/mm/dd[/vN]/update-prompt.md` runbook + the paired-repo release order),
+`release-migrations-authoring.md` (a breaking change ships an idempotent,
+state-detecting migration under `scripts/migrations/` — never a runbook),
 and `docs-style.md` (README/docs conventions). Step-by-step procedures live in
-`.agents/skills/` (`write-release-runbook.md`, `run-tests-safely.md`,
+`.agents/skills/` (`write-migration.md`, `run-tests-safely.md`,
 `debug-capture-pipeline.md`). Per-client shadows
 reference the canonical files via `@`-imports — `.claude/rules/` + `.claude/skills/`
 (Claude Code), `.cursor/rules/` (Cursor); always edit the `.agents/` file, never a shadow.

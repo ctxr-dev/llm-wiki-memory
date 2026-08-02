@@ -3,19 +3,16 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   POINTER_PREFIX,
-  DOC_MARKER_START,
-  DOC_MARKER_END,
   RULE_SURFACES,
   MEMORY_DOCS,
   MARKER_ID,
   POINTER_FALLBACK_NOTE,
-  REMOTE_INSTRUCTIONS_URL,
 } from "./lib/memory-surface-constants.mjs";
 import { sha256, writeManifest } from "./lib/install-manifest.mjs";
-import { writeFileAtomic } from "./lib/atomic-write.mjs";
 import { withFsRetry } from "./lib/fs-retry.mjs";
-import { stripManagedBlocks } from "./lib/marker-block.mjs";
 import { isOurPointer } from "./lib/pointer-file.mjs";
+import { wireInclude, stripDocBlock, writeIfChanged } from "./lib/memory-doc-block.mjs";
+import { SKILL_ENTRY, SKILL_SURFACES, skillBody, isOurSkillDir } from "./lib/skill-pointer.mjs";
 import { isSharedWiki } from "./bootstrap/shared-wiki.mjs";
 import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "./lib/cli-args.mjs";
 
@@ -48,18 +45,6 @@ function mdFiles(srcDir, sub) {
   const dir = path.join(srcDir, sub);
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir).filter((n) => n.endsWith(".md"));
-}
-
-/** @param {string} p @param {string} content */
-function writeIfChanged(p, content) {
-  let current = null;
-  try {
-    current = fs.readFileSync(p, "utf8");
-  } catch {
-    current = null;
-  }
-  if (current === content) return;
-  writeFileAtomic(p, content);
 }
 
 /** @param {string} srcDir @returns {Map<string, string>} managed basename → canonical abs path */
@@ -103,7 +88,7 @@ function isOurOldCopy(surfacePath, canonicalAbs) {
 
 /**
  * @param {string} srcDir @param {string} home @param {boolean} selfObsEnabled
- * @returns {Map<string, Map<string, string>>} surface → (pointerFileName → home-relative ref)
+ * @returns {Map<string, Map<string, string>>} surface → (surface-relative path → file body)
  */
 function desiredPointers(srcDir, home, selfObsEnabled) {
   /** @type {Map<string, Map<string, string>>} */
@@ -111,10 +96,12 @@ function desiredPointers(srcDir, home, selfObsEnabled) {
   /** @param {string} surface @param {string} name @param {string} abs */
   const add = (surface, name, abs) => {
     if (!bySurface.has(surface)) bySurface.set(surface, new Map());
-    /** @type {Map<string, string>} */ (bySurface.get(surface)).set(
-      pointerName(name),
-      homeRef(home, abs),
-    );
+    const ref = homeRef(home, abs);
+    const dir = pointerName(name).replace(/\.md$/i, "");
+    const [rel, body] = SKILL_SURFACES.has(surface)
+      ? [`${dir}/${SKILL_ENTRY}`, skillBody(name, pointerBody(ref), abs)]
+      : [pointerName(name), pointerBody(ref)];
+    /** @type {Map<string, string>} */ (bySurface.get(surface)).set(rel, body);
   };
   for (const g of SHIPPED_GROUPS) {
     for (const name of mdFiles(srcDir, g.sub)) {
@@ -128,64 +115,55 @@ function desiredPointers(srcDir, home, selfObsEnabled) {
   return bySurface;
 }
 
-/** @param {string} file @param {string} inner the block body (marker fence added here) */
-function writeDocBlock(file, inner) {
-  const block = `${DOC_MARKER_START}\n${inner}\n${DOC_MARKER_END}`;
-  let existing = "";
-  try {
-    existing = fs.readFileSync(file, "utf8");
-  } catch {
-    existing = "";
-  }
-  const withoutBlocks = stripManagedBlocks(existing, DOC_MARKER_START, DOC_MARKER_END)
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/^\n+/, "")
-    .replace(/[ \t\n]+$/, "");
-  const next = withoutBlocks ? `${withoutBlocks}\n\n${block}\n` : `${block}\n`;
-  writeIfChanged(file, next);
-}
-
-/** @param {string} file @param {string} ref local include (private brain) */
-function wireInclude(file, ref) {
-  writeDocBlock(
-    file,
-    `## Project memory (llm-wiki-memory)\n\n@${ref}\n\nIf your client does not resolve the @-include above, read:\n${ref}`,
-  );
-}
-
-/** @param {string} file machine-INDEPENDENT remote-read block (shared repo) */
-function wireRemoteInclude(file) {
-  writeDocBlock(
-    file,
-    `## Project memory (llm-wiki-memory)\n\nThis repository uses llm-wiki-memory shared team memory. If you have the engine installed, its MCP tools are available globally. For the memory discipline, read:\n${REMOTE_INSTRUCTIONS_URL}`,
-  );
-}
-
 /**
- * A SHARED (team) mount carries ZERO machine-dependent files: strip any `~/...`
- * pointers a prior private-style install left, and write only the one
- * machine-independent remote-read block into AGENTS.md/CLAUDE.md.
- * @param {string} workspaceDir @returns {{ surfaces: number, artifacts: number }}
+ * A SHARED (team) mount is STRIP-ONLY: it receives NOTHING outside its own
+ * `.llm-wiki-memory/` directory, and anything a prior install wrote there is
+ * removed.
+ *
+ * Why nothing at all. A shared mount is a repo that HOSTS team wiki data; the
+ * engine itself is installed once per machine, and that one install already
+ * supplies every rule, skill and the discipline to every directory on the box
+ * (agent clients read the user-level `~/.claude/...` surfaces and walk up through
+ * ancestor AGENTS.md/CLAUDE.md files). So a per-repo copy is duplication for a
+ * teammate who HAS the engine, and instructions for MCP tools that do not exist
+ * for a teammate who does not. Nothing in the engine ever reads these files back
+ * — the only consumer is an agent's context window — so writing them buys
+ * nothing and costs a committed artifact in someone else's repository.
+ *
+ * The strip half remains because an existing mount may still carry artifacts an
+ * older engine wrote: they are cleaned on the next run. A doc that held ONLY our
+ * block is deleted; a doc the team also wrote in keeps their content.
+ * @param {string} workspaceDir
+ * @returns {{ surfaces: number, artifacts: number, removed: string[] }}
  */
 export function wireSharedRepo(workspaceDir) {
+  /** @type {string[]} */
+  const removed = [];
   for (const surface of RULE_SURFACES) {
     const dir = path.join(workspaceDir, surface);
     if (!fs.existsSync(dir)) continue;
     for (const entry of fs.readdirSync(dir)) {
       const abs = path.join(dir, entry);
-      if (entry.startsWith(POINTER_PREFIX) && entry.endsWith(".md") && isOurPointer(abs)) {
+      if (!entry.startsWith(POINTER_PREFIX)) continue;
+      // Flat pointer FILE, or a Claude Code skill DIRECTORY: both carry a
+      // machine-dependent `~/...` include, so both must go when a private install
+      // converts to shared.
+      if (entry.endsWith(".md") && isOurPointer(abs)) {
         withFsRetry(() => fs.rmSync(abs, { force: true }));
+        removed.push(`${surface}/${entry}`);
+      } else if (isOurSkillDir(abs)) {
+        withFsRetry(() => fs.rmSync(abs, { recursive: true, force: true }));
+        removed.push(`${surface}/${entry}`);
       }
     }
   }
-  /** @type {import("./lib/install-manifest.mjs").InstallArtifact[]} */
-  const artifacts = [];
   for (const doc of MEMORY_DOCS) {
-    wireRemoteInclude(path.join(workspaceDir, doc));
-    artifacts.push({ kind: "block", path: doc, marker: MARKER_ID });
+    if (stripDocBlock(path.join(workspaceDir, doc))) removed.push(doc);
   }
-  writeManifest(workspaceDir, artifacts);
-  return { surfaces: 0, artifacts: artifacts.length };
+  // An empty artifact list, recorded deliberately: a later uninstall then knows
+  // this workspace has nothing of ours outside the mount.
+  writeManifest(workspaceDir, []);
+  return { surfaces: 0, artifacts: 0, removed };
 }
 
 /**
@@ -193,8 +171,10 @@ export function wireSharedRepo(workspaceDir) {
  * @returns {{ surfaces: number, artifacts: number }}
  */
 export function wireMemorySurfaces({ srcDir, workspaceDir, home, selfObsEnabled = false }) {
-  // A SHARED (team) mount must carry no machine-dependent `~/...` pointers — only
-  // a remote-read block. The private brain keeps its local @-pointer wiring.
+  const instructionsRef = homeRef(home, path.join(srcDir, INSTRUCTIONS_REL));
+  // A SHARED (team) mount receives NOTHING outside its own .llm-wiki-memory/ dir
+  // (see wireSharedRepo). Only a PRIVATE brain — the one install that actually
+  // supplies the discipline to this machine — gets the pointer + @-include wiring.
   if (isSharedWiki(path.join(workspaceDir, ".llm-wiki-memory", "wiki"))) {
     return wireSharedRepo(workspaceDir);
   }
@@ -213,20 +193,33 @@ export function wireMemorySurfaces({ srcDir, workspaceDir, home, selfObsEnabled 
       // A prefixed pointer we no longer want here is stale — including one left by a
       // renamed/removed shipped rule — but only if it is actually OURS (isOurPointer
       // guards a user's same-named file and a prefixed directory).
+      //
+      // This is also the MIGRATION path off the old flat `.claude/skills` shape: those
+      // files are our pointers and are no longer wanted at that surface (the wanted
+      // key there is now `<dir>/SKILL.md`), so they are retired here. Leaving them
+      // would strand an unreachable duplicate of every skill.
       const stalePointer =
         entry.startsWith(POINTER_PREFIX) &&
         entry.endsWith(".md") &&
         !want.has(entry) &&
         isOurPointer(abs);
+      // A prefixed DIRECTORY we no longer want (a renamed/removed skill) — recognised
+      // by the pointer it contains, so a same-named directory of the user's own is
+      // never touched.
+      const staleSkillDir =
+        entry.startsWith(POINTER_PREFIX) &&
+        !want.has(`${entry}/${SKILL_ENTRY}`) &&
+        isOurSkillDir(abs);
       if (staleCopy || stalePointer) withFsRetry(() => fs.rmSync(abs, { force: true }));
+      else if (staleSkillDir) withFsRetry(() => fs.rmSync(abs, { recursive: true, force: true }));
     }
-    for (const [fname, ref] of want) {
-      const body = pointerBody(ref);
-      writeIfChanged(path.join(dir, fname), body);
-      artifacts.push({ kind: "file", path: `${surface}/${fname}`, sha256: sha256(body) });
+    for (const [rel, body] of want) {
+      const target = path.join(dir, ...rel.split("/"));
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      writeIfChanged(target, body);
+      artifacts.push({ kind: "file", path: `${surface}/${rel}`, sha256: sha256(body) });
     }
   }
-  const instructionsRef = homeRef(home, path.join(srcDir, INSTRUCTIONS_REL));
   for (const doc of MEMORY_DOCS) {
     wireInclude(path.join(workspaceDir, doc), instructionsRef);
     artifacts.push({ kind: "block", path: doc, marker: MARKER_ID });

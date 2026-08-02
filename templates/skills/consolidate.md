@@ -1,6 +1,6 @@
 ---
 name: consolidate
-description: At session end (after embed-gc), run the deterministic + LLM memory consolidation orchestrator. Search-driven; refines self_improvement + knowledge over time without touching daily/plans/investigations. Opt-in via `consolidate.enabled` (default false, off): a no-op in every path until enabled; when on, self-throttled (default daily) so it no-ops cheaply when not due. Claude Code runs it on the hourly cron; hook-less agents (Codex, Cursor) invoke it once at session end via this rule.
+description: "At session end (after embed-gc), run the deterministic + LLM memory consolidation orchestrator. Search-driven; refines self_improvement + knowledge over time without touching daily/plans/investigations. Opt-in via `consolidate.enabled` (default false, off): a no-op in every path until enabled; when on, self-throttled (default daily) so it no-ops cheaply when not due. Claude Code runs it on the hourly cron; hook-less agents (Codex, Cursor) invoke it once at session end via this rule."
 ---
 
 # Consolidate (memory refinement)

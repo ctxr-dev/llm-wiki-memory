@@ -25,7 +25,14 @@ function seed(wiki) {
     "knowledge/frontend/decision/architecture/react.md",
     "The UI is built with React and Vite components.",
   );
-  const archived = path.join(wiki, "knowledge", "backend", "decision", "observability", "grafana.md");
+  const archived = path.join(
+    wiki,
+    "knowledge",
+    "backend",
+    "decision",
+    "observability",
+    "grafana.md",
+  );
   fs.mkdirSync(path.dirname(archived), { recursive: true });
   fs.writeFileSync(
     archived,

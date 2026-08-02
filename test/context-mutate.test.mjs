@@ -31,11 +31,73 @@ function makeCtx() {
   return { ctx: { levels: [brain, repo], brain, writeDefault: brain }, brain, repo };
 }
 
-test("MUTATE_OP carries the four document operations", () => {
+test("MUTATE_OP carries the five document operations", () => {
   assert.deepEqual(
     { ...MUTATE_OP },
-    { DISABLE: "disable", ENABLE: "enable", DELETE: "delete", MOVE: "move" },
+    {
+      DISABLE: "disable",
+      ENABLE: "enable",
+      DELETE: "delete",
+      MOVE: "move",
+      METADATA: "metadata",
+    },
   );
+});
+
+test("a metadata mutate carries the patch and closes the facet vocabulary", () => {
+  const { ctx } = makeCtx();
+  const req = parseMutateRequest(ctx, {
+    op: MUTATE_OP.METADATA,
+    documentId: "knowledge/billing/reference/a.md",
+    metadata: { area: "risk", atom_type: "decision" },
+    target: "brain",
+  });
+  assert.deepEqual(req.metadata, { area: "risk", atom_type: "decision" });
+  assert.equal(req.placementOverride, undefined, "unpinned by default -> facet placement applies");
+  assert.throws(
+    () =>
+      parseMutateRequest(ctx, {
+        op: MUTATE_OP.METADATA,
+        documentId: "knowledge/billing/reference/a.md",
+        metadata: { atom_type: "frobnicate" },
+        target: "brain",
+      }),
+    /atom_type/,
+    "an off-vocab facet is refused before it can materialise a junk directory",
+  );
+});
+
+test("a metadata mutate REQUIRES a metadata object", () => {
+  const { ctx } = makeCtx();
+  assert.throws(
+    () =>
+      parseMutateRequest(ctx, {
+        op: MUTATE_OP.METADATA,
+        documentId: "knowledge/billing/reference/a.md",
+        target: "brain",
+      }),
+    /metadata/,
+  );
+});
+
+test("pin:true resolves to the leaf's own directory; a bare filename pins to nothing", () => {
+  const { ctx } = makeCtx();
+  const nested = parseMutateRequest(ctx, {
+    op: MUTATE_OP.METADATA,
+    documentId: "issues/JIRA/DEV/1/2/3/in-progress/DEV-123-x.plan.md",
+    metadata: { area: "risk" },
+    pin: true,
+    target: "brain",
+  });
+  assert.equal(nested.placementOverride, "issues/JIRA/DEV/1/2/3/in-progress");
+  const bare = parseMutateRequest(ctx, {
+    op: MUTATE_OP.METADATA,
+    documentId: "a.md",
+    metadata: { area: "risk" },
+    pin: true,
+    target: "brain",
+  });
+  assert.equal(bare.placementOverride, undefined, '"." would throw in the store; pin to nothing');
 });
 
 test("disable/enable/delete parse to a frozen typed request with the resolved target", () => {

@@ -61,6 +61,7 @@ import { DEFAULT_EMBED_MODEL } from "./settings.mjs";
  * @property {string} dtype
  * @property {number} threads
  * @property {number} maxColdPerRead
+ * @property {number} warmIntervalMinutes 0 = no scheduled warm
  * @property {EmbedChunkSection} chunk
  */
 
@@ -104,6 +105,7 @@ import { DEFAULT_EMBED_MODEL } from "./settings.mjs";
  * @property {boolean} auditTrailEnabled
  * @property {boolean} perLessonConsent
  * @property {number} auditKeep
+ * @property {number} maxInlineBodyBytes 0 = unlimited; see templates/settings.yaml
  */
 
 /**
@@ -203,6 +205,11 @@ export function structuralDefaults() {
     // cache (a whole category inline used to stall a request for minutes).
     // 0 = unlimited (pre-budget behaviour).
     maxColdPerRead: 32,
+    // How often a scheduler (the hourly cron, the webapp timer) may re-run the
+    // gradual warm for a given wiki. Without it, warming happened once at webapp
+    // boot, so a leaf saved afterwards stayed cold until a restart — and an
+    // MCP-only install never warmed at all. 0 = no scheduled warm.
+    warmIntervalMinutes: 30,
     // Length-aware recall: a leaf whose embed text exceeds the model's token
     // window is split into <=maxChunks windows; recall scores it by its best
     // chunk minus penalty*(chunks-1) so a long doc can't win on chunk count.
@@ -261,6 +268,7 @@ export function structuralDefaults() {
     auditTrailEnabled: true,
     perLessonConsent: true,
     auditKeep: 1000,
+    maxInlineBodyBytes: 32_768,
   };
   const wiki = { autoCommit: true };
   const providers = {

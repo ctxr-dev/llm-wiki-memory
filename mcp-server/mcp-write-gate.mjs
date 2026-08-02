@@ -1,4 +1,5 @@
 import { wikiRoot } from "../scripts/lib/env.mjs";
+import { writeGateMaxInlineBodyBytes } from "../scripts/lib/settings.mjs";
 import { enforceP0Scarcity } from "../scripts/lib/datasets.mjs";
 import { isSystemMaintenance } from "../scripts/lib/maintenance-tag.mjs";
 import { recordGatedWrite, consentBasis } from "../scripts/lib/save-gate-audit.mjs";
@@ -73,6 +74,40 @@ function refuseWriteGate(toolName) {
   });
 }
 
+// A token/latency bound on an INLINE body, not a parse-failure fix: the MCP
+// CLIENT already refuses a payload far past this (an observed 46KB argument never
+// reached the server at all), so this can only fire on payloads the client
+// accepted. What it buys is the difference between an agent silently spending
+// ~12k output tokens re-emitting a document and getting told, in the refusal
+// itself, which door needs no body at all.
+//
+// Measured in BYTES (matching what a client reports) rather than characters: the
+// zod `max()` bounds elsewhere are character counts, so a CJK body ~3x over the
+// intended limit would pass a `.length` check.
+//
+// Deliberately NOT exempted for system maintenance: no internal writer routes
+// through runWriteGates, and absorb_document (whole documents, VERBATIM, by
+// design) bypasses these gates entirely — so an exemption branch would be
+// unreachable, therefore untestable.
+/**
+ * @param {string} tool
+ * @param {string | undefined} text
+ * @returns {ReturnType<typeof jsonResponse> | null}
+ */
+function refuseInlineBody(tool, text) {
+  const max = writeGateMaxInlineBodyBytes();
+  if (!Number.isFinite(max) || typeof text !== "string") return null;
+  const bytes = Buffer.byteLength(text, "utf8");
+  if (bytes <= max) return null;
+  return jsonResponse({
+    ok: false,
+    error: "inline-body-too-large",
+    bytes,
+    maxBytes: max,
+    message: `${tool} refused: the body is ${bytes} bytes, over the ${max}-byte inline limit. Do NOT retry by re-emitting it — write the body to a FILE and save by path with \`node <clone>/scripts/cli.mjs save-leaf --file <path> --dataset <name>\` (add --path for a topology category). If you only need to change FRONTMATTER (area / subject / tags / atom_type / task_type / priority), use update_document_metadata, which takes no body at all. To edit an existing large NON-GATED leaf, edit the file in place and re-run save-leaf. Raise or disable the limit with gate.maxInlineBodyBytes (0 = unlimited).`,
+  });
+}
+
 // True iff the resolved write would land under a GATED category (per the target
 // layout), regardless of the declared `dataset` field. Closes the gate-bypass
 // where a caller passes a non-gated `dataset` together with a `path` into a
@@ -94,9 +129,9 @@ function targetsGatedCategory(dataset, placementOverride, layout) {
 // from the same inputs the gate used, so the ledger shows WHY a write landed: an
 // explicit user flag, a system-maintenance frame (consolidate), or a disabled gate.
 /**
- * @param {{ tool: string, status: "accepted" | "refused", userRequested: boolean | undefined, title: string, metadata?: MetadataInput }} args
+ * @param {{ tool: string, status: "accepted" | "refused", userRequested: boolean | undefined, title: string, metadata?: MetadataInput, action?: string }} args
  */
-function auditGatedL3({ tool, status, userRequested, title, metadata }) {
+function auditGatedL3({ tool, status, userRequested, title, metadata, action }) {
   const consent =
     status === "accepted" ? consentBasis(userRequested, isSystemMaintenance()) : undefined;
   recordGatedWrite({
@@ -104,6 +139,7 @@ function auditGatedL3({ tool, status, userRequested, title, metadata }) {
     tool,
     status,
     consent,
+    action,
     title,
     area: metadata?.area,
     error_pattern: metadata?.error_pattern,
@@ -137,6 +173,7 @@ function guardScarcePriority(metadata, userRequested) {
 export {
   assertTopologyPathValid,
   refuseWriteGate,
+  refuseInlineBody,
   targetsGatedCategory,
   auditGatedL3,
   guardScarcePriority,

@@ -106,7 +106,10 @@ export const api = {
       `/api/wikis/${id}/nav/${category}?path=${encodeURIComponent(path)}${flag(archived)}`,
       NavChildrenSchema,
     ),
-  titles: (id: string, ids: string[]): Promise<Record<string, { title: string; active: boolean }>> =>
+  titles: (
+    id: string,
+    ids: string[],
+  ): Promise<Record<string, { title: string; active: boolean }>> =>
     ids.length === 0
       ? Promise.resolve({})
       : getJson(

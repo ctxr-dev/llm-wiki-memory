@@ -43,8 +43,7 @@ export {
 // declared in .env (provider switches + paths + identity + secrets). Every
 // other MEMORY_* env var is silently IGNORED — application config lives in
 // the YAML, period. This is a deliberate breaking change from earlier
-// versions; see docs/releases/2026/06/03/v2/update-prompt.md for the
-// migration runbook.
+// versions (shipped 2026-06-03).
 
 export const KNOWN_PROVIDERS = [
   "mock",

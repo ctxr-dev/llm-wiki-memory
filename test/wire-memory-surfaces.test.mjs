@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { wireMemorySurfaces } from "../scripts/wire-memory-surfaces.mjs";
 import { readManifest, manifestPath, sha256 } from "../scripts/lib/install-manifest.mjs";
+import matter from "gray-matter";
 import { POINTER_FALLBACK_NOTE } from "../scripts/lib/memory-surface-constants.mjs";
 
 /** A realistic @-pointer body (matches wire's pointerBody). */
@@ -115,9 +116,14 @@ test("wire: writes prefixed @-pointer FILES (never copies) to the right surfaces
   const { home, srcDir, ws } = scaffold();
   wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
 
-  // skills → .agents/rules, .claude/skills, .cursor/rules
+  // skills → .agents/rules, .claude/skills, .cursor/rules. The SHAPE differs by
+  // surface: Claude Code only discovers a skill as <dir>/SKILL.md, so that surface
+  // gets a directory; the rule surfaces keep the flat pointer file.
   for (const surface of [".agents/rules", ".claude/skills", ".cursor/rules"]) {
-    const p = path.join(ws, surface, "llm-wiki-memory-consolidate.md");
+    const p =
+      surface === ".claude/skills"
+        ? path.join(ws, surface, "llm-wiki-memory-consolidate", "SKILL.md")
+        : path.join(ws, surface, "llm-wiki-memory-consolidate.md");
     assert.ok(fs.existsSync(p), `skill pointer present on ${surface}`);
     const body = read(p);
     assert.match(
@@ -147,6 +153,7 @@ test("wire: writes prefixed @-pointer FILES (never copies) to the right surfaces
     );
   }
   assert.ok(!fs.existsSync(path.join(ws, ".claude/skills", "llm-wiki-memory-priority.md")));
+  assert.ok(!fs.existsSync(path.join(ws, ".claude/skills", "llm-wiki-memory-priority")));
 
   // src-internal dev rules are NOT shipped to a consumer
   for (const surface of [".agents/rules", ".claude/rules", ".cursor/rules"]) {
@@ -196,8 +203,16 @@ test("wire: is idempotent — a second run is byte-stable on every surface and d
     const m = {};
     for (const s of [".agents/rules", ".claude/skills", ".claude/rules", ".cursor/rules"]) {
       const dir = path.join(ws, s);
-      for (const f of fs.existsSync(dir) ? fs.readdirSync(dir) : [])
-        m[`${s}/${f}`] = read(path.join(dir, f));
+      // .claude/skills holds DIRECTORIES (<skill>/SKILL.md), the rule surfaces hold
+      // files — walk one level so the snapshot covers both shapes.
+      for (const e of fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }) : []) {
+        if (e.isDirectory()) {
+          for (const inner of fs.readdirSync(path.join(dir, e.name)))
+            m[`${s}/${e.name}/${inner}`] = read(path.join(dir, e.name, inner));
+        } else {
+          m[`${s}/${e.name}`] = read(path.join(dir, e.name));
+        }
+      }
     }
     m["AGENTS.md"] = read(path.join(ws, "AGENTS.md"));
     m["CLAUDE.md"] = read(path.join(ws, "CLAUDE.md"));
@@ -279,8 +294,8 @@ test("wire: migration removes OUR old copy (canonical content or symlink) but PR
     "our old symlink removed",
   );
   assert.ok(
-    fs.existsSync(path.join(ws, ".claude/skills", "llm-wiki-memory-consolidate.md")),
-    "replaced by the prefixed pointer",
+    fs.existsSync(path.join(ws, ".claude/skills", "llm-wiki-memory-consolidate", "SKILL.md")),
+    "replaced by the prefixed skill directory Claude Code can actually discover",
   );
   assert.equal(
     fs.readFileSync(path.join(ws, ".claude/rules", "priority.md"), "utf8"),
@@ -327,8 +342,71 @@ test("wire: an orphan prefixed pointer NOT in the desired set is PRUNED on insta
   wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
   assert.ok(!fs.existsSync(orphan), "the orphan prefixed pointer is pruned on re-wire");
   assert.ok(
-    fs.existsSync(path.join(ws, ".claude/skills", "llm-wiki-memory-consolidate.md")),
-    "a still-shipped pointer stays",
+    fs.existsSync(path.join(ws, ".claude/skills", "llm-wiki-memory-consolidate", "SKILL.md")),
+    "a still-shipped skill stays",
+  );
+});
+
+test("wire: MIGRATION off the old flat .claude/skills shape retires the unreachable pointer", () => {
+  const { home, srcDir, ws } = scaffold();
+  // A pre-fix install: the flat pointer file Claude Code could never discover.
+  fs.mkdirSync(path.join(ws, ".claude/skills"), { recursive: true });
+  const flat = path.join(ws, ".claude/skills", "llm-wiki-memory-consolidate.md");
+  fs.writeFileSync(flat, ptr("~/.llm-wiki-memory/src/templates/skills/consolidate.md"));
+
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+
+  assert.ok(!fs.existsSync(flat), "the flat pointer is retired, not left as a dead duplicate");
+  assert.ok(
+    fs.existsSync(path.join(ws, ".claude/skills", "llm-wiki-memory-consolidate", "SKILL.md")),
+    "and replaced by the discoverable directory shape",
+  );
+});
+
+test("wire: a generated SKILL.md carries name + description frontmatter matching the template", () => {
+  const { home, srcDir, ws } = scaffold();
+  // The scaffold's canonical files have no frontmatter, so give one a real block.
+  fs.writeFileSync(
+    path.join(srcDir, "templates/skills", "consolidate.md"),
+    '---\nname: consolidate\ndescription: "Consolidate memory: a description with a colon."\n---\n\nbody\n',
+  );
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  const generated = read(
+    path.join(ws, ".claude/skills", "llm-wiki-memory-consolidate", "SKILL.md"),
+  );
+  const parsed = matter(generated);
+  assert.equal(
+    parsed.data.name,
+    "llm-wiki-memory-consolidate",
+    "the skill name matches its directory, or Claude Code lists it under the wrong key",
+  );
+  assert.equal(
+    parsed.data.description,
+    "Consolidate memory: a description with a colon.",
+    "the description is carried over verbatim — including a colon, which a plain YAML scalar would break on",
+  );
+  assert.match(parsed.content.trimStart(), /^@~\//, "the body is still an @-pointer, not a copy");
+});
+
+test("wire: a stale prefixed SKILL directory is pruned, a user's own directory is not", () => {
+  const { home, srcDir, ws } = scaffold();
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+  const stale = path.join(ws, ".claude/skills", "llm-wiki-memory-removed-skill");
+  fs.mkdirSync(stale, { recursive: true });
+  fs.writeFileSync(
+    path.join(stale, "SKILL.md"),
+    `---\nname: llm-wiki-memory-removed-skill\ndescription: "x"\n---\n\n${ptr("~/.llm-wiki-memory/src/templates/skills/removed-skill.md")}`,
+  );
+  const mine = path.join(ws, ".claude/skills", "llm-wiki-memory-my-skill");
+  fs.mkdirSync(mine, { recursive: true });
+  fs.writeFileSync(path.join(mine, "SKILL.md"), "---\nname: mine\n---\n\nMy own skill body.\n");
+
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home, selfObsEnabled: false });
+
+  assert.ok(!fs.existsSync(stale), "our stale skill directory is pruned");
+  assert.ok(
+    fs.existsSync(path.join(mine, "SKILL.md")),
+    "a user's own prefixed directory is NEVER blind-deleted",
   );
 });
 
@@ -386,44 +464,74 @@ const RULE_DIRS = [".agents/rules", ".claude/skills", ".claude/rules", ".cursor/
 const ourPointers = (/** @type {string} */ dir) =>
   fs.existsSync(dir) ? fs.readdirSync(dir).filter((e) => e.startsWith("llm-wiki-memory-")) : [];
 
-test("SHARED mount (O): NO ~/ pointers; only a machine-independent remote-read block", () => {
+test("SHARED mount (O): writes NOTHING outside .llm-wiki-memory/ — no pointers, no docs", () => {
   const { srcDir, home, ws } = scaffold();
   makeShared(ws);
   wireMemorySurfaces({ srcDir, workspaceDir: ws, home });
   for (const s of RULE_DIRS) {
-    assert.deepEqual(ourPointers(path.join(ws, s)), [], `${s}: no machine-dependent pointers`);
+    assert.deepEqual(ourPointers(path.join(ws, s)), [], `${s}: no per-surface pointer artifacts`);
   }
-  const agents = read(path.join(ws, "AGENTS.md"));
-  assert.match(
-    agents,
-    /raw\.githubusercontent\.com\/ctxr-dev\/llm-wiki-memory\/main\/templates\/agents-memory-instructions\.md/,
-  );
-  assert.ok(!agents.includes("~/"), "no machine-dependent ~/ path in a shared repo");
-  assert.ok(!agents.includes("@~/"), "no @-include ~ pointer in a shared repo");
+  // The whole point: a shared mount is somebody else's repository. The one
+  // per-machine install already supplies the discipline everywhere, so nothing is
+  // injected here at all.
+  for (const doc of ["AGENTS.md", "CLAUDE.md"]) {
+    assert.equal(
+      fs.existsSync(path.join(ws, doc)),
+      false,
+      `${doc}: never created in a shared repo`,
+    );
+  }
 });
 
-test("SHARED mount (O): converting a private install to shared STRIPS the prior ~/ pointers", () => {
+test("SHARED mount (O): a doc the TEAM wrote keeps its content; only our block is stripped", () => {
   const { srcDir, home, ws } = scaffold();
-  wireMemorySurfaces({ srcDir, workspaceDir: ws, home }); // private install → writes pointers
+  // A prior engine wrote our block into a doc the team also uses.
+  fs.writeFileSync(
+    path.join(ws, "AGENTS.md"),
+    "# Team conventions\n\nUse tabs.\n\n<!-- BEGIN llm-wiki-memory -->\nold block\n<!-- END llm-wiki-memory -->\n",
+  );
+  // And a doc that was ONLY our block.
+  fs.writeFileSync(
+    path.join(ws, "CLAUDE.md"),
+    "<!-- BEGIN llm-wiki-memory -->\nold block\n<!-- END llm-wiki-memory -->\n",
+  );
+  makeShared(ws);
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home });
+
+  const agents = read(path.join(ws, "AGENTS.md"));
+  assert.match(agents, /Use tabs\./, "the team's own content survives");
+  assert.doesNotMatch(agents, /BEGIN llm-wiki-memory/, "our block is gone");
+  assert.equal(
+    fs.existsSync(path.join(ws, "CLAUDE.md")),
+    false,
+    "a doc that held ONLY our block is deleted, not left as an empty husk",
+  );
+});
+
+test("SHARED mount (O): converting a private install to shared STRIPS everything we wrote", () => {
+  const { srcDir, home, ws } = scaffold();
+  wireMemorySurfaces({ srcDir, workspaceDir: ws, home }); // private install → writes pointers + docs
   assert.ok(
     ourPointers(path.join(ws, ".agents/rules")).length > 0,
     "private install wrote pointers",
   );
+  assert.ok(fs.existsSync(path.join(ws, "AGENTS.md")), "private install wrote the doc block");
   makeShared(ws);
   wireMemorySurfaces({ srcDir, workspaceDir: ws, home }); // now shared
   for (const s of RULE_DIRS) {
     assert.deepEqual(ourPointers(path.join(ws, s)), [], `${s}: pointers stripped on conversion`);
   }
-  assert.match(read(path.join(ws, "AGENTS.md")), /raw\.githubusercontent\.com/);
+  for (const doc of ["AGENTS.md", "CLAUDE.md"]) {
+    assert.equal(fs.existsSync(path.join(ws, doc)), false, `${doc}: stripped on conversion`);
+  }
 });
 
-test("SHARED mount (O): idempotent (a second wire is byte-stable)", () => {
+test("SHARED mount (O): idempotent (a second wire changes nothing)", () => {
   const { srcDir, home, ws } = scaffold();
   makeShared(ws);
   wireMemorySurfaces({ srcDir, workspaceDir: ws, home });
-  const a = read(path.join(ws, "AGENTS.md"));
-  const c = read(path.join(ws, "CLAUDE.md"));
-  wireMemorySurfaces({ srcDir, workspaceDir: ws, home });
-  assert.equal(read(path.join(ws, "AGENTS.md")), a);
-  assert.equal(read(path.join(ws, "CLAUDE.md")), c);
+  const first = fs.readdirSync(ws).sort();
+  const res = wireMemorySurfaces({ srcDir, workspaceDir: ws, home });
+  assert.deepEqual(fs.readdirSync(ws).sort(), first, "a re-run adds and removes nothing");
+  assert.deepEqual(res.removed, [], "and reports nothing left to strip");
 });

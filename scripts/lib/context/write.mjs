@@ -96,10 +96,14 @@ function assertInVocabulary(field, value, allowed) {
 }
 
 /**
+ * Close the context-derived metadata enums at the boundary. Shared with the
+ * metadata-patch mutate path, which would otherwise be a vocabulary bypass:
+ * atom_type is a PLACEMENT facet, so an off-vocab patch materialises a junk
+ * directory on disk that no write door would ever have created.
  * @param {MetadataInput | undefined} metadata
  * @returns {void}
  */
-function assertMetadataVocabulary(metadata) {
+export function assertMetadataVocabulary(metadata) {
   if (!metadata) return;
   assertInVocabulary("task_type", metadata.task_type, TASK_TYPES_LIST);
   assertInVocabulary("atom_type", metadata.atom_type, ATOM_TYPES_LIST);

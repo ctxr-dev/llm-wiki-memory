@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import { priorityForAtomType, normalisePriority, priorityRank } from "./datasets.mjs";
+import { priorityForAtomType, normalisePriority } from "./datasets.mjs";
 import { embedCacheFor } from "./env.mjs";
+import { metaMatchesFilters, rerankWithinBands } from "./wiki-search-rank.mjs";
+
+// Re-exported: rerankWithinBands is part of this module's public surface even
+// though the pure filter/rerank logic now lives on its own.
+export { rerankWithinBands };
 import { recallPriorityBand } from "./settings.mjs";
 import { loadCache, saveCache, embed } from "./embed.mjs";
 import { scoreCandidates, COLD_SKIP_SCORE } from "./embed-chunk.mjs";
@@ -110,70 +115,6 @@ export function listActiveLeavesForConsolidate({ category } = {}) {
   return out;
 }
 
-/**
- * @param {Record<string, unknown>} memoryMeta
- * @param {SearchFilters | null | undefined} filters
- * @returns {boolean}
- */
-function metaMatchesFilters(memoryMeta, filters) {
-  if (!filters) return true;
-  for (const [key, val] of Object.entries(filters)) {
-    if (val == null || val === "") continue;
-    // `subject` is stored as a slug ARRAY; `tags` as a comma string. Both are
-    // membership filters (every wanted value must be present), not exact match.
-    if (key === "tags" || key === "subject") {
-      const raw = memoryMeta[key];
-      const haveList = (Array.isArray(raw) ? raw : String(raw || "").split(","))
-        .map((t) => String(t).trim().toLowerCase())
-        .filter(Boolean);
-      const wantList = (Array.isArray(val) ? val : String(val).split(","))
-        .map((t) => String(t).trim().toLowerCase())
-        .filter(Boolean);
-      if (!wantList.every((wt) => haveList.includes(wt))) return false;
-      continue;
-    }
-    if (key === "project_module") {
-      const chain = String(memoryMeta[key] || "").toLowerCase();
-      const want = String(val).toLowerCase();
-      if (chain !== want && !chain.endsWith(`//${want}`)) return false;
-      continue;
-    }
-    const have = String(memoryMeta[key] || "").toLowerCase();
-    const want = String(val).toLowerCase();
-    if (have !== want) return false;
-  }
-  return true;
-}
-
-// Stable within-band priority tie-break over a cosine-descending list. Cosine
-// stays dominant: a hit more than `band` below its group leader keeps its rank;
-// only hits within `band` reorder P0 > P1 > P2 (stable sort keeps cosine order
-// for equal priority). band <= 0 disables it. `scoreOf` selects the metric the
-// band walks (default cosine `score`; fan-out passes adjustedConfidence).
-/**
- * @template {{ score: number, priority: string }} T
- * @param {T[]} sortedDesc
- * @param {number} band
- * @param {(r: T) => number} [scoreOf]
- * @returns {T[]}
- */
-export function rerankWithinBands(sortedDesc, band, scoreOf = (r) => r.score) {
-  if (!(band > 0) || sortedDesc.length < 2) return sortedDesc;
-  /** @type {T[]} */
-  const out = [];
-  let i = 0;
-  while (i < sortedDesc.length) {
-    const lead = scoreOf(sortedDesc[i]);
-    let j = i + 1;
-    while (j < sortedDesc.length && lead - scoreOf(sortedDesc[j]) <= band) j += 1;
-    const group = sortedDesc.slice(i, j);
-    group.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
-    out.push(...group);
-    i = j;
-  }
-  return out;
-}
-
 // Rank a query against ONE wiki tree (the current `wikiRoot()`): filter by
 // frontmatter metadata, embed, score by cosine, priority-band rerank, slice to
 // `limit`. This is the single-tree scorer; the federated fan-out
@@ -183,7 +124,7 @@ export function rerankWithinBands(sortedDesc, band, scoreOf = (r) => r.score) {
  * `coldBudget` is a shared makeColdBudget ledger: pass ONE across a multi-read
  * request (the federated fanout, a recall ladder) so the cold-embed bound covers
  * the whole request instead of resetting per read.
- * @param {{ query?: string, queryKind?: "query" | "document", coldBudget?: { take: (n: number) => boolean } | null, datasetId?: string, limit?: number, filters?: SearchFilters, scoreThreshold?: number, withGlance?: boolean, chunkAware?: boolean, includeArchived?: boolean }} [opts]
+ * @param {{ query?: string, queryKind?: "query" | "document", coldBudget?: import("./embed-chunk.mjs").ColdBudget | null, datasetId?: string, limit?: number, filters?: SearchFilters, scoreThreshold?: number, withGlance?: boolean, chunkAware?: boolean, includeArchived?: boolean }} [opts]
  */
 export async function searchOneTree({
   query,
@@ -259,13 +200,7 @@ export async function searchOneTree({
   // Batch cold-cache misses per category (one embedMany pass, not a serial call
   // per candidate). Under chunkAware (recall) a long leaf scores by its best
   // chunk; otherwise it's the whole-leaf cosine (byte-identical to before).
-  const scoreByKey = await scoreCandidates(
-    candidates,
-    cacheFor,
-    queryVec,
-    chunkAware,
-    coldBudget,
-  );
+  const scoreByKey = await scoreCandidates(candidates, cacheFor, queryVec, chunkAware, coldBudget);
   // Drop leaves the cold budget refused: they hold no comparable score, so
   // ranking them (even at 0) would let an unembedded leaf take a result slot.
   const scored = candidates

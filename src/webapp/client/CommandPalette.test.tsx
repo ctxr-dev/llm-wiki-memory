@@ -68,7 +68,13 @@ test("typing a query shows titled results with location; clicking opens the doc 
 });
 
 test("an archived result shows an archive icon and a colored priority tag", async () => {
-  const archived = { ...RESULT, id: "knowledge/z.md", title: "Retired Note", active: false, priority: "P0" };
+  const archived = {
+    ...RESULT,
+    id: "knowledge/z.md",
+    title: "Retired Note",
+    active: false,
+    priority: "P0",
+  };
   stubFetch({ "/search": { results: [archived] }, "/api/wikis": { wikis: [] } });
   renderPalette();
   fireEvent.change(screen.getByPlaceholderText(/Search or jump/), { target: { value: "kafka" } });

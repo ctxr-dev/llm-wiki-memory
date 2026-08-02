@@ -1,10 +1,6 @@
 import { DRY_RUN } from "./compile-flags.mjs";
 import { compileMetadataRetryLimit } from "./lib/settings.mjs";
-import {
-  readDocument,
-  disableDocument,
-  WikiStoreUnavailable,
-} from "./lib/wiki-store.mjs";
+import { readDocument, disableDocument, WikiStoreUnavailable } from "./lib/wiki-store.mjs";
 import { parseAtomsFromMarkdown } from "./compile-atoms.mjs";
 import { appendCompileLog, writeState } from "./compile-state.mjs";
 import { processAtom } from "./compile-atom.mjs";
