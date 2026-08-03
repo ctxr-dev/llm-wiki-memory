@@ -254,7 +254,11 @@ envelope; `validate` degrades gracefully by scraping `"N error(s)"`.
 - Seam: `scripts/lib/wiki-cli.mjs` (every engine call).
 - Leaf authoring + placement: `scripts/lib/wiki-store.mjs`.
 - Custom topology: `scripts/lib/topology-runtime.mjs`, `scripts/lib/path-compiler.mjs`.
-- Embeddings: `scripts/lib/embed.mjs`.
+- Embeddings: `scripts/lib/embed.mjs` (public facade + orchestration), split into
+  `embed-backend-state.mjs` (lexical-fallback state machine), `embed-runner.mjs`
+  (single worker thread + in-process inference), `embed-cache-dims.mjs` (one vector
+  dimension per cache file), `embed-cache-io.mjs` (vector-cache stamp,
+  memo, load/save).
 - Engine recognition (path-only): `skill-llm-wiki/scripts/lib/paths.mjs`.
 - Engine index generation: `skill-llm-wiki/scripts/lib/indices.mjs`.
 - Engine contract / grammar: `skill-llm-wiki/scripts/lib/contract.mjs`.

@@ -1,0 +1,8 @@
+---
+description: "Module-state ownership & caches built from hot-reloading settings — How mutable module-scope state is owned here, and what caching anything derived from `settings()` obliges. Canonical file is .agents/rules/module-state-ownership.md."
+alwaysApply: true
+---
+
+Follow the canonical rule (edit that file, never this shadow):
+
+@.agents/rules/module-state-ownership.md

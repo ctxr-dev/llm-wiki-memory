@@ -28,7 +28,7 @@ The engine never writes to a shared repo (a mount inside a git project) unless `
 
 ## Read-only CLI counterparts (no MCP tool)
 
-- `cli.mjs doctor` — a layout-derived health scan (broken index refs, stray / orphan leaves; exit `3` on findings). `doctor --fix` surgically rebuilds affected parent indexes. Run it after any suspected cloud-sync event.
+- `cli.mjs doctor` — a layout-derived health scan (broken index refs, stray / orphan leaves, plus two embedding-cache scans: a cache stamped with the wrong backend, and one whose own vector dimensions disagree; exit `3` on findings). `doctor --fix` surgically rebuilds affected parent indexes. Run it after any suspected cloud-sync event.
 - `cli.mjs move-leaf <from> <to>` — the curated move above, from a shell.
 - `cli.mjs monitor` / `cli.mjs monitoring-health` — the self-observability pair below.
 

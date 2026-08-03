@@ -29,10 +29,13 @@ const importEnvStatus = (env) =>
   }).status;
 
 test("env.mjs THROWS when armed and pointed at the real brain", () => {
+  // NODE_TEST_CONTEXT is cleared so this pins the PRELOAD signal alone — otherwise the
+  // inherited runner marker would keep it green even if that branch were deleted.
   const status = importEnvStatus({
     MEMORY_DATA_DIR: REAL_BRAIN,
     LWM_REAL_BRAIN: REAL_BRAIN,
     LWM_FORBID_REAL_BRAIN: "1",
+    NODE_TEST_CONTEXT: "",
   });
   assert.equal(status, 42, "env.mjs must refuse the real brain when the guard marker is armed");
 });
@@ -42,6 +45,7 @@ test("env.mjs is FAIL-CLOSED: armed at the real brain with LWM_REAL_BRAIN empty 
     MEMORY_DATA_DIR: REAL_BRAIN,
     LWM_REAL_BRAIN: "",
     LWM_FORBID_REAL_BRAIN: "1",
+    NODE_TEST_CONTEXT: "",
   });
   assert.equal(status, 42, "a missing LWM_REAL_BRAIN must derive the real brain, not go inert");
 });
@@ -60,13 +64,44 @@ test("env.mjs LOADS for a temp data dir under the marker (no false positive)", (
   }
 });
 
-test("env.mjs LOADS at the real brain in production (marker unset — inert)", () => {
+test("env.mjs LOADS at the real brain in production (no test signal — inert)", () => {
+  // NODE_TEST_CONTEXT must be cleared explicitly: this process IS a test runner, so the
+  // child inherits it, and inheriting it is precisely what makes the second signal work.
   const status = importEnvStatus({
     MEMORY_DATA_DIR: REAL_BRAIN,
     LWM_REAL_BRAIN: REAL_BRAIN,
     LWM_FORBID_REAL_BRAIN: "",
+    NODE_TEST_CONTEXT: "",
   });
-  assert.equal(status, 0, "the guard must never fire in production (marker unset)");
+  assert.equal(status, 0, "the guard must never fire in production (no test signal)");
+});
+
+// The preload is attached by the npm scripts, so a bare `node --test test/<file>.test.mjs`
+// skipped it and ran UNGUARDED. That is not hypothetical: it overwrote the real brain's
+// embedding caches with lexical vectors. The runner's own marker cannot be skipped.
+test("env.mjs THROWS at the real brain under NODE_TEST_CONTEXT ALONE (no preload)", () => {
+  const status = importEnvStatus({
+    MEMORY_DATA_DIR: REAL_BRAIN,
+    LWM_REAL_BRAIN: REAL_BRAIN,
+    LWM_FORBID_REAL_BRAIN: "",
+    NODE_TEST_CONTEXT: "child-v8",
+  });
+  assert.equal(status, 42, "the node:test runner's own marker must arm the guard by itself");
+});
+
+test("NODE_TEST_CONTEXT does not fire the guard for a TEMP data dir (no false positive)", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-ntc-"));
+  try {
+    const status = importEnvStatus({
+      MEMORY_DATA_DIR: tmp,
+      LWM_REAL_BRAIN: REAL_BRAIN,
+      LWM_FORBID_REAL_BRAIN: "",
+      NODE_TEST_CONTEXT: "child-v8",
+    });
+    assert.equal(status, 0, "an isolated test workspace must still load normally");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test("setup-guard preload redirects an unset MEMORY_DATA_DIR off the real brain + arms the marker", () => {
@@ -104,4 +139,43 @@ test("isRealBrain: true for the real brain (realpath-normalised), false for a te
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+// The bootstrap e2e copies the whole clone under os.tmpdir(), so the copy derives its OWN
+// data dir as "the real brain". Under NODE_TEST_CONTEXT with no LWM_REAL_BRAIN to trust,
+// the fail-closed derivation therefore SELF-MATCHED and refused the very dir the fixture
+// was told to use — 5 of 6 bootstrap e2e tests failed in a bare run. A derived real brain
+// under the temp dir is a fixture, never the developer's.
+test("a FIXTURE install under os.tmpdir() is not mistaken for the real brain", () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-fixture-"));
+  try {
+    const dataDir = path.join(fixture, ".llm-wiki-memory");
+    fs.mkdirSync(dataDir, { recursive: true });
+    const status = spawnSync(process.execPath, ["-e", IMPORT_ENV], {
+      cwd: SRC,
+      env: {
+        ...process.env,
+        MEMORY_DATA_DIR: dataDir,
+        LWM_REAL_BRAIN: "",
+        LWM_FORBID_REAL_BRAIN: "",
+        NODE_TEST_CONTEXT: "child-v8",
+      },
+      encoding: "utf8",
+    }).status;
+    assert.equal(status, 0, "a temp-dir fixture brain must load, not be refused");
+  } finally {
+    fs.rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test("the tmp carve-out does NOT reopen the hole for the developer's real brain", () => {
+  // The carve-out is scoped to a DERIVED path under the temp dir; the real brain is not
+  // there, so a bare test run pointed at it must still be refused.
+  const status = importEnvStatus({
+    MEMORY_DATA_DIR: REAL_BRAIN,
+    LWM_REAL_BRAIN: "",
+    LWM_FORBID_REAL_BRAIN: "",
+    NODE_TEST_CONTEXT: "child-v8",
+  });
+  assert.equal(status, 42, "the real brain is still refused under the runner marker alone");
 });

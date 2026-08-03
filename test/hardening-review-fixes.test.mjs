@@ -423,9 +423,12 @@ test("(5) prune-embeddings throttle: recent state -> skipped; backdated -> runs"
   const embed = await import("../scripts/lib/embed.mjs");
   const sPath = env.embedCacheFor(env.wikiRoot(), "self_improvement");
   const cache = embed.loadCache(sPath);
+  // Length matched to whatever this cache already holds: one cache file is one model, so
+  // one dimension, and a fabricated length would be pruned as an outlier.
+  const seeded = Object.values(cache.entries || {}).find((e) => Array.isArray(e?.vector));
   cache.entries["self_improvement/gone/refactor/orphan-throttle.md"] = {
     hash: "sha256:throttle-orphan",
-    vector: [0.1, 0.2],
+    vector: seeded ? new Array(seeded.vector.length).fill(0.1) : [0.1, 0.2],
   };
   embed.saveCache(sPath, cache);
 

@@ -381,7 +381,11 @@ test("renameEmbedding moves a cache entry so a relocation keeps the cached vecto
   const { loadCache, saveCache } = await import("../scripts/lib/embed.mjs");
   const cp = embedCacheFor(wikiRoot(), "knowledge");
   const cache = loadCache(cp);
-  cache.entries["knowledge/old/x.md"] = { hash: "sha256:abc", vector: [0.1, 0.2, 0.3] };
+  // Length matched to whatever this cache already holds: one cache file is one model, so one
+  // dimension, and a fabricated length would be pruned as an incoherent outlier.
+  const seeded = Object.values(cache.entries || {}).find((e) => Array.isArray(e?.vector));
+  const vector = seeded ? new Array(seeded.vector.length).fill(0.25) : [0.1, 0.2, 0.3];
+  cache.entries["knowledge/old/x.md"] = { hash: "sha256:abc", vector };
   saveCache(cp, cache);
 
   store.renameEmbedding("knowledge/old/x.md", "knowledge/new/x.md");
@@ -390,7 +394,7 @@ test("renameEmbedding moves a cache entry so a relocation keeps the cached vecto
   assert.ok(!after.entries["knowledge/old/x.md"], "old cache id removed");
   assert.deepEqual(
     after.entries["knowledge/new/x.md"],
-    { hash: "sha256:abc", vector: [0.1, 0.2, 0.3] },
+    { hash: "sha256:abc", vector },
     "vector preserved under the new id (no cold re-embed)",
   );
 });

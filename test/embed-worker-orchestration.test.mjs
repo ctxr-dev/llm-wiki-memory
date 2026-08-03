@@ -1,12 +1,8 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import {
-  embed,
-  embedMany,
-  activeBackend,
-  __setBackendStateForTest,
-  __setWorkerFactoryForTest,
-} from "../scripts/lib/embed.mjs";
+import { embed, embedMany, activeBackend } from "../scripts/lib/embed.mjs";
+import { __resetForTest } from "../scripts/lib/embed-backend-state.mjs";
+import { __setWorkerFactoryForTest } from "../scripts/lib/embed-runner.mjs";
 import { withSettingsOverride } from "../scripts/lib/settings.mjs";
 
 function makeFakeWorker(reply) {
@@ -30,11 +26,11 @@ function makeFakeWorker(reply) {
 
 after(() => {
   __setWorkerFactoryForTest(null);
-  __setBackendStateForTest();
+  __resetForTest();
 });
 
 test("embedMany routes through the worker and resolves its vectors", async () => {
-  __setBackendStateForTest();
+  __resetForTest();
   __setWorkerFactoryForTest(() =>
     makeFakeWorker((msg, worker) => {
       worker.emit("message", {
@@ -58,7 +54,7 @@ test("embedMany routes through the worker and resolves its vectors", async () =>
 });
 
 test("embed() delegates through the worker path", async () => {
-  __setBackendStateForTest();
+  __resetForTest();
   __setWorkerFactoryForTest(() =>
     makeFakeWorker((msg, worker) => {
       worker.emit("message", { id: msg.id, ok: true, vectors: [[0.5, 0.25]] });
@@ -73,7 +69,7 @@ test("embed() delegates through the worker path", async () => {
 });
 
 test("a worker error falls back to lexical vectors and opens the retry window", async () => {
-  __setBackendStateForTest();
+  __resetForTest();
   __setWorkerFactoryForTest(() =>
     makeFakeWorker((msg, worker) => {
       worker.emit("message", { id: msg.id, ok: false, error: "boom" });
@@ -91,7 +87,7 @@ test("a worker error falls back to lexical vectors and opens the retry window", 
 });
 
 test("a dead worker rejects only its own requests; a successor worker serves fresh ones", async () => {
-  __setBackendStateForTest();
+  __resetForTest();
   let spawned = 0;
   __setWorkerFactoryForTest(() => {
     spawned += 1;
@@ -111,7 +107,7 @@ test("a dead worker rejects only its own requests; a successor worker serves fre
       assert.equal(activeBackend(), "lexical", "worker death degrades to lexical");
       assert.equal(degraded.length, 1);
 
-      __setBackendStateForTest();
+      __resetForTest();
       const recovered = await embedMany(["second"]);
       assert.deepEqual(recovered, [[9]]);
       assert.equal(activeBackend(), "transformers");
@@ -121,7 +117,7 @@ test("a dead worker rejects only its own requests; a successor worker serves fre
 });
 
 test("EmbeddingGemma retrieval prompts reach the worker; hashes upstream stay raw", async () => {
-  __setBackendStateForTest();
+  __resetForTest();
   const seen = [];
   __setWorkerFactoryForTest(() =>
     makeFakeWorker((msg, worker) => {
@@ -141,7 +137,7 @@ test("EmbeddingGemma retrieval prompts reach the worker; hashes upstream stay ra
 });
 
 test("a genuinely lexical config never touches the worker", async () => {
-  __setBackendStateForTest();
+  __resetForTest();
   let spawned = 0;
   __setWorkerFactoryForTest(() => {
     spawned += 1;

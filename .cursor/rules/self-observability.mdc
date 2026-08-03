@@ -1,0 +1,8 @@
+---
+description: "Self-observability (watch llm-wiki-memory while you work; offer fixes) — This rule applies to every AI agent (Claude Code, Cursor, Codex, generic MCP clients) working Canonical file is .agents/rules/self-observability.md."
+alwaysApply: true
+---
+
+Follow the canonical rule (edit that file, never this shadow):
+
+@.agents/rules/self-observability.md

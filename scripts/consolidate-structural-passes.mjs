@@ -94,7 +94,7 @@ export function pruneEmbeddingsCorpus({ ctx, dryRun }) {
   const t0 = Date.now();
   const report = /** @type {PassReport} */ (ctx.report.get("prune-embeddings"));
   try {
-    // Respect MEMORY_GC_INTERVAL_DAYS (default 7d) — without `ifDue:true`
+    // Respect gc.intervalDays (default 7d) — without `ifDue:true`
     // the daily consolidate cron would silently override the documented
     // weekly cadence for the embed-cache sweep. The SessionEnd embed-gc
     // hook and the hook-less skill rule already use ifDue:true; consolidate

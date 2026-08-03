@@ -145,6 +145,53 @@ concurrent warms, each competing with its own requests for the inference threads
 
 ## Caching
 
+> **Two behaviours changed (2026-08-02).**
+>
+> **1. Configuring `embed.backend: lexical` now discards the transformers cache.**
+> The old code refused to persist, which was self-perpetuating — the stamp never
+> updated, so every later save was refused too and recall scored at most
+> `embed.maxColdPerRead` leaves of the corpus, permanently. It now persists. Be aware
+> of the cost that buys: a lexical-stamped load rejects the transformers-stamped file,
+> so the first save writes back **only the leaves that call embedded** — 32 after a
+> single search, or zero via a category with no active leaves. **Switching to lexical
+> and back therefore costs a full `cli.mjs warm`**, where the old refusal made the
+> round-trip free. The vectors are always recomputable (a pure function of leaf text +
+> model, and the leaves are the source of truth), so this is lost CPU and degraded
+> recall until you re-warm — never lost data. A one-shot stderr line names the file
+> and the vector count whenever this discard happens.
+> A run that merely *fell back* to lexical is still refused persistence entirely; that
+> is the protection that was always intended, and it is unchanged.
+>
+> **2. The embedder and tokenizer are keyed on the settings that built them.**
+> Editing `embed.model` or `embed.dtype` on a running process used to change the cache
+> *stamp* without changing the embedder, writing (say) q4 vectors labelled `q8` — which
+> then validated forever, because a q4→q8 flip preserves the vector dimension and the
+> load-time check had nothing to catch. Relatedly, `saveCache` no longer re-labels a
+> cache whose config changed while it was open: those vectors are dropped (with a
+> stderr line) rather than persisted under a stamp that does not describe them, and the
+> run continues cleanly under the new config. **If you edited either on a live server
+> before this, run `cli.mjs warm` once** so the vectors are rebuilt under the correct
+> stamp — a mixed-precision cache is otherwise undetectable and silently degrades
+> ranking.
+
+**One dimension per cache file.** Every vector in a cache — whole-leaf AND the `chunks`
+refinement — must have the same length, because a cache file belongs to exactly one model and
+backend. A mix is silently destructive: `cosine` returns 0 for a length mismatch by design, and
+a chunked leaf scores NEGATIVE, so affected leaves rank below genuinely irrelevant ones and
+vanish from results while every content-hash check still calls them warm. `loadCache` and
+`saveCache` therefore drop whatever disagrees with the file's dominant whole-leaf dimension —
+an entry outright (it re-embeds on the next warm), or just its `chunks` array (it re-chunks) —
+and report it once per file. `cli.mjs doctor` reports any cache that still disagrees with
+itself under `cacheDimMixes`. A repair marks the cache dirty, so the first search or warm that
+touches it persists the fix and `doctor` goes green on its own — no operator action, and no
+migration needed on upgrade.
+
+`embed.threads` is **not** part of the INFERENCE MEMO key (the identity of the loaded model
+object — distinct from the on-disk cache stamp described above): it reaches only onnxruntime's
+`intraOpNumThreads`, so changing it applies at the next natural rebuild or restart rather than
+forcing a ~190MB model reload. See the thread-scaling measurement below for why that costs
+nothing.
+
 Vectors are cached per category at
 `<wikiRoot>/<category>/.embeddings/embeddings.json` (gitignored). Each entry is
 keyed by the leaf's relative id and carries the **content hash** of the embedded
@@ -178,10 +225,17 @@ This is the load-bearing guarantee, verified in code and empirically.
 
 - **The model is a per-process singleton.** Inference runs in one dedicated
   worker thread (the onnxruntime forward pass is a synchronous native call that
-  would otherwise block the event loop); `embed.mjs` holds one worker handle,
+  would otherwise block the event loop); `embed-runner.mjs` holds one worker handle,
   plus one memoized in-process fallback embedder, and every `embed()` /
   `embedMany()` call reuses them — exactly **one** model instance per Node
-  process.
+  process. Changing `embed.model`/`embed.dtype` on a live process rebuilds that
+  instance rather than adding one: the memo hands the superseded embedder to
+  `dispose()`, which is what releases the onnxruntime session (upstream has no
+  finalizer for it). The memo retains exactly ONE entry; the superseded instance is released
+  once its last in-flight request finishes, so two can briefly coexist during a handover —
+  that deferral is deliberate, because releasing a session mid-forward-pass failed every
+  concurrent embed. A burst of config edits can transiently start more; see the hazard note in
+  `.agents/rules/module-state-ownership.md`.
 - **Federated fan-out reuses that one model.** A multi-level search
   (`searchMemoryFiltered` → per-level `searchOneTree`) runs each level inside a
   `withWikiRoot` frame that swaps only the wiki *path* (an AsyncLocalStorage
@@ -191,7 +245,7 @@ This is the load-bearing guarantee, verified in code and empirically.
 ### One worker thread — never a pool
 
 Inference lives in a **single** worker thread so the event loop never blocks
-(opt out with `LWM_EMBED_NO_WORKER=1`); a worker failure routes to the same
+(opt out with `LWM_EMBED_NO_WORKER=1`, in the shell or in `settings/.env`); a worker failure routes to the same
 lexical-fallback window as a model failure. A **pool** of workers stays
 rejected: each Node `worker_thread` is a separate V8 isolate with its own
 module registry, so importing the model inside each worker loads its **own**

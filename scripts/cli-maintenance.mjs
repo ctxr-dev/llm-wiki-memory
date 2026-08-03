@@ -10,7 +10,7 @@ export function handleHeal() {
 export async function handleGcEmbeddings(rest) {
   // On-demand sweep of orphaned embedding-cache entries (ids whose leaf no
   // longer exists). --dry-run previews without writing. --if-due throttles
-  // to MEMORY_GC_INTERVAL_DAYS via state/.embed-gc.json (the SessionEnd
+  // to gc.intervalDays via state/.embed-gc.json (the SessionEnd
   // embed-gc hook + hook-less agents use this); plain run is unconditional.
   const { pruneEmbeddingCache } = await import("./lib/wiki-store.mjs");
   return out(

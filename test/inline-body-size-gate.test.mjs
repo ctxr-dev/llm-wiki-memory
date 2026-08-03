@@ -187,14 +187,28 @@ test("a body just UNDER the cap is accepted (the bound is not off-by-orders)", a
   assert.equal(res.ok, true, JSON.stringify(res).slice(0, 300));
 });
 
+// Genuinely slow, not hung: absorbing an oversized body drives the whole MCP + wiki-store
+// path, measured ~17-29s standalone (the other tests in this file total under a second) with
+// wide variance under a parallel suite, where 69s was observed. Measured identical with the
+// dimension invariant short-circuited, so the cost is the absorb itself.
+//
+// The 60s ceiling it hit is the MCP SDK's per-REQUEST default
+// (DEFAULT_REQUEST_TIMEOUT_MSEC), not a test-runner timeout — node:test imposes no default
+// (verified: a never-resolving test runs indefinitely under `node --test`). So the cap has to
+// be raised on the callTool, which is where the clock actually runs; a test-level timeout
+// would not have touched it. A real hang still fails, just later.
 test("absorb_document is EXEMPT: the same oversized body is stored VERBATIM", async () => {
-  const res = await client.callTool({
-    name: "absorb_document",
-    arguments: {
-      target: "brain",
-      write: { text: OVERSIZE, name: "absorbed-oversize.md", category: "knowledge" },
+  const res = await client.callTool(
+    {
+      name: "absorb_document",
+      arguments: {
+        target: "brain",
+        write: { text: OVERSIZE, name: "absorbed-oversize.md", category: "knowledge" },
+      },
     },
-  });
+    undefined,
+    { timeout: 180_000 },
+  );
   assert.notEqual(res.isError, true, res.content?.[0]?.text);
   const out = parse(res);
   assert.equal(out.ok, true, "absorb bypasses runWriteGates by design");

@@ -13,6 +13,7 @@ import { registerSearchRoutes } from "./routes/search.mjs";
 import { registerEditRoutes } from "./routes/edit.mjs";
 import { registerBoardRoutes } from "./routes/boards.mjs";
 import { registerFacetsRoutes } from "./routes/facets.mjs";
+import { installFatalGuard } from "../../../scripts/lib/fatal-guard.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(HERE, "..", "dist");
@@ -134,6 +135,7 @@ export async function start() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  installFatalGuard("webapp-server");
   start().catch((error) => {
     process.stderr.write(`${error?.stack || error}\n`);
     process.exit(1);

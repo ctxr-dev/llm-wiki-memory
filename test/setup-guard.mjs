@@ -13,7 +13,9 @@
 //
 // NOTE: this preload is wired into the `test` / `test:e2e` / `test:llm-live` npm
 // scripts. Running a single file directly (`node --test test/foo.test.mjs`) skips it
-// and is therefore UNGUARDED — always run tests via `npm test` / `npm run test:e2e`.
+// and therefore falls back to the weaker NODE_TEST_CONTEXT signal that env.mjs also honours
+// (absent under --experimental-test-isolation=none) — always run tests via `npm test` /
+// `npm run test:e2e`, and pass --import explicitly when iterating on one file.
 
 import fs from "node:fs";
 import os from "node:os";

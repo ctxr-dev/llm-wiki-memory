@@ -1,5 +1,5 @@
 ---
-description: README and docs style for llm-wiki-memory — install-first structure, plain-English jargon, vertical Mermaid with quoted labels, badge rules. Canonical file is .agents/rules/docs-style.md.
+description: "README and docs style for llm-wiki-memory — install-first structure, plain-English jargon, vertical Mermaid with quoted labels, badge rules. Canonical file is .agents/rules/docs-style.md."
 alwaysApply: true
 ---
 

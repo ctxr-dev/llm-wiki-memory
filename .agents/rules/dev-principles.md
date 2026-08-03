@@ -5,6 +5,10 @@ relax one without a review and (if user-visible) a release runbook.
 
 ## Durability
 
+- This tree is executed live by the MCP server, hooks and cron, so an EDIT can destroy data
+  no bug would have touched — `.agents/rules/live-runtime-safety.md` is the P0 rule and
+  governs on conflict.
+
 - Every whole-file write of a durable artifact — wiki leaves, the failed-distill stash,
   gc-state, `settings.yaml`, the rewritten `.env`, merged client configs — goes through
   `writeFileAtomic` (`scripts/lib/atomic-write.mjs`): temp file in the SAME directory +
@@ -14,6 +18,10 @@ relax one without a review and (if user-visible) a release runbook.
   their full REWRITES (front-truncation) go through `writeFileAtomic`.
 
 ## Parsing
+
+- Which posture applies to a NEW artifact — fail loud, or warn and fall back — is decided by
+  cost asymmetry (how cheap the check is against how recoverable the artifact is), not by
+  taste: `.agents/rules/defensive-invariants.md`.
 
 - USER-supplied files (`settings.yaml`, `.env`, stash JSON, client configs): safe-parse →
   loud warning + fallback to the shipped template, or quarantine. Never throw-and-wedge the
@@ -42,6 +50,10 @@ relax one without a review and (if user-visible) a release runbook.
 
 ## Configuration
 
+- Anything built from `settings()` is built from LIVE config and must be keyed on it; a
+  retired key must be swept from tests and docs in the same change
+  (`.agents/rules/module-state-ownership.md`, `.agents/rules/verification-completeness.md`).
+
 - NO provider/model name string literals in `.mjs`. Chains and model lists live in
   `templates/settings.yaml` (user copy under `<data>/settings/`). The single sanctioned
   exception is `DEFAULT_EMBED_MODEL` in `scripts/lib/settings.mjs` (structural fallback for
@@ -51,6 +63,9 @@ relax one without a review and (if user-visible) a release runbook.
   exported from `settings.mjs`. A re-hardcoded copy is a review-failing drift hazard.
 
 ## Failure observability
+
+- A check that should never fire is a TRIPWIRE, not dead code, and firing is an incident —
+  `.agents/rules/defensive-invariants.md`.
 
 - A failure that an operator or runbook is told to react to must be observable on the
   documented path: no `|| true` around a command whose non-zero exit is a documented

@@ -1,0 +1,8 @@
+---
+description: "Live-runtime safety — the tree you are editing IS the running system — `.llm-wiki-memory/src` is not a checkout that gets built and deployed. Canonical file is .agents/rules/live-runtime-safety.md."
+alwaysApply: true
+---
+
+Follow the canonical rule (edit that file, never this shadow):
+
+@.agents/rules/live-runtime-safety.md

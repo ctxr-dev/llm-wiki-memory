@@ -18,6 +18,17 @@ const embed = await import("../scripts/lib/embed.mjs");
 const chunk = await import("../scripts/lib/embed-chunk.mjs");
 const env = await import("../scripts/lib/env.mjs");
 
+// A vector matching whatever dimension a cache already uses. One cache file is one model,
+// so one dimension: fabricating a length would build an incoherent cache, which loadCache
+// and saveCache now prune. Tests here share a category cache, so they must agree.
+/** @param {object} cache @param {number[]} fallback @returns {number[]} */
+function vectorLike(cache, fallback) {
+  for (const e of Object.values(cache.entries || {})) {
+    if (Array.isArray(e?.vector)) return new Array(e.vector.length).fill(0.5);
+  }
+  return fallback;
+}
+
 function catCache(category) {
   return env.embedCacheFor(env.wikiRoot(), category);
 }
@@ -116,7 +127,10 @@ test("renameEmbedding across categories moves the entry between per-category fil
   const sPath = catCache("self_improvement");
 
   const kCache = embed.loadCache(kPath);
-  kCache.entries[from] = { hash: "sha256:mover", vector: [0.11, 0.22, 0.33] };
+  // Length derived from whatever this env's cache already holds: a hand-picked dimension
+  // would be an incoherent cache, which the one-dimension invariant now rejects.
+  const moverVec = vectorLike(kCache, [0.11, 0.22, 0.33]);
+  kCache.entries[from] = { hash: "sha256:mover", vector: moverVec };
   embed.saveCache(kPath, kCache);
 
   store.renameEmbedding(from, to);
@@ -124,43 +138,62 @@ test("renameEmbedding across categories moves the entry between per-category fil
   assert.ok(!embed.loadCache(kPath).entries[from], "entry removed from the source category cache");
   assert.deepEqual(
     embed.loadCache(sPath).entries[to],
-    { hash: "sha256:mover", vector: [0.11, 0.22, 0.33] },
+    { hash: "sha256:mover", vector: moverVec },
     "entry (with its vector) landed in the destination category cache",
   );
 });
 
-test("chunked entry {hash,vector,chunks}: dim is read from .vector (not chunks), so an all-chunked cache is NOT invalidated", () => {
+test("a COHERENT chunked entry round-trips and survives a load at its dim", () => {
   const p = path.join(fs.mkdtempSync(path.join(dataDir, "chunkcache-")), "e.json");
-  // vector is dim-3 but chunk vectors are dim-5: if cacheDim wrongly read a
-  // chunk's dim (5) the stamp would be 5, mismatch the query dim (3), and the
-  // cache would be invalidated. Surviving proves the dim comes from .vector.
+  // Every vector agrees, which is the only state a real cache can be in (one cache file =
+  // one model = one dimension). The old version of this test asserted that a dim-5 chunk set
+  // beside a dim-3 vector was a legal, non-invalidating state — it pinned `cacheDim`'s
+  // blindness to chunks, i.e. the bug. The dim-mismatch case is now its own test below.
   embed.saveCache(p, {
     entries: {
       "issues/only.md": {
         hash: "sha256:whole",
         vector: [0.1, 0.2, 0.3],
         chunks: [
-          { hash: "c0", vector: [1, 2, 3, 4, 5] },
-          { hash: "c1", vector: [6, 7, 8, 9, 10] },
+          { hash: "c0", vector: [1, 2, 3] },
+          { hash: "c1", vector: [4, 5, 6] },
         ],
       },
     },
   });
   const loaded = embed.loadCache(p, 3);
-  assert.ok(
-    loaded.entries["issues/only.md"],
-    "chunked cache survives the dim-stamp check (dim from .vector)",
-  );
+  assert.ok(loaded.entries["issues/only.md"], "chunked cache survives the dim-stamp check");
   assert.equal(loaded.entries["issues/only.md"].chunks.length, 2, "chunks round-trip on disk");
+});
+
+test("a chunk set that disagrees with its leaf's dim is DROPPED, keeping the whole-leaf vector", () => {
+  // This case used to be treated as legal, because `cacheDim` samples only `.vector` and
+  // never looks at `chunks`. It is not legal: `scoreLeaf` over a mismatched chunk set
+  // returns a NEGATIVE score, ranking the leaf below a genuinely irrelevant one. Dropping
+  // just the chunk array keeps the leaf rankable and lets it re-chunk on the next read.
+  const p = path.join(fs.mkdtempSync(path.join(dataDir, "chunkmix-")), "e.json");
+  embed.saveCache(p, {
+    entries: {
+      "issues/only.md": {
+        hash: "sha256:whole",
+        vector: [0.1, 0.2, 0.3],
+        chunks: [{ hash: "c0", vector: [1, 2, 3, 4, 5] }],
+      },
+    },
+  });
+  const loaded = embed.loadCache(p, 3);
+  assert.ok(loaded.entries["issues/only.md"], "the entry survives");
+  assert.equal(loaded.entries["issues/only.md"].chunks, undefined, "the chunk set is dropped");
 });
 
 test("renameEmbedding carries a chunked entry (its chunks included) to the new id", () => {
   const kPath = catCache("knowledge");
   const cache = embed.loadCache(kPath);
+  const cmVec = vectorLike(cache, [1, 2]);
   cache.entries["knowledge/old/cm.md"] = {
     hash: "h",
-    vector: [1, 2],
-    chunks: [{ hash: "c", vector: [1, 2] }],
+    vector: cmVec,
+    chunks: [{ hash: "c", vector: [...cmVec] }],
   };
   embed.saveCache(kPath, cache);
   store.renameEmbedding("knowledge/old/cm.md", "knowledge/new/cm.md");
@@ -176,10 +209,11 @@ test("renameEmbedding carries a chunked entry (its chunks included) to the new i
 test("upsertEmbedding invalidates a chunked entry when its content hash changed", () => {
   const kPath = catCache("knowledge");
   const cache = embed.loadCache(kPath);
+  const upVec = vectorLike(cache, [1, 2]);
   cache.entries["knowledge/up.md"] = {
     hash: "OLD",
-    vector: [1, 2],
-    chunks: [{ hash: "c", vector: [1, 2] }],
+    vector: upVec,
+    chunks: [{ hash: "c", vector: [...upVec] }],
   };
   embed.saveCache(kPath, cache);
   store.upsertEmbedding("knowledge/up.md", "brand new body");
@@ -240,7 +274,10 @@ test("cachedLeafVectors reuses a hash-matching whole-leaf vector and embeds only
   /** @type {import("../scripts/lib/embed.mjs").EmbedCache} */
   const cache = { entries: {} };
   const hit = { id: "knowledge/a.md", embedText: "reused body token", body: "reused body token" };
-  cache.entries[hit.id] = { hash: embed.contentHash(hit.embedText), vector: [0.5, 0.5] };
+  cache.entries[hit.id] = {
+    hash: embed.contentHash(hit.embedText),
+    vector: vectorLike(cache, [0.5, 0.5]),
+  };
   const items = [
     hit,
     { id: "knowledge/b.md", embedText: "fresh body one", body: "fresh body one" },
@@ -281,7 +318,7 @@ test("tensorRows handles a Float32Array tensor and a single-row (last-chunk) cas
 test("cachedLeafVectors re-embeds a whole-leaf entry whose content hash changed", async () => {
   /** @type {import("../scripts/lib/embed.mjs").EmbedCache} */
   const cache = { entries: {} };
-  cache.entries["knowledge/x.md"] = { hash: "STALE", vector: [9, 9] };
+  cache.entries["knowledge/x.md"] = { hash: "STALE", vector: vectorLike(cache, [9, 9]) };
   const [r] = await chunk.cachedLeafVectors(
     cache,
     [{ id: "knowledge/x.md", embedText: "brand new content", body: "brand new content" }],

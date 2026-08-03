@@ -109,7 +109,6 @@ export async function warmWikiEmbeddings(
   return withWikiRoot(wikiRootDir, async () => {
     ensureLayoutLoaded();
     const { enabled, maxChunks, fullMaxChunks } = embedChunk();
-    const tokenizer = enabled ? await getTokenizer() : null;
     const stats = { categories: 0, leaves: 0, embedded: 0, paused: 0 };
     for (const category of getCategories()) {
       const cachePath = embedCacheFor(wikiRootDir, category);
@@ -125,7 +124,11 @@ export async function warmWikiEmbeddings(
           /* unwritable tree: lazy embed-at-search stays the correctness net */
         }
       };
+      // Read TOGETHER, per category: settings hot-reload, and a model changed mid-run
+      // would otherwise pair the old vocab with the new window and mis-split chunks.
+      // getTokenizer() is memoized, so this costs a key comparison.
       const window = embedWindow();
+      const tokenizer = enabled ? await getTokenizer() : null;
       for (let i = 0; i < items.length; i += sliceSize) {
         const slice = items.slice(i, i + sliceSize);
         if (sliceIsWarm(cache, slice, window)) continue;

@@ -10,6 +10,7 @@ import { registerSearchTools } from "./tools-search.mjs";
 import { registerWriteTools } from "./tools-write.mjs";
 import { registerDocumentTools } from "./tools-documents.mjs";
 import { registerMaintenanceTools } from "./tools-maintenance.mjs";
+import { installFatalGuard } from "../scripts/lib/fatal-guard.mjs";
 
 async function main() {
   // Fold wiki-store.mjs + recall.mjs into the reloadable `impl` before the first
@@ -58,5 +59,8 @@ const invokedAsCli = (() => {
 })();
 
 if (invokedAsCli) {
+  // Before main(), so a rejection during startup is reported rather than being a bare stack
+  // on a stream the client is not reading.
+  installFatalGuard("mcp-server");
   await main();
 }

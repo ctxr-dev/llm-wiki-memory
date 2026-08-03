@@ -44,7 +44,7 @@ See also the read-only health/observability commands in [mcp-tools.md](mcp-tools
 | Path | Role |
 | --- | --- |
 | `scripts/lib/wiki-store.mjs` | Storage seam: every document is a wiki leaf. Drives the skill for index-rebuild / validate / heal / rebuild. Hosts the `getConsolidateLayout()` reader. |
-| `scripts/lib/embed.mjs` | Transformer embeddings, cosine, content-hash cache (lexical fallback). The only retrieval engine. |
+| `scripts/lib/embed.mjs` | The retrieval engine's public facade: `embed`/`embedMany`, `contentHash`, tokenizer, and the transformer→lexical fallback orchestration. Implementation split across `embed-backend-state.mjs` (fallback state), `embed-runner.mjs` (worker + in-process inference) and `embed-cache-io.mjs` (the content-hash vector cache). |
 | `scripts/lib/recall.mjs` | `recall_lessons` ladder, `search_memory`, `save_lesson`. |
 | `scripts/lib/llm.mjs` | LLM provider dispatch (claude / codex / cursor / anthropic / openai / openai-compatible / mock) + `health()` probe + `isLocalEndpoint` heuristic. |
 | `scripts/lib/llm-callJSON.mjs` | Prompt-file + variable-interpolation + zod-schema-validated LLM JSON-call wrapper. Used by compile + consolidate. |
