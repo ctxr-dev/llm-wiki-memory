@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import { HealthSchema } from "../shared/contract.mjs";
@@ -134,7 +134,7 @@ export async function start() {
   return app;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   installFatalGuard("webapp-server");
   start().catch((error) => {
     process.stderr.write(`${error?.stack || error}\n`);

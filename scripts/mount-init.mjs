@@ -12,7 +12,6 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { writeFileAtomic } from "./lib/atomic-write.mjs";
 import { buildMountGitignore } from "./lib/mount-gitignore.mjs";
 import { mergedLayoutForRoot, sharedCategories } from "./lib/wiki-ownership.mjs";
@@ -81,7 +80,7 @@ export function initMount(mountDir, { template = MOUNT_TEMPLATE } = {}) {
   return results;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   const HELP = formatHelp({
     name: "mount-init",
     summary:

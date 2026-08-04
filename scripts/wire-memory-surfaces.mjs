@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import {
   POINTER_PREFIX,
   RULE_SURFACES,
@@ -228,16 +227,7 @@ export function wireMemorySurfaces({ srcDir, workspaceDir, home, selfObsEnabled 
   return { surfaces: RULE_SURFACES.length, artifacts: artifacts.length };
 }
 
-const invokedAsCli = (() => {
-  if (!process.argv[1]) return false;
-  try {
-    return import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
-  } catch {
-    return false;
-  }
-})();
-
-if (invokedAsCli) {
+if (import.meta.main) {
   const args = process.argv.slice(2);
   const HELP = formatHelp({
     name: "wire-memory-surfaces",

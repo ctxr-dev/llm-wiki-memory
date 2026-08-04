@@ -1,5 +1,3 @@
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { wikiRoot, workspaceBasename, defaultProjectModule } from "./lib/env.mjs";
 import {
   listDocuments,
@@ -110,16 +108,7 @@ export function migrateProjectModuleIdentity({ newId, oldId, dryRun = false, che
   };
 }
 
-const invokedAsCli = (() => {
-  if (!process.argv[1]) return false;
-  try {
-    return import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
-  } catch {
-    return false;
-  }
-})();
-
-if (invokedAsCli) {
+if (import.meta.main) {
   const HELP = formatHelp({
     name: "migrate-identity",
     summary:

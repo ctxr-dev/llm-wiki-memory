@@ -9,7 +9,8 @@ import { metaMatchesFilters, rerankWithinBands } from "./wiki-search-rank.mjs";
 export { rerankWithinBands };
 import { recallPriorityBand } from "./settings.mjs";
 import { loadCache, saveCache, embed } from "./embed.mjs";
-import { scoreCandidates, COLD_SKIP_SCORE } from "./embed-chunk.mjs";
+import { scoreCandidates } from "./embed-chunk.mjs";
+import { COLD_SKIP_SCORE } from "./cold-budget.mjs";
 import {
   WikiStoreUnavailable,
   root,

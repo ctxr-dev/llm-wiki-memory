@@ -23,9 +23,9 @@ function parseTemplate(argv) {
 // (default: "default"); an unknown name fails closed (clear error, exit 2).
 /**
  * @param {string[]} [argv]
- * @returns {void}
+ * @returns {Promise<void>}
  */
-export function cmdInit(argv = []) {
+export async function cmdInit(argv = []) {
   const template = parseTemplate(argv);
   const wiki = wikiRoot();
   fs.mkdirSync(wiki, { recursive: true });
@@ -67,5 +67,32 @@ export function cmdInit(argv = []) {
   if (!fs.existsSync(path.join(wiki, "index.md"))) {
     indexRebuildAll(wiki);
   }
-  out({ ok: true, wiki, contract: contractPath, template, embedCache: embedCachePath() });
+  // Pull the embedding model NOW, while the user is watching a setup command, rather than leaving
+  // ~219MB to land inside their first recall — where an MCP client shows no output and a working
+  // download is indistinguishable from a hang. Imported lazily so the skip paths keep `init` free
+  // of the embed module graph, and reported on STDERR so `init >/dev/null` (what bootstrap.sh does)
+  // still shows it while stdout stays pure JSON.
+  const prefetch = await maybePrefetch(argv);
+  out({ ok: true, wiki, contract: contractPath, template, embedCache: embedCachePath(), prefetch });
+}
+
+/**
+ * @param {string[]} argv
+ * @returns {Promise<string>}
+ */
+async function maybePrefetch(argv) {
+  if (argv.includes("--no-prefetch")) return "skipped";
+  const { prefetchEmbedModel } = await import("./lib/embed.mjs");
+  const { makeDownloadReporter } = await import("./lib/model-download-progress.mjs");
+  const result = await prefetchEmbedModel({
+    onProgress: makeDownloadReporter({ label: "embedding model" }),
+  });
+  if (result.skipped) return `skipped:${result.skipped}`;
+  if (result.ok) return "ready";
+  // Never fatal: an air-gapped install must still initialise, and the model is fetched lazily on
+  // first use anyway. Say so, so the later first-recall pause is not a surprise.
+  process.stderr.write(
+    `llm-wiki-memory: could not prefetch the embedding model (${result.error}); it will be fetched on first recall.\n`,
+  );
+  return "deferred";
 }

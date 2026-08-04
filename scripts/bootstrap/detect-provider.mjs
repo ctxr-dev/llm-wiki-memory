@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
 import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "../lib/cli-args.mjs";
 
 // Provider auto-detection ladder (first match wins). Pure: probes are injected
@@ -58,7 +57,7 @@ function realProbeOllama() {
   );
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+if (import.meta.main) {
   const args = process.argv.slice(2);
   const HELP = formatHelp({
     name: "detect-provider",

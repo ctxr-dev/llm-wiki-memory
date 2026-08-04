@@ -27,7 +27,7 @@ import {
   recallSearchPerLevelCap,
 } from "./settings.mjs";
 import { searchOneTree } from "./wiki-search.mjs";
-import { defaultColdBudget } from "./embed-chunk.mjs";
+import { defaultColdBudget } from "./cold-budget.mjs";
 
 /** @typedef {import("./types.mjs").SearchHit} SearchHit */
 /** @typedef {import("./wiki-context.mjs").WikiLevel} WikiLevel */

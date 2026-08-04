@@ -10,7 +10,7 @@
     "url": "https://github.com/ctxr-dev/llm-wiki-memory"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.18.0"
   },
   "workspaces": [
     "src/webapp"

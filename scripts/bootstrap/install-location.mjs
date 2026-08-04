@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { isSharedWiki } from "./shared-wiki.mjs";
 import { helpGuard, formatHelp, docsUrl } from "../lib/cli-args.mjs";
 
@@ -103,7 +102,7 @@ export function checkInstallLocation({ workspaceDir, home, template }) {
 
 // CLI: exits 0 to proceed, 3 with the explanation on stderr to refuse. bootstrap.sh
 // shells out to this so the policy lives in ONE testable place rather than in shell.
-if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+if (import.meta.main) {
   const args = process.argv.slice(2);
   helpGuard(
     args,

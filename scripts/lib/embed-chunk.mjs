@@ -1,64 +1,17 @@
 import { cosine } from "./embed-lexical.mjs";
 import { embedMany, contentHash, getTokenizer } from "./embed.mjs";
 import { chunkTexts, scoreLeaf } from "./embed-chunk-text.mjs";
-import { embedChunk, embedMaxColdPerRead } from "./settings.mjs";
-import { isSystemMaintenance } from "./maintenance-tag.mjs";
+import { embedChunk } from "./settings.mjs";
+import { COLD_SKIP_SCORE, defaultColdBudget } from "./cold-budget.mjs";
 
 /** @typedef {import("./embed.mjs").EmbedCache} EmbedCache */
 /** @typedef {import("./embed.mjs").EmbedCacheEntry} EmbedCacheEntry */
-/** @typedef {{ take: (n: number) => boolean, spent: number, skipped: number, skipLeaf?: () => void }} ColdBudget */
+/** @typedef {{ take: (n: number) => boolean, spent: number, skipped: number, skipLeaf?: () => void, openDraw?: () => void }} ColdBudget */
 
 // The cache-filling half of length-aware recall: fill/reuse per-leaf vectors and
 // chunk sets, bounded by a shared cold-embed ledger. The pure text/geometry half
-// (chunkTexts / scoreLeaf) lives in embed-chunk-text.mjs.
-
-// Marks a leaf the cold budget refused: it was never scored, so a caller must
-// DROP it rather than treat it as a zero-relevance hit.
-export const COLD_SKIP_SCORE = -Infinity;
-
-// A cold-embed ledger: ONE per user request, shared across every category, wiki
-// level and recall rung, so the bound is "this request may run N forward passes"
-// — not N per call. It counts TEXTS (chunk sets cost their chunk count; a `full`
-// leaf can be 256) because texts are what the model actually runs. Spending is
-// all-or-nothing per leaf: a partially embedded chunk set would cache a broken
-// entry.
-// The ledger a fresh request should carry: the configured bound, or null (no
-// bound) inside a maintenance pass.
-/**
- * @returns {ColdBudget | null}
- */
-export function defaultColdBudget() {
-  return isSystemMaintenance() ? null : makeColdBudget(embedMaxColdPerRead());
-}
-
-/**
- * `spent` counts TEXTS actually embedded. `skipped` counts LEAVES DROPPED from the
- * result set — bumped by the caller at the point it drops one, NOT inside `take`:
- * a refused `take` is also how a warm-vector leaf merely DEFERS its chunk
- * refinement, and conflating the two made the counter read as "leaves lost" when
- * nothing had been lost.
- *
- * `makeColdBudget(Infinity)` is the counting-only form: every `take` succeeds, so
- * it bounds nothing and simply reports how much inference a call did. The
- * background warm uses it to tell "this slice did real work" from "this slice was
- * all cache hits" — the difference between pacing correctly and running flat out.
- * @param {number} maxTexts
- * @returns {ColdBudget}
- */
-export function makeColdBudget(maxTexts) {
-  return {
-    spent: 0,
-    skipped: 0,
-    take(n) {
-      if (this.spent + n > maxTexts) return false;
-      this.spent += n;
-      return true;
-    },
-    skipLeaf() {
-      this.skipped += 1;
-    },
-  };
-}
+// (chunkTexts / scoreLeaf) lives in embed-chunk-text.mjs; the ledger itself, and how its
+// allowance is divided between the reads that share it, lives in cold-budget.mjs.
 
 /**
  * Convenience wrapper: resolve the chunk config + tokenizer (from settings) and

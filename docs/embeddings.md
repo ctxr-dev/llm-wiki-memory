@@ -83,7 +83,7 @@ false everywhere).
 
 | Backend | What it is | When |
 |---|---|---|
-| `transformers` (default) | `onnx-community/embeddinggemma-300m-ONNX` — Google EmbeddingGemma-300m (308M params, 768-dim, 2048-token window), quantized ONNX (q4, ~197 MB) via `@huggingface/transformers` v4 (onnxruntime-node). Downloaded once, then offline. BERT-family alternatives (`bge-*`, MiniLM) run mean-pooled + L2-normalized. | Default. |
+| `transformers` (default) | `onnx-community/embeddinggemma-300m-ONNX` — Google EmbeddingGemma-300m (308M params, 768-dim, 2048-token window), quantized ONNX (q4; ~219 MB fetched on first run — 197 MB of weights plus a 20 MB tokenizer, which every earlier figure here omitted) via `@huggingface/transformers` v4 (onnxruntime-node). Downloaded once, then offline. BERT-family alternatives (`bge-*`, MiniLM) run mean-pooled + L2-normalized. | Default. |
 | `lexical` (fallback) | Deterministic hashed bag-of-tokens into a fixed 256-dim vector. Not semantic, but stable and dependency-free. | When the model can't load (offline first run, download failure), or forced via `embed.backend: lexical`. |
 
 The backend is resolved once per process and latched: a mid-run

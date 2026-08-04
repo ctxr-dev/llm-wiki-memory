@@ -162,7 +162,7 @@ export async function embedBatch(list, batchSize) {
 /**
  * @returns {{ model: string, dtype: string | undefined, threads: number, cacheDir: string | undefined }}
  */
-function inferenceConfig() {
+export function inferenceConfig() {
   return {
     model: embedModel() || DEFAULT_EMBED_MODEL,
     dtype: embedDtype() || undefined,

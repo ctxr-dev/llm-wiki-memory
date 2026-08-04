@@ -11,7 +11,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
 import { withWikiRoot, embedCacheFor, envValue, envBool, SYNC_QUEUE_PATH } from "../lib/env.mjs";
 import { loadCache, saveCache, getTokenizer } from "../lib/embed.mjs";
 import { cachedLeafVectors } from "../lib/embed-chunk.mjs";
@@ -21,6 +20,9 @@ import { isLeafFull } from "../lib/wiki-layout-state.mjs";
 import { indexRebuildAll, ensureIndexes } from "../lib/wiki-cli.mjs";
 import { toRel } from "../lib/wiki-identity.mjs";
 import { mergedLayoutForRoot, sharedCategories } from "../lib/wiki-ownership.mjs";
+import { warnBelowNodeFloor } from "../lib/node-floor.mjs";
+
+warnBelowNodeFloor("sync-embeddings.mjs");
 
 /**
  * The shared category a changed repo-relative path belongs to, or "" when the
@@ -279,7 +281,7 @@ async function mainCli() {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   await mainCli();
   process.exit(0);
 }

@@ -10,6 +10,9 @@ import { logBreadcrumb, shortId } from "./flush-state.mjs";
 import { readStdin, buildSourceMaterial, SkipMemory } from "./flush-source.mjs";
 import { preserveFailedContext } from "./flush-stash.mjs";
 import { runWorker } from "./flush-worker.mjs";
+import { warnBelowNodeFloor } from "../lib/node-floor.mjs";
+
+warnBelowNodeFloor("flush.mjs");
 
 // flush.mjs has two phases (the deterministic-capture mechanism):
 //
@@ -115,7 +118,7 @@ function parseModeFromArgv(argv) {
 
 // Only run when invoked directly (node flush.mjs ...). Importing the module
 // (the unit tests do) must not execute the hook.
-if (process.argv[1] && path.resolve(process.argv[1]) === SELF_PATH) {
+if (import.meta.main) {
   const mode = parseModeFromArgv(process.argv);
   if (!VALID_MODES.has(mode)) {
     console.error(`flush.mjs: unknown mode '${mode}'`);

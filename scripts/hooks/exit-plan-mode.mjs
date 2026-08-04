@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { saveDocument, WikiStoreUnavailable } from "../lib/wiki-store.mjs";
 import { syncPlanFile } from "../lib/plan-sync.mjs";
 import { wikiRoot } from "../lib/env.mjs";
@@ -15,6 +14,9 @@ import {
   resolvePlanBody,
 } from "./exit-plan-mode-spec.mjs";
 import { logBreadcrumb } from "./flush-state.mjs";
+import { warnBelowNodeFloor } from "../lib/node-floor.mjs";
+
+warnBelowNodeFloor("exit-plan-mode.mjs");
 
 // Pure plan-body resolution + doc-spec building live in ./exit-plan-mode-spec.mjs.
 // Re-exported here so the module's public surface is unchanged for importers/tests.
@@ -135,23 +137,8 @@ async function main() {
   }
 }
 
-// CLI guard: importing the module (e.g. from the test file) MUST NOT
-// trigger stdin reads or bridge calls. pathToFileURL handles Windows
-// drive letters / UNC paths / percent-encoding correctly.
-const invokedAsCli = (() => {
-  if (!process.argv[1]) return false;
-  try {
-    // path.resolve normalises a relative argv[1] (`node scripts/hooks/
-    // exit-plan-mode.mjs`) to an absolute path before comparison, so the
-    // guard matches the absolute import.meta.url regardless of how the
-    // launcher passed the path. Same pattern as scripts/compile.mjs.
-    return import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
-  } catch {
-    return false;
-  }
-})();
-
-if (invokedAsCli) {
+// Importing the module (the test file does) MUST NOT trigger stdin reads or bridge calls.
+if (import.meta.main) {
   try {
     // Scope the plan-capture write to the brain wiki. Behavior-neutral in the
     // single-tree case; a resolve failure falls through so main()'s own

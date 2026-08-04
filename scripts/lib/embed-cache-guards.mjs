@@ -30,33 +30,90 @@ import {
 // cache, which is exactly the cost this module used to pay for a guard that only
 // ever fired when it was wrong.
 /** @type {Set<string>} */
-const warnedBackendDiscard = new Set();
+const warnedDiscard = new Set();
+
+/** Test seam — the latch is per-process and per-path. @returns {void} */
+export function __resetDiscardNotices() {
+  warnedDiscard.clear();
+}
+
+// Which stamp fields the rejected file disagrees with. An ABSENT field makes no claim and so
+// cannot have changed — mirroring loadCache's `valid`, where an unstamped dtype matches any dtype,
+// so a legacy cache is never reported as a dtype change. `dim` is not part of cacheStamp; it is
+// compared only when the caller offered a live dimension (10 of 11 call sites do not).
+/**
+ * @param {EmbedCache} raw
+ * @param {{ model: string, backend: string, dtype: string }} live
+ * @param {number} expectedDim
+ * @returns {Array<{ name: string, was: string|number, now: string|number }>}
+ */
+function changedStampFields(raw, live, expectedDim) {
+  /** @type {Array<{ name: string, was: string|number, now: string|number }>} */
+  const changed = [];
+  if (raw.model !== undefined && raw.model !== live.model) {
+    changed.push({ name: "model", was: raw.model, now: live.model });
+  }
+  if (raw.backend !== undefined && raw.backend !== live.backend) {
+    changed.push({ name: "backend", was: raw.backend, now: live.backend });
+  }
+  if (raw.dtype !== undefined && raw.dtype !== live.dtype) {
+    changed.push({ name: "dtype", was: raw.dtype, now: live.dtype });
+  }
+  if (expectedDim > 0 && raw.dim !== undefined && raw.dim !== expectedDim) {
+    changed.push({ name: "dim", was: raw.dim, now: expectedDim });
+  }
+  return changed;
+}
+
+// stderr is not enough on its own: Claude Code discards the MCP server's stderr and launchd drops
+// the cron's, and a settings edit is applied on the next tool call in exactly those runtimes. The
+// capture is the channel the user actually sees, because session-start reports the open count.
+// Severity is "suspicious", not a bug: the discard is correct behaviour with an expensive
+// consequence, and filing it as a confirmed bug would devalue the ones that are.
+/** @param {string} message @param {string} cachePath @returns {void} */
+function recordDiscardCapture(message, cachePath) {
+  import("./monitoring.mjs")
+    .then(({ writeMonitoringCapture }) =>
+      writeMonitoringCapture({
+        title: "embedding cache discarded after a settings change",
+        severity: "suspicious",
+        surface: "embed-cache",
+        observed: message,
+        evidence: `cache: ${cachePath}`,
+      }),
+    )
+    .catch(() => {});
+}
 
 /**
- * @param {string} cachePath @param {EmbedCache} raw @param {string} backend
+ * @param {string} cachePath @param {EmbedCache} raw
+ * @param {{ model: string, backend: string, dtype: string }} live
+ * @param {number} [expectedDim]
  * @returns {void}
  */
-export function warnBackendDiscard(cachePath, raw, backend) {
+export function warnCacheDiscard(cachePath, raw, live, expectedDim = 0) {
   const had = raw && typeof raw === "object" ? Object.keys(raw.entries || {}).length : 0;
-  if (!had || !raw.backend || raw.backend === backend) return;
-  if (warnedBackendDiscard.has(cachePath)) return;
-  // A TRANSIENT fallback is the common trigger and the one the persist guard exists to make
-  // harmless: the on-disk cache is left intact and reused when the model returns. Saying
+  if (!had) return;
+  const changed = changedStampFields(raw, live, expectedDim);
+  if (!changed.length || warnedDiscard.has(cachePath)) return;
+  // A TRANSIENT backend fallback is the common trigger and the one the persist guard exists to
+  // make harmless: the on-disk cache is left intact and reused when the model returns. Saying
   // "discarded, and switching back needs another full re-embed" there is simply false, and it
   // tells the user a model blip cost them their corpus.
-  if (persistBlockReason(cachePath)) {
+  if (changed.some((c) => c.name === "backend") && persistBlockReason(cachePath)) {
     process.stderr.write(
-      `embed: ${cachePath} holds ${had} vectors built by the "${raw.backend}" backend; this process resolved "${backend}" (a fallback, not your configuration), so it is scoring in memory only and the on-disk cache is left intact for when the model returns.\n`,
+      `embed: ${cachePath} holds ${had} vectors built by the "${raw.backend}" backend; this process resolved "${live.backend}" (a fallback, not your configuration), so it is scoring in memory only and the on-disk cache is left intact for when the model returns.\n`,
     );
-    warnedBackendDiscard.add(cachePath);
+    warnedDiscard.add(cachePath);
     return;
   }
+  const detail = changed.map((c) => `${c.name} ${c.was} -> ${c.now}`).join(", ");
+  const message = `embed: ${cachePath} holds ${had} vectors built under a different embedding signature (${detail}). Vectors from different signatures are not comparable, so those are discarded and will be re-embedded. Until a warm completes, recall UNDER-ANSWERS — every search is bounded by embed.maxColdPerRead; run \`cli.mjs warm\` to restore it.`;
   // Write BEFORE arming: a throwing stderr then leaves the latch unarmed and the diagnostic
   // is retried, matching warnDowngradeOnce.
-  process.stderr.write(
-    `embed: ${cachePath} holds ${had} vectors built by the "${raw.backend}" backend, but this process resolved "${backend}". Vectors from different backends are not comparable, so those are discarded and will be re-embedded; switching back will require another full re-embed.\n`,
-  );
-  warnedBackendDiscard.add(cachePath);
+  process.stderr.write(`${message}\n`);
+  warnedDiscard.add(cachePath);
+  recordDiscardCapture(message, cachePath);
 }
 
 // Whether the stamp recorded ON a cache object still describes the live config.

@@ -2,6 +2,7 @@ import { parentPort } from "node:worker_threads";
 import { createEmbedder } from "./embed-inference.mjs";
 import { keyedMemo, inferenceKey } from "./keyed-memo.mjs";
 import { installFatalGuard } from "./fatal-guard.mjs";
+import { makeDownloadReporter } from "./model-download-progress.mjs";
 
 // onnxruntime's forward pass is a synchronous native call; this worker keeps it
 // off the main event loop. Texts arrive already prompt-prefixed by the caller.
@@ -19,6 +20,12 @@ const embedderMemo = keyedMemo(
   { onEvict: (embedder) => embedder.dispose?.() },
 );
 
+// A worker's stderr is INHERITED by the parent (no stdio option is passed to `new Worker`), so
+// writing here needs no protocol frame. Adding one would be hazardous: the parent deletes a
+// request's pending entry on the FIRST message bearing its id, so a progress frame reusing that id
+// would resolve the request early with no vectors.
+const reportDownload = makeDownloadReporter({ label: "embedding model" });
+
 const port = parentPort;
 if (port) {
   // Rejections only. Keeping the thread alive for those matters more here than anywhere: its
@@ -29,7 +36,7 @@ if (port) {
   installFatalGuard("embed-worker", { catchExceptions: false });
   port.on("message", async (msg) => {
     const { id, texts, batchSize, model, dtype, threads, cacheDir } = msg || {};
-    const opts = { model, dtype, threads, cacheDir };
+    const opts = { model, dtype, threads, cacheDir, onProgress: reportDownload };
     try {
       const list = Array.isArray(texts) ? texts.map((t) => String(t || "")) : [];
       // Leased: this handler runs concurrently for several messages, and the catch below

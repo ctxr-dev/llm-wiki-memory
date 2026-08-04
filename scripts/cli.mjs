@@ -1,7 +1,8 @@
 #!/usr/bin/env node
+import { refuseBelowNodeFloor } from "./lib/node-floor.mjs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { out } from "./cli-io.mjs";
 import { helpGuard, REPO_RAW_BASE } from "./lib/cli-args.mjs";
 import { cmdInit } from "./cli-init.mjs";
@@ -30,6 +31,8 @@ import { handleWhere, handleRecall, handleSearch } from "./cli-query.mjs";
 import { handleCronJob, handleCronHealth } from "./cli-cron.mjs";
 import { handleRedistill } from "./cli-redistill.mjs";
 import { handleMonitor, handleMonitoringHealth, handleGateAudit } from "./cli-monitor.mjs";
+
+refuseBelowNodeFloor();
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -112,6 +115,6 @@ async function main() {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   await main();
 }

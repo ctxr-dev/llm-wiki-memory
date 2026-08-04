@@ -4,7 +4,7 @@ import { embedModel, embedDtype, DEFAULT_EMBED_MODEL } from "./settings.mjs";
 import { writeFileAtomic } from "./atomic-write.mjs";
 import { defaultDtypeFor } from "./embed-inference.mjs";
 import {
-  warnBackendDiscard,
+  warnCacheDiscard,
   stampStillDescribes,
   warnStampDrift,
   persistBlockReason,
@@ -129,7 +129,7 @@ export function loadCache(cachePath, expectedDim = 0) {
       cacheByPath.set(cachePath, { mtimeMs: stat.mtimeMs, size: stat.size, cache: raw });
       return raw;
     }
-    warnBackendDiscard(cachePath, raw, backend);
+    warnCacheDiscard(cachePath, raw, { model, backend, dtype }, expectedDim);
   } catch {
     /* fresh cache */
   }

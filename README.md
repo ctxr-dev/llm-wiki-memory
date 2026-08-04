@@ -12,7 +12,7 @@ Claude Code, Cursor, Codex, and every other MCP client forget everything when a 
 <br/>
 
 [![tests](https://img.shields.io/badge/TESTS-1961_PASSING-0D0D14?style=for-the-badge&labelColor=5EFFC0)](#testing)
-[![node](https://img.shields.io/badge/NODE-%E2%89%A5_20-0D0D14?style=for-the-badge&logo=nodedotjs&logoColor=0D0D14&labelColor=5EF6FF)](https://nodejs.org)
+[![node](https://img.shields.io/badge/NODE-%E2%89%A5_22.18-0D0D14?style=for-the-badge&logo=nodedotjs&logoColor=0D0D14&labelColor=5EF6FF)](https://nodejs.org)
 [![license](https://img.shields.io/badge/LICENSE-MIT-0D0D14?style=for-the-badge&labelColor=FCEE0A)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-STDIO_SERVER-0D0D14?style=for-the-badge&logo=anthropic&logoColor=0D0D14&labelColor=5EF6FF)](https://modelcontextprotocol.io)
 
@@ -123,11 +123,11 @@ npm run test:e2e   # full lifecycle against the real skill-llm-wiki CLI (LLM stu
 
 ## Requirements
 
-Node 20 or newer, and git. No Docker, no Python. The embedding model (~197 MB quantized) downloads on first recall, then runs fully offline (set `embed.backend: lexical` in `settings.yaml` to skip it entirely).
+Node 22.18 or newer (for `import.meta.main`), and git. No Docker, no Python. The embedding model downloads on first run (~219 MB across 5 files: 197 MB of q4 weights plus a 20 MB tokenizer), then runs fully offline. `cli.mjs init` prefetches it so the wait lands in setup rather than your first recall (set `embed.backend: lexical` in `settings.yaml` to skip it entirely).
 
 | Model (`embed.model` in `settings.yaml`) | Dim | Window | Download | License |
 | --- | :---: | :---: | :---: | --- |
-| `onnx-community/embeddinggemma-300m-ONNX` — **default** | 768 | 2048 | ~197 MB (q4) | Gemma Terms of Use |
+| `onnx-community/embeddinggemma-300m-ONNX` — **default** | 768 | 2048 | ~219 MB (q4 weights + tokenizer) | Gemma Terms of Use |
 | `Xenova/bge-large-en-v1.5` — previous default | 1024 | 512 | ~340 MB (q8) | MIT |
 | `Xenova/bge-base-en-v1.5` | 768 | 512 | ~110 MB | MIT |
 | `Xenova/bge-small-en-v1.5` | 384 | 512 | ~35 MB | MIT |

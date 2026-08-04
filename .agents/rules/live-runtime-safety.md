@@ -132,6 +132,24 @@ reading that would CHANGE if it went wrong, BEFORE it can. A baseline cannot be 
   corrupts silently instead of throwing.
 - Nothing here licenses disarming the guard to "test against the real thing".
 
+## `pwd -P` in the shell wrappers is load-bearing — do not "simplify" it
+
+Every hook wrapper and `bootstrap.sh` resolves its own location with
+`SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"`. The `-P` is not stylistic: it
+prints the PHYSICAL path, so the `.mjs` it launches receives an already-resolved `argv[1]`.
+
+For the whole life of the old path-comparison entrypoint guard, that `-P` was the ONLY reason
+POSIX hooks were not silently no-opping — the guard compared `argv[1]` against the realpath-
+resolved `import.meta.url`, so an unresolved launch path made it decline to run while exiting 0.
+Dropping `-P` would have broken every hook with no error message anywhere. (`bootstrap.ps1` uses
+the unresolved `$PSScriptRoot` and had no such protection, which is why Windows was broken.)
+
+The guard is now `if (import.meta.main)`, which does not compare paths at all, so `-P` is no
+longer load-bearing for THAT reason. Keep it anyway — it still makes `SCRIPT_DIR` stable for
+everything else derived from it — but the lesson generalises: **when a protection is only
+implicit, a later "cleanup" removes it silently.** If you find yourself relying on a launch path
+being pre-resolved, assert it or document it where the reliance lives.
+
 ## Keeping this rule current
 
 When a new durable artefact or a new live entrypoint (a hook, a scheduler job, a long-running

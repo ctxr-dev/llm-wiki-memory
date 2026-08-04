@@ -239,7 +239,7 @@ export function wireDevSurfaces({ prune = true, srcDir } = {}) {
   return { written, pruned, refused };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (import.meta.main) {
   const { written, pruned, refused } = wireDevSurfaces();
   for (const f of written) process.stdout.write(`wrote   ${f}\n`);
   for (const f of pruned) process.stdout.write(`pruned  ${f}\n`);

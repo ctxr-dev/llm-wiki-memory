@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { MEMORY_DATA_DIR, envInt } from "./lib/env.mjs";
 import { findFreePort, alive, readPid, readPort, rmQuiet, waitDead } from "./lib/webapp-proc.mjs";
 
@@ -223,7 +223,7 @@ export async function run(argv) {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   run(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (error) => {

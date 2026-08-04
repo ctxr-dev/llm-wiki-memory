@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { writeFileAtomic } from "../lib/atomic-write.mjs";
 import { SERVER_NAME, SERVER_INDEX_REL, codexTomlBlock } from "./mcp-clients.mjs";
 import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "../lib/cli-args.mjs";
@@ -64,7 +63,7 @@ export function mergeCodexToml(file, indexArg = SERVER_INDEX_REL) {
   return { action: found ? "replaced" : raw === "" ? "created" : "appended", changed: true };
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+if (import.meta.main) {
   const args = process.argv.slice(2);
   const HELP = formatHelp({
     name: "merge-codex-toml",

@@ -63,9 +63,22 @@ function NodeOut([string]$rel, [string[]]$stepArgs) {
   return "$out".Trim()
 }
 
+# --- node floor (must precede EVERY path that shells out to a guarded .mjs) ---
+# Each entrypoint's CLI guard is `if (import.meta.main)`, so on a Node lacking that property the
+# guard is falsy and the script exits 0 having done NOTHING. This has to sit above -Uninstall:
+# unregister-global.mjs and uninstall.mjs are guarded too, so when the check lived further down, a
+# below-floor -Uninstall printed "Uninstall complete" while removing nothing at all.
+# Feature-tested rather than version-parsed because comparing only the MAJOR would admit
+# 22.0-22.17, which lack it (added in 22.18 / 24.2).
+# The probe deliberately contains NO quote characters: Windows PowerShell 5.1 mangles embedded
+# double quotes when it builds a native command line, so a `typeof x === "boolean"` form can reach
+# node as `=== boolean` — a ReferenceError that would reject a perfectly good Node.
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Die "node is required (>=22.18)." }
+& node --input-type=module -e 'process.exit(import.meta.main === undefined ? 1 : 0)' 2>$null
+if ($LASTEXITCODE -ne 0) { Die "node >=22.18 required, for import.meta.main (found $(& node -v))." }
+
 # --- uninstall (thin; fs reversals live in scripts/uninstall.mjs) ---
 if ($Uninstall) {
-  if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Die "node is required to uninstall." }
   Log "Uninstalling llm-wiki-memory from $WorkspaceDir (memory data is left intact) ..."
   # LWM_BOOTSTRAP_SKIP_SCHED_OS lets the e2e reverse the fs surfaces without
   # touching the real user's Task Scheduler (default: unset = tear down).
@@ -90,11 +103,8 @@ if ($Uninstall) {
   exit 0
 }
 
-# --- prereqs ---
-if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Die "node is required (>=20)." }
+# --- prereqs (node + its floor are already checked above the uninstall path) ---
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Die "git is required." }
-$nodeMajor = [int](& node -p "process.versions.node.split('.')[0]")
-if ($nodeMajor -lt 20) { Die "node >=20 required (found $(& node -v))." }
 
 # --- install deps ---
 if (-not $env:LWM_BOOTSTRAP_SKIP_NPM) {

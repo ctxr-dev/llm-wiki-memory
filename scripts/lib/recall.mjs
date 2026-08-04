@@ -1,7 +1,8 @@
 import { defaultProjectModule } from "./env.mjs";
 import { recallScoreThreshold, recallPriorityBand } from "./settings.mjs";
 import { searchMemoryFiltered, saveDocument, rerankWithinBands } from "./wiki-store.mjs";
-import { defaultColdBudget } from "./embed-chunk.mjs";
+import { defaultColdBudget, openColdDraw, coldPartial } from "./cold-budget.mjs";
+import { toRecallRecord } from "./recall-record.mjs";
 import { lessonDocName } from "./slug.mjs";
 
 // searchMemory lives in recall-search.mjs (the cross-category search door);
@@ -125,6 +126,8 @@ export async function recallLessons({
   const coldBudget = defaultColdBudget();
   for (let rungIdx = 0; rungIdx < ladder.length; rungIdx += 1) {
     const filters = ladder[rungIdx];
+    // Reserve a tail: rung 1 exhausting the bound left every fallback returning ZERO, not fewer.
+    openColdDraw(coldBudget);
     const { records } = /** @type {{ records: SearchHit[] }} */ (
       await searchMemoryFiltered({
         coldBudget,
@@ -171,6 +174,7 @@ export async function recallLessons({
   const supplementary = [];
   if (includeKnowledge !== false && effectiveProjectModule) {
     for (const t of KNOWLEDGE_CROSSREF_ATOM_TYPES) {
+      openColdDraw(coldBudget);
       const { records } = /** @type {{ records: SearchHit[] }} */ (
         await searchMemoryFiltered({
           coldBudget,
@@ -192,29 +196,14 @@ export async function recallLessons({
     query,
     lessonDataset: "self_improvement",
     ladderUsed,
+    ...coldPartial(coldBudget),
     injectedFilters:
       !project_module && effectiveProjectModule ? { project_module: effectiveProjectModule } : null,
     scoreThreshold: threshold,
     lessonHits: lessonHits.length,
     supplementaryHits: supplementary.length,
     totalRecords: all.length,
-    records: /** @type {RecallRecord[]} */ (
-      all.map((r) => ({
-        kind: r.kind,
-        datasetId: r.datasetId,
-        documentName: r.documentName,
-        score: r.score,
-        priority: r.priority,
-        content: r.content,
-        // Glance fields ride along only when the caller asked for the frontmatter
-        // view (withGlance); otherwise they are absent and the shape is unchanged.
-        ...(r.brief !== undefined ? { brief: r.brief } : {}),
-        ...(r.type !== undefined ? { type: r.type } : {}),
-        ...(r.status !== undefined ? { status: r.status } : {}),
-        ...(r.progress !== undefined ? { progress: r.progress } : {}),
-        ...(r.tags !== undefined ? { tags: r.tags } : {}),
-      }))
-    ),
+    records: all.map(toRecallRecord),
   };
 }
 

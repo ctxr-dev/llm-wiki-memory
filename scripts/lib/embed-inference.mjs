@@ -118,21 +118,27 @@ export function withDisposal(run, release) {
   return embed;
 }
 
+// `onProgress` is deliberately NOT part of the artefact's identity: inferenceKey hashes only
+// [model, dtype, cacheDir], so passing a fresh callback per message cannot cause a rebuild of a
+// ~200MB session. It is forwarded as transformers' `progress_callback`, which also switches Node
+// off its `arrayBuffer()` shortcut onto the streaming read path — same bytes, reported as they land.
 /**
- * @param {{ model: string, dtype?: string, threads?: number, cacheDir?: string }} opts
+ * @param {{ model: string, dtype?: string, threads?: number, cacheDir?: string, onProgress?: (info: unknown) => void }} opts
  * @returns {Promise<Embedder>}
  */
-export async function createEmbedder({ model, dtype, threads, cacheDir }) {
+export async function createEmbedder({ model, dtype, threads, cacheDir, onProgress }) {
   const transformers = await import("@huggingface/transformers");
   applyCacheDir(transformers.env, cacheDir);
   const resolvedDtype = /** @type {import("@huggingface/transformers").DataType} */ (
     /** @type {unknown} */ (dtype || defaultDtypeFor(model))
   );
   const sessionOptions = threads && threads > 0 ? { intraOpNumThreads: threads } : undefined;
+  const progress = onProgress ? { progress_callback: onProgress } : {};
   if (isGemmaFamily(model)) {
-    const tokenizer = await transformers.AutoTokenizer.from_pretrained(model);
+    const tokenizer = await transformers.AutoTokenizer.from_pretrained(model, { ...progress });
     const gemma = await transformers.AutoModel.from_pretrained(model, {
       dtype: resolvedDtype,
+      ...progress,
       ...(sessionOptions ? { session_options: sessionOptions } : {}),
     });
     return withDisposal(
@@ -146,6 +152,7 @@ export async function createEmbedder({ model, dtype, threads, cacheDir }) {
   }
   const pipe = await transformers.pipeline("feature-extraction", model, {
     dtype: resolvedDtype,
+    ...progress,
     ...(sessionOptions ? { session_options: sessionOptions } : {}),
   });
   return withDisposal(

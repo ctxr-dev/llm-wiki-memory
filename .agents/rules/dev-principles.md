@@ -77,6 +77,36 @@ relax one without a review and (if user-visible) a release runbook.
 
 - `.mjs` is ESM: static `import` only (`require` does not exist here). Every script guards
   its CLI entrypoint so importing it for exports has zero side effects.
+- **That guard is `if (import.meta.main)` — never a path comparison.** Node resolves
+  `import.meta.url` to the PHYSICAL path but leaves `process.argv[1]` exactly as typed, so any
+  comparison of the two disagrees on a symlinked launch and the script SILENTLY DOES NOTHING
+  while exiting 0. That reproduced through a symlinked install dir, an `npm link` / `npm i -g`
+  bin shim, and every Windows launch; the worst case was the MCP server exiting 0 before the
+  handshake, so every memory tool vanished with no error. The bare form
+  (`pathToFileURL(process.argv[1])`) additionally THREW on import from `node -e` / piped stdin,
+  where `argv[1]` is undefined. `import.meta.main` has neither failure and needs no
+  `path.resolve`, no `|| ""`, and no try/catch. It requires **Node >=22.18** (added 24.2,
+  backported 22.18) — the floor `package.json` declares, `scripts/lib/node-floor.mjs` refuses
+  below at runtime, and both bootstrap scripts feature-test at install.
+  `import.meta.main` is true for exactly what Node was HANDED as the entry: `argv[1]`, the
+  `-e` / piped-stdin source **text**, or a **Worker's entry module**. A file that is *imported*
+  is never main, however its importer was launched — so "an entrypoint imported as the `-e` main"
+  cannot happen, and the `-e` inversion bites only if an entrypoint's own source text is fed to
+  `-e`. The Worker case is the one to keep in mind: the guard means "I am an entry point", NOT
+  "a human launched me", so moving an importer into a Worker, or converting a self-respawn to
+  `worker_threads`, would run an imported entrypoint's body.
+  Enforced by `test/entrypoint-main-guard.test.mjs`, which derives the entrypoint list rather
+  than hard-coding it. A hook that must run unconditionally simply has no guard — do not add
+  one to the PreToolUse gates, whose opposite fail modes are pinned by `test/fatal-guard.test.mjs`.
+- **Never feature-test `import.meta.main` to detect an old Node.** A bundler erases it: Vite /
+  Vitest's SSR transform replaces `import.meta` with a synthesised object holding only
+  `{ url, env, filename, dirname }`, so the property reads `undefined` on a perfectly supported
+  Node. "Too old" and "transformed source" are indistinguishable through that property, so a
+  feature-test-only check would `process.exit` inside a vitest worker. `scripts/lib/node-floor.mjs`
+  therefore requires the feature to be missing AND `process.versions.node` to be below the floor,
+  and a test pins that nothing beyond the launch-policy owners imports it. (A shell probe has no
+  bundler, so `bootstrap.*` may feature-test freely — and must, before any path that shells out to
+  a guarded `.mjs`, including `--uninstall`.)
 - Comments only where the code is genuinely non-obvious, and they explain WHY. No dead
   code, no banners.
 

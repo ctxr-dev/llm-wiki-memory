@@ -18,7 +18,6 @@
 
 import path from "node:path";
 import { z } from "zod";
-import { pathToFileURL } from "node:url";
 import { PROMPTS_DIR } from "./lib/env.mjs";
 import { atomBodyMaxChars } from "./lib/settings.mjs";
 import {
@@ -163,7 +162,7 @@ async function main() {
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   main().catch((err) => {
     process.stderr.write(`remediate error: ${err?.stack || err}\n`);
     process.exit(1);

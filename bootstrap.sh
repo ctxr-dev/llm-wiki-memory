@@ -91,13 +91,24 @@ done
 log() { printf '\033[1;36m[llm-wiki-memory]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[llm-wiki-memory] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 
+# --- node floor (must precede EVERY path that shells out to a guarded .mjs) ---
+# Each entrypoint's CLI guard is `if (import.meta.main)`, so on a Node lacking that property the
+# guard is falsy and the script exits 0 having done NOTHING. This has to sit above --uninstall:
+# unregister-global.mjs and uninstall.mjs are guarded too, so when the check lived further down, a
+# below-floor `--uninstall` printed "Uninstall complete" while removing nothing at all.
+# Feature-tested rather than version-parsed because comparing only the MAJOR would admit
+# 22.0-22.17, which lack it (added in 22.18 / 24.2). Kept quote-free to match bootstrap.ps1, where
+# embedded double quotes are actively unsafe.
+command -v node >/dev/null 2>&1 || die "node is required (>=22.18)."
+node --input-type=module -e 'process.exit(import.meta.main === undefined ? 1 : 0)' 2>/dev/null \
+  || die "node >=22.18 required, for import.meta.main (found $(node -v))."
+
 # --- uninstall (thin shell; fs reversals live in scripts/uninstall.mjs) ---
 # Remove the cron/launchd job (OS glue owned here), then hand the filesystem
 # reversals (MCP registration + chained git-hook block) to the Node helper,
 # which also prints the manual steps it deliberately does NOT perform. Never
 # deletes memory data. Idempotent.
 if [[ "$UNINSTALL" -eq 1 ]]; then
-  command -v node >/dev/null 2>&1 || die "node is required to uninstall."
   log "Uninstalling llm-wiki-memory from $WORKSPACE_DIR (memory data is left intact) ..."
   ws_hash="$(printf '%s' "$WORKSPACE_DIR" | cksum | awk '{print $1}')"
   # LWM_BOOTSTRAP_SKIP_SCHED_OS lets the e2e reverse the fs surfaces without
@@ -124,11 +135,8 @@ if [[ "$UNINSTALL" -eq 1 ]]; then
   exit 0
 fi
 
-# --- prereqs ---
-command -v node >/dev/null 2>&1 || die "node is required (>=20)."
+# --- prereqs (node + its floor are already checked above the uninstall path) ---
 command -v git  >/dev/null 2>&1 || die "git is required."
-NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-[[ "$NODE_MAJOR" -ge 20 ]] || die "node >=20 required (found $(node -v))."
 
 # --- upgrade (deterministic: fetch + ff-merge, then re-exec the fresh install + migrate) ---
 # One command replaces the prose runbook: pull the new engine, then re-run the

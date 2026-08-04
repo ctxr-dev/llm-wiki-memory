@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { mergeIntoJsonFile, readJsonOrThrow, CorruptConfigRefused } from "../lib/config-merge.mjs";
 import { mergeCodexToml } from "./merge-codex-toml.mjs";
 import {
@@ -93,7 +93,7 @@ function mergeGlobalJson(file, incoming, topKey) {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+if (import.meta.main) {
   const args = process.argv.slice(2);
   const HELP = formatHelp({
     name: "register-global",

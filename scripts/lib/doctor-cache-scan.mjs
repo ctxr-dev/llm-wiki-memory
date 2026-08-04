@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { wikiRoot } from "./env.mjs";
-import { embedBackend } from "./settings.mjs";
+import { embedBackend, embedModel, embedDtype } from "./settings.mjs";
+import { defaultDtypeFor } from "./embed-inference.mjs";
 import {
   isHidden,
   rel,
@@ -71,6 +72,46 @@ export function findBackendMismatchedCaches(wiki = wikiRoot(), stamps = readCach
       expected: configured,
       dim: typeof stamp.dim === "number" ? stamp.dim : 0,
       entries: entryCount,
+    });
+  }
+  return found;
+}
+
+// A model or dtype change makes loadCache discard the whole category, and nothing re-embeds inside
+// the MCP server — so until a warm runs, every search is bounded by embed.maxColdPerRead and
+// silently returns an incomplete result set. Reported but deliberately NOT counted toward `ok`
+// (see doctor.mjs): every cache legitimately mismatches for the duration of a warm, so failing
+// here would cry wolf on an expected transition, which is the same reason the backend scan above
+// stays backend-only.
+//
+// An ABSENT field makes no claim, mirroring loadCache's `valid` — a legacy cache written before
+// dtype stamping is not stale. `backend` is left to findBackendMismatchedCaches so one cache is
+// never reported by both.
+/**
+ * @param {string} [wiki]
+ * @param {Array<{ cachePath: string, stamp: any }>} [stamps]
+ * @returns {Array<{ cache: string, changed: Array<{ name: string, was: string, now: string }>, entries: number }>}
+ */
+export function findStaleStampCaches(wiki = wikiRoot(), stamps = readCacheStamps(wiki)) {
+  const liveModel = embedModel() || "";
+  const liveDtype = embedDtype() || defaultDtypeFor(liveModel);
+  /** @type {Array<{ cache: string, changed: Array<{ name: string, was: string, now: string }>, entries: number }>} */
+  const found = [];
+  for (const { cachePath, stamp } of stamps) {
+    /** @type {Array<{ name: string, was: string, now: string }>} */
+    const changed = [];
+    if (liveModel && stamp?.model !== undefined && stamp.model !== liveModel) {
+      changed.push({ name: "model", was: String(stamp.model), now: liveModel });
+    }
+    if (liveDtype && stamp?.dtype !== undefined && stamp.dtype !== liveDtype) {
+      changed.push({ name: "dtype", was: String(stamp.dtype), now: liveDtype });
+    }
+    if (!changed.length) continue;
+    found.push({
+      cache: rel(wiki, cachePath),
+      changed,
+      entries:
+        stamp.entries && typeof stamp.entries === "object" ? Object.keys(stamp.entries).length : 0,
     });
   }
   return found;

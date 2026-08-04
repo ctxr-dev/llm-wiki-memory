@@ -16,8 +16,9 @@ fs.writeFileSync(
 );
 after(() => fs.rmSync(TMP, { recursive: true, force: true }));
 
-const { cachedLeafVectors, scoreTree, makeColdBudget, scoreCandidates, COLD_SKIP_SCORE } =
+const { cachedLeafVectors, scoreTree, scoreCandidates } =
   await import("../scripts/lib/embed-chunk.mjs");
+const { makeColdBudget, COLD_SKIP_SCORE } = await import("../scripts/lib/cold-budget.mjs");
 const { chunkTexts, scoreLeaf, tokenCount, EMBED_WINDOW } =
   await import("../scripts/lib/embed-chunk-text.mjs");
 const { embed } = await import("../scripts/lib/embed.mjs");

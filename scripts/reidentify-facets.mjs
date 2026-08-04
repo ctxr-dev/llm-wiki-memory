@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import matter from "gray-matter";
 import { wikiRoot } from "./lib/env.mjs";
 import { getCategories, categoryHasTopology, updateDocMetadata } from "./lib/wiki-store.mjs";
@@ -233,16 +232,7 @@ export async function reidentifyFacets({ dryRun = false, check = false } = {}) {
   };
 }
 
-const invokedAsCli = (() => {
-  if (!process.argv[1]) return false;
-  try {
-    return import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
-  } catch {
-    return false;
-  }
-})();
-
-if (invokedAsCli) {
+if (import.meta.main) {
   const HELP = formatHelp({
     name: "reidentify-facets",
     summary:
