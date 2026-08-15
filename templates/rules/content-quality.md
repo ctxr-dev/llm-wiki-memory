@@ -72,7 +72,7 @@ Litmus test: *if a teammate refactored this code next week without changing its 
 the leaf still be true and useful?* If a rename or a shifted line would falsify it, rewrite it
 conceptually.
 
-## Cross-document references — canonical, portable, same-wiki
+## Cross-document references — canonical, portable, scope-chain-wide
 
 When a leaf needs to point at ANOTHER leaf, reference it by its **canonical reference**
 `<source>:<path>`, never by a filesystem path:
@@ -84,15 +84,53 @@ When a leaf needs to point at ANOTHER leaf, reference it by its **canonical refe
 - **NEVER** use an absolute or relative **filesystem path** to point at a wiki document — those
   are machine-specific and rot (the same failure mode as a line number). A code/config path that
   is NOT a wiki document stays a dated, re-verifiable hint (see Durability), not a reference.
-- References resolve **within the same knowledge base only** (no cross-wiki references), and the
-  web app renders them as clickable in-app links.
+- A reference resolves against **every wiki mounted in the current scope chain** — so a leaf in the
+  brain MAY reference a repo wiki's leaf and vice versa, provided the `<source>` prefix matches a
+  mounted wiki's identity. The app renders a resolvable reference as a **wiki chip** (visually
+  distinct from an ordinary external link) and opens it in a new in-app tab, switching to the
+  target wiki when the reference points at a different one.
 - Do not confuse this with the `source:` **frontmatter** provenance key — the reference grammar
   uses the wiki prefix (`brain:` / `org/repo:`), not a literal `source:` token.
 
-Example: `brain:knowledge/backend/decision/general/postgres.md`, or
-`<org>/<repo>:knowledge/infra/deploy.md` — resolved and linkified by the app, and portable across
-machines. It stays valid under a file move only while the target's id is stable (a facet change
-moves the leaf and changes its id).
+### How to WRITE a reference — two accepted forms, nothing else
+
+The renderer detects a reference from its **grammar**, not from its markup, so both of these are
+equally valid and both become wiki chips:
+
+1. **Code-span (preferred, and the convention in this corpus)** — the backticks carry the whole
+   reference and nothing else:
+   `` `brain:knowledge/backend/decision/general/postgres.md` ``
+2. **Markdown link with the reference as the URL**, when you want a readable label:
+   `[the Postgres decision](brain:knowledge/backend/decision/general/postgres.md)`
+
+A bare, un-marked-up reference in prose is also linkified, but prefer form 1 so the reference
+reads as an identifier rather than as accidental prose.
+
+**Which form to use where is governed by the `legible-references-and-diagrams` rule, and the
+answer is almost always form 2:** label every reference with the TARGET'S OWN TITLE (or the
+entity's name when naming one in prose), so the reader sees `hodor` or
+`Aerospike CDC bin values may be single- or double-JSON-encoded` rather than a 90-character
+path. Form 1 is reserved for the rare case where the path ITSELF is the subject — documenting
+the id scheme or demonstrating placement.
+
+Two things NEVER become links, by design — do not expect them to:
+
+- a reference **embedded inside a longer code span** (e.g. a shell command that happens to name a
+  leaf) — the span must be the reference and nothing else;
+- anything inside a **fenced code block** — fenced code is always literal.
+
+A reference is portable across machines (unlike a filesystem path), but it stays valid only while
+the target's id is stable — and a **facet change moves the leaf and changes its id**, so a
+reference survives a file move only when the move did not re-place the leaf.
+
+### Do not reference a leaf that its own lifecycle relocates
+
+A `plans` / `issues` plan leaf moves between lifecycle folders (`pending` → `in-progress` → `done`
+→ `archived`), and its documentId — hence every reference to it — changes with the move. So a
+reference whose `<path>` contains a lifecycle segment is **guaranteed to rot** at the next
+transition. Reference the stable **issue knowledge leaf** (which carries no lifecycle segment) and
+let the reader reach the plan from there, or re-verify the reference per the `recall-validation`
+rule before relying on it.
 
 ## Scope — what this does NOT govern
 
