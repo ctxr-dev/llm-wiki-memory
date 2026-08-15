@@ -1,5 +1,5 @@
 import { describe, test, expect } from "vitest";
-import { reorder, orderWithPins } from "./tab-order";
+import { reorder, orderWithPins, replaceTabId } from "./tab-order";
 
 describe("reorder", () => {
   test("moves an item forward, shifting the rest", () =>
@@ -19,6 +19,44 @@ describe("reorder", () => {
     expect(reorder(list, -1, 0)).toBe(list);
     expect(reorder(list, 0, 5)).toBe(list);
     expect(reorder(list, 9, 0)).toBe(list);
+  });
+});
+
+describe("replaceTabId", () => {
+  test("swaps a stale id for the resolved one, in place", () =>
+    expect(replaceTabId(["a", "stale", "c"], "stale", "real")).toEqual(["a", "real", "c"]));
+  test("the resolved id already open collapses to one entry at the earlier position", () => {
+    expect(replaceTabId(["real", "b", "stale"], "stale", "real")).toEqual(["real", "b"]);
+    expect(replaceTabId(["stale", "b", "real"], "stale", "real")).toEqual(["real", "b"]);
+  });
+  test("adjacent duplicates collapse too", () =>
+    expect(replaceTabId(["stale", "real"], "stale", "real")).toEqual(["real"]));
+  test("from === to is a no-op (same reference)", () => {
+    const list = ["a", "b"];
+    expect(replaceTabId(list, "a", "a")).toBe(list);
+  });
+  test("a stale id absent from the list is a no-op (same reference)", () => {
+    const list = ["a", "b"];
+    expect(replaceTabId(list, "zz", "real")).toBe(list);
+    expect(replaceTabId([], "zz", "real")).toEqual([]);
+  });
+  test("only the matching id changes; every other entry keeps its identity and order", () =>
+    expect(replaceTabId(["x", "stale", "y", "z"], "stale", "real")).toEqual([
+      "x",
+      "real",
+      "y",
+      "z",
+    ]));
+  test("a repeated stale id collapses into a single resolved entry", () =>
+    expect(replaceTabId(["stale", "b", "stale"], "stale", "real")).toEqual(["real", "b"]));
+  test("the input list is never mutated", () => {
+    const list = ["a", "stale"];
+    replaceTabId(list, "stale", "real");
+    expect(list).toEqual(["a", "stale"]);
+  });
+  test("the result is stable under a second application (converges)", () => {
+    const once = replaceTabId(["a", "stale"], "stale", "real");
+    expect(replaceTabId(once, "real", "real")).toBe(once);
   });
 });
 

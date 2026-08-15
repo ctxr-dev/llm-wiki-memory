@@ -89,6 +89,7 @@ export const DocListSchema = z.object({ documents: z.array(DocEntrySchema) });
 
 export const DocViewSchema = z.object({
   id: z.string(),
+  requestedId: z.string().optional(),
   name: z.string(),
   category: z.string(),
   body: z.string(),
@@ -139,10 +140,27 @@ export const SearchFilterSchema = z
   })
   .strict();
 
-export const SearchResultsSchema = z.object({ results: z.array(SearchResultSchema) });
+/**
+ * Set when the cold-embed bound cut a read short: leaves with no cached vector were EXCLUDED from
+ * these results rather than ranked low, so the set is incomplete. Mirrors ColdShortfall in
+ * scripts/lib/types-records.mjs. Absent on a complete read — zod strips unknown keys, so the field
+ * has to be declared here or the advisory is silently dropped before it reaches the UI.
+ */
+export const ColdShortfallSchema = z.object({
+  skippedLeaves: z.number(),
+  embeddedTexts: z.number(),
+  remedy: z.string(),
+});
+
+export const SearchResultsSchema = z.object({
+  results: z.array(SearchResultSchema),
+  partial: ColdShortfallSchema.optional(),
+});
 
 export const TitlesSchema = z.object({
-  titles: z.record(z.object({ title: z.string(), active: z.boolean() })),
+  titles: z.record(
+    z.object({ title: z.string(), active: z.boolean(), resolvedId: z.string().optional() }),
+  ),
 });
 
 export const AskAnswerSchema = z

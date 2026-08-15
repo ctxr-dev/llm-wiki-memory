@@ -1,6 +1,5 @@
 import { loadEngine } from "./engine.mjs";
-
-const PLAN_STATES = ["pending", "in-progress", "done", "archived"];
+import { PLAN_STATES } from "./plan-lifecycle.mjs";
 
 /** @param {unknown} value @param {string} fallback @returns {string} */
 function str(value, fallback) {

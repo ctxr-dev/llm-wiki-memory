@@ -109,7 +109,7 @@ export const api = {
   titles: (
     id: string,
     ids: string[],
-  ): Promise<Record<string, { title: string; active: boolean }>> =>
+  ): Promise<Record<string, { title: string; active: boolean; resolvedId?: string }>> =>
     ids.length === 0
       ? Promise.resolve({})
       : getJson(
@@ -130,9 +130,16 @@ export const api = {
     for (const [key, value] of Object.entries(args.filters ?? {})) {
       if (value) params.set(key, value);
     }
-    return getJson(`/api/wikis/${id}/search?${params.toString()}`, SearchResultsSchema).then(
-      (r) => r.results,
-    );
+    /**
+     * The whole envelope: `partial` tells the user the result set is incomplete, and returning
+     * only `results` here is what kept that invisible in this app.
+     */
+    return getJson(`/api/wikis/${id}/search?${params.toString()}`, SearchResultsSchema);
+  },
+  warm: async (id: string): Promise<{ started: boolean; reason?: string }> => {
+    const response = await fetch(`/api/wikis/${id}/warm`, { method: "POST" });
+    if (!response.ok) throw new Error(`warm failed (${response.status})`);
+    return response.json();
   },
   ask: (id: string, q: string, archived: boolean) =>
     getJson(

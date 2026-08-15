@@ -4,6 +4,7 @@ import { loadEngine } from "./engine.mjs";
 import { relabel, categoryLabel, isSentinel } from "./nav-labels.mjs";
 import { leafTitle, titleForId, summaryFromData } from "./leaf-title.mjs";
 import { isWithin } from "./paths.mjs";
+import { lifecycleCandidatesFor } from "./doc.mjs";
 
 const MAX_TITLE_IDS = 500;
 
@@ -178,12 +179,13 @@ export async function docsFor(root, { category, prefix, showArchived = false } =
 
 /**
  * @param {string} root @param {string[]} ids
- * @returns {Promise<Record<string, { title: string, active: boolean }>>}
+ * @returns {Promise<Record<string, { title: string, active: boolean, resolvedId?: string }>>}
  */
 export async function titlesFor(root, ids) {
-  const { env, core, identity } = await loadEngine();
+  const engine = await loadEngine();
+  const { env, core, identity } = engine;
   return env.withWikiRoot(root, () => {
-    /** @type {Record<string, { title: string, active: boolean }>} */
+    /** @type {Record<string, { title: string, active: boolean, resolvedId?: string }>} */
     const titles = {};
     for (const id of ids.slice(0, MAX_TITLE_IDS)) {
       const fallback = id.split("/").pop() ?? id;
@@ -191,13 +193,23 @@ export async function titlesFor(root, ids) {
         titles[id] = { title: fallback, active: true };
         continue;
       }
+      const resolvedId = fs.existsSync(identity.toAbs(id))
+        ? undefined
+        : lifecycleCandidatesFor(engine, id).find(
+            (candidate) =>
+              isWithin(env.wikiRoot(), identity.toAbs(candidate)) &&
+              fs.existsSync(identity.toAbs(candidate)),
+          );
+      const readId = resolvedId ?? id;
       let active = true;
       try {
-        active = core.isActive(core.readLeaf(identity.toAbs(id)).data);
+        active = core.isActive(core.readLeaf(identity.toAbs(readId)).data);
       } catch {
         active = true;
       }
-      titles[id] = { title: titleForId(core, identity, id, fallback), active };
+      const title = titleForId(core, identity, readId, fallback);
+      titles[id] = { title, active, ...(resolvedId ? { resolvedId } : {}) };
+      if (resolvedId) titles[resolvedId] = { title, active };
     }
     return titles;
   });

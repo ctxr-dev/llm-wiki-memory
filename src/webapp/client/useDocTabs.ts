@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import type { Wiki } from "./api";
 import { parseTabs } from "./tabs";
-import { orderWithPins } from "./tab-order";
+import { orderWithPins, replaceTabId } from "./tab-order";
 import { desiredHash, resolveHash, planRestore } from "./hash-route";
+import { useTabTitles } from "./useTabTitles";
 import type { TabOrientation } from "./TabContextMenu";
 
 type TabMenu = { docId: string; x: number; y: number } | null;
@@ -26,6 +27,7 @@ export function useDocTabs({
   const [pinnedTabs, setPinnedTabs] = useState<string[]>([]);
   const [orientation, setOrientation] = useState<TabOrientation>("horizontal");
   const [tabMenu, setTabMenu] = useState<TabMenu>(null);
+  const [corrections, setCorrections] = useState<Record<string, string>>({});
   const pendingHashDoc = useRef<{ wikiId: string; docId: string } | null>(null);
   const bootstrapped = useRef(false);
   const wikiIdRef = useRef(wikiId);
@@ -51,6 +53,7 @@ export function useDocTabs({
     setActive(null);
     setDocsView();
     setTabMenu(null);
+    setCorrections({});
     Promise.all([
       api.getPref(wikiId, "openTabs"),
       api.getPref(wikiId, "pinnedTabs"),
@@ -85,6 +88,29 @@ export function useDocTabs({
     },
     [wikiId],
   );
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const pinnedRef = useRef(pinnedTabs);
+  pinnedRef.current = pinnedTabs;
+  const commitTabs = useCallback((next: string[]) => {
+    tabsRef.current = next;
+    setTabs(next);
+  }, []);
+  const commitPinned = useCallback((next: string[]) => {
+    pinnedRef.current = next;
+    setPinnedTabs(next);
+  }, []);
+  const { labelFor, archivedTabIds } = useTabTitles({
+    wikiId,
+    tabs,
+    pinnedTabs,
+    active,
+    setTabs: commitTabs,
+    setPinnedTabs: commitPinned,
+    setCorrections,
+    persist,
+    persistPinned,
+  });
 
   const openDoc = useCallback(
     (docId: string) => {
@@ -98,6 +124,40 @@ export function useDocTabs({
   );
   const openDocRef = useRef(openDoc);
   openDocRef.current = openDoc;
+
+  /**
+   * A tracker plan's id carries its lifecycle folder, so a reference written before the
+   * plan moved names an id that no longer exists; the server resolves it and answers with
+   * the leaf's REAL id. Adopting it moves the tab, its pin, the persisted openTabs
+   * preference and the hash onto the live document, so the next reload does not break
+   * again. Re-requesting the real id is an exact hit that echoes the same id back, which
+   * is why this settles after one adoption instead of looping.
+   *
+   * Rewriting persisted state destroys the id the user actually asked for, so it happens
+   * ONLY for a substitution the server declared (`requestedId`), and only while that is
+   * still the active tab — never for an arbitrary id mismatch, and never onto a tab the
+   * user has since moved away from. The correction is remembered so the swap can be shown
+   * rather than applied invisibly: the resolution matches on leaf name, so the document
+   * served is not provably the one the reference meant.
+   */
+  const adoptDocId = useCallback(
+    (resolvedId: string, requestedId: string) => {
+      if (resolvedId === requestedId || active !== requestedId) return;
+      const nextTabs = replaceTabId(tabsRef.current, requestedId, resolvedId);
+      if (nextTabs !== tabsRef.current) {
+        commitTabs(nextTabs);
+        persist(nextTabs);
+      }
+      const nextPinned = replaceTabId(pinnedRef.current, requestedId, resolvedId);
+      if (nextPinned !== pinnedRef.current) {
+        commitPinned(nextPinned);
+        persistPinned(nextPinned);
+      }
+      setActive(resolvedId);
+      setCorrections((prev) => ({ ...prev, [resolvedId]: requestedId }));
+    },
+    [active, persist, persistPinned, commitTabs, commitPinned],
+  );
 
   const navigateToRef = useCallback(
     (targetWikiId: string, docId: string) => {
@@ -139,6 +199,11 @@ export function useDocTabs({
       const next = tabs.filter((tab) => tab !== docId);
       setTabs(next);
       persist(next);
+      setCorrections((prev) => {
+        const remaining = { ...prev };
+        delete remaining[docId];
+        return remaining;
+      });
       if (pinnedTabs.includes(docId)) {
         const prunedPins = pinnedTabs.filter((id) => id !== docId);
         setPinnedTabs(prunedPins);
@@ -161,6 +226,9 @@ export function useDocTabs({
       const next = tabs.filter((tab) => keep.has(tab));
       setTabs(next);
       persist(next);
+      setCorrections((prev) =>
+        Object.fromEntries(Object.entries(prev).filter(([id]) => keep.has(id))),
+      );
       setActive(docId);
     },
     [tabs, pinnedTabs, persist],
@@ -187,6 +255,9 @@ export function useDocTabs({
     tabs,
     active,
     setActive,
+    labelFor,
+    archivedTabIds,
+    staleRef: active ? (corrections[active] ?? null) : null,
     pinnedTabs,
     orientation,
     tabMenu,
@@ -199,5 +270,22 @@ export function useDocTabs({
     togglePin,
     changeOrientation,
     navigateToRef,
+    adoptDocId,
   };
+}
+
+/**
+ * `requestedId` is present only when the server served a leaf under a different id than
+ * the one asked for, so its presence — not a bare id mismatch — is what authorises the
+ * tab rewrite below.
+ */
+export function useAdoptResolvedId(
+  doc: { id: string; requestedId?: string } | undefined,
+  adoptDocId: (resolvedId: string, requestedId: string) => void,
+) {
+  const resolvedId = doc?.id;
+  const requestedId = doc?.requestedId;
+  useEffect(() => {
+    if (resolvedId && requestedId) adoptDocId(resolvedId, requestedId);
+  }, [resolvedId, requestedId, adoptDocId]);
 }

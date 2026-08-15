@@ -12,17 +12,18 @@ import { TabBar } from "./TabBar";
 import { TabContextMenu } from "./TabContextMenu";
 import { NavPanel, type NavRequest } from "./NavPanel";
 import { DocView } from "./DocView";
+import { StaleRefNotice } from "./StaleRefNotice";
 import { Breadcrumb } from "./Breadcrumb";
 import { CommandPalette } from "./CommandPalette";
 import { AskPanel } from "./AskPanel";
 import { PlansBoard } from "./PlansBoard";
 import { IssuesBoard } from "./IssuesBoard";
 import { ThemeToggle } from "./ThemeToggle";
-import { useWikis, useTitles, useDoc } from "./hooks";
+import { useWikis, useDoc } from "./hooks";
 import type { Facet } from "./api";
 import { formatRef } from "./refs";
 import { availableViews } from "./views";
-import { useDocTabs } from "./useDocTabs";
+import { useDocTabs, useAdoptResolvedId } from "./useDocTabs";
 import { useShowArchived } from "./useShowArchived";
 
 type PaletteInit = { filters: Facet[]; category: string | null } | null;
@@ -48,9 +49,11 @@ export function App() {
   const effectiveView = views.includes(view) ? view : "docs";
   const setDocsView = useCallback(() => setView("docs"), []);
   const {
-    tabs,
     active,
     setActive,
+    labelFor,
+    archivedTabIds,
+    staleRef,
     pinnedTabs,
     orientation,
     tabMenu,
@@ -63,12 +66,10 @@ export function App() {
     togglePin,
     changeOrientation,
     navigateToRef,
+    adoptDocId,
   } = useDocTabs({ wikiId, setWikiId, wikis: wikis.data, activeWiki, setDocsView });
-  const tabTitles = useTitles(wikiId, tabs);
-  const labelFor = (docId: string) =>
-    tabTitles.data?.[docId]?.title ?? docId.split("/").pop() ?? docId;
-  const archivedTabIds = tabs.filter((tab) => tabTitles.data?.[tab]?.active === false);
   const activeDoc = useDoc(wikiId, active);
+  useAdoptResolvedId(activeDoc.data, adoptDocId);
 
   useEffect(() => setEditing(false), [active]);
 
@@ -138,16 +139,19 @@ export function App() {
         onContextMenu={(docId, x, y) => setTabMenu({ docId, x, y })}
       />
     ) : null;
-  const breadcrumb =
+  const docHeader =
     effectiveView === "docs" && active ? (
-      <Breadcrumb
-        docId={active}
-        wiki={activeWiki}
-        onNavigate={navigateTo}
-        onEdit={() => setEditing(true)}
-        editing={editing}
-        archived={activeDoc.data ? !activeDoc.data.active : false}
-      />
+      <>
+        <Breadcrumb
+          docId={active}
+          wiki={activeWiki}
+          onNavigate={navigateTo}
+          onEdit={() => setEditing(true)}
+          editing={editing}
+          archived={activeDoc.data ? !activeDoc.data.active : false}
+        />
+        {staleRef && <StaleRefNotice requestedId={staleRef} resolvedId={active} />}
+      </>
     ) : null;
   const scrollArea = (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -240,14 +244,14 @@ export function App() {
           <div className="flex min-h-0 flex-1">
             {tabBar}
             <div className="flex min-w-0 flex-1 flex-col">
-              {breadcrumb}
+              {docHeader}
               {scrollArea}
             </div>
           </div>
         ) : (
           <>
             {tabBar}
-            {breadcrumb}
+            {docHeader}
             {scrollArea}
           </>
         )}

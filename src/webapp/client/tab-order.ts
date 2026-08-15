@@ -6,6 +6,12 @@ export function reorder(list: string[], from: number, to: number): string[] {
   return next;
 }
 
+export function replaceTabId(ids: string[], from: string, to: string): string[] {
+  if (from === to || !ids.includes(from)) return ids;
+  const swapped = ids.map((id) => (id === from ? to : id));
+  return swapped.filter((id, index) => swapped.indexOf(id) === index);
+}
+
 export function orderWithPins(tabs: string[], pinned: string[]): string[] {
   const pinnedSet = new Set(pinned);
   const pins = tabs.filter((tab) => pinnedSet.has(tab));

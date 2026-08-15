@@ -33,10 +33,10 @@ test("the collapsed Categories rail shows the current path (breadcrumb words)", 
   await expect(browse.getByText("Knowledge")).toBeVisible();
 });
 
-test("the view tabs follow the wiki layout (plans present, issues absent)", async ({ page }) => {
+test("the view tabs follow the wiki layout (plans and issues both present)", async ({ page }) => {
   await openCategories(page);
   await expect(page.getByRole("button", { name: "plans", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "issues", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "issues", exact: true })).toBeVisible();
 });
 
 test("on a medium screen the Wikis column collapses first while Categories stays open", async ({

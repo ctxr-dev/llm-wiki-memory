@@ -73,7 +73,7 @@ function installSignalCleanup() {
 // Create an isolated temp data dir, point the env at it, and (optionally)
 // materialise the hosted wiki. Must be called BEFORE importing any lib that
 // reads env.mjs paths, since those are resolved at import time.
-export function setupWorkspace({ init = true, projectModule = "testproj" } = {}) {
+export function setupWorkspace({ init = true, projectModule = "testproj", template } = {}) {
   installSignalCleanup();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-"));
   TRACKED_DATA_DIRS.add(dataDir);
@@ -105,7 +105,9 @@ export function setupWorkspace({ init = true, projectModule = "testproj" } = {})
 
   const wiki = path.join(dataDir, "wiki");
   if (init) {
-    const r = spawnSync(process.execPath, [path.join(SRC, "scripts/cli.mjs"), "init"], {
+    const args = [path.join(SRC, "scripts/cli.mjs"), "init"];
+    if (template) args.push("--template", template);
+    const r = spawnSync(process.execPath, args, {
       env: process.env,
       encoding: "utf8",
     });

@@ -1,15 +1,40 @@
 import { test, expect } from "@playwright/test";
-import { palette, openCategories, openKafka } from "./helpers";
+import { palette, openCategories, openKafka, tree } from "./helpers";
+
+type Page = import("@playwright/test").Page;
 
 const KAFKA_ID = "knowledge/backend/decision/architecture/kafka.md";
 const KAFKA_REF = `brain:${KAFKA_ID}`;
+const REFS_DEMO_ID = "investigations/general/refs-demo.md";
+const ESCALATION_REF = "brain:issues/JIRA/DEV/134/9/6/DEV-134096.md";
 
-const tabStrip = (page: import("@playwright/test").Page) =>
-  page.locator('div:has(> [draggable="true"])');
+const tabStrip = (page: Page) => page.locator('div:has(> [draggable="true"])');
 
-async function openKafkaAndReact(page: import("@playwright/test").Page) {
+const tabItems = (page: Page) => tabStrip(page).locator('[draggable="true"]');
+
+const refChip = (page: Page, ref: string) => page.locator(`.md-body a[data-wiki-ref="${ref}"]`);
+
+const externalLink = (page: Page) => page.locator(".md-body a.external-link");
+
+const refHash = (docId: string) => new RegExp(`#brain:${docId.replace(/\//g, "\\/")}$`);
+
+async function openKafkaAndReact(page: Page) {
   await openKafka(page);
   await page.locator("aside").getByRole("button", { name: "React And Vite" }).click();
+}
+
+async function openRefsDemo(page: Page) {
+  await openCategories(page);
+  await tree(page).getByRole("button", { name: "Investigations" }).click();
+  await tree(page).getByRole("button", { name: "Reference Demo" }).click();
+  await expect(page.getByRole("heading", { name: "Reference Demo", level: 1 })).toBeVisible();
+}
+
+async function closeTabNamed(page: Page, label: string) {
+  const tab = tabItems(page).filter({ hasText: label });
+  if ((await tab.count()) === 0) return;
+  await tab.getByRole("button", { name: "close tab" }).click();
+  await expect(tab).toHaveCount(0);
 }
 
 test("the copy-reference button copies the canonical reference and shows a copied state", async ({
@@ -30,7 +55,7 @@ test("pasting a reference into search jumps straight to the document", async ({ 
   await palette(page)
     .getByPlaceholder(/Search or jump/)
     .fill(KAFKA_REF);
-  await expect(palette(page).getByText("Reference")).toBeVisible();
+  await expect(palette(page).getByText("Reference", { exact: true })).toBeVisible();
   await palette(page).getByText(KAFKA_ID).click();
   await expect(page.getByRole("heading", { name: "Kafka", level: 1 })).toBeVisible();
 });
@@ -137,4 +162,102 @@ test("the collapsed TOC/Related rail fills the viewport height (Req 1)", async (
   await aside.getByRole("button", { name: "collapse TOC & Related Docs" }).click();
   const box = await aside.boundingBox();
   expect(box && box.height).toBeGreaterThan(400);
+});
+
+test("a backticked reference in a body renders as a wiki chip that keeps its monospace look", async ({
+  page,
+}) => {
+  await openRefsDemo(page);
+  const escalation = refChip(page, ESCALATION_REF);
+  await expect(escalation).toBeVisible();
+  await expect(escalation).toHaveAttribute("href", `#${ESCALATION_REF}`);
+  await expect(escalation).toHaveAttribute("title", /Cmd-click/);
+  await expect(escalation.locator("code")).toHaveText(ESCALATION_REF);
+  expect(await escalation.getAttribute("target")).toBeNull();
+  await expect(escalation).toHaveCSS("text-decoration-line", "none");
+  const chipColor = await escalation.evaluate((el) => getComputedStyle(el).color);
+  const externalColor = await externalLink(page).evaluate((el) => getComputedStyle(el).color);
+  expect(chipColor).not.toBe(externalColor);
+});
+
+test("clicking a backticked reference opens the target document in a new app tab", async ({
+  page,
+}) => {
+  await openRefsDemo(page);
+  await closeTabNamed(page, "Kafka choice");
+  const openedBefore = await tabItems(page).count();
+  await refChip(page, KAFKA_REF).click();
+  await expect(page.getByRole("heading", { name: "Kafka", level: 1 })).toBeVisible();
+  await expect(page).toHaveURL(refHash(KAFKA_ID));
+  await expect(tabItems(page)).toHaveCount(openedBefore + 1);
+  await expect(tabItems(page).filter({ hasText: "Kafka choice" })).toHaveCount(1);
+  await expect(tabItems(page).filter({ hasText: "Reference Demo" })).toHaveCount(1);
+});
+
+test("clicking a reference to an already-open document focuses its existing tab", async ({
+  page,
+}) => {
+  await openRefsDemo(page);
+  await closeTabNamed(page, "Kafka choice");
+  await refChip(page, KAFKA_REF).click();
+  await expect(page.getByRole("heading", { name: "Kafka", level: 1 })).toBeVisible();
+  const openedBefore = await tabItems(page).count();
+  await tabStrip(page).getByRole("button", { name: "Reference Demo" }).click();
+  await expect(page.getByRole("heading", { name: "Reference Demo", level: 1 })).toBeVisible();
+  await refChip(page, KAFKA_REF).click();
+  await expect(page).toHaveURL(refHash(KAFKA_ID));
+  await expect(tabItems(page)).toHaveCount(openedBefore);
+  await expect(tabItems(page).filter({ hasText: "Kafka choice" })).toHaveCount(1);
+});
+
+test("an ordinary http link opens a browser tab and leaves the app where it was", async ({
+  page,
+}) => {
+  await openRefsDemo(page);
+  const link = externalLink(page);
+  await expect(link).toHaveAttribute("target", "_blank");
+  await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  const openedBefore = await tabItems(page).count();
+  const [opened] = await Promise.all([page.waitForEvent("popup"), link.click()]);
+  await expect.poll(() => opened.url()).toContain("example.com");
+  await opened.close();
+  await expect(page).toHaveURL(refHash(REFS_DEMO_ID));
+  await expect(page.getByRole("heading", { name: "Reference Demo", level: 1 })).toBeVisible();
+  await expect(tabItems(page)).toHaveCount(openedBefore);
+});
+
+test("Cmd-clicking a wiki reference opens a browser tab landing on the target document", async ({
+  page,
+  context,
+}) => {
+  await openRefsDemo(page);
+  await closeTabNamed(page, "Kafka choice");
+  const openedBefore = await tabItems(page).count();
+  const [opened] = await Promise.all([
+    context.waitForEvent("page"),
+    refChip(page, KAFKA_REF).click({ modifiers: ["ControlOrMeta"] }),
+  ]);
+  await opened.bringToFront();
+  await expect(opened).toHaveURL(refHash(KAFKA_ID), { timeout: 20000 });
+  await expect(opened.getByRole("heading", { name: "Kafka", level: 1 })).toBeVisible({
+    timeout: 20000,
+  });
+  await opened.close();
+  await page.bringToFront();
+  await expect(page.getByRole("heading", { name: "Reference Demo", level: 1 })).toBeVisible();
+  await expect(tabItems(page)).toHaveCount(openedBefore);
+});
+
+test("a definition-token occurrence scrolls to the row that defines it", async ({ page }) => {
+  await openRefsDemo(page);
+  const occurrence = page.locator('.md-body a[data-def-token="E1"]');
+  await expect(occurrence).toHaveCount(1);
+  await expect(occurrence).toHaveAttribute("href", "#def-e1");
+  const definition = page.locator("#def-e1");
+  await expect(definition).toHaveText("E1");
+  await expect(definition).not.toBeInViewport();
+  await occurrence.click();
+  await expect(definition).toHaveClass(/def-token-flash/);
+  await expect(definition).toBeInViewport();
+  await expect(page).toHaveURL(refHash(REFS_DEMO_ID));
 });

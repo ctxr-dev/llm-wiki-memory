@@ -97,6 +97,64 @@ subject:
 The audit topic and the ofe topic showed different requestId values for the same order.
 `;
 
+const REFS = `focus: Reference Demo
+memory:
+  atom_type: investigation
+  status: active
+`;
+
+const REFS_FILLER = Array.from(
+  { length: 40 },
+  (_, index) => `Filler paragraph ${index} keeps the escalation register below the fold.`,
+).join("\n\n");
+
+const REFS_TREE = `<pre>webapp
+  ├─ <a href="brain:knowledge/frontend/decision/architecture/react.md">react.md  :12</a>
+  └─ client/Markdown.tsx  :44
+</pre>`;
+
+const REFS_BODY = `# Reference Demo
+
+Escalations: \`brain:issues/JIRA/DEV/134/9/6/DEV-134096.md\`
+
+Linked note: \`brain:knowledge/backend/decision/architecture/kafka.md\`
+
+Upstream: [netty release notes](https://example.com/netty)
+
+${REFS_TREE}
+
+Register: E1 still waits for an upstream owner.
+
+${REFS_FILLER}
+
+## Escalated
+
+| Marker | Package | Owner |
+| --- | --- | --- |
+| **E1** | netty-codec-http | platform |
+| **E2** | jackson-databind | platform |
+`;
+
+/**
+ * A plan that lives under `pending/`, so a reference naming any OTHER lifecycle folder is
+ * stale in exactly the way a real tracker plan's references go stale when it transitions.
+ */
+const MOVED_PLAN = `focus: Moved Demo Plan
+status: pending
+progress: "0/2"
+memory:
+  atom_type: plan
+  status: active
+  area: backend
+  subject:
+    - architecture
+`;
+
+const MOVED_PLAN_BODY = `# Moved Demo
+
+This plan sits under pending; references written earlier name a different folder.
+`;
+
 export function createFixtureWiki() {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-e2e-"));
   fs.mkdirSync(path.join(dataDir, "settings"), { recursive: true });
@@ -110,10 +168,14 @@ export function createFixtureWiki() {
     LLM_WIKI_NO_PROMPT: "1",
     LLM_WIKI_FIXED_TIMESTAMP: "1700000000",
   };
-  const result = spawnSync(process.execPath, [path.join(REPO, "scripts/cli.mjs"), "init"], {
-    env,
-    encoding: "utf8",
-  });
+  const result = spawnSync(
+    process.execPath,
+    [path.join(REPO, "scripts/cli.mjs"), "init", "--template", "tracker-issues"],
+    {
+      env,
+      encoding: "utf8",
+    },
+  );
   if (result.status !== 0) {
     throw new Error(`fixture wiki init failed: ${result.stderr || result.stdout}`);
   }
@@ -128,12 +190,18 @@ export function createFixtureWiki() {
   leaf("knowledge/backend/reference/tooling/legacy.md", ARCHIVED, "# Retired\n\nOld notes.\n");
   leaf("knowledge/backend/bug-root-cause/general/divergence.md", DIVERGENCE, DIVERGENCE_BODY);
   leaf("investigations/general/probe.md", PROBE, "# Probe\n\nA lone investigation.\n");
+  leaf("investigations/general/refs-demo.md", REFS, REFS_BODY);
   leaf(
     "self_improvement/workflow/planning/general/lesson-preserve-detail.md",
     LESSON,
     "# Preserve detail\n\nAlways diff a plan rewrite before saving.\n",
   );
   leaf("plans/backend/architecture/rollout.md", PLAN, "# Rollout\n\n- [x] one\n- [ ] two\n");
+  leaf(
+    "issues/JIRA/DEV/134/9/6/pending/DEV-134096-moved-demo.plan.md",
+    MOVED_PLAN,
+    MOVED_PLAN_BODY,
+  );
   for (let i = 0; i < 60; i += 1) {
     const n = String(i).padStart(2, "0");
     leaf(

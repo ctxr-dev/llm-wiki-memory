@@ -1,5 +1,14 @@
 import { describe, test, expect } from "vitest";
-import { wikiToSource, formatRef, parseRef, resolveRef } from "./refs";
+import {
+  wikiToSource,
+  formatRef,
+  parseRef,
+  resolveRef,
+  resolveRefHref,
+  isDocumentId,
+  wikiById,
+  wikiLabel,
+} from "./refs";
 import type { Wiki } from "./api";
 
 const home: Wiki = {
@@ -69,6 +78,25 @@ describe("parseRef — tokenizer only (split on first colon)", () => {
     }));
   test("no colon -> null", () => expect(parseRef("nocolon")).toBeNull());
   test("empty path after colon -> null", () => expect(parseRef("brain:")).toBeNull());
+});
+
+describe("wikiById / wikiLabel — the tooltip lookup for a resolved ref", () => {
+  test("an id present in the list resolves to that wiki and its label", () => {
+    expect(wikiById(wikis, repo.id)).toBe(repo);
+    expect(wikiLabel(wikis, home.id)).toBe(home.label);
+  });
+  test("an unknown id yields undefined rather than throwing", () => {
+    expect(wikiById(wikis, "missing-id")).toBeUndefined();
+    expect(wikiLabel(wikis, "missing-id")).toBeUndefined();
+  });
+  test("an empty wiki list yields undefined", () => {
+    expect(wikiById([], home.id)).toBeUndefined();
+    expect(wikiLabel([], home.id)).toBeUndefined();
+  });
+  test("a resolved ref's wikiId round-trips back to its wiki", () => {
+    const resolved = resolveRef(wikis, formatRef(nested, "knowledge/x.md"));
+    expect(wikiLabel(wikis, resolved?.wikiId ?? "")).toBe(nested.label);
+  });
 });
 
 describe("resolveRef — the accept gate: live wikis, case-insensitive", () => {
@@ -146,4 +174,52 @@ describe("resolveRef — the accept gate: live wikis, case-insensitive", () => {
     const long: Wiki = { ...repo, id: "long-id", projectModule: "acme/widget" };
     expect(resolveRef([short, long], "acme/widget:knowledge/b.md")?.wikiId).toBe(long.id);
   });
+});
+
+describe("resolveRef — the document-id shape gate", () => {
+  test.each([
+    ["a ref trailed by prose", "brain:knowledge/a.md file.txt"],
+    ["a ref trailed by a parenthetical", "brain:knowledge/a.md (superseded)"],
+    ["the grammar placeholder", "brain:<docId>"],
+    ["a path with no .md suffix", "brain:knowledge/a"],
+    ["a suffix with no name in front of it", "brain:.md"],
+    ["prose that merely starts with a source prefix", "brain: build is red"],
+    ["a document id carrying a fragment", "brain:knowledge/a.md#section"],
+  ])("%s is not a reference", (_case, text) => expect(resolveRef(wikis, text)).toBeNull());
+
+  test("a plan leaf and a deep path stay references", () => {
+    expect(resolveRef(wikis, "brain:plans/backend/x.plan.md")?.docId).toBe(
+      "plans/backend/x.plan.md",
+    );
+    expect(resolveRef(wikis, "brain:issues/JIRA/DEV/134/9/6/DEV-134096.md")?.docId).toBe(
+      "issues/JIRA/DEV/134/9/6/DEV-134096.md",
+    );
+  });
+
+  test("isDocumentId is the shape rule the gate applies", () => {
+    expect(isDocumentId("knowledge/a.md")).toBe(true);
+    expect(isDocumentId("a.md b.md")).toBe(false);
+    expect(isDocumentId(".md")).toBe(false);
+    expect(isDocumentId("knowledge/a")).toBe(false);
+  });
+});
+
+describe("resolveRefHref — hrefs arrive percent-encoded and must be decoded once", () => {
+  test("a non-ASCII document id decodes back to its real id", () =>
+    expect(resolveRefHref(wikis, "brain:knowledge/caf%C3%A9.md")).toEqual({
+      wikiId: home.id,
+      docId: "knowledge/café.md",
+    }));
+  test("an unencoded href resolves unchanged", () =>
+    expect(resolveRefHref(wikis, "brain:knowledge/a.md")?.docId).toBe("knowledge/a.md"));
+  test("a malformed escape sequence falls back to the raw href instead of throwing", () =>
+    expect(resolveRefHref(wikis, "brain:knowledge/%E0%A4%A.md")?.docId).toBe(
+      "knowledge/%E0%A4%A.md",
+    ));
+  test("an undefined or empty href is not a reference", () => {
+    expect(resolveRefHref(wikis, undefined)).toBeNull();
+    expect(resolveRefHref(wikis, "")).toBeNull();
+  });
+  test("an encoded space still rejects, because a document id carries no whitespace", () =>
+    expect(resolveRefHref(wikis, "brain:knowledge/my%20note.md")).toBeNull());
 });

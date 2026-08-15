@@ -4,6 +4,7 @@ import path from "node:path";
 import { setupWorkspace, cleanup } from "../../../test/harness.mjs";
 import { categoryCacheIsCold } from "./doc.mjs";
 
+/** Stale-lifecycle plan resolution has its own suite in doc-lifecycle.test.mjs. */
 function seed(wiki) {
   const write = (rel, body) => {
     const abs = path.join(wiki, ...rel.split("/"));
@@ -84,6 +85,7 @@ test("GET /doc/* refuses a path-traversal id (404, never escapes the wiki root)"
     url: `/api/wikis/${id}/doc/${encodeURIComponent("../../../../etc/passwd")}`,
   });
   expect(res.statusCode).toBe(404);
+  expect(res.json()).toEqual({ error: "no-such-doc" });
 });
 
 test("GET /related/* ranks other docs by similarity and never includes the source", async () => {
