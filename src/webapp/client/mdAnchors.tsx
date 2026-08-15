@@ -17,17 +17,18 @@ const MIDDLE_BUTTON = 1;
 
 const NEW_BROWSER_TAB = { target: "_blank", rel: "noopener noreferrer" } as const;
 
-const ANCHOR_ICON_CLASS = "inline h-[0.9em] w-[0.9em] align-middle";
+const ANCHOR_ICON_CLASS = "my-auto mx-[3px] h-[0.9em] w-[0.9em] p-0";
 
-export const WIKI_REF_CLASS =
-  "wiki-ref break-words rounded bg-indigo-100 px-1 py-0.5 font-medium text-indigo-800 no-underline ring-1 ring-indigo-200 hover:bg-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:ring-indigo-800 dark:hover:bg-indigo-900";
+const ANCHOR_BOX_CLASS = "m-auto inline-flex py-0 pl-0 pr-[5px] align-middle leading-[20px]";
+
+export const WIKI_REF_CLASS = `wiki-ref ${ANCHOR_BOX_CLASS} break-words rounded bg-indigo-100 font-medium text-indigo-800 no-underline ring-1 ring-indigo-200 hover:bg-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:ring-indigo-800 dark:hover:bg-indigo-900`;
 
 export const DEF_TOKEN_LINK_CLASS = `${DEF_TOKEN_CLASS} cursor-pointer font-medium text-amber-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-amber-400`;
 
 export const PLAIN_LINK_CLASS =
   "plain-link text-sky-700 underline underline-offset-2 hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-300";
 
-export const EXTERNAL_LINK_CLASS = `${PLAIN_LINK_CLASS} external-link`;
+export const EXTERNAL_LINK_CLASS = `${PLAIN_LINK_CLASS} external-link ${ANCHOR_BOX_CLASS}`;
 
 function isPlainPrimaryClick(event: MouseEvent<HTMLAnchorElement>): boolean {
   return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
@@ -78,18 +79,13 @@ export function WikiRefLink({
         onOpenRef(resolved.wikiId, resolved.docId);
       }}
     >
-      <LinkIcon aria-hidden="true" className={`mr-1 ${ANCHOR_ICON_CLASS}`} />
+      <LinkIcon aria-hidden="true" className={ANCHOR_ICON_CLASS} />
       {children}
     </a>
   );
 }
 
-export function DefTokenLink({
-  href,
-  token,
-  children,
-  ...rest
-}: AnchorProps & { token: string }) {
+export function DefTokenLink({ href, token, children, ...rest }: AnchorProps & { token: string }) {
   return (
     <a
       {...rest}
@@ -129,7 +125,7 @@ export function PlainLink({ href, children, ...rest }: AnchorProps) {
     return (
       <a {...rest} href={href} {...NEW_BROWSER_TAB} className={EXTERNAL_LINK_CLASS}>
         {children}
-        <ArrowTopRightOnSquareIcon aria-hidden="true" className={`ml-0.5 ${ANCHOR_ICON_CLASS}`} />
+        <ArrowTopRightOnSquareIcon aria-hidden="true" className={ANCHOR_ICON_CLASS} />
       </a>
     );
   }

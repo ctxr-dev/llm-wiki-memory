@@ -18,9 +18,9 @@ export function StaleRefNotice({
       role="status"
       className="border-b border-amber-200 bg-amber-50 px-6 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200"
     >
-      This plan moved: <code>{requestedId}</code> no longer exists, so <code>{resolvedId}</code>{" "}
-      was opened instead. Plans keep their name across lifecycle folders — check this is the
-      one the reference meant.
+      This plan moved: <code>{requestedId}</code> no longer exists, so <code>{resolvedId}</code> was
+      opened instead. Plans keep their name across lifecycle folders — check this is the one the
+      reference meant.
     </div>
   );
 }

@@ -64,6 +64,9 @@ html.dark .def-token-flash {
   .md-body a.wiki-ref code {
     @apply bg-transparent p-0 text-inherit dark:bg-transparent;
   }
+  .md-body pre a {
+    @apply inline;
+  }
   .md-body pre a.wiki-ref {
     @apply bg-transparent p-0 ring-0 hover:bg-transparent dark:bg-transparent dark:hover:bg-transparent;
   }

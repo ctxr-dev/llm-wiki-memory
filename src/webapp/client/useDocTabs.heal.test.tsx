@@ -208,8 +208,9 @@ describe("healing a stale tab from the titles response", () => {
     vi.mocked(api.doc).mockImplementation((_wikiId: string, docId: string) =>
       Promise.resolve(docView(docId)),
     );
-    let release: (map: Record<string, { title: string; active: boolean; resolvedId?: string }>) => void =
-      () => undefined;
+    let release: (
+      map: Record<string, { title: string; active: boolean; resolvedId?: string }>,
+    ) => void = () => undefined;
     vi.mocked(api.titles)
       .mockResolvedValueOnce({ [STALE]: healed })
       .mockImplementationOnce(

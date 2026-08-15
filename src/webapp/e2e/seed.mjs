@@ -97,6 +97,33 @@ subject:
 The audit topic and the ofe topic showed different requestId values for the same order.
 `;
 
+const DIAGRAM = `focus: Diagram Demo
+memory:
+  atom_type: investigation
+  status: active
+`;
+
+const WIDE_CHART = ["flowchart LR"]
+  .concat(
+    Array.from({ length: 8 }, (_, row) =>
+      Array.from(
+        { length: 10 },
+        (_, col) =>
+          `  r${row}c${col}["row ${row} stage ${col} with a long label"] -->|"hop ${col}"| r${row}c${col + 1}`,
+      ).join("\n"),
+    ),
+  )
+  .join("\n");
+
+const DIAGRAM_BODY = `# Diagram Demo
+
+A wide diagram used to exercise the full-window viewer.
+
+\`\`\`mermaid
+${WIDE_CHART}
+\`\`\`
+`;
+
 const REFS = `focus: Reference Demo
 memory:
   atom_type: investigation
@@ -191,6 +218,7 @@ export function createFixtureWiki() {
   leaf("knowledge/backend/bug-root-cause/general/divergence.md", DIVERGENCE, DIVERGENCE_BODY);
   leaf("investigations/general/probe.md", PROBE, "# Probe\n\nA lone investigation.\n");
   leaf("investigations/general/refs-demo.md", REFS, REFS_BODY);
+  leaf("investigations/general/diagram-demo.md", DIAGRAM, DIAGRAM_BODY);
   leaf(
     "self_improvement/workflow/planning/general/lesson-preserve-detail.md",
     LESSON,

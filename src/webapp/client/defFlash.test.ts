@@ -22,7 +22,8 @@ afterEach(() => {
 });
 
 describe("anchorTargetId", () => {
-  test("reads the id out of a fragment href", () => expect(anchorTargetId("#def-e1")).toBe("def-e1"));
+  test("reads the id out of a fragment href", () =>
+    expect(anchorTargetId("#def-e1")).toBe("def-e1"));
   test("decodes a percent-encoded fragment", () =>
     expect(anchorTargetId("#caf%C3%A9")).toBe("café"));
   test("falls back to the raw fragment when the escape is malformed", () =>

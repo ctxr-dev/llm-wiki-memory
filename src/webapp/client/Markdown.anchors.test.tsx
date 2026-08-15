@@ -215,16 +215,26 @@ test("every anchor kind carries dark-theme variant classes", () => {
   expect(external.className).toContain("dark:text-sky-400");
 });
 
-test("anchor icons centre on the text via font metrics, not a hand-tuned baseline offset", () => {
+test("anchor icons centre by flex auto-margin, not a hand-tuned baseline offset", () => {
   const { container } = render(
     <Markdown body={`[label](${REF}) and [ext](https://x.example)`} wikis={[home]} />,
   );
   const icons = [...container.querySelectorAll("a svg")];
   expect(icons).toHaveLength(2);
   for (const icon of icons) {
-    expect(icon.getAttribute("class")).toContain("align-middle");
+    expect(icon.getAttribute("class")).toContain("my-auto");
     expect(icon.getAttribute("class")).not.toMatch(/align-\[/);
     expect(icon.getAttribute("class")).toMatch(/h-\[[\d.]+em\] w-\[[\d.]+em\]/);
+    expect(icon.getAttribute("class")).not.toMatch(/\bm[rl]-(?!\[3px\])/);
+  }
+});
+
+test("an icon-bearing anchor is a flex box, which is what makes my-auto centre the icon", () => {
+  const { container } = render(
+    <Markdown body={`[label](${REF}) and [ext](https://x.example)`} wikis={[home]} />,
+  );
+  for (const anchor of [...container.querySelectorAll("a")]) {
+    expect(anchor.className).toContain("inline-flex");
   }
 });
 
@@ -232,8 +242,8 @@ test("both anchor kinds size their icon identically, so alignment cannot drift a
   const { container } = render(
     <Markdown body={`[label](${REF}) and [ext](https://x.example)`} wikis={[home]} />,
   );
-  const sizes = [...container.querySelectorAll("a svg")].map((icon) =>
-    (icon.getAttribute("class") ?? "").match(/h-\[[\d.]+em\] w-\[[\d.]+em\]/)?.[0],
+  const sizes = [...container.querySelectorAll("a svg")].map(
+    (icon) => (icon.getAttribute("class") ?? "").match(/h-\[[\d.]+em\] w-\[[\d.]+em\]/)?.[0],
   );
   expect(sizes[0]).toBeDefined();
   expect(sizes[0]).toBe(sizes[1]);
