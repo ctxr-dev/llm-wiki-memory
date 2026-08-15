@@ -1,4 +1,10 @@
-import { parseEnvValue, readEnvFile, __resetEnvFileCache } from "./env-file.mjs";
+import {
+  parseEnvValue,
+  readEnvValueFrom,
+  envFileHas,
+  __resetEnvFileCache,
+  __envFileCacheSnapshot,
+} from "./env-file.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -70,7 +76,20 @@ export const PROMPTS_DIR = path.join(MEMORY_DIR, "prompts");
  * @param {string} [fallback]
  * @returns {string}
  */
-export { parseEnvValue, __resetEnvFileCache };
+export { parseEnvValue, __resetEnvFileCache, __envFileCacheSnapshot };
+
+// Whether a value is configured, WITHOUT materialising it. For a credential this is the only form
+// that is both cached and safe: `settings()` builds its cache key from these booleans, so routing
+// them through envValue would take the uncached secret path twice per settings() hit.
+/**
+ * @param {string} name
+ * @returns {boolean}
+ */
+export function envHas(name) {
+  const fromProcess = process.env[name];
+  if (fromProcess != null && String(fromProcess).trim() !== "") return true;
+  return envFileHas(ENV_PATH, name);
+}
 
 /**
  * @param {string} name
@@ -80,8 +99,8 @@ export { parseEnvValue, __resetEnvFileCache };
 export function envValue(name, fallback = "") {
   if (process.env[name] != null && process.env[name] !== "")
     return /** @type {string} */ (process.env[name]);
-  const file = readEnvFile(ENV_PATH);
-  return file[name] ?? fallback;
+  // Routed per key: a secret-named lookup takes a fresh read and is never retained.
+  return readEnvValueFrom(ENV_PATH, name) ?? fallback;
 }
 
 /**

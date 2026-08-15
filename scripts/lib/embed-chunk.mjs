@@ -6,7 +6,7 @@ import { COLD_SKIP_SCORE, defaultColdBudget } from "./cold-budget.mjs";
 
 /** @typedef {import("./embed.mjs").EmbedCache} EmbedCache */
 /** @typedef {import("./embed.mjs").EmbedCacheEntry} EmbedCacheEntry */
-/** @typedef {{ take: (n: number) => boolean, spent: number, skipped: number, skipLeaf?: () => void, openDraw?: () => void }} ColdBudget */
+/** @typedef {{ take: (n: number) => boolean, spent: number, skipped: number, skipLeaf?: (key?: string) => void, openDraw?: () => void }} ColdBudget */
 
 // The cache-filling half of length-aware recall: fill/reuse per-leaf vectors and
 // chunk sets, bounded by a shared cold-embed ledger. The pure text/geometry half
@@ -39,6 +39,12 @@ export async function scoreCandidates(candidates, cacheFor, queryVec, chunkAware
     // its own. Maintenance (consolidate) is exempt: it needs every vector or its
     // dedup clustering silently under-merges, and it runs detached where a long
     // embed costs nobody's latency.
+    //
+    // A caller that supplies NO ledger cannot report a shortfall: the one made here is
+    // discarded with the call, so `coldShortfall` has nothing to read and the search looks
+    // complete however many leaves were dropped. Any read path that wants the advisory must
+    // OWN its ledger — recall.mjs, recall-search.mjs and the webapp's searchWiki all do. The
+    // webapp did not, which is exactly why its results were silently truncated.
     budget: budget ?? defaultColdBudget(),
   });
 }
@@ -82,6 +88,9 @@ export async function scoreTree(candidates, cacheFor, queryVec, opts) {
       maxChunks,
       fullMaxChunks,
       budget: opts.budget,
+      // The ledger is shared across categories and rungs, so a dropped leaf needs a namespaced
+      // identity or two categories' same-named leaves would dedupe into one.
+      keyPrefix: cat,
     });
     items.forEach((it, i) => {
       const v = perLeaf[i];
@@ -118,12 +127,12 @@ export async function scoreTree(candidates, cacheFor, queryVec, opts) {
  * `budget` (a makeColdBudget ledger) bounds how many TEXTS this call may embed;
  * omit it for the unlimited path the background warm relies on. A leaf the budget
  * refuses comes back `{ skipped: true }` and is left out of the cache.
- * @param {{ tokenizer: import("./embed.mjs").Tokenizer | null, needChunks: boolean, window?: number, maxChunks?: number, margin?: number, fullMaxChunks?: number, batchSize?: number, budget?: ColdBudget | null }} opts
+ * @param {{ tokenizer: import("./embed.mjs").Tokenizer | null, needChunks: boolean, window?: number, maxChunks?: number, margin?: number, fullMaxChunks?: number, batchSize?: number, budget?: ColdBudget | null, keyPrefix?: string }} opts
  * @returns {Promise<{ vector: number[], chunks?: number[][], skipped?: boolean }[]>}
  */
 export async function cachedLeafVectors(cache, items, opts) {
   const list = Array.isArray(items) ? items : [];
-  const { tokenizer = null, needChunks = false } = opts || {};
+  const { tokenizer = null, needChunks = false, keyPrefix = "" } = opts || {};
   /** @type {string[]} */
   const missTexts = [];
   /** @type {{ kind: "vector" | "chunk", i: number, k?: number }[]} */
@@ -161,7 +170,11 @@ export async function cachedLeafVectors(cache, items, opts) {
       // background warm still sees it as a miss. Skipping the chunk work below
       // also skips its tokenization, keeping the read off the CPU entirely.
       stage.skipped = true;
-      if (budget && typeof budget.skipLeaf === "function") budget.skipLeaf();
+      if (budget && typeof budget.skipLeaf === "function") {
+        // Namespaced by category exactly as scoreByKey is: leaf ids are category-relative,
+        // so a bare id would merge two different leaves that share a path.
+        budget.skipLeaf(keyPrefix ? `${keyPrefix}\0${id}` : id);
+      }
       continue;
     }
     pending[i] = { existing, vectorHit };

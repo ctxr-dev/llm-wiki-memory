@@ -66,6 +66,28 @@ test("workspace == $HOME always proceeds (this IS the one install)", () => {
   }
 });
 
+// "Is the workspace $HOME" was answered by comparing two path.resolve'd STRINGS, which says no
+// whenever either side reaches the same directory through a link — a symlinked home on macOS/Linux,
+// a junctioned or redirected user profile on Windows. The install is then misclassified as being
+// outside $HOME and can be refused outright. samePath() (scripts/lib/path-equal.mjs) already
+// answers exactly this question for unregister-global.mjs; the two modules simply disagreed.
+test("workspace reaching $HOME through a symlink still proceeds", () => {
+  const home = tmpDir("il-link-home-");
+  const linkParent = tmpDir("il-link-");
+  const linked = path.join(linkParent, "home-alias");
+  // "junction" not "dir": a plain directory symlink needs Administrator on Windows.
+  fs.symlinkSync(home, linked, "junction");
+  assert.notEqual(linked, fs.realpathSync(linked), "fixture must actually be an alias");
+
+  for (const template of ["default", "repo"]) {
+    assert.equal(
+      checkInstallLocation({ workspaceDir: linked, home, template }).decision,
+      DECISION.PROCEED,
+      `a link to $HOME is $HOME (template ${template})`,
+    );
+  }
+});
+
 test("an EXISTING wiki outside $HOME proceeds — a re-run is an upgrade, never a refusal", () => {
   const home = seedWiki(tmpDir("il-home2-"));
   // Both a shared mount being re-run (how stale artifacts get cleaned) and a

@@ -22,6 +22,11 @@ The `.env` file's strict subset overrides the YAML where it overlaps (e.g. `MEMO
 | `MEMORY_MCP_SERVER_NAME` | `llm-wiki-memory` | MCP server name advertised at initialize. |
 | `MEMORY_LLM_MOCK_*` | (unset) | Test seams for the mock provider. |
 
+Credential-named keys (`*_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`) are deliberately
+excluded from the engine's `.env` parse cache: they are re-read on each use, so a long-running
+process never keeps them resident and a rotated key applies immediately. Ordinary `MEMORY_*`
+settings are cached, which is where the read-path speed comes from.
+
 Recall scoping is deterministic: `project_module` is derived from a declared `project_id` > the canonical git origin `org/repo` > `file://mountDir` (nested repos chain as `org/repo//sub`); `cli.mjs migrate-identity` restamps legacy leaves. A recall `project_module` filter matches the INNERMOST chain segment (a leaf stamped `org/repo//sub` matches a filter for `sub` or the full chain, not the outer `org/repo`), so clones of a sub-package still gather regardless of parent.
 
 ## Highlights from `settings.yaml`

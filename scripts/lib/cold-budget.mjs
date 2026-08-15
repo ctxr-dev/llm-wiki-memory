@@ -8,6 +8,7 @@ import { embedMaxColdPerRead } from "./settings.mjs";
 import { isSystemMaintenance } from "./maintenance-tag.mjs";
 
 /** @typedef {import("./embed-chunk.mjs").ColdBudget} ColdBudget */
+/** @typedef {{ skippedLeaves: number, embeddedTexts: number, remedy: string }} ColdShortfall */
 
 // Marks a leaf the cold budget refused: it was never scored, so a caller must
 // DROP it rather than treat it as a zero-relevance hit.
@@ -53,9 +54,17 @@ export function makeColdBudget(maxTexts, reserveFloor = 0) {
   // An absolute spend ceiling for the current draw, not a per-draw allowance, so `take`
   // stays a single comparison on the hot path.
   let drawCeiling = maxTexts;
+  // Identities of the leaves dropped, not a tally of drop EVENTS. The recall ladder re-scores
+  // overlapping candidate sets rung by rung, so one leaf is refused several times per request; a
+  // raw counter therefore overstated a number the user is shown and asked to act on.
+  /** @type {Set<string>} */
+  const skippedKeys = new Set();
+  let unkeyedSkips = 0;
   return {
     spent: 0,
-    skipped: 0,
+    get skipped() {
+      return skippedKeys.size + unkeyedSkips;
+    },
     openDraw() {
       const remaining = maxTexts - this.spent;
       // A floor at or above the bound cannot reserve anything, so it must not starve THIS
@@ -68,8 +77,11 @@ export function makeColdBudget(maxTexts, reserveFloor = 0) {
       this.spent += n;
       return true;
     },
-    skipLeaf() {
-      this.skipped += 1;
+    skipLeaf(key) {
+      // An un-keyed caller cannot be deduplicated, so count it rather than collapsing every such
+      // call into one.
+      if (typeof key === "string" && key) skippedKeys.add(key);
+      else unkeyedSkips += 1;
     },
   };
 }
@@ -105,7 +117,7 @@ export function openColdDraw(budget) {
 // genuinely small one. `skipped` was already counted and simply never read by anything.
 /**
  * @param {ColdBudget | null | undefined} budget
- * @returns {{ skippedLeaves: number, embeddedTexts: number, remedy: string } | null}
+ * @returns {ColdShortfall | null}
  */
 export function coldShortfall(budget) {
   if (!budget || !budget.skipped) return null;
@@ -118,7 +130,7 @@ export function coldShortfall(budget) {
 }
 
 // Spread-ready form, so a response builder adds one line rather than a conditional.
-/** @param {ColdBudget | null | undefined} budget @returns {object} */
+/** @param {ColdBudget | null | undefined} budget @returns {{ partial?: ColdShortfall }} */
 export function coldPartial(budget) {
   const shortfall = coldShortfall(budget);
   return shortfall ? { partial: shortfall } : {};

@@ -100,6 +100,15 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Grep|Glob|Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.llm-wiki-memory/src/scripts/hooks/pretooluse-recall-first.sh"
+          }
+        ]
       }
     ]
   }

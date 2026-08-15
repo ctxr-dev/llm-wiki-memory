@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { isSharedWiki } from "./shared-wiki.mjs";
+import { samePath } from "../lib/path-equal.mjs";
 import { helpGuard, formatHelp, docsUrl } from "../lib/cli-args.mjs";
 
 // Where a PRIVATE brain is allowed to live: $HOME, and nowhere else.
@@ -53,7 +54,11 @@ export function hasHomeBrain(home) {
 export function checkInstallLocation({ workspaceDir, home, template }) {
   const ws = path.resolve(workspaceDir);
   const h = path.resolve(home);
-  if (ws === h) return { decision: DECISION.PROCEED };
+  // samePath, not string equality: either side can reach the same directory through a link (a
+  // symlinked $HOME, a junctioned or redirected Windows profile), and comparing the unresolved
+  // text then reports "outside $HOME" for an install that IS $HOME — and refuses it. This is the
+  // same question unregister-global.mjs already answers with the same helper.
+  if (samePath(ws, h)) return { decision: DECISION.PROCEED };
   // An existing wiki here means this is an upgrade, not a new install.
   if (dirExists(path.join(ws, ".llm-wiki-memory", "wiki"))) return { decision: DECISION.PROCEED };
 

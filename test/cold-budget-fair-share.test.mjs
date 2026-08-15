@@ -150,3 +150,65 @@ test("coldShortfall reports only when leaves were actually dropped", () => {
   assert.match(String(report?.remedy), /warm/, "must name the remedy, not just the symptom");
   assert.match(String(report?.remedy), /EXCLUDED|excluded/, "and say the leaves were dropped");
 });
+
+// ── skipped-leaf accounting ────────────────────────────────────────────────
+//
+// `skipped` feeds a USER-FACING advisory ("N leaves excluded from these results"), so it must count
+// LEAVES, not skip events. It counted the latter: skipLeaf() took no identity and fires once per
+// leaf per cachedLeafVectors call, while recall_lessons calls that once per ladder rung over
+// OVERLAPPING candidate sets — so a leaf refused by rung 1 and again by rung 2 counted twice. A
+// number that overstates is worse than none: it teaches the reader to discount it.
+
+test("the same leaf skipped twice counts ONCE", () => {
+  const budget = makeColdBudget(1, 0);
+  budget.skipLeaf("knowledge/note.md");
+  budget.skipLeaf("knowledge/note.md");
+  budget.skipLeaf("knowledge/note.md");
+  assert.equal(budget.skipped, 1, "one leaf was excluded, however many rungs re-refused it");
+});
+
+test("distinct leaves each count", () => {
+  const budget = makeColdBudget(1, 0);
+  budget.skipLeaf("knowledge/a.md");
+  budget.skipLeaf("knowledge/b.md");
+  assert.equal(budget.skipped, 2);
+});
+
+// The key is namespaced by CATEGORY, exactly as scoreTree's scoreByKey is: leaf ids are relative to
+// their category, so two categories can hold the same relative path and a bare id would merge them.
+test("the same relative id in DIFFERENT categories counts twice", () => {
+  const budget = makeColdBudget(1, 0);
+  budget.skipLeaf("knowledge/note.md");
+  budget.skipLeaf("plans/note.md");
+  assert.equal(budget.skipped, 2, "different leaves must not be merged by a bare id");
+});
+
+// Defensive: an un-keyed caller must still be counted, not silently collapse to 1.
+test("a skipLeaf with no identity still counts each call", () => {
+  const budget = makeColdBudget(1, 0);
+  budget.skipLeaf();
+  budget.skipLeaf();
+  assert.equal(budget.skipped, 2);
+});
+
+// Maintenance (consolidate/compile) is exempt from the bound entirely — it needs every vector or
+// its dedup clustering silently under-merges. So it gets a NULL ledger, and a null ledger must
+// never produce an advisory: a maintenance pass is not an incomplete user-facing read.
+test("a maintenance pass gets no ledger, and therefore no advisory", async () => {
+  const { withSystemMaintenance } = await import("../scripts/lib/maintenance-tag.mjs");
+  await withSystemMaintenance(async () => {
+    const budget = defaultColdBudget();
+    assert.equal(budget, null, "maintenance is exempt from the cold bound");
+    assert.equal(coldShortfall(budget), null, "and must never report a shortfall");
+  });
+  // …and outside the frame the bound is back, so the exemption is scoped, not sticky.
+  assert.notEqual(defaultColdBudget(), null, "a normal read is bounded again afterwards");
+});
+
+test("coldShortfall reports the deduplicated count", () => {
+  const budget = makeColdBudget(1, 0);
+  budget.take(1);
+  budget.skipLeaf("k/x.md");
+  budget.skipLeaf("k/x.md");
+  assert.equal(coldShortfall(budget)?.skippedLeaves, 1);
+});

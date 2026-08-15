@@ -4,21 +4,47 @@ import { describeWiki, hashRoot } from "./wiki-describe.mjs";
 import { realpathOr, samePath, samePathKey } from "./paths.mjs";
 
 export async function loadEngine() {
-  const [env, embed, context, layout, core, identity, search, store, render, atomic, topology] =
-    await Promise.all([
-      import("../../../scripts/lib/env.mjs"),
-      import("../../../scripts/lib/embed.mjs"),
-      import("../../../scripts/lib/wiki-context.mjs"),
-      import("../../../scripts/lib/wiki-layout-state.mjs"),
-      import("../../../scripts/lib/wiki-core.mjs"),
-      import("../../../scripts/lib/wiki-identity.mjs"),
-      import("../../../scripts/lib/wiki-search.mjs"),
-      import("../../../scripts/lib/wiki-store.mjs"),
-      import("../../../scripts/lib/wiki-render.mjs"),
-      import("../../../scripts/lib/atomic-write.mjs"),
-      import("../../../scripts/lib/topology-runtime.mjs"),
-    ]);
-  return { env, embed, context, layout, core, identity, search, store, render, atomic, topology };
+  const [
+    env,
+    embed,
+    context,
+    layout,
+    core,
+    identity,
+    search,
+    store,
+    render,
+    atomic,
+    topology,
+    budget,
+  ] = await Promise.all([
+    import("../../../scripts/lib/env.mjs"),
+    import("../../../scripts/lib/embed.mjs"),
+    import("../../../scripts/lib/wiki-context.mjs"),
+    import("../../../scripts/lib/wiki-layout-state.mjs"),
+    import("../../../scripts/lib/wiki-core.mjs"),
+    import("../../../scripts/lib/wiki-identity.mjs"),
+    import("../../../scripts/lib/wiki-search.mjs"),
+    import("../../../scripts/lib/wiki-store.mjs"),
+    import("../../../scripts/lib/wiki-render.mjs"),
+    import("../../../scripts/lib/atomic-write.mjs"),
+    import("../../../scripts/lib/topology-runtime.mjs"),
+    import("../../../scripts/lib/cold-budget.mjs"),
+  ]);
+  return {
+    env,
+    embed,
+    context,
+    layout,
+    core,
+    identity,
+    search,
+    store,
+    render,
+    atomic,
+    topology,
+    budget,
+  };
 }
 
 /**

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ArchiveBoxIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { useSearch, useWikis } from "./hooks";
+import { PartialResultsNotice } from "./PartialResultsNotice";
 import { useDebounced } from "./useDebounced";
 import { Highlight } from "./Highlight";
 import { PriorityBadge } from "./PriorityBadge";
@@ -85,7 +86,10 @@ export function CommandPalette({
     ? (wikis.data ?? [])
         .filter((wiki) => wiki.id !== wikiId)
         .map((wiki) => ({ kind: "wiki", wiki }))
-    : [...refRows, ...(search.data ?? []).map((result) => ({ kind: "doc", result }) as Row)];
+    : [
+        ...refRows,
+        ...(search.data?.results ?? []).map((result) => ({ kind: "doc", result }) as Row),
+      ];
 
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => inputRef.current?.focus(), []);
@@ -236,6 +240,9 @@ export function CommandPalette({
               </button>
             </li>
           ))}
+          {!showWikis && !search.isPending && (
+            <PartialResultsNotice wikiId={wikiId} partial={search.data?.partial} />
+          )}
           {!showWikis && !search.isPending && rows.length === 0 && (
             <li className="px-2 py-2 text-sm text-slate-400 dark:text-slate-500">No results.</li>
           )}

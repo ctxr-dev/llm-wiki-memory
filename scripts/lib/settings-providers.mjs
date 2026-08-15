@@ -1,4 +1,4 @@
-import { envValue } from "./env.mjs";
+import { envValue, envHas } from "./env.mjs";
 import { settings } from "./settings.mjs";
 
 /** @typedef {import("./settings-defaults.mjs").Settings} Settings */
@@ -11,14 +11,14 @@ import { settings } from "./settings.mjs";
 const CLI_PROVIDERS = new Set(["claude", "codex", "cursor"]);
 const API_PROVIDERS = new Set(["anthropic", "openai", "openai-compatible"]);
 
+// envHas, not envValue: these feed settings()'s cache key on every call, and a credential read
+// deliberately bypasses the parse cache. Asking "is it set" keeps that hot path cached without ever
+// materialising the key.
 export function envHasAnthropicKey() {
-  return Boolean(envValue("ANTHROPIC_API_KEY", "").trim());
+  return envHas("ANTHROPIC_API_KEY");
 }
 export function envHasOpenAiKey() {
-  return (
-    Boolean(envValue("OPENAI_API_KEY", "").trim()) ||
-    Boolean(envValue("MEMORY_LLM_BASE_URL", "").trim())
-  );
+  return envHas("OPENAI_API_KEY") || Boolean(envValue("MEMORY_LLM_BASE_URL", "").trim());
 }
 
 /**

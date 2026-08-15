@@ -103,6 +103,7 @@ export function coerceSections(sections) {
   quality.maxRounds = coercePos(quality.maxRounds, 3);
   gate.enabled = coerceBool(gate.enabled, true);
   gate.claudeHookEnabled = coerceBool(gate.claudeHookEnabled, true);
+  gate.recallFirstEnabled = coerceBool(gate.recallFirstEnabled, true);
   gate.auditTrailEnabled = coerceBool(gate.auditTrailEnabled, true);
   gate.perLessonConsent = coerceBool(gate.perLessonConsent, true);
   gate.auditKeep = coercePos(gate.auditKeep, 1000);

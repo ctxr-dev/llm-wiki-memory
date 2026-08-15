@@ -105,19 +105,31 @@ test("comments and quoting still parse identically through the cache", () => {
   assert.equal(envValue("EMPTY", "fb"), "", "an empty value stays empty — ?? only catches absent");
 });
 
-// The point of the change. A representative .env (the real one is 695 bytes / 14 lines) parsed on
-// every call is ~33µs; a stat is ~0.8µs. The bound is deliberately loose — this must catch a
-// regression to per-call re-reads, not micro-benchmark the machine.
-test("many lookups do not re-parse the file (measurable, generously bounded)", () => {
+// Relative, never an absolute µs bound. The cost here is dominated by ONE `statSync`, and that
+// varies ~16x by filesystem (0.9µs on the user volume vs 14µs on macOS /var/folders, where temp
+// dirs live) — so an absolute threshold measures the mount, not the code, and flakes on a different
+// CI runner. Comparing cached against forced-uncached tests the actual property: the cache avoids
+// re-parsing.
+test("a cached lookup is materially cheaper than a forced re-parse", () => {
   __resetEnvFileCache();
-  writeEnv(Array.from({ length: 14 }, (_, i) => `KEY_${i}=${"v".repeat(40)}`).join("\n") + "\n");
-  envValue("KEY_0");
-  const N = 20_000;
-  const start = process.hrtime.bigint();
-  for (let i = 0; i < N; i += 1) envValue("KEY_0");
-  const perCallUs = Number(process.hrtime.bigint() - start) / N / 1000;
+  writeEnv(
+    Array.from({ length: 14 }, (_, i) => `MEMORY_KEY_${i}=${"v".repeat(40)}`).join("\n") + "\n",
+  );
+  const N = 4000;
+  const timeIt = (fn) => {
+    for (let i = 0; i < 200; i += 1) fn();
+    const t = process.hrtime.bigint();
+    for (let i = 0; i < N; i += 1) fn();
+    return Number(process.hrtime.bigint() - t) / N;
+  };
+  const cached = timeIt(() => envValue("MEMORY_KEY_0"));
+  const uncached = timeIt(() => {
+    __resetEnvFileCache();
+    return envValue("MEMORY_KEY_0");
+  });
   assert.ok(
-    perCallUs < 25,
-    `envValue cost ${perCallUs.toFixed(1)}µs/call — an uncached parse is ~33µs, so this reads as a regression to re-reading the file`,
+    uncached > cached * 2,
+    `a cached lookup (${(cached / 1000).toFixed(1)}µs) must beat a re-parse ` +
+      `(${(uncached / 1000).toFixed(1)}µs) by a clear margin — otherwise the cache is not working`,
   );
 });

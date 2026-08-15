@@ -33,7 +33,11 @@ function hasFilters(filters) {
 /**
  * @param {string} root @param {string} query
  * @param {{ limit?: number, filters?: Record<string, unknown>, category?: string, includeArchived?: boolean }} [opts]
- * @returns {Promise<import("../shared/contract.mjs").SearchResult[]>}
+ * Returns the results AND, when the cold-embed bound cut the read short, the advisory describing
+ * what was left out. searchOneTree already accepts a ledger; this end simply owns one so the
+ * shortfall can be read off it afterwards, exactly as recall-search.mjs does. A caller that owns no
+ * ledger cannot report a shortfall, because scoreCandidates then makes a throwaway one internally.
+ * @returns {Promise<{ results: import("../shared/contract.mjs").SearchResult[], partial?: import("../../../scripts/lib/cold-budget.mjs").ColdShortfall }>}
  */
 export async function searchWiki(
   root,
@@ -41,10 +45,12 @@ export async function searchWiki(
   { limit = 15, filters, category, includeArchived = false } = {},
 ) {
   const trimmed = (query ?? "").trim();
-  if (!trimmed && !hasFilters(filters) && !category) return [];
-  const { env, core, identity, search } = await loadEngine();
+  if (!trimmed && !hasFilters(filters) && !category) return { results: [] };
+  const { env, core, identity, search, budget } = await loadEngine();
   return env.withWikiRoot(root, async () => {
+    const coldBudget = budget.defaultColdBudget();
     const { records } = await search.searchOneTree({
+      coldBudget,
       query: trimmed,
       limit,
       filters,
@@ -53,7 +59,7 @@ export async function searchWiki(
     });
     const results = records.map((record) => toResult(record, core, identity, trimmed));
     if (!trimmed) results.sort((a, b) => a.title.localeCompare(b.title));
-    return results;
+    return { results, ...budget.coldPartial(coldBudget) };
   });
 }
 
@@ -61,21 +67,27 @@ export async function searchWiki(
  * @param {Array<{ id: string, root: string, label: string }>} wikis
  * @param {string} query
  * @param {{ limit?: number, filters?: Record<string, unknown>, category?: string, includeArchived?: boolean }} [opts]
- * @returns {Promise<import("../shared/contract.mjs").SearchResult[]>}
+ * Each wiki gets its OWN ledger (searchWiki makes one per call), so the bound is per-wiki rather
+ * than split across them. The advisory reported is the WORST case seen, because a user needs to
+ * know the merged set is incomplete, not which tree fell short.
+ * @returns {Promise<{ results: import("../shared/contract.mjs").SearchResult[], partial?: import("../../../scripts/lib/cold-budget.mjs").ColdShortfall }>}
  */
 export async function searchAll(wikis, query, opts = {}) {
   const limit = opts.limit ?? 15;
   const merged = [];
+  /** @type {import("../../../scripts/lib/cold-budget.mjs").ColdShortfall | undefined} */
+  let worst;
   for (const wiki of wikis) {
     try {
-      const hits = await searchWiki(wiki.root, query, { ...opts, limit });
-      for (const hit of hits) merged.push({ ...hit, wikiId: wiki.id, wikiLabel: wiki.label });
+      const { results, partial } = await searchWiki(wiki.root, query, { ...opts, limit });
+      for (const hit of results) merged.push({ ...hit, wikiId: wiki.id, wikiLabel: wiki.label });
+      if (partial && (!worst || partial.skippedLeaves > worst.skippedLeaves)) worst = partial;
     } catch {
       continue;
     }
   }
   merged.sort((a, b) => b.score - a.score);
-  return merged.slice(0, limit);
+  return { results: merged.slice(0, limit), ...(worst ? { partial: worst } : {}) };
 }
 
 /**

@@ -127,13 +127,13 @@ function countSaveSelections(answerText, questions) {
   return count;
 }
 
-/** @param {string} [transcriptPath] */
-export function analyzeTranscript(transcriptPath) {
-  const out = { lastUserText: "", gatedSince: 0, askApprovals: 0 };
-  if (!transcriptPath || !fs.existsSync(transcriptPath)) return out;
-  let recs;
+// The JSONL transcript as records, or [] when it cannot be read. A malformed LINE is skipped
+// rather than failing the whole read: a transcript is append-only and may be mid-write.
+/** @param {string} [transcriptPath] @returns {any[]} */
+export function readTranscriptRecords(transcriptPath) {
+  if (!transcriptPath || !fs.existsSync(transcriptPath)) return [];
   try {
-    recs = fs
+    return fs
       .readFileSync(transcriptPath, "utf8")
       .split(/\r?\n/)
       .map((l) => l.trim())
@@ -146,6 +146,46 @@ export function analyzeTranscript(transcriptPath) {
         }
       })
       .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// Names of tools whose call COMPLETED anywhere in the session (a tool_use with a matching
+// tool_result). Completion is what distinguishes a genuinely prior call from the one being decided
+// right now, which Claude Code may already have appended to the transcript — the same reasoning
+// the gated-write counting below relies on.
+/** @param {string} [transcriptPath] @returns {Set<string>} */
+export function completedToolNames(transcriptPath) {
+  /** @type {Map<string, string>} */
+  const nameById = new Map();
+  /** @type {Set<string>} */
+  const resolved = new Set();
+  for (const rec of readTranscriptRecords(transcriptPath)) {
+    const c = rec?.content ?? rec?.message?.content;
+    if (!Array.isArray(c)) continue;
+    for (const block of c) {
+      if (block?.type === "tool_use" && block?.id && typeof block?.name === "string") {
+        nameById.set(block.id, block.name);
+      } else if (block?.type === "tool_result" && block?.tool_use_id) {
+        resolved.add(block.tool_use_id);
+      }
+    }
+  }
+  /** @type {Set<string>} */
+  const names = new Set();
+  for (const [id, name] of nameById) if (resolved.has(id)) names.add(name);
+  return names;
+}
+
+/** @param {string} [transcriptPath] */
+export function analyzeTranscript(transcriptPath) {
+  const out = { lastUserText: "", gatedSince: 0, askApprovals: 0 };
+  if (!transcriptPath || !fs.existsSync(transcriptPath)) return out;
+  let recs;
+  try {
+    recs = readTranscriptRecords(transcriptPath);
+    if (!recs.length) return out;
   } catch {
     return out;
   }

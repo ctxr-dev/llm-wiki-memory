@@ -163,6 +163,13 @@ still picked up on the next one.
 | `settings()` cache hit | 187.9 µs | **6.6 µs** | 28x |
 | `loadCache()` memo hit | 620.1 µs | **75.6 µs** | 8.2x |
 
+Reproduce with `node scripts/bench-config-reads.mjs` (it refuses to run against a real brain, and
+synthesises a representative `settings/.env` — the file's size IS the cost being measured). It
+creates its throwaway dir under `$HOME` on purpose: macOS `/var/folders` stats ~16x slower than a
+user volume, which alone swings the reported ratio from ~35x to ~4x. Compare the RATIO across
+machines rather than the microseconds. The figures above were taken against the real 695-byte
+`.env`; the script's synthesised one is smaller, so it reports a slightly cheaper `settings()` hit.
+
 `loadCache` improves because `cacheStamp()` calls `settings()` 2-3 times per call. A search performs
 roughly one `loadCache` per category, so this removes ~3 ms from a warm cross-category search — set
 against the ~30-80 ms above. The residual 75.6 µs is the one-dimension repair scan over 724 entries,

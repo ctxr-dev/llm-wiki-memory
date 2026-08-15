@@ -97,6 +97,10 @@ export function applyYamlOverlay(sections, raw) {
     // (true) in the coerceBool below, while an explicit false still disables.
     gate.claudeHookEnabled = raw.gate.claudeHookEnabled;
   }
+  if (raw.gate && raw.gate.recallFirstEnabled !== undefined) {
+    // Same fail-closed rule: a null/empty value keeps the recall-first nudge ON.
+    gate.recallFirstEnabled = raw.gate.recallFirstEnabled;
+  }
   if (raw.gate && raw.gate.auditTrailEnabled !== undefined) {
     // Fail-closed like the gate flags above: pass the raw value uncoerced so a
     // null/empty value falls back to the safe default (true) in coerceBool below.

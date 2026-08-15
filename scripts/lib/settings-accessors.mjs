@@ -195,6 +195,12 @@ export function writeGateEnabled() {
 export function writeGateClaudeHookEnabled() {
   return Boolean(settings().gate.claudeHookEnabled);
 }
+
+// Separate from claudeHookEnabled on purpose: silencing the recall nudge must not also disable
+// the write gate, which is the safety-critical hook.
+export function recallFirstHookEnabled() {
+  return Boolean(settings().gate.recallFirstEnabled);
+}
 export function writeGateAuditTrailEnabled() {
   return Boolean(settings().gate.auditTrailEnabled);
 }

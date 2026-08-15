@@ -1,5 +1,6 @@
 import { resolveWikiRoot, listWikis } from "../engine.mjs";
 import { searchWiki, searchAll, ask } from "../search.mjs";
+import { startWarm } from "../warm-runner.mjs";
 import { SearchFilterSchema } from "../../shared/contract.mjs";
 
 /** @param {unknown} value @returns {string | undefined} */
@@ -52,9 +53,24 @@ export function registerSearchRoutes(app, db) {
     };
     if (query.scope === "all") {
       const wikis = await listWikis(db.listPlaces());
-      return { results: await searchAll(wikis, query.q ?? "", opts) };
+      return await searchAll(wikis, query.q ?? "", opts);
     }
-    return { results: await searchWiki(root, query.q ?? "", opts) };
+    return await searchWiki(root, query.q ?? "", opts);
+  });
+
+  /**
+   * The banner's remedy, made actionable. 202 + immediate return: a cold warm is ~90s of
+   * duty-cycled slices, and this daemon already runs the same operation on a timer.
+   */
+  app.post("/api/wikis/:id/warm", async (request, reply) => {
+    const { id } = /** @type {{ id: string }} */ (request.params);
+    const root = await rootFor(id);
+    if (!root) {
+      reply.code(404);
+      return { error: "unknown wiki" };
+    }
+    reply.code(202);
+    return startWarm(root);
   });
 
   app.get("/api/wikis/:id/ask", async (request, reply) => {

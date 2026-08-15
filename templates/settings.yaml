@@ -197,6 +197,12 @@ gate:
   # the hook a uniform no-op (exit 0, no decision) so Claude Code's normal
   # permission flow applies; L1 instructions + the L3 server gate still apply.
   claudeHookEnabled: true
+  # The recall-first nudge: a PreToolUse hook that asks ONCE per session when the
+  # first search-or-edit happens without the wiki having been consulted. A
+  # one-click prompt, never a block, and it fails open. Separate from
+  # claudeHookEnabled on purpose, so silencing the nudge does not also disable the
+  # write gate. See templates/rules/recall-first.md.
+  recallFirstEnabled: true
   # Append a redacted audit record for every gated-category decision (accepted,
   # refused, and the L2 hook's allow/ask) to state/.save-gate-audit.log. Read it
   # with `cli.mjs gate-audit`. Disk-cheap; set false to stop recording.
