@@ -2,6 +2,7 @@ node_modules/
 wiki/
 coverage/
 package-lock.json
+src/webapp/pnpm-lock.yaml
 src/webapp/dist/
 src/webapp/test-results/
 src/webapp/playwright-report/
