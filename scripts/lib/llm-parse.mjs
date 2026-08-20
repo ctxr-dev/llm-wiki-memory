@@ -29,6 +29,22 @@ export function mockResponse() {
       throw new LLMProviderUnavailable(errType);
     }
   }
+  // A per-call response sequence: a JSON array whose Nth element answers the
+  // Nth mock call (clamped to the last past the end). Lets a test script a
+  // multi-step chain — e.g. generate -> judge(fail) -> regenerate -> judge(pass)
+  // — that the single-response modes below cannot express.
+  const sequence = envValue("MEMORY_LLM_MOCK_SEQUENCE", "");
+  if (sequence) {
+    try {
+      const arr = JSON.parse(sequence);
+      if (Array.isArray(arr) && arr.length > 0) {
+        const item = arr[Math.min(current, arr.length - 1)];
+        return typeof item === "string" ? item : JSON.stringify(item);
+      }
+    } catch {
+      /* malformed sequence falls through to the single-response modes */
+    }
+  }
   const inline = envValue("MEMORY_LLM_MOCK_RESPONSE", "");
   if (inline) return inline;
   const file = envValue("MEMORY_LLM_MOCK_FILE", "");
@@ -40,7 +56,7 @@ export function mockResponse() {
     }
   }
   throw new LLMProviderUnavailable(
-    "MEMORY_LLM_PROVIDER=mock but no MEMORY_LLM_MOCK_RESPONSE/FILE set",
+    "MEMORY_LLM_PROVIDER=mock but no MEMORY_LLM_MOCK_RESPONSE/FILE/SEQUENCE set",
   );
 }
 

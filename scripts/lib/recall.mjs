@@ -1,6 +1,8 @@
 import { defaultProjectModule } from "./env.mjs";
 import { recallScoreThreshold, recallPriorityBand } from "./settings.mjs";
 import { searchMemoryFiltered, saveDocument, rerankWithinBands } from "./wiki-store.mjs";
+import { defaultColdBudget, openColdDraw, coldPartial } from "./cold-budget.mjs";
+import { toRecallRecord } from "./recall-record.mjs";
 import { lessonDocName } from "./slug.mjs";
 
 // searchMemory lives in recall-search.mjs (the cross-category search door);
@@ -78,7 +80,7 @@ export async function recallLessons({
   const limit = maxResults || 5;
   const withGlance = Array.isArray(sections) && sections.includes("frontmatter");
   // Caller-supplied threshold wins; otherwise fall back to the configured
-  // floor (settings.recall.scoreThreshold, default 0.05 — a small floor that
+  // floor (settings.recall.scoreThreshold, default 0.12 — a small floor that
   // drops noise-level matches without over-pruning). Before this the setting was
   // dead config — wired into the loader, template, and migrator but read nowhere.
   const threshold = scoreThreshold ?? recallScoreThreshold();
@@ -119,10 +121,16 @@ export async function recallLessons({
   const seen = new Set();
   const lessonHits = [];
   const ladderUsed = [];
+  // One ledger for the whole recall: rungs + the knowledge cross-ref share the
+  // cold-embed bound instead of each resetting it.
+  const coldBudget = defaultColdBudget();
   for (let rungIdx = 0; rungIdx < ladder.length; rungIdx += 1) {
     const filters = ladder[rungIdx];
+    // Reserve a tail: rung 1 exhausting the bound left every fallback returning ZERO, not fewer.
+    openColdDraw(coldBudget);
     const { records } = /** @type {{ records: SearchHit[] }} */ (
       await searchMemoryFiltered({
+        coldBudget,
         query,
         datasetId: "self_improvement",
         filters,
@@ -166,8 +174,10 @@ export async function recallLessons({
   const supplementary = [];
   if (includeKnowledge !== false && effectiveProjectModule) {
     for (const t of KNOWLEDGE_CROSSREF_ATOM_TYPES) {
+      openColdDraw(coldBudget);
       const { records } = /** @type {{ records: SearchHit[] }} */ (
         await searchMemoryFiltered({
+          coldBudget,
           query,
           datasetId: "knowledge",
           filters: { atom_type: t, project_module: effectiveProjectModule },
@@ -186,29 +196,14 @@ export async function recallLessons({
     query,
     lessonDataset: "self_improvement",
     ladderUsed,
+    ...coldPartial(coldBudget),
     injectedFilters:
       !project_module && effectiveProjectModule ? { project_module: effectiveProjectModule } : null,
     scoreThreshold: threshold,
     lessonHits: lessonHits.length,
     supplementaryHits: supplementary.length,
     totalRecords: all.length,
-    records: /** @type {RecallRecord[]} */ (
-      all.map((r) => ({
-        kind: r.kind,
-        datasetId: r.datasetId,
-        documentName: r.documentName,
-        score: r.score,
-        priority: r.priority,
-        content: r.content,
-        // Glance fields ride along only when the caller asked for the frontmatter
-        // view (withGlance); otherwise they are absent and the shape is unchanged.
-        ...(r.brief !== undefined ? { brief: r.brief } : {}),
-        ...(r.type !== undefined ? { type: r.type } : {}),
-        ...(r.status !== undefined ? { status: r.status } : {}),
-        ...(r.progress !== undefined ? { progress: r.progress } : {}),
-        ...(r.tags !== undefined ? { tags: r.tags } : {}),
-      }))
-    ),
+    records: all.map(toRecallRecord),
   };
 }
 
@@ -273,6 +268,11 @@ export function saveLesson({ title, body, metadata = {}, tags, evidence } = {}) 
   // Gated lesson: honour the user-picked priority (P0 allowed here); normaliseMeta
   // fills the rubric default (P1 for a lesson) when omitted.
   if (metadata.priority) fullMetadata.priority = metadata.priority;
+  // The quality-judge flag: the interactive gate stamps `quality:"unverified"`
+  // when a lesson was accepted after the judge rejected it (write.acceptQuality).
+  // fullMetadata is rebuilt from scratch, so pass it through explicitly — else
+  // the flag is dropped and consolidate/recall can't treat the leaf cautiously.
+  if (metadata.quality) fullMetadata.quality = metadata.quality;
 
   const result = saveDocument(
     /** @type {SaveDocumentArgs} */ ({

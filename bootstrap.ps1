@@ -19,6 +19,7 @@ param(
   [string]$Schedule = "",
   [switch]$EnableSelfObservability,
   [switch]$DisableSelfObservability,
+  # Accepted for compatibility; a no-op (migrations always run).
   [switch]$Migrate,
   [switch]$Uninstall
 )
@@ -39,6 +40,9 @@ if ((Split-Path -Leaf $SrcDir) -eq "src" -and (Split-Path -Leaf $parent) -eq ".l
   $WorkspaceDir = (Resolve-Path (Join-Path $SrcDir "..")).Path
 }
 $DataDir = Join-Path $WorkspaceDir ".llm-wiki-memory"
+# Exported here, not later: every node step below resolves its data dir from it,
+# including the settings-phase migrations that run before the wiki exists.
+$env:MEMORY_DATA_DIR = $DataDir
 # os.homedir() on Windows reads USERPROFILE; the global-register/wire steps use it.
 $HomeDir = $env:USERPROFILE
 if (-not $HomeDir) { $HomeDir = $HOME }
@@ -59,9 +63,22 @@ function NodeOut([string]$rel, [string[]]$stepArgs) {
   return "$out".Trim()
 }
 
+# --- node floor (must precede EVERY path that shells out to a guarded .mjs) ---
+# Each entrypoint's CLI guard is `if (import.meta.main)`, so on a Node lacking that property the
+# guard is falsy and the script exits 0 having done NOTHING. This has to sit above -Uninstall:
+# unregister-global.mjs and uninstall.mjs are guarded too, so when the check lived further down, a
+# below-floor -Uninstall printed "Uninstall complete" while removing nothing at all.
+# Feature-tested rather than version-parsed because comparing only the MAJOR would admit
+# 22.0-22.17, which lack it (added in 22.18 / 24.2).
+# The probe deliberately contains NO quote characters: Windows PowerShell 5.1 mangles embedded
+# double quotes when it builds a native command line, so a `typeof x === "boolean"` form can reach
+# node as `=== boolean` — a ReferenceError that would reject a perfectly good Node.
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Die "node is required (>=22.18)." }
+& node --input-type=module -e 'process.exit(import.meta.main === undefined ? 1 : 0)' 2>$null
+if ($LASTEXITCODE -ne 0) { Die "node >=22.18 required, for import.meta.main (found $(& node -v))." }
+
 # --- uninstall (thin; fs reversals live in scripts/uninstall.mjs) ---
 if ($Uninstall) {
-  if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Die "node is required to uninstall." }
   Log "Uninstalling llm-wiki-memory from $WorkspaceDir (memory data is left intact) ..."
   # LWM_BOOTSTRAP_SKIP_SCHED_OS lets the e2e reverse the fs surfaces without
   # touching the real user's Task Scheduler (default: unset = tear down).
@@ -86,11 +103,8 @@ if ($Uninstall) {
   exit 0
 }
 
-# --- prereqs ---
-if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Die "node is required (>=20)." }
+# --- prereqs (node + its floor are already checked above the uninstall path) ---
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Die "git is required." }
-$nodeMajor = [int](& node -p "process.versions.node.split('.')[0]")
-if ($nodeMajor -lt 20) { Die "node >=20 required (found $(& node -v))." }
 
 # --- install deps ---
 if (-not $env:LWM_BOOTSTRAP_SKIP_NPM) {
@@ -108,6 +122,15 @@ try {
 } finally { Pop-Location }
 if ($LASTEXITCODE -ne 0) { Die "@ctxr/skill-llm-wiki is not resolvable. Ensure it is installable from your registry (or vendor it)." }
 
+# --- where may this install live? (same policy as bootstrap.sh) ---
+# A PRIVATE brain belongs at $HOME and nowhere else: the one per-machine install
+# already registers the MCP server + hooks globally and wires the rules/skills into
+# the user-level surfaces, so it serves EVERY directory. Placed BEFORE the first
+# write into $WorkspaceDir so a refusal leaves the workspace untouched. Fires only
+# on a FRESH wiki — an existing install re-running this is an upgrade.
+& node (Join-Path $SrcDir "scripts\bootstrap\install-location.mjs") $WorkspaceDir $HomeDir $Template
+if ($LASTEXITCODE -ne 0) { exit 1 }
+
 # --- detect provider (same ladder as bootstrap.sh, via the tested node module) ---
 $detect = NodeOut "scripts\bootstrap\detect-provider.mjs" @($Provider)
 $detectParts = $detect -split "`t"
@@ -121,8 +144,10 @@ if ($Provider -eq "mock") {
 # --- settings/.env (create-only; one JS path) ---
 NodeStep "scripts\bootstrap\setup-env.mjs" @($DataDir, (Join-Path $SrcDir "templates\env.example"), $Provider, $baseUrlHint)
 
-# --- settings/settings.yaml (+ auto-migration) ---
-NodeStep "scripts\migrate-settings.mjs" @($DataDir)
+# --- settings/settings.yaml (+ settings-phase migrations) ---
+# Each migration self-detects, so this is a no-op on a current install. A failure
+# aborts (NodeStep dies): a half-migrated install reporting success is worse.
+NodeStep "scripts\cli.mjs" @("migrations", "--phase", "settings")
 $settingsYaml = Join-Path $DataDir "settings\settings.yaml"
 if (-not (Test-Path $settingsYaml)) {
   Copy-Item (Join-Path $SrcDir "templates\settings.yaml") $settingsYaml
@@ -137,7 +162,6 @@ NodeStep "scripts\bootstrap\unregister-global.mjs" @("--migrate", $WorkspaceDir,
 Log "Registered the MCP server + hooks globally in `$HOME (no per-repo client config)."
 
 # --- materialise + validate the wiki ---
-$env:MEMORY_DATA_DIR = $DataDir
 Log "Initialising the hosted wiki (template: $Template) ..."
 Push-Location $SrcDir
 try { & node (Join-Path $SrcDir "scripts\cli.mjs") init --template $Template | Out-Null }
@@ -174,14 +198,10 @@ $selfObsEnabled = if (Test-Path $selfObsSentinel) { "1" } else { "0" }
 NodeStep "scripts\wire-memory-surfaces.mjs" @($SrcDir, $WorkspaceDir, $HomeDir, $selfObsEnabled)
 Log "Wired memory rules/skills as @-pointers and AGENTS.md/CLAUDE.md @-includes -> `$HOME\.llm-wiki-memory\src."
 
-# --- data migrations (idempotent; run on -Migrate) ---
-if ($Migrate) {
-  Log "Running data migrations (idempotent) ..."
-  Push-Location $SrcDir
-  try { & node (Join-Path $SrcDir "scripts\cli.mjs") migrate-identity }
-  finally { Pop-Location }
-  if ($LASTEXITCODE -ne 0) { Log "WARNING: migrate-identity reported an issue (continuing)." }
-}
+# --- data migrations ---
+# Run UNCONDITIONALLY: every migration self-detects, so there is nothing for a
+# -Migrate flag to gate, and gating it was how an install could silently skip one.
+NodeStep "scripts\cli.mjs" @("migrations", "--phase", "data")
 
 # --- gitignore (marker-fenced block) + mount primitives ---
 $gitignore = Join-Path $WorkspaceDir ".gitignore"

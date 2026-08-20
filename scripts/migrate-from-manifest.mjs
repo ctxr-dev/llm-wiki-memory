@@ -6,8 +6,6 @@
 // fire identically to a normal MCP write. Exit 0 = all ok, 2 = a failure.
 
 import fs from "node:fs";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import matter from "gray-matter";
 import { saveDocument, normalizeLeafNamePreservingCase } from "./lib/wiki-store.mjs";
 import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "./lib/cli-args.mjs";
@@ -281,7 +279,7 @@ async function main() {
   process.exit(summary.fail === 0 ? 0 : 2);
 }
 
-if (import.meta.url === pathToFileURL(path.resolve(process.argv[1] || "")).href) {
+if (import.meta.main) {
   const args = process.argv.slice(2);
   const HELP = formatHelp({
     name: "migrate-from-manifest",

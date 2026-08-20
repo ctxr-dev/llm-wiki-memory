@@ -29,14 +29,14 @@ consolidate:
   # Cadence (days) for the throttled consolidate orchestrator. 0/off disables.
   intervalDays: 1
   # Cosine threshold above which a cluster pair counts as a dedup candidate.
-  cosineThreshold: 0.97
+  cosineThreshold: 0.975
   # Same threshold when the embedding backend has fallen back to the lexical
   # hash scorer — scores inflate, so we need a tighter cut to avoid false
   # positives.
   cosineLexicalThreshold: 0.995
   # Per-leaf cluster scope.
   clusterTopK: 12
-  clusterScoreThreshold: 0.75
+  clusterScoreThreshold: 0.7
   # Optional LLM-only "merge band": when set (valid range [0.8, cosineThreshold)),
   # cluster pairs scoring at/above this floor but BELOW cosineThreshold are
   # flagged as band candidates. Band candidates are acted on ONLY by the LLM
@@ -98,13 +98,35 @@ hook:
   precompactMinTurns: 5
   # ExitPlanMode auto-capture knobs.
   exitPlanModeDisable: false
-  exitPlanModeMaxBytes: 256000
+  exitPlanModeMaxBytes: 1048576
 
 embed:
-  # transformers (default, on-device bge-large) | lexical (no model download).
+  # transformers (default, on-device EmbeddingGemma) | lexical (no model download).
   backend: transformers
-  model: Xenova/bge-large-en-v1.5
-  # Length-aware recall: a note longer than the model's ~512-token window is
+  # Google EmbeddingGemma-300m (768-dim, 2048-token window, q4 ~197MB). Retrieval
+  # prompts are applied automatically. See the README model table for alternatives
+  # (e.g. Xenova/bge-large-en-v1.5, the previous default).
+  model: onnx-community/embeddinggemma-300m-ONNX
+  # Quantization: "" resolves per model family (EmbeddingGemma: q4, BERT-family: q8).
+  dtype: ""
+  # onnxruntime intra-op threads per forward pass; 0 = ORT default (all cores).
+  # 2 keeps a background warm near 200% CPU so the machine stays usable.
+  threads: 2
+  # Most leaves ONE search/recall may cold-embed before it gives up and leaves the
+  # rest to the background warm — bounds worst-case latency on a cold cache.
+  # Skipped leaves rank last for that one read and stay queued for the warm.
+  # 0 = unlimited.
+  maxColdPerRead: 32
+  # How often a scheduler may re-run the gradual, duty-cycled cache warm for a
+  # given wiki: the hourly cron job, the webapp's own timer, and
+  # `cli.mjs warm --if-due` all honour it. Before this, warming ran ONCE at webapp
+  # boot — so a note saved afterwards stayed cold until a restart, and an install
+  # that only uses the MCP server never warmed at all (every cold leaf was then
+  # embedded inline, inside somebody's search). A due-stamp is kept per wiki root
+  # in state/.embed-warm.json and a lock stops two schedulers warming at once.
+  # 0 = no scheduled warm (recall still self-heals lazily, at search latency).
+  warmIntervalMinutes: 30
+  # Length-aware recall: a note longer than the model's token window is
   # split into <=maxChunks pieces and scored by its best piece minus
   # penalty*(pieces-1). Recall-only; short notes and consolidate are unchanged.
   #
@@ -125,7 +147,7 @@ recall:
   # A small relevance FLOOR: hits below this cosine are dropped before ranking, so
   # noise-level matches (from any tree) can't be depth-boosted above a strong hit or
   # crowd the results. 0 keeps every hit; tune per embedding backend.
-  scoreThreshold: 0.05
+  scoreThreshold: 0.12
   # Cosine proximity within which `priority` (P0/P1/P2) breaks ties at recall.
   # Relevance stays dominant: a hit more than this far below the band leader keeps
   # its cosine rank; only near-equally-relevant hits are ordered P0 > P1 > P2.
@@ -165,14 +187,22 @@ gc:
   intervalDays: 7
 
 gate:
-  # The L3 server-side write-gate refusing self_improvement saves without
-  # `userRequested:true`. Defence-in-depth; turn off only as an operator
-  # escape hatch (L1 instructions + L2 hooks still apply).
-  selfImprovementEnabled: true
+  # The L3 server-side write-gate refusing a GATED-category save without
+  # `userRequested:true`. Governs every layout-gated category (self_improvement
+  # by default; a wiki may opt others in via `gated:` in its .layout/layout.yaml).
+  # Defence-in-depth; turn off only as an operator escape hatch (L1 instructions +
+  # L2 hooks still apply). Pre-rename alias `selfImprovementEnabled:` still works.
+  enabled: true
   # The L2 Claude Code PreToolUse hook (enabled by default). Set false to make
   # the hook a uniform no-op (exit 0, no decision) so Claude Code's normal
   # permission flow applies; L1 instructions + the L3 server gate still apply.
   claudeHookEnabled: true
+  # The recall-first nudge: a PreToolUse hook that asks ONCE per session when the
+  # first search-or-edit happens without the wiki having been consulted. A
+  # one-click prompt, never a block, and it fails open. Separate from
+  # claudeHookEnabled on purpose, so silencing the nudge does not also disable the
+  # write gate. See templates/rules/recall-first.md.
+  recallFirstEnabled: true
   # Append a redacted audit record for every gated-category decision (accepted,
   # refused, and the L2 hook's allow/ask) to state/.save-gate-audit.log. Read it
   # with `cli.mjs gate-audit`. Disk-cheap; set false to stop recording.
@@ -185,6 +215,20 @@ gate:
   perLessonConsent: true
   # Max records kept in the audit log; older lines are front-truncated.
   auditKeep: 1000
+  # Byte cap on an INLINE body sent to save_lesson / save_to_dataset /
+  # write_memory. INDEPENDENT of `enabled` above: that flag is about user
+  # CONSENT, this is a token/latency bound. It is NOT a fix for the client-side
+  # "input JSON failed to parse — <n> bytes" error (an MCP client refuses a
+  # far-oversized argument before the server ever sees it); it exists because an
+  # agent re-emitting a 46KB document spends ~12k output tokens and tens of
+  # seconds to do what a file-based save does in under a second. Over the cap the
+  # write is refused with a message naming the doors that need no body:
+  # `cli.mjs save-leaf --file <path>` to create/replace, and
+  # update_document_metadata to change frontmatter only.
+  # absorb_document is exempt by design (whole documents, stored VERBATIM).
+  # 0 = unlimited. A malformed value falls back to this default, never to
+  # unlimited, so a typo cannot silently remove the bound.
+  maxInlineBodyBytes: 32768
 
 wiki:
   # Auto-commit every wiki change to the wiki's OWN git repo: one commit per

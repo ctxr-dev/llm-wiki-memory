@@ -1,7 +1,7 @@
 import { parseTarget } from "./target.mjs";
 import { ContextValidationError } from "./errors.mjs";
 import { placementTargetsCategory } from "../gate-target.mjs";
-import { parseLayoutObject, SELF_IMPROVEMENT } from "../wiki-layout-parse.mjs";
+import { parseLayoutObject } from "../wiki-layout-parse.mjs";
 import { ATOM_TYPES_LIST, TASK_TYPES_LIST, PRIORITY_VALUES } from "../datasets.mjs";
 
 /** @typedef {import("../wiki-context.mjs").WikiContext} WikiContext */
@@ -36,18 +36,36 @@ const WRITE_KIND_VALUES = Object.freeze([
  * }>} WriteRequest
  */
 
+// The set of categories the target's layout declares GATED. Layout-driven (not
+// hardcoded): an absent/unreadable layout falls back to the parser's name-keyed
+// defaults (self_improvement gated, everything else ungated), so an install with
+// no `gated:` in its YAML keeps the historical behaviour.
 /**
- * The write-gate decision: gated iff the declared `dataset` is self_improvement
- * OR the placement `path` lands under self_improvement. Keeping BOTH signals
- * OR-ed is load-bearing (C4): `dataset:"self_improvement"` gates regardless of
- * path, `path:"self_improvement/…"` gates regardless of dataset, and neither the
- * `dataset:"knowledge"+path:"self_improvement/…"` bypass nor its reverse escapes.
+ * @param {Record<string, unknown> | null | undefined} layout
+ * @returns {string[]}
+ */
+function gatedCategoriesOf(layout) {
+  const gated = parseLayoutObject(layout).gatedCategories;
+  return Object.keys(gated).filter((c) => gated[c] === true);
+}
+
+/**
+ * The write-gate decision: gated iff the declared `dataset` is a gated category
+ * in the TARGET layout OR the placement `path` lands under one. Keeping BOTH
+ * signals OR-ed is load-bearing (C4): a gated `dataset` gates regardless of path,
+ * a gated-category `path` gates regardless of dataset, and neither the
+ * `dataset:"knowledge"+path:"<gated>/…"` bypass nor its reverse escapes. The
+ * gated set is now LAYOUT-DRIVEN (per-wiki `gated:` flags); with no layout it is
+ * the name-keyed default (self_improvement only).
  * @param {string} dataset
  * @param {string | null | undefined} path
+ * @param {Record<string, unknown> | null | undefined} [layout]
  * @returns {boolean}
  */
-export function isGatedWrite(dataset, path) {
-  return dataset === SELF_IMPROVEMENT || placementTargetsCategory(path, SELF_IMPROVEMENT);
+export function isGatedWrite(dataset, path, layout) {
+  const gatedCats = gatedCategoriesOf(layout);
+  if (gatedCats.includes(String(dataset || ""))) return true;
+  return gatedCats.some((cat) => placementTargetsCategory(path, cat));
 }
 
 /**
@@ -78,10 +96,14 @@ function assertInVocabulary(field, value, allowed) {
 }
 
 /**
+ * Close the context-derived metadata enums at the boundary. Shared with the
+ * metadata-patch mutate path, which would otherwise be a vocabulary bypass:
+ * atom_type is a PLACEMENT facet, so an off-vocab patch materialises a junk
+ * directory on disk that no write door would ever have created.
  * @param {MetadataInput | undefined} metadata
  * @returns {void}
  */
-function assertMetadataVocabulary(metadata) {
+export function assertMetadataVocabulary(metadata) {
   if (!metadata) return;
   assertInVocabulary("task_type", metadata.task_type, TASK_TYPES_LIST);
   assertInVocabulary("atom_type", metadata.atom_type, ATOM_TYPES_LIST);
@@ -128,6 +150,6 @@ export function parseWriteRequest(env, args) {
     metadata: args.metadata,
     userRequested: args.userRequested,
     target,
-    gated: isGatedWrite(dataset, args.path),
+    gated: isGatedWrite(dataset, args.path, target.level.layout),
   });
 }

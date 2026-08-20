@@ -34,7 +34,7 @@ import { redact } from "./lib/redact.mjs";
 import { maybeGcWikiRepo } from "./lib/wiki-commit.mjs";
 import { withBrainContextSafe } from "./lib/wiki-context.mjs";
 import { consolidateEnabled } from "./lib/settings.mjs";
-import { collapse, relToDataDir, escalateAfterSafe } from "./cron-shared.mjs";
+import { collapse, relToDataDir, escalateAfterSafe, warmIfDueQuietly } from "./cron-shared.mjs";
 import { appendAttempt, writeFullLog, fullLogPathFor, pruneFullLogs } from "./cron-attempts.mjs";
 import {
   EX_UNAVAILABLE,
@@ -117,6 +117,11 @@ export async function runCronJob() {
 async function runCronJobBody() {
   const start = new Date();
   const ts = start.toISOString();
+  // BEFORE the consolidate master switch, deliberately: `consolidate.enabled`
+  // defaults to FALSE, so anything after the early return below is dead code on a
+  // default install — and the warm is what makes recall converge on a machine with
+  // no webapp daemon. Its outcome never feeds `entry.ok` (see warmIfDueQuietly).
+  await warmIfDueQuietly();
   // Master switch (settings.consolidate.enabled, default false). When off the
   // hourly maintenance cron (compile + consolidate) is a no-op — no steps run,
   // no logs written, no self-healing state mutates. Opt in via settings.

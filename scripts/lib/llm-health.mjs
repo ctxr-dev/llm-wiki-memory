@@ -55,9 +55,11 @@ export async function health() {
       return {
         provider,
         available: Boolean(
-          envValue("MEMORY_LLM_MOCK_RESPONSE", "") || envValue("MEMORY_LLM_MOCK_FILE", ""),
+          envValue("MEMORY_LLM_MOCK_RESPONSE", "") ||
+          envValue("MEMORY_LLM_MOCK_FILE", "") ||
+          envValue("MEMORY_LLM_MOCK_SEQUENCE", ""),
         ),
-        reason: "mock provider; needs MEMORY_LLM_MOCK_RESPONSE or MEMORY_LLM_MOCK_FILE",
+        reason: "mock provider; needs MEMORY_LLM_MOCK_RESPONSE, _FILE, or _SEQUENCE",
       };
     case "claude": {
       const ok = !cliWin && (await isCmdAvailable("claude"));

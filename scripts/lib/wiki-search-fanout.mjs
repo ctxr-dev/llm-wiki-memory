@@ -27,6 +27,7 @@ import {
   recallSearchPerLevelCap,
 } from "./settings.mjs";
 import { searchOneTree } from "./wiki-search.mjs";
+import { defaultColdBudget } from "./cold-budget.mjs";
 
 /** @typedef {import("./types.mjs").SearchHit} SearchHit */
 /** @typedef {import("./wiki-context.mjs").WikiLevel} WikiLevel */
@@ -40,6 +41,8 @@ import { searchOneTree } from "./wiki-search.mjs";
  * @property {number} [scoreThreshold]
  * @property {boolean} [withGlance]
  * @property {boolean} [chunkAware] score long leaves by best chunk (recall only)
+ * @property {import("./embed-chunk.mjs").ColdBudget | null} [coldBudget] shared cold-embed ledger for one request
+ * @property {"query" | "document"} [queryKind] which retrieval prompt the query uses
  */
 
 /**
@@ -161,6 +164,11 @@ async function fanOutSearch(opts, levels) {
 export async function searchMemoryFiltered(opts = {}) {
   const ctx = getActiveWikiContext();
   const levels = ctx && Array.isArray(ctx.levels) ? ctx.levels : [];
-  if (levels.length <= 1) return searchOneTree(opts);
-  return fanOutSearch(opts, levels);
+  // Seed ONE cold-embed ledger for this search unless the caller already supplied
+  // one (a recall ladder shares its own across rungs). Every level then draws from
+  // the same bound instead of getting a fresh one each.
+  const scoped =
+    opts.coldBudget !== undefined ? opts : { ...opts, coldBudget: defaultColdBudget() };
+  if (levels.length <= 1) return searchOneTree(scoped);
+  return fanOutSearch(scoped, levels);
 }

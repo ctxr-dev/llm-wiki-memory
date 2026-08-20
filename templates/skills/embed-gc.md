@@ -1,6 +1,6 @@
 ---
 name: embed-gc
-description: At session end, run the throttled embedding-cache garbage collector so the local LLM wiki's vector cache (index/embeddings.json) doesn't accumulate orphaned entries over time. In Claude Code a SessionEnd hook does this automatically; in hook-less agents (Codex, Cursor, custom) YOU must run it. It self-throttles (default weekly), so it's safe — and cheap — to invoke at the end of every session: when not yet due it no-ops instantly.
+description: "At session end, run the throttled embedding-cache garbage collector so the local LLM wiki's vector cache (index/embeddings.json) doesn't accumulate orphaned entries over time. In Claude Code a SessionEnd hook does this automatically; in hook-less agents (Codex, Cursor, custom) YOU must run it. It self-throttles (default weekly), so it's safe — and cheap — to invoke at the end of every session: when not yet due it no-ops instantly."
 ---
 
 # Embedding-cache GC (session-end maintenance)

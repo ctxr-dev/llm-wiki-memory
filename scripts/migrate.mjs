@@ -1,5 +1,3 @@
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { wikiRoot, defaultProjectModule } from "./lib/env.mjs";
 import {
   listDocuments,
@@ -121,16 +119,7 @@ export function migrate({ dryRun = false, check = false } = {}) {
   };
 }
 
-const invokedAsCli = (() => {
-  if (!process.argv[1]) return false;
-  try {
-    return import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
-  } catch {
-    return false;
-  }
-})();
-
-if (invokedAsCli) {
+if (import.meta.main) {
   const HELP = formatHelp({
     name: "migrate",
     summary:

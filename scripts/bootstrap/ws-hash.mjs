@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { pathToFileURL } from "node:url";
 import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "../lib/cli-args.mjs";
 
 // Windows analogue of the POSIX cksum bootstrap.sh feeds into the schedule id.
@@ -9,7 +8,7 @@ export function wsHash(workspaceDir) {
   return createHash("sha256").update(String(workspaceDir)).digest("hex").slice(0, 12);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+if (import.meta.main) {
   const args = process.argv.slice(2);
   const HELP = formatHelp({
     name: "ws-hash",

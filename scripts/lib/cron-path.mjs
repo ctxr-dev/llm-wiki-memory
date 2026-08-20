@@ -12,7 +12,6 @@
 //     even under a stale plist from an older install.
 
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 
 // Well-known CLI install dirs across platforms and toolchain managers.
 // Filesystem paths only — the no-provider-literals rule applies to
@@ -86,16 +85,7 @@ export function augmentSpawnEnv(env) {
   };
 }
 
-const invokedAsCli = (() => {
-  if (!process.argv[1]) return false;
-  try {
-    return import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
-  } catch {
-    return false;
-  }
-})();
-
-if (invokedAsCli) {
+if (import.meta.main) {
   // No trailing newline: bootstrap captures this with "$(...)" verbatim.
   process.stdout.write(
     buildCronPath({

@@ -154,12 +154,18 @@ async function main() {
   }
 
   const transcriptPath = payload?.transcript_path;
-  const { lastUserText, gatedSince } = analyzeTranscript(transcriptPath);
+  const { lastUserText, gatedSince, askApprovals } = analyzeTranscript(transcriptPath);
   const hasPhrase = Boolean(lastUserText && SAVE_PHRASE_RE.test(lastUserText));
 
   let decision;
   let reason;
-  if (perLessonConsentEnabled() && gatedSince > 0) {
+  if (askApprovals > 0 && gatedSince < askApprovals) {
+    // The user answered an AskUserQuestion save-prompt approving N lessons; allow
+    // one gated write per approval (per-lesson consent), capped at N — the (N+1)th
+    // falls through to the per-lesson `ask` below.
+    decision = "allow";
+    reason = `memory-write-gate: AskUserQuestion approved this lesson (${gatedSince + 1} of ${askApprovals})`;
+  } else if (perLessonConsentEnabled() && gatedSince > 0) {
     // A prior self_improvement write already consumed this turn's approval.
     // Force an explicit per-lesson confirm so a batch flush can't ride one yes.
     decision = "ask";

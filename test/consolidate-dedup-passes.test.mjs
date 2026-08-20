@@ -246,7 +246,7 @@ test("dedupe-by-lesson-key: same composite key + different bodies → older arch
   // but different bodies. Bodies are still semantically similar enough that
   // the lexical cluster surfaces them as members of each other's cluster.
   // Bodies share most tokens so the lexical cluster surfaces them as
-  // members of each other's cluster (cluster score-threshold default 0.75).
+  // members of each other's cluster (cluster score-threshold default 0.7).
   // The bodies are NOT byte-identical (so the sha256 pass would not also
   // claim this; we restrict the run to dedupe-by-lesson-key anyway).
   const sharedTokens =

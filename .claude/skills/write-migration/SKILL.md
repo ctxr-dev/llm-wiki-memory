@@ -1,0 +1,8 @@
+---
+name: write-migration
+description: "Author an idempotent, state-detecting migration under scripts/migrations/ for a breaking llm-wiki-memory change. Use when shipping a breaking change to the engine, or when asked to write a migration / upgrade path. Replaces the retired release-runbook flow."
+---
+
+Follow the canonical procedure (edit that file, never this shadow):
+
+@../../../.agents/skills/write-migration.md

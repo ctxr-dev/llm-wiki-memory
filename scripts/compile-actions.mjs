@@ -1,16 +1,17 @@
 import { DRY_RUN } from "./compile-flags.mjs";
 import { LLMOutputInvalid } from "./lib/llm.mjs";
-import { callJSON } from "./lib/llm-callJSON.mjs";
 import {
   writeMemory,
   updateDocMetadata,
   readDocument,
-  WikiStoreUnavailable as DifyBridgeUnavailable,
+  WikiStoreUnavailable,
 } from "./lib/wiki-store.mjs";
-import { metadataForDify } from "./lib/datasets.mjs";
+import { metadataForLeaf } from "./lib/datasets.mjs";
 import { recordGatedWrite } from "./lib/save-gate-audit.mjs";
 import { nameBuilderForAtom, parserForAtom } from "./compile-routing.mjs";
-import { buildPromotedDocText, forcedLessonUpdate } from "./compile-dedup.mjs";
+import { buildPromotedDocText } from "./compile-dedup.mjs";
+
+export { decideAction, decideActionJudged } from "./compile-decide.mjs";
 
 /** @typedef {import("./lib/types.mjs").DistilledAtom} DistilledAtom */
 /** @typedef {import("./lib/types.mjs").SearchHit} SearchHit */
@@ -34,44 +35,6 @@ import { buildPromotedDocText, forcedLessonUpdate } from "./compile-dedup.mjs";
  * @property {string} [error]
  * @property {string} [warning]
  */
-
-/**
- * @param {DistilledAtom} atom
- * @param {SearchHit[]} candidates
- * @param {string} systemPrompt
- * @returns {Promise<CompileDecision>}
- */
-export async function decideAction(atom, candidates, systemPrompt) {
-  const forced = forcedLessonUpdate(atom, candidates);
-  if (forced) return forced;
-  const userPrompt = [
-    "NEW ATOM:",
-    JSON.stringify(atom, null, 2),
-    "",
-    `EXISTING CANDIDATES (already filtered by atom_type=${atom.type} and matching metadata):`,
-    candidates.length === 0
-      ? "[]"
-      : JSON.stringify(
-          candidates.map((c) => ({
-            documentId: c.documentId,
-            documentName: c.documentName,
-            score: c.score,
-            content: String(c.content || "").slice(0, 800),
-          })),
-          null,
-          2,
-        ),
-  ].join("\n");
-  return /** @type {Promise<CompileDecision>} */ (
-    callJSON(
-      /** @type {{ systemPrompt: string, userPrompt: string, maxTokens: number, maxRetries?: number }} */ ({
-        systemPrompt,
-        userPrompt,
-        maxTokens: 800,
-      }),
-    )
-  );
-}
 
 // Observability only: record that the compile pipeline distilled a
 // self_improvement lesson into the wiki. Compile bypasses the MCP write-gate by
@@ -123,13 +86,26 @@ function readSupersededMetadata(candidate, datasetId) {
   }
 }
 
+// Stamp the judge quality flag onto the write metadata when the leaf was kept
+// after the judge loop exhausted its rounds. Merges non-destructively; the later
+// applyMetadataToWritten merge carries no `quality` key, so this survives.
+/**
+ * @param {import("./lib/types.mjs").MetadataInput} metadata
+ * @param {boolean | undefined} flagged
+ * @returns {import("./lib/types.mjs").MetadataInput}
+ */
+function withQualityFlag(metadata, flagged) {
+  return flagged ? { ...metadata, quality: "unverified" } : metadata;
+}
+
 /**
  * @param {DistilledAtom} atom
  * @param {CompileDecision} decision
  * @param {SearchHit[]} candidates
  * @param {string} targetDataset
+ * @param {{ flagged?: boolean }} [opts]
  */
-export async function executeAction(atom, decision, candidates, targetDataset) {
+export async function executeAction(atom, decision, candidates, targetDataset, opts = {}) {
   if (decision.action === "skip") {
     return { ok: true, action: "skip", reason: decision.reason };
   }
@@ -143,7 +119,12 @@ export async function executeAction(atom, decision, candidates, targetDataset) {
     // (project_module / atom_type / task_type). applyMetadataToWritten still
     // re-merges it afterwards (idempotent) for the retry/un-filterable bookkeeping.
     const result = /** @type {CompileWriteResult} */ (
-      await writeMemory({ name, text, datasetId: targetDataset, metadata: metadataForDify(atom) })
+      await writeMemory({
+        name,
+        text,
+        datasetId: targetDataset,
+        metadata: withQualityFlag(metadataForLeaf(atom), opts.flagged),
+      })
     );
     auditCompileLessonPromotion(atom, "create", result);
     return result;
@@ -183,14 +164,14 @@ export async function executeAction(atom, decision, candidates, targetDataset) {
       };
     }
     // An `update` REPLACES the superseded lesson (writeMemory + supersedes:disable),
-    // and metadataForDify carries only the NEW atom's fields. Preserve the
+    // and metadataForLeaf carries only the NEW atom's fields. Preserve the
     // superseded leaf's apply-strength + workspace identity so the merge doesn't
     // rebuild a user-gated P0 lesson at the atom_type rubric default (P1) or reset a
     // deliberately cross-project lesson to defaultProjectModule().
-    const metadata = metadataForDify(atom);
+    const metadata = metadataForLeaf(atom);
     const superseded = readSupersededMetadata(candidate, targetDataset);
     if (superseded) {
-      // priority: preserve unless the atom carries its own (metadataForDify only
+      // priority: preserve unless the atom carries its own (metadataForLeaf only
       // emits priority when the atom set one).
       if (!metadata.priority && superseded.priority) metadata.priority = superseded.priority;
       // project_module: preserve ONLY from a POST-SPLIT leaf (one carrying `area`,
@@ -207,7 +188,7 @@ export async function executeAction(atom, decision, candidates, targetDataset) {
         name,
         text,
         datasetId: targetDataset,
-        metadata,
+        metadata: withQualityFlag(metadata, opts.flagged),
         supersedes: decision.supersedes,
         supersedesAction: "disable",
       })
@@ -218,7 +199,7 @@ export async function executeAction(atom, decision, candidates, targetDataset) {
   throw new Error(`unknown decision action: ${decision.action}`);
 }
 
-// After writeMemory creates the new document, set the per-document Dify
+// After writeMemory creates the new document, set the per-document
 // metadata so subsequent retrieve calls can filter on it. Failure is
 // recorded but does not abort the compile run - EXCEPT bridge-unavailable
 // errors are re-thrown so the outer per-atom catch can fire `process.exit(0)`
@@ -233,13 +214,13 @@ export async function applyMetadataToWritten(atom, writeResult, targetDataset) {
   if (!writeResult || writeResult.dryRun) return null;
   const docId = writeResult?.created?.document?.id || writeResult?.created?.id;
   if (!docId) return { ok: false, reason: "writeMemory response missing created.document.id" };
-  const md = metadataForDify(atom);
+  const md = metadataForLeaf(atom);
   try {
     return /** @type {MutationResult} */ (
       await updateDocMetadata({ datasetId: targetDataset, documentId: docId, metadata: md })
     );
   } catch (err) {
-    if (err instanceof DifyBridgeUnavailable) throw err;
+    if (err instanceof WikiStoreUnavailable) throw err;
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }

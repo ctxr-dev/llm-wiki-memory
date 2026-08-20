@@ -1,0 +1,186 @@
+// The judge-in-the-loop quality gate. A leaf a model just generated is judged by
+// a SECOND model call against the durability + content-quality + de-personalization
+// rubric (prompts/judge-leaf-quality.md); on a fail the judge's recommendation is
+// fed back to the generator to rewrite, up to `quality.maxRounds` times. After the
+// last failed round the best-scoring attempt is kept and FLAGGED unverified (the
+// caller stamps `memory.quality:"unverified"`), so content is never lost.
+//
+// Two entry points:
+//   - generateWithJudge({ generate, category, maxRounds }) — the ENGINE-side loop
+//     (compile, consolidate): it owns generation, so it retries in-process.
+//   - judgeLeaf({ category, title, body }) — a single verdict for a client-authored
+//     submission (the interactive MCP save path): the server cannot regenerate the
+//     client's content, so it judges once and the client loops per the discipline.
+//
+// FAIL-CLOSED: if the judge LLM cannot run, both throw JudgeUnavailable rather than
+// letting an unjudged leaf through. JudgeUnavailable extends LLMProviderUnavailable
+// so a caller already handling provider-outage (compile keeps the daily enabled)
+// needs no change, while consolidate / interactive can branch on the specific type.
+
+import path from "node:path";
+import { z } from "zod";
+import { PROMPTS_DIR } from "./env.mjs";
+import { callJSON } from "./llm-callJSON.mjs";
+import { health, LLMProviderUnavailable } from "./llm.mjs";
+import { hasAttribution } from "./depersonalize.mjs";
+import { qualityJudgeEnabled, qualityMaxRounds } from "./settings.mjs";
+
+export class JudgeUnavailable extends LLMProviderUnavailable {
+  /** @param {string} message */
+  constructor(message) {
+    super(message);
+    this.name = "JudgeUnavailable";
+  }
+}
+
+// The curated ATOMIC categories the durability/quality rubric applies to. BOTH the
+// engine-side loop (generateWithJudge) and the interactive gate (mcp-judge-gate)
+// restrict judging to these; structured lifecycle docs (plans/investigations/issues)
+// and raw daily / verbatim absorb are EXEMPT — the atom rubric would wrongly fail,
+// e.g., a plan whose mandated topology-tree line links look like volatile locators.
+const JUDGEABLE_CATEGORIES = new Set(["knowledge", "self_improvement"]);
+/** @param {string} [category] @returns {boolean} */
+export function isJudgeableCategory(category) {
+  return JUDGEABLE_CATEGORIES.has(String(category || ""));
+}
+
+/**
+ * @typedef {Object} Verdict
+ * @property {boolean} pass
+ * @property {number} score
+ * @property {Record<string, boolean>} [checks]
+ * @property {string} recommendation
+ */
+
+const VERDICT_SCHEMA = z.object({
+  pass: z.boolean(),
+  score: z.number().min(0).max(1).optional().default(0),
+  checks: z
+    .object({
+      durable: z.boolean().optional(),
+      no_volatile_locators: z.boolean().optional(),
+      conceptual: z.boolean().optional(),
+      depersonalized: z.boolean().optional(),
+      has_why_how: z.boolean().optional(),
+      behavioral: z.boolean().optional(),
+    })
+    .optional(),
+  recommendation: z.string().optional().default(""),
+});
+
+const JUDGE_PROMPT_PATH = path.join(PROMPTS_DIR, "judge-leaf-quality.md");
+
+// Judge a single leaf. Throws JudgeUnavailable when no LLM provider can run
+// (fail-closed). A user-attribution hit is a DETERMINISTIC hard fail regardless
+// of the LLM verdict — a precision cross-check on the de-personalization rule.
+/**
+ * @param {{ category?: string, title: string, body: string }} args
+ * @returns {Promise<Verdict>}
+ */
+export async function judgeLeaf({ category, title, body }) {
+  const probe = await health();
+  if (!probe?.available) {
+    throw new JudgeUnavailable(`quality judge unavailable: ${probe?.reason || "no LLM provider"}`);
+  }
+  const titleStr = String(title || "");
+  const bodyStr = String(body || "");
+  let verdict;
+  try {
+    verdict = /** @type {Verdict} */ (
+      await callJSON({
+        promptPath: JUDGE_PROMPT_PATH,
+        userPrompt: "Emit STRICT JSON per the schema in the system prompt.",
+        vars: {
+          CATEGORY: String(category || ""),
+          IS_SELF_IMPROVEMENT: category === "self_improvement",
+          LEAF_TITLE: titleStr,
+          LEAF_BODY: bodyStr,
+        },
+        schema: VERDICT_SCHEMA,
+        maxRetries: 2,
+        maxTokens: 800,
+      })
+    );
+  } catch (err) {
+    if (err instanceof LLMProviderUnavailable && !(err instanceof JudgeUnavailable)) {
+      throw new JudgeUnavailable(`quality judge unavailable: ${err.message}`);
+    }
+    throw err;
+  }
+  if (hasAttribution(`${titleStr}\n${bodyStr}`)) {
+    return {
+      ...verdict,
+      pass: false,
+      recommendation:
+        verdict.recommendation ||
+        "Remove the user attribution/quote and state the fact impersonally.",
+    };
+  }
+  return verdict;
+}
+
+/**
+ * @typedef {Object} JudgeLoopResult
+ * @property {unknown} candidate the accepted (or best) generator output
+ * @property {Verdict | null} verdict the deciding verdict (null when bypassed)
+ * @property {number} round the round the result came from
+ * @property {boolean} flagged true when kept after maxRounds fails (unverified)
+ * @property {boolean} [bypassed] true when the judge was disabled
+ */
+
+// Run generate -> judge -> (rewrite) up to `maxRounds` times. `generate` is
+// called with `{ round, recommendation }` and MUST return a candidate carrying
+// `title`/`body` (or `name`/`text`) for the judge plus whatever payload the
+// caller needs to write. Returns the passing candidate, or — after every round
+// failed — the best-scoring one with `flagged:true`. When the judge is disabled
+// (`quality.judgeEnabled:false`) it generates once and returns it unjudged.
+/**
+ * @param {{ generate?: (ctx: { round: number, recommendation: string }) => Promise<any>, category?: string, maxRounds?: number }} [args]
+ * @returns {Promise<JudgeLoopResult>}
+ */
+export async function generateWithJudge({ generate, category, maxRounds } = {}) {
+  if (typeof generate !== "function") {
+    throw new TypeError("generateWithJudge requires a generate() function");
+  }
+  // Bypass (generate once, unjudged) when the judge is disabled OR the category is
+  // not a judgeable atomic category — the same scope the interactive gate enforces,
+  // so a structured/exempt category is never subjected to the atom rubric.
+  if (!qualityJudgeEnabled() || !isJudgeableCategory(category)) {
+    const candidate = await generate({ round: 1, recommendation: "" });
+    return { candidate, verdict: null, round: 1, flagged: false, bypassed: true };
+  }
+  const rounds = Math.max(1, Number(maxRounds ?? qualityMaxRounds()) || 1);
+  /** @type {{ candidate: unknown, verdict: Verdict } | null} */
+  let best = null;
+  let recommendation = "";
+  let prevKey = null;
+  for (let round = 1; round <= rounds; round++) {
+    const candidate = await generate({ round, recommendation });
+    // A generator can mark an output as needing no judgment — e.g. a compile
+    // `skip` decision writes nothing, so there is no leaf to judge.
+    if (candidate && candidate.__bypassJudge) {
+      return { candidate, verdict: null, round, flagged: false, bypassed: true };
+    }
+    const title = String(candidate?.title ?? candidate?.name ?? "");
+    const body = String(candidate?.body ?? candidate?.text ?? "");
+    // If the regenerated content is byte-identical to the previous round's, the
+    // recommendation could not change it (e.g. a compile `create`, whose body is
+    // authored upstream by flush) — re-judging it is a wasted LLM call, so keep
+    // the best (already the prior identical verdict) and stop.
+    const key = `${title}\u0000${body}`;
+    if (round > 1 && key === prevKey) break;
+    prevKey = key;
+    const verdict = await judgeLeaf({ category, title, body });
+    if (verdict.pass) {
+      return { candidate, verdict, round, flagged: false };
+    }
+    if (!best || (verdict.score || 0) > (best.verdict.score || 0)) {
+      best = { candidate, verdict };
+    }
+    recommendation =
+      verdict.recommendation ||
+      "Improve durability and de-personalization; remove volatile code locators.";
+  }
+  if (!best) throw new Error("generateWithJudge: no attempt produced (unreachable)");
+  return { candidate: best.candidate, verdict: best.verdict, round: rounds, flagged: true };
+}

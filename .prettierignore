@@ -2,6 +2,10 @@ node_modules/
 wiki/
 coverage/
 package-lock.json
+src/webapp/pnpm-lock.yaml
+src/webapp/dist/
+src/webapp/test-results/
+src/webapp/playwright-report/
 # Docs and rules have their own formatting conventions (docs-style.md, the
 # README cyberpunk theme, the @-include rule mirrors) — prettier must not reflow
 # them. Templates/examples are rendered verbatim into consumer installs.

@@ -23,8 +23,9 @@ import {
   RULE_SURFACES,
 } from "./memory-surface-constants.mjs";
 import { readManifest, writeManifest, manifestPath, sha256 } from "./install-manifest.mjs";
-import { stripManagedBlocks } from "./marker-block.mjs";
+import { stripManagedBlocks, stripBlockFromFile } from "./marker-block.mjs";
 import { isOurPointer } from "./pointer-file.mjs";
+import { removeOurSurfaceEntry, pruneEmptiedSkillDir } from "./skill-pointer.mjs";
 import {
   removeMcpRegistration,
   removeAgentsSurface,
@@ -76,28 +77,6 @@ export function removeSyncHookBlocks(repoDir) {
     }
   }
   return { ok: true, results };
-}
-
-/**
- * Strip our marker-fenced block(s) from a file: rewrite it without them, or DELETE
- * the file when nothing but our block was there (we created it). Returns true when
- * it acted, false when the file is absent or carries no block. Never removes
- * non-marker content (see marker-block.mjs).
- * @param {string} file @param {string} startMarker @param {string} endMarker
- * @returns {boolean}
- */
-function stripBlockFromFile(file, startMarker, endMarker) {
-  if (!fs.existsSync(file)) return false;
-  const content = fs.readFileSync(file, "utf8");
-  const stripped = stripManagedBlocks(content, startMarker, endMarker);
-  if (stripped === content) return false;
-  const normalized = stripped
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/^\n+/, "")
-    .replace(/[ \t\n]+$/, "");
-  if (normalized === "") withFsRetry(() => fs.rmSync(file, { force: true }));
-  else writeFileAtomic(file, `${normalized}\n`);
-  return true;
 }
 
 /** @param {string} file @returns {boolean} */
@@ -205,6 +184,7 @@ function removeFromManifest(ws, manifest) {
       }
       if (sha256(content) === a.sha256) {
         withFsRetry(() => fs.rmSync(abs, { force: true }));
+        pruneEmptiedSkillDir(abs);
         pointers.push(a.path);
       } else {
         kept.push(a.path);
@@ -234,11 +214,8 @@ function removeByDiscovery(ws) {
     const dir = path.join(ws, surface);
     if (!fs.existsSync(dir)) continue;
     for (const entry of fs.readdirSync(dir)) {
-      const abs = path.join(dir, entry);
-      if (entry.startsWith(POINTER_PREFIX) && entry.endsWith(".md") && isOurPointer(abs)) {
-        withFsRetry(() => fs.rmSync(abs, { force: true }));
-        pointers.push(`${surface}/${entry}`);
-      }
+      const rel = withFsRetry(() => removeOurSurfaceEntry(path.join(dir, entry), entry));
+      if (rel) pointers.push(`${surface}/${rel}`);
     }
   }
   /** @type {string[]} */ const docs = [];

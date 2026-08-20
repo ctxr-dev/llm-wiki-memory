@@ -24,10 +24,15 @@ relative to the install's data dir (`<workspace>/.llm-wiki-memory/`); commands r
    Recover with `node scripts/cli.mjs redistill --leaf <path> | --session <id> | --all`.
    Older leaves without a stash recover from their in-leaf `UNTRUSTED MEMORY BODY` block
    (same command, `--leaf`).
-5. **Embedding staleness:** one vector per leaf cached in `index/embeddings.json`, keyed
-   by content hash + model; a model change invalidates and recomputes lazily. Orphans are
-   swept by `node scripts/cli.mjs gc-embeddings --if-due` (`state/.embed-gc.json` stamps
-   the last run).
+5. **Embedding staleness:** one vector per leaf, cached PER CATEGORY at
+   `<wikiRoot>/<category>/.embeddings/embeddings.json` (not the legacy monolithic
+   `index/embeddings.json`, which now only names the cache in `init` / config output).
+   Entries key off the leaf id + content hash; the file is stamped
+   `{model, backend, dtype, dim}` (an ABSENT `dtype` is a legacy file and matches anything —
+   see `.agents/rules/module-state-ownership.md`)
+   and a mismatch in any of them drops the cache and re-embeds lazily. Orphans are swept by
+   `node scripts/cli.mjs gc-embeddings --if-due` (`state/.embed-gc.json` stamps the last
+   run).
 6. **Hook wiring:** hooks live in the workspace `.claude/settings.json`, merged by
    bootstrap via `merge-config.mjs`. If every session errors on a missing hook script, a
    tooling dir was deleted while settings still referenced it — strip those hook entries

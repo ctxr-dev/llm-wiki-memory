@@ -3,46 +3,23 @@
 // rejects hallucinated ids and re-prompts) shared with compile.mjs.
 
 import path from "node:path";
-import { z } from "zod";
 import { PROMPTS_DIR } from "./lib/env.mjs";
 import { consolidateLlmMaxRetries, atomBodyMaxChars } from "./lib/settings.mjs";
 import { truncateAtWordBoundary } from "./lib/slug.mjs";
 import { saveDocument, isLeafFull } from "./lib/wiki-store.mjs";
 import { preserveIdentityOnResave } from "./lib/wiki-identity.mjs";
 import { callJSON } from "./lib/llm-callJSON.mjs";
+import { generateWithJudge } from "./lib/quality-loop.mjs";
 import { LLMOutputInvalid } from "./lib/llm.mjs";
 import { toIso } from "./consolidate-time.mjs";
 import { entityPairId, recordEntity, stampLeafMetadata } from "./consolidate-report.mjs";
+import { MERGE_SCHEMA } from "./consolidate-schemas.mjs";
 
 /** @typedef {import("./consolidate-report.mjs").ConsolidateCtx} ConsolidateCtx */
 /** @typedef {import("./consolidate-report.mjs").MergeCandidate} MergeCandidate */
 /** @typedef {import("./consolidate-report.mjs").LlmMergeDecision} LlmMergeDecision */
 /** @typedef {import("./consolidate-report.mjs").PassReport} PassReport */
 /** @typedef {import("./consolidate-time.mjs").NowInput} NowInput */
-
-// Zod schemas for the two LLM passes. Same JSON-output-with-retry contract
-// as compile.mjs:333 decideAction — the underlying callJSON helper validates,
-// throws LLMOutputInvalid on schema failure, retries up to
-// consolidateLlmMaxRetries() with a corrective suffix, then bubbles a
-// terminal failure to the caller (which falls back to the deterministic
-// archive-without-merge / leave-stale-flag path).
-export const MERGE_SCHEMA = z
-  .object({
-    action: z.enum(["merge", "keep-keeper-unchanged", "skip"]),
-    merged_body: z.string().min(1).optional(),
-    keeper_id: z.string().min(1),
-    loser_id: z.string().min(1),
-    reason: z.string().min(1),
-  })
-  .superRefine((v, ctx) => {
-    if (v.action === "merge" && !v.merged_body) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["merged_body"],
-        message: "merged_body is required when action='merge'",
-      });
-    }
-  });
 
 // 3A — LLM merge-near-duplicates. Consumes the mergeCandidates queued by
 // 2B/2C/2D BEFORE the deterministic finalize archives the loser. For each
@@ -91,24 +68,47 @@ export async function llmMergeNearDuplicates({ candidates, ctx, now, dryRun }) {
       ATOM_BODY_MAX_CHARS: bodyCap,
     };
     try {
+      // Judge-in-the-loop: a `merge` rewrites the keeper body (new durable
+      // content), so it runs through the quality judge, regenerating with
+      // feedback up to quality.maxRounds. `keep-keeper-unchanged`/`skip` write
+      // no new body, so they bypass. FAIL-CLOSED: a judge/provider outage
+      // throws, caught below → band pair keeps both, non-band falls back to a
+      // deterministic archive-without-merge (the established unreachable path).
+      const judged = await generateWithJudge({
+        category: keeper.category,
+        generate: async ({ recommendation }) => {
+          const d = /** @type {LlmMergeDecision} */ (
+            await callJSON({
+              promptPath,
+              userPrompt: recommendation
+                ? `Emit STRICT JSON per the schema in the system prompt.\n\n---\nA QUALITY JUDGE REJECTED YOUR MERGED BODY. Rewrite merged_body to address this while preserving the durable facts from BOTH leaves:\n${recommendation}`
+                : "Emit STRICT JSON per the schema in the system prompt.",
+              vars,
+              schema: MERGE_SCHEMA,
+              maxRetries,
+              maxTokens: 1200,
+            })
+          );
+          // Hallucination guard against the documentIds — schema already
+          // enforces string presence; here we enforce match to inputs.
+          if (d.keeper_id !== keeper.documentId || d.loser_id !== loser.documentId) {
+            throw new LLMOutputInvalid(
+              `LLM emitted ids that don't match inputs: keeper=${d.keeper_id} (want ${keeper.documentId}), loser=${d.loser_id} (want ${loser.documentId})`,
+              JSON.stringify(d),
+            );
+          }
+          if (d.action !== "merge") return { decision: d, __bypassJudge: true };
+          return {
+            decision: d,
+            title: String(keeper.frontmatter?.focus || keeper.name || ""),
+            body: String(d.merged_body || ""),
+          };
+        },
+      });
       const decision = /** @type {LlmMergeDecision} */ (
-        await callJSON({
-          promptPath,
-          userPrompt: "Emit STRICT JSON per the schema in the system prompt.",
-          vars,
-          schema: MERGE_SCHEMA,
-          maxRetries,
-          maxTokens: 1200,
-        })
+        /** @type {{ decision: LlmMergeDecision }} */ (judged.candidate).decision
       );
-      // Hallucination guard against the documentIds — schema already enforces
-      // string presence; here we enforce match to inputs.
-      if (decision.keeper_id !== keeper.documentId || decision.loser_id !== loser.documentId) {
-        throw new LLMOutputInvalid(
-          `LLM emitted ids that don't match inputs: keeper=${decision.keeper_id} (want ${keeper.documentId}), loser=${decision.loser_id} (want ${loser.documentId})`,
-          JSON.stringify(decision),
-        );
-      }
+      const flaggedUnverified = judged.flagged;
       cand.llmDecision = decision;
       if (decision.action === "merge") {
         let body = String(decision.merged_body || "");
@@ -131,6 +131,10 @@ export async function llmMergeNearDuplicates({ candidates, ctx, now, dryRun }) {
           // normalisePlacementOverride accepts a directory; we strip the
           // leaf basename from keeper.documentId.
           const keeperMem = { ...(keeper.memory || {}) };
+          // The judge just re-verified the merged body: set the flag when it
+          // still fell short, CLEAR a stale one when it now passes (self-heal).
+          if (flaggedUnverified) keeperMem.quality = "unverified";
+          else delete keeperMem.quality;
           const keeperDir = path.posix.dirname(keeper.documentId);
           try {
             saveDocument({

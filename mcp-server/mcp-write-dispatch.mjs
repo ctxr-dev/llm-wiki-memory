@@ -1,4 +1,4 @@
-import { writeGateSelfImprovementEnabled } from "../scripts/lib/settings.mjs";
+import { writeGateEnabled } from "../scripts/lib/settings.mjs";
 import { withWikiCommit } from "../scripts/lib/wiki-commit.mjs";
 import { isSystemMaintenance } from "../scripts/lib/maintenance-tag.mjs";
 import { getImpl } from "./mcp-reload.mjs";
@@ -6,35 +6,70 @@ import { jsonResponse } from "./mcp-responses.mjs";
 import {
   assertTopologyPathValid,
   refuseWriteGate,
+  refuseInlineBody,
   targetsGatedCategory,
   auditGatedL3,
   guardScarcePriority,
 } from "./mcp-write-gate.mjs";
 import { withResolvedWriteTarget, annotateSharedWrite } from "./mcp-write-target.mjs";
-import { MCP_ACTOR, OWNERSHIP } from "../scripts/lib/context/enums.mjs";
+import { judgeInteractiveSubmission } from "./mcp-judge-gate.mjs";
+import { MCP_ACTOR, OWNERSHIP, SELF_IMPROVEMENT } from "../scripts/lib/context/enums.mjs";
 import { getActiveWikiContext } from "../scripts/lib/wiki-context.mjs";
+import { parseTarget } from "../scripts/lib/context/target.mjs";
 import { resolveProjectModuleIdentity } from "../scripts/lib/project-identity.mjs";
 
 /** @typedef {import("../scripts/lib/types.mjs").MetadataInput} MetadataInput */
 /** @typedef {import("../scripts/lib/types.mjs").WriteResult} WriteResult */
 /** @typedef {import("../scripts/lib/context/write.mjs").WriteRequest} WriteRequest */
 
+// Resolve JUST the target level's layout for the gate decision, WITHOUT the full
+// field validation (that comes later in parseWriteRequest). Whether a category
+// is gated is now layout-driven, so the gate must read the TARGET wiki's layout.
+// FAIL-CLOSED: any resolution error (bad/absent target, unreadable context) →
+// null, which callers treat as "gated" so the write is refused rather than
+// silently slipping through the gate. `env`/`target` may be absent on legacy
+// callers → also fail-closed.
 /**
- * The L3 gate REFUSAL, decided from RAW args (no resolved context needed) so it
- * runs BEFORE parse-time input validation — a gated write without consent is
- * refused and audited regardless of any other malformed field, preserving the
- * gate-first precedence and a complete refused-audit trail (C8). Returns the
+ * @param {{ env?: unknown, target?: string | null }} a
+ * @returns {Record<string, unknown> | null}
+ */
+function resolveTargetLayout(a) {
+  try {
+    const env = /** @type {import("../scripts/lib/wiki-context.mjs").WikiContext} */ (
+      a.env ?? getActiveWikiContext()
+    );
+    const resolved = parseTarget(env, a.target);
+    return /** @type {Record<string, unknown> | null} */ (resolved.level.layout);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The L3 gate REFUSAL. Resolves the TARGET level's layout up front (so gating is
+ * layout-driven) but BEFORE parse-time field validation — a gated write without
+ * consent is refused and audited regardless of any other malformed field,
+ * preserving gate-first precedence and a complete refused-audit trail (C8). A
+ * target that cannot be resolved fails CLOSED (treated as gated). Returns the
  * refusal response, or null to proceed.
- * @param {{ tool: string, dataset: string, path?: string, name: string, metadata?: MetadataInput, userRequested?: boolean, refuseLabel: string }} a
+ * @param {{ tool: string, dataset: string, path?: string, name: string, metadata?: MetadataInput, userRequested?: boolean, refuseLabel: string, env?: unknown, target?: string | null }} a
  * @returns {ReturnType<typeof refuseWriteGate> | null}
  */
 export function gateRefusal(a) {
-  if (
-    targetsGatedCategory(a.dataset, a.path) &&
-    writeGateSelfImprovementEnabled() &&
-    a.userRequested !== true &&
-    !isSystemMaintenance()
-  ) {
+  let gated;
+  try {
+    // save_lesson is CONSTRUCTION-gated: it always writes a self_improvement
+    // lesson, so it stays gated regardless of a layout that opts self_improvement
+    // out (decision F8) — the lesson path must not silently un-gate. Otherwise
+    // the gated set is layout-driven; a null layout (resolve error) fails closed.
+    const layout = resolveTargetLayout(a);
+    gated =
+      a.tool === "save_lesson" ||
+      (layout === null ? true : targetsGatedCategory(a.dataset, a.path, layout));
+  } catch {
+    gated = true;
+  }
+  if (gated && writeGateEnabled() && a.userRequested !== true && !isSystemMaintenance()) {
     auditGatedL3({
       tool: a.tool,
       status: "refused",
@@ -45,6 +80,71 @@ export function gateRefusal(a) {
     return refuseWriteGate(a.refuseLabel);
   }
   return null;
+}
+
+// The refusal label shown when a gated write lacks consent. save_lesson is always
+// gated; the dataset tools name the dataset (or the path landing in a gated
+// category) so the client sees exactly what to fix.
+/**
+ * @param {string} tool
+ * @param {string} dataset
+ * @param {string} [path]
+ * @returns {string}
+ */
+function gateLabel(tool, dataset, path) {
+  if (tool === "save_lesson") return "save_lesson";
+  const key = tool === "write_memory" ? "datasetId" : "dataset";
+  if (dataset === SELF_IMPROVEMENT) return `${tool}(${key}="${SELF_IMPROVEMENT}")`;
+  // A path (if given) determines the landing category; otherwise the gated
+  // dataset itself is the reason — name it rather than emitting path="undefined".
+  return path
+    ? `${tool}(path="${path}" lands in a gated category)`
+    : `${tool}(${key}="${dataset}" is a gated category)`;
+}
+
+// The three pre-write gates an interactive tool runs IN ORDER: the L3 consent gate
+// ({@link gateRefusal}), the inline-body size bound ({@link refuseInlineBody}),
+// then the quality judge ({@link judgeInteractiveSubmission}).
+//
+// The order is load-bearing in both directions. Consent stays FIRST (C8): a gated
+// write with no consent must be refused and audited as a consent violation
+// whatever else is wrong with it. The size bound goes BEFORE the judge because the
+// judge is an LLM round-trip — refusing afterwards would burn a provider call on a
+// body we were never going to store.
+//
+// Returns `{ blocked }` with the response to return early (a consent refusal, a
+// size refusal, or a judge rejection), else `{ writeMetadata }` — the metadata to
+// persist, stamped `quality:"unverified"` when the judge kept a flagged best attempt.
+/**
+ * @param {{ tool: string, dataset: string, path?: string, name: string, text: string, metadata?: MetadataInput, userRequested?: boolean, target: string, acceptQuality?: boolean }} a
+ * @returns {Promise<{ blocked?: ReturnType<typeof refuseWriteGate>, writeMetadata?: MetadataInput }>}
+ */
+export async function runWriteGates(a) {
+  const refusal = gateRefusal({
+    tool: a.tool,
+    dataset: a.dataset,
+    path: a.path,
+    name: a.name,
+    metadata: a.metadata,
+    userRequested: a.userRequested,
+    refuseLabel: gateLabel(a.tool, a.dataset, a.path),
+    env: getActiveWikiContext(),
+    target: a.target,
+  });
+  if (refusal) return { blocked: refusal };
+  const oversize = refuseInlineBody(a.tool, a.text);
+  if (oversize) return { blocked: oversize };
+  const judgeGate = await judgeInteractiveSubmission({
+    dataset: a.dataset,
+    title: a.name,
+    body: a.text,
+    acceptQuality: a.acceptQuality,
+  });
+  if (judgeGate.block) return { blocked: judgeGate.response };
+  const writeMetadata = judgeGate.flagged
+    ? { ...(a.metadata || {}), quality: "unverified" }
+    : a.metadata;
+  return { writeMetadata };
 }
 
 /**

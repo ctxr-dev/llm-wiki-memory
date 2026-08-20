@@ -227,59 +227,65 @@ test("initMount surfaces (non-fatally) a host-ignored mount", () => {
   assert.match(String(host.message), /git-ignored by the enclosing repo/);
 });
 
-test("initMount(wireRemote): fresh shared setup — remote-read block, NO engine clone, NO ~/ pointers", () => {
+test("initMount: a shared setup writes NOTHING outside the mount and strips stray injections", () => {
   const m = mount("mi-shared-setup");
   spawnSync("git", ["-C", m, "init", "-q"], { encoding: "utf8" });
-  // a stray private-style @-pointer, to prove the shared setup strips it
+  // Artifacts an OLDER engine wrote into this repo: a private-style @-pointer and
+  // a doc block. Both must be cleaned up, because a shared mount is somebody
+  // else's repository and the one per-machine install already covers every dir.
   const rulesDir = path.join(m, ".claude", "rules");
   fs.mkdirSync(rulesDir, { recursive: true });
   fs.writeFileSync(
     path.join(rulesDir, "llm-wiki-memory-self-improvement.md"),
     "@~/.llm-wiki-memory/src/templates/skills/self-improvement.md\n\nIf your client does not resolve the @-include above, read the canonical file at:\n~/.llm-wiki-memory/src/templates/skills/self-improvement.md\n",
   );
-  const res = initMount(m, { wireRemote: true });
-  assert.equal(res.seeded, "repo", "fresh mount seeds the repo template (no pre-existing layout)");
-  assert.ok(res.remoteInclude, "the shared remote-read block was wired");
-  for (const doc of ["CLAUDE.md", "AGENTS.md"]) {
-    const body = fs.readFileSync(path.join(m, doc), "utf8");
-    assert.match(
-      body,
-      /raw\.githubusercontent\.com\/ctxr-dev\/llm-wiki-memory\/main\//,
-      `${doc} carries the machine-independent remote-read block`,
-    );
-    assert.ok(!body.includes("~/"), `${doc} carries no ~/ machine path`);
-  }
-  assert.ok(
-    !fs.existsSync(path.join(m, ".llm-wiki-memory", "src")),
-    "the engine is NEVER cloned into the shared repo",
+  fs.writeFileSync(
+    path.join(m, "CLAUDE.md"),
+    "<!-- BEGIN llm-wiki-memory -->\nstale injected block\n<!-- END llm-wiki-memory -->\n",
   );
+
+  const res = initMount(m);
+  assert.equal(res.seeded, "repo", "fresh mount seeds the repo template (no pre-existing layout)");
+
+  for (const doc of ["CLAUDE.md", "AGENTS.md"]) {
+    assert.ok(!fs.existsSync(path.join(m, doc)), `${doc}: never present in a shared repo`);
+  }
   assert.ok(
     !fs.existsSync(path.join(rulesDir, "llm-wiki-memory-self-improvement.md")),
     "a stray private-style @-pointer is stripped from the shared repo",
   );
+  assert.ok(
+    !fs.existsSync(path.join(m, ".llm-wiki-memory", "src")),
+    "the engine is NEVER cloned into the shared repo",
+  );
+  const removed = /** @type {{ removed?: string[] }} */ (res.strippedInjections)?.removed || [];
+  assert.ok(removed.includes("CLAUDE.md"), `the strip is reported: ${JSON.stringify(removed)}`);
 });
 
-test("initMount default (no wireRemote): NO remote block — programmatic/bootstrap contract unchanged", () => {
-  const m = mount("mi-noremote");
+test("initMount preserves a doc the TEAM wrote, removing only our block", () => {
+  const m = mount("mi-team-doc");
   spawnSync("git", ["-C", m, "init", "-q"], { encoding: "utf8" });
-  const res = initMount(m);
-  assert.ok(res.gitignore, "git surfaces still provisioned");
-  assert.equal(res.remoteInclude, undefined, "no remote block unless wireRemote is set");
-  assert.ok(!fs.existsSync(path.join(m, "CLAUDE.md")), "no CLAUDE.md written by default");
+  fs.writeFileSync(
+    path.join(m, "AGENTS.md"),
+    "# Our house rules\n\nNo force pushes.\n\n<!-- BEGIN llm-wiki-memory -->\nstale\n<!-- END llm-wiki-memory -->\n",
+  );
+  initMount(m);
+  const body = fs.readFileSync(path.join(m, "AGENTS.md"), "utf8");
+  assert.match(body, /No force pushes\./, "the team's own content is never touched");
+  assert.doesNotMatch(body, /BEGIN llm-wiki-memory/, "only our block goes");
 });
 
-test("initMount(wireRemote) is idempotent — a re-run / teammate adopt keeps exactly one block", () => {
+test("initMount is idempotent — a second run neither writes nor re-strips anything", () => {
   const m = mount("mi-idem-remote");
   spawnSync("git", ["-C", m, "init", "-q"], { encoding: "utf8" });
-  initMount(m, { wireRemote: true });
-  const a = fs.readFileSync(path.join(m, "CLAUDE.md"), "utf8");
-  initMount(m, { wireRemote: true });
-  const b = fs.readFileSync(path.join(m, "CLAUDE.md"), "utf8");
-  assert.equal(a, b, "byte-stable re-run");
-  assert.equal(
-    (b.match(/BEGIN llm-wiki-memory/g) || []).length,
-    1,
-    "exactly one remote-read block",
+  initMount(m);
+  const before = fs.readdirSync(m).sort();
+  const res = initMount(m);
+  assert.deepEqual(fs.readdirSync(m).sort(), before, "no file added or removed on a re-run");
+  assert.deepEqual(
+    /** @type {{ removed?: string[] }} */ (res.strippedInjections)?.removed,
+    [],
+    "nothing left to strip",
   );
 });
 

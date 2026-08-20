@@ -1,5 +1,13 @@
 import fs from "node:fs";
 import { slugify } from "./slug.mjs";
+import {
+  DEFAULT_PLACEMENT_FACETS,
+  DEFAULT_GATED,
+  DEFAULT_FACET_META,
+} from "./wiki-layout-defaults.mjs";
+
+/** Re-exported so this module stays the single type surface for the layout. */
+/** @typedef {import("./wiki-layout-defaults.mjs").FacetMeta} FacetMeta */
 
 // The pure parse half of the layout state (see `wiki-layout-state.mjs`, which
 // holds the per-root snapshot cache + accessors and calls `parseLayoutObject`
@@ -41,14 +49,6 @@ export const DEFAULT_CATEGORIES = Object.freeze([
   "investigations",
   "daily",
 ]);
-/** @type {Record<string, readonly string[]>} */
-const DEFAULT_PLACEMENT_FACETS = Object.freeze({
-  knowledge: Object.freeze(["area", "atom_type"]),
-  self_improvement: Object.freeze(["area", "task_type"]),
-  plans: Object.freeze(["area"]),
-  investigations: Object.freeze(["area"]),
-});
-
 /**
  * @typedef {{ kind: "path" | "segment", vocabulary: string | null, fallback: string | null }} FacetRule
  */
@@ -63,6 +63,9 @@ const DEFAULT_PLACEMENT_FACETS = Object.freeze({
  * @property {Record<string, boolean>} topologyCategories
  * @property {Record<string, boolean>} fullCategories
  * @property {boolean} fullDefault
+ * @property {Record<string, boolean>} gatedCategories
+ * @property {Record<string, boolean>} autoDistillCategories
+ * @property {Record<string, FacetMeta>} facetMeta
  */
 
 // Loose views over the ALREADY-parsed layout object. The object was produced by
@@ -84,10 +87,13 @@ const DEFAULT_PLACEMENT_FACETS = Object.freeze({
  * @property {unknown} [consolidate]
  * @property {unknown} [topology]
  * @property {unknown} [full]
+ * @property {unknown} [gated]
+ * @property {unknown} [auto_distill]
  */
 /**
  * @typedef {Object} RawLayoutDoc
  * @property {Record<string, unknown>} [vocabularies]
+ * @property {Record<string, { description?: unknown, examples?: unknown }>} [facet_meta]
  * @property {RawLayoutEntry[]} [layout]
  * @property {unknown} [full]
  */
@@ -139,9 +145,36 @@ export function parseLayoutObject(parsed) {
   // Per-category full-document mode (true = store whole + embed whole; absent =
   // inherit the wiki-level default). `fullDefault` is the layout-root fallback.
   const fullCategories = Object.create(null);
+  // Per-category write-gate (true = consent required) and auto-distill
+  // eligibility (true = compile may auto-promote here). Seeded with the
+  // name-keyed code defaults so an omitted key keeps historical behaviour; an
+  // explicit layout value overrides below.
+  const gatedCategories = Object.create(null);
+  const autoDistillCategories = Object.create(null);
+  for (const c of DEFAULT_CATEGORIES) {
+    gatedCategories[c] = DEFAULT_GATED[c] === true;
+    autoDistillCategories[c] = true;
+  }
 
   const doc = /** @type {RawLayoutDoc} */ (parsed && typeof parsed === "object" ? parsed : {});
   const fullDefault = doc.full === true;
+
+  // Per-facet help metadata: start from the built-in defaults, then let the
+  // layout's `facet_meta` override any facet's fields (or add its own).
+  /** @type {Record<string, FacetMeta>} */
+  const facetMeta = Object.create(null);
+  for (const [k, v] of Object.entries(DEFAULT_FACET_META)) {
+    facetMeta[k] = { ...v };
+  }
+  if (doc.facet_meta && typeof doc.facet_meta === "object") {
+    for (const [k, v] of Object.entries(doc.facet_meta)) {
+      if (!v || typeof v !== "object") continue;
+      const entry = facetMeta[k] || {};
+      if (typeof v.description === "string") entry.description = v.description;
+      if (Array.isArray(v.examples)) entry.examples = v.examples.map((x) => String(x));
+      facetMeta[k] = entry;
+    }
+  }
 
   // Controlled value sets referenced by `kind: path` facet rules.
   if (doc.vocabularies && typeof doc.vocabularies === "object") {
@@ -190,6 +223,11 @@ export function parseLayoutObject(parsed) {
       }
       // full: true | false  (absent -> inherit the wiki-level default).
       if (e.full !== undefined) fullCategories[name] = e.full === true;
+      // gated / auto_distill: explicit value wins; else the name-keyed code
+      // default (self_improvement gated; every category auto-distilled).
+      gatedCategories[name] =
+        e.gated !== undefined ? e.gated === true : DEFAULT_GATED[name] === true;
+      autoDistillCategories[name] = e.auto_distill !== undefined ? e.auto_distill === true : true;
       // A `topology:` block means this category nests via the path-compiler,
       // not facet placement: writes must supply an explicit path.
       if (e.topology && typeof e.topology === "object") {
@@ -199,6 +237,14 @@ export function parseLayoutObject(parsed) {
     // Drop default facet keys for categories the layout did NOT declare.
     for (const k of Object.keys(facets)) {
       if (!cats.includes(k)) delete facets[k];
+    }
+    // Likewise drop seeded gate/auto-distill flags for undeclared categories,
+    // so `X in gatedCategories` reliably means "X is a declared category".
+    for (const k of Object.keys(gatedCategories)) {
+      if (!cats.includes(k)) delete gatedCategories[k];
+    }
+    for (const k of Object.keys(autoDistillCategories)) {
+      if (!cats.includes(k)) delete autoDistillCategories[k];
     }
   }
 
@@ -211,5 +257,8 @@ export function parseLayoutObject(parsed) {
     topologyCategories,
     fullCategories,
     fullDefault,
+    gatedCategories,
+    autoDistillCategories,
+    facetMeta,
   };
 }

@@ -131,11 +131,16 @@ test("J6: a brain-target save lands in the BRAIN tree, not the repo", async () =
   assert.ok(!p.sharedTarget, "a brain write carries no shared-target annotation");
 });
 
-test("J6: an out-of-scope target is REFUSED with an error envelope naming `target` — never a silent write", async () => {
+test("J6: an out-of-scope target is REFUSED (fail-closed L3 gate) — never a silent write", async () => {
   const elsewhere = path.join(path.dirname(svc.dir), "not-in-scope", ".llm-wiki-memory", "wiki");
   const res = await saveDoc(elsewhere, "j6-nope.md");
-  assert.equal(res.isError, true, "the live server returns an error result, not a silent write");
   const env = payloadOf(res);
-  assert.equal(env.ok, false, "the envelope reports ok:false");
-  assert.equal(env.field, "target", "the refusal names the offending `target` field");
+  // An out-of-scope target cannot be resolved to a level, so the L3 gate fails
+  // CLOSED (treats an unresolvable target as gated) and refuses the write with no
+  // consent flag — the leaf never lands. This is the layout-driven gate's
+  // deliberate safe direction: a resolution failure refuses rather than proceeds.
+  // (Given userRequested:true the gate would clear and the later target-parse
+  // step would instead surface a `field:"target"` error; here there is no consent.)
+  assert.equal(env.ok, false, "the envelope reports ok:false — not a silent write");
+  assert.equal(env.error, "write-gate-refused", "refused by the fail-closed L3 gate");
 });

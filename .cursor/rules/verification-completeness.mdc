@@ -1,0 +1,8 @@
+---
+description: "Verification completeness — What \"verified\" and \"green\" are allowed to mean in this repo. Canonical file is .agents/rules/verification-completeness.md."
+alwaysApply: true
+---
+
+Follow the canonical rule (edit that file, never this shadow):
+
+@.agents/rules/verification-completeness.md

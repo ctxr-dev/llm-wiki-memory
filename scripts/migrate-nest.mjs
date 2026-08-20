@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { wikiRoot } from "./lib/env.mjs";
 import { categoryHasTopology, renameEmbedding } from "./lib/wiki-store.mjs";
 import { ensureIndexes, validate } from "./lib/wiki-cli.mjs";
@@ -203,16 +202,7 @@ async function migrateNestInner({ wiki = wikiRoot(), dryRun = false, check = fal
   };
 }
 
-const invokedAsCli = (() => {
-  if (!process.argv[1]) return false;
-  try {
-    return import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
-  } catch {
-    return false;
-  }
-})();
-
-if (invokedAsCli) {
+if (import.meta.main) {
   const HELP = formatHelp({
     name: "migrate-nest",
     summary:

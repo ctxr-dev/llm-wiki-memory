@@ -73,7 +73,7 @@ function installSignalCleanup() {
 // Create an isolated temp data dir, point the env at it, and (optionally)
 // materialise the hosted wiki. Must be called BEFORE importing any lib that
 // reads env.mjs paths, since those are resolved at import time.
-export function setupWorkspace({ init = true, projectModule = "testproj" } = {}) {
+export function setupWorkspace({ init = true, projectModule = "testproj", template } = {}) {
   installSignalCleanup();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-"));
   TRACKED_DATA_DIRS.add(dataDir);
@@ -90,16 +90,24 @@ export function setupWorkspace({ init = true, projectModule = "testproj" } = {})
   // bge model download on every fresh test workspace. `consolidate.enabled: true`
   // is set because the product default is opt-in/off; the consolidate + cron
   // suites need it on to exercise consolidation, and flag-specific tests
-  // override it back to false. Each workspace gets its own settings.yaml.
+  // override it back to false. `quality.judgeEnabled: false` mirrors the same
+  // philosophy in reverse: the judge-in-the-loop is ON by product default, but
+  // the broad compile/consolidate suites mock a single fixed LLM response per
+  // step, so a second (judge) LLM call would break their mock accounting. The
+  // judge is exercised by DEDICATED tests that opt back in via
+  // __setSettingsForTest({ quality: { judgeEnabled: true } }). Each workspace
+  // gets its own settings.yaml.
   fs.mkdirSync(path.join(dataDir, "settings"), { recursive: true });
   fs.writeFileSync(
     path.join(dataDir, "settings", "settings.yaml"),
-    "embed:\n  backend: lexical\nconsolidate:\n  enabled: true\n",
+    "embed:\n  backend: lexical\nconsolidate:\n  enabled: true\nquality:\n  judgeEnabled: false\n",
   );
 
   const wiki = path.join(dataDir, "wiki");
   if (init) {
-    const r = spawnSync(process.execPath, [path.join(SRC, "scripts/cli.mjs"), "init"], {
+    const args = [path.join(SRC, "scripts/cli.mjs"), "init"];
+    if (template) args.push("--template", template);
+    const r = spawnSync(process.execPath, args, {
       env: process.env,
       encoding: "utf8",
     });
@@ -167,6 +175,7 @@ export function brainTargetClient(client) {
     "enable_document",
     "delete_document",
     "move_document",
+    "update_document_metadata",
   ]);
   const call = client.callTool.bind(client);
   client.callTool = (params, ...rest) => {

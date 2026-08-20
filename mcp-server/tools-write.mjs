@@ -2,7 +2,7 @@ import { z } from "zod";
 import { getImpl } from "./mcp-reload.mjs";
 import { errorResponse } from "./mcp-responses.mjs";
 import { MetadataSchema } from "./mcp-schemas.mjs";
-import { gateRefusal, dispatchWrite } from "./mcp-write-dispatch.mjs";
+import { runWriteGates, dispatchWrite } from "./mcp-write-dispatch.mjs";
 import { ScopesSchema, withToolScopes } from "./mcp-scopes.mjs";
 import { registerAbsorbTool } from "./tools-absorb.mjs";
 import { getActiveWikiContext } from "../scripts/lib/wiki-context.mjs";
@@ -29,6 +29,21 @@ const TARGET_DESCRIPTION =
   ' REQUIRED top-level `target` — the write destination is always explicit (there is no default): pass "brain" for your private memory, or a context level\'s wiki root or mount directory for a project (discover the available levels via get_memory_config `levels`). Omitting it is rejected. NEVER write to a shared repo without the user choosing it: ASK first, then pass that repo as `target`; a shared write is only staged in the repo working tree (the engine runs no git) — tell the user to commit and push it.';
 
 const NESTED_NOTE = " Inputs are a single nested context object; unknown keys are rejected.";
+
+// Agents reach for this tool while holding a whole document in context, so the
+// size trap belongs in the description they are reading at that moment: an inline
+// body of a few tens of KB is refused by the CLIENT before this server ever sees it
+// ("input JSON failed to parse"), and re-emitting an unchanged body to change one
+// line is the slowest step in the loop by far (the write itself is sub-second).
+const LARGE_BODY_NOTE =
+  " LARGE BODIES: do NOT inline a body over ~20KB — past a configurable cap this" +
+  " server REFUSES the write with `inline-body-too-large` (see" +
+  " gate.maxInlineBodyBytes), and retrying with the same body will not help." +
+  " Write it to a file and save by path instead: `node <clone>/scripts/cli.mjs" +
+  " save-leaf --file <path> --dataset <name> [--path <dir>] [--area=…]`. To UPDATE" +
+  " an existing large leaf, edit the file in place and re-run save-leaf — never" +
+  " re-send an unchanged body to flip a status or tick a checkbox. To change only" +
+  " FRONTMATTER, use update_document_metadata (it takes no body at all).";
 
 /** @param {McpServer} server */
 function registerWriteTools(server) {
@@ -65,6 +80,7 @@ function registerWriteTools(server) {
                 }),
               tags: z.array(z.string().trim().min(1)).optional(),
               evidence: z.string().trim().max(500).optional(),
+              acceptQuality: z.boolean().optional(),
             })
             .strict(),
           gate: GateSchema,
@@ -75,24 +91,26 @@ function registerWriteTools(server) {
     async (args) =>
       withToolScopes(args, async () => {
         const { write, gate, target } = args;
-        const { title, body, metadata, tags, evidence } = write;
+        const { title, body, metadata, tags, evidence, acceptQuality } = write;
         const userRequested = gate.userRequested;
         try {
-          const refusal = gateRefusal({
+          const gates = await runWriteGates({
             tool: "save_lesson",
             dataset: SELF_IMPROVEMENT,
             name: title,
+            text: body,
             metadata,
             userRequested,
-            refuseLabel: "save_lesson",
+            target,
+            acceptQuality,
           });
-          if (refusal) return refusal;
+          if (gates.blocked) return gates.blocked;
           const req = parseWriteRequest(getActiveWikiContext(), {
             kind: WRITE_KIND.LESSON,
             dataset: SELF_IMPROVEMENT,
             name: title,
             text: body,
-            metadata,
+            metadata: gates.writeMetadata,
             userRequested,
             target,
           });
@@ -113,6 +131,7 @@ function registerWriteTools(server) {
       title: "Upsert a document into a named category",
       description:
         'Write `write.text` as a wiki leaf with the exact `write.name`, replacing any existing leaf in the category with the same name. Send `write:{dataset, name, text, path?, metadata?}` and, only for a self_improvement write, `gate:{userRequested:true}`. `write.dataset` is a category name (knowledge, plans, investigations, self_improvement, or any extra category declared in <wiki>/.layout/layout.yaml). `write.path` is a relative directory under the wiki root (e.g. "issues/JIRA/DEV/129/95/7") that overrides facet-derived placement so the leaf is written verbatim at <path>/<name>. `write.path` is REQUIRED for any category with a `topology:` block (e.g. tracker issues) and REFUSED if missing/mismatched; optional for default facet categories. WRITE-GATED for dataset="self_improvement" only. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.' +
+        LARGE_BODY_NOTE +
         NESTED_NOTE +
         TARGET_DESCRIPTION,
       inputSchema: z
@@ -125,6 +144,7 @@ function registerWriteTools(server) {
               text: z.string().trim().min(1).max(500_000),
               path: z.string().trim().min(1).max(500).optional(),
               metadata: MetadataSchema.optional(),
+              acceptQuality: z.boolean().optional(),
             })
             .strict(),
           gate: GateSchema.optional(),
@@ -135,29 +155,28 @@ function registerWriteTools(server) {
     async (args) =>
       withToolScopes(args, async () => {
         const { write, gate, target } = args;
-        const { dataset, name, text, path, metadata } = write;
+        const { dataset, name, text, path, metadata, acceptQuality } = write;
         const userRequested = gate?.userRequested;
         try {
-          const refusal = gateRefusal({
+          const gates = await runWriteGates({
             tool: "save_to_dataset",
             dataset,
             path,
             name,
+            text,
             metadata,
             userRequested,
-            refuseLabel:
-              dataset === SELF_IMPROVEMENT
-                ? `save_to_dataset(dataset="${SELF_IMPROVEMENT}")`
-                : `save_to_dataset(path="${path}" lands in ${SELF_IMPROVEMENT})`,
+            target,
+            acceptQuality,
           });
-          if (refusal) return refusal;
+          if (gates.blocked) return gates.blocked;
           const req = parseWriteRequest(getActiveWikiContext(), {
             kind: WRITE_KIND.DOCUMENT,
             dataset,
             name,
             text,
             path,
-            metadata,
+            metadata: gates.writeMetadata,
             userRequested,
             target,
           });
@@ -185,6 +204,7 @@ function registerWriteTools(server) {
       title: "Write project memory",
       description:
         'Create a new wiki leaf from concise memory text. Send `write:{name, text, datasetId, supersedes?, supersedesAction?, path?, metadata?}` and, only for a self_improvement write, `gate:{userRequested:true}`. Optionally supersede an existing leaf by passing `write.supersedes` (its documentId; the old leaf is archived, or deleted with supersedesAction="delete"). `write.path` overrides facet-derived placement and is REQUIRED for a topology category (REFUSED if missing/mismatched), optional otherwise. WRITE-GATED for datasetId="self_improvement" only. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.' +
+        LARGE_BODY_NOTE +
         NESTED_NOTE +
         TARGET_DESCRIPTION,
       inputSchema: z
@@ -199,6 +219,7 @@ function registerWriteTools(server) {
               supersedesAction: SupersedesActionSchema.optional(),
               path: z.string().trim().min(1).max(500).optional(),
               metadata: MetadataSchema.optional(),
+              acceptQuality: z.boolean().optional(),
             })
             .strict(),
           gate: GateSchema.optional(),
@@ -209,29 +230,37 @@ function registerWriteTools(server) {
     async (args) =>
       withToolScopes(args, async () => {
         const { write, gate, target } = args;
-        const { name, text, datasetId, supersedes, supersedesAction, path, metadata } = write;
+        const {
+          name,
+          text,
+          datasetId,
+          supersedes,
+          supersedesAction,
+          path,
+          metadata,
+          acceptQuality,
+        } = write;
         const userRequested = gate?.userRequested;
         try {
-          const refusal = gateRefusal({
+          const gates = await runWriteGates({
             tool: "write_memory",
             dataset: datasetId,
             path,
             name,
+            text,
             metadata,
             userRequested,
-            refuseLabel:
-              datasetId === SELF_IMPROVEMENT
-                ? `write_memory(datasetId="${SELF_IMPROVEMENT}")`
-                : `write_memory(path="${path}" lands in ${SELF_IMPROVEMENT})`,
+            target,
+            acceptQuality,
           });
-          if (refusal) return refusal;
+          if (gates.blocked) return gates.blocked;
           const req = parseWriteRequest(getActiveWikiContext(), {
             kind: WRITE_KIND.MEMORY,
             dataset: datasetId,
             name,
             text,
             path,
-            metadata,
+            metadata: gates.writeMetadata,
             userRequested,
             target,
           });

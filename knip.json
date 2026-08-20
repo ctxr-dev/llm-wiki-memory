@@ -1,6 +1,17 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": ["scripts/*.mjs", "scripts/hooks/*.mjs", "test/**/*.test.mjs"],
-  "project": ["scripts/**/*.mjs", "mcp-server/**/*.mjs"],
-  "ignoreBinaries": ["awk"]
+  "ignoreWorkspaces": ["src/webapp"],
+  "workspaces": {
+    ".": {
+      "entry": [
+        "scripts/*.mjs",
+        "scripts/hooks/*.mjs",
+        "scripts/migrations/**/*.mjs",
+        "test/**/*.test.mjs",
+        "test/setup-guard.mjs"
+      ],
+      "project": ["scripts/**/*.mjs", "mcp-server/**/*.mjs"]
+    }
+  },
+  "ignoreBinaries": ["awk", "playwright"]
 }

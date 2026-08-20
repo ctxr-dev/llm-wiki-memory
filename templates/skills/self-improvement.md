@@ -64,18 +64,20 @@ Trigger conditions for proposing a lesson:
 - Repeat correction: "I told you before", "again", "same mistake", "we've covered this".
 - Wrong-tool / wrong-step: the user pointed out you used the wrong file, command, format, or skipped a step.
 
+**What a self_improvement lesson IS — behavioural, conceptual, validated.** A lesson captures how the AI ITSELF should behave differently next time — the transferable principle and WHY — with LESS project/code specificity and MORE concept. It is NOT a place for code facts, file/line/symbol details, or project decisions (those are `knowledge`). Save ONLY a REAL, validated behavioural lesson: never an assumption, a speculative "might be useful", a false-positive atom, or a reaction to the user being wrong or merely upset. The quality judge enforces exactly this on save (behavioural + conceptual + de-personalized + durable); an un-durable or code-dump "lesson" is rejected with a rewrite recommendation (revise and resubmit, up to 3×).
+
 **Self_improvement writes are WRITE-GATED.** When you observe a trigger, do NOT call `save_lesson` on your own.
 
 **FIRST, search-before-save (dedup — discipline rule 16).** Before proposing, SEARCH the wiki for an existing lesson about the same failure mode — exhaustively, not one query: `search_memory` on the `error_pattern` slug, the title, and the key tags, across `self_improvement` (and knowledge if it might already be a `feedback-rule`). DELEGATE this to a subagent when your client supports it (it can compare many candidate leaves without bloating the main chat) and have it return: does a matching leaf exist, its `documentId`, and CREATE-NEW vs UPDATE-that-id. PREFER updating the existing lesson (same `error_pattern` → the compile/consolidate dedup merges it anyway; a same-`name` save upserts) over a near-duplicate.
 
-Then, in one short line, PROPOSE the lesson — STATING new-vs-update — and wait for explicit user confirmation in this turn:
+Then PROPOSE the lesson(s) and wait for explicit user confirmation in this turn — STATING new-vs-update. **On Claude Code, propose via the `AskUserQuestion` tool — one call, one question PER LESSON** (batch ≤4; more → successive calls), options `Save (P1)` / `Save as guardrail (P0)` / `Save as contextual (P2)` / `Skip`, with the question text stating the finding + proposed title:
 
-> "Want me to save a lesson? Title: \"<imperative summary>\", error_pattern: \"<kebab-slug>\"." — or, if a match exists: "There's already `<id>` (\"<title>\") about this; want me to UPDATE it with the fresh data?"
+> new: "New lesson — <imperative summary>"; or, if a match exists: "Update existing `<id>` (\"<title>\") with the fresh data".
 
-Then:
-- **User says yes** -> call `save_lesson` with `userRequested:true` (see template below).
-- **User says no, ignores, redirects, or asks something else** -> do NOT save. Continue helping. Saving without an in-turn yes is a discipline violation. The server REFUSES the call without `userRequested:true` anyway (a deterministic L3 gate); the Claude Code PreToolUse hook returns `permissionDecision:"ask"` for the same purpose.
-- **One approval = one lesson.** If you have several lessons, propose and confirm EACH separately; never flush a batch on a single "save it". On Claude Code the L2 hook re-prompts for every additional self_improvement write in the same turn (per-lesson consent). Every gated decision is recorded to a redacted audit ledger (`cli.mjs gate-audit`).
+On a client WITHOUT AskUserQuestion, use its equivalent structured prompt, else PROPOSE in one short line and wait for the yes. Then:
+- **User marks a lesson Save (P1/P0/P2)** -> call `save_lesson` for THAT lesson with `userRequested:true` + the chosen priority (see template below).
+- **User marks Skip / says no / ignores / redirects** -> do NOT save that lesson. Continue helping. Saving without an in-turn yes is a discipline violation. The server REFUSES the call without `userRequested:true` anyway (a deterministic L3 gate); the Claude Code PreToolUse hook allows only as many gated writes as the user marked Save.
+- **One approval = one lesson.** Each lesson is its own question and its own decision; never flush a batch on a single "save it". On Claude Code the L2 hook allows only as many self_improvement writes as the user marked Save this turn (per-lesson consent). Every gated decision is recorded to a redacted audit ledger (`cli.mjs gate-audit`).
 
 ```
 save_lesson({
@@ -83,7 +85,7 @@ save_lesson({
   target: "brain",
   write: {
     title: "<imperative summary, <=80 chars: what to do (or not do) next time>",
-    body: "<lead with the rule, then 'Why:' and 'How to apply:' lines; flush truncates to settings.compile.atomBodyMaxChars (default 700)>",
+    body: "<lead with the rule, then 'Why:' and 'How to apply:' lines; polished + de-personalized (no user quotes/attribution, no irrelevant specifics; keep technical evidence); flush truncates to settings.compile.atomBodyMaxChars (default 700)>",
     metadata: {
       area: "<inferred>",
       task_type: "<inferred>",
@@ -91,7 +93,7 @@ save_lesson({
       language: "<optional>"
     },
     tags: ["<scope>", "<area>"],
-    evidence: "<one-line excerpt of the user's correction, redact secrets>"
+    evidence: "<one-line DE-PERSONALIZED technical fact that justifies this — the root cause / ticket / file, NOT a user quote or attribution; redact secrets>"
   },
   gate: { userRequested: true }   // REQUIRED. Only set when the user explicitly said yes
                                   // in this turn. Server refuses without it.

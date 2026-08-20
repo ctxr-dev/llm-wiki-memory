@@ -10,7 +10,7 @@ export function handleHeal() {
 export async function handleGcEmbeddings(rest) {
   // On-demand sweep of orphaned embedding-cache entries (ids whose leaf no
   // longer exists). --dry-run previews without writing. --if-due throttles
-  // to MEMORY_GC_INTERVAL_DAYS via state/.embed-gc.json (the SessionEnd
+  // to gc.intervalDays via state/.embed-gc.json (the SessionEnd
   // embed-gc hook + hook-less agents use this); plain run is unconditional.
   const { pruneEmbeddingCache } = await import("./lib/wiki-store.mjs");
   return out(
@@ -18,6 +18,21 @@ export async function handleGcEmbeddings(rest) {
       dryRun: rest.includes("--dry-run"),
       ifDue: rest.includes("--if-due"),
     }),
+  );
+}
+
+/** @param {string[]} rest */
+export async function handleWarm(rest) {
+  // Gradual, duty-cycled warm of this wiki's embedding caches. --if-due honours
+  // embed.warmIntervalMinutes and the cross-process lock (what the hourly cron
+  // and the webapp timer use); a plain run warms unconditionally, which is the
+  // form to reach for after a model change or a bulk import.
+  const { warmWikiEmbeddings, warmWikiEmbeddingsIfDue } = await import("./lib/embed-warm.mjs");
+  const root = wikiRoot();
+  return out(
+    rest.includes("--if-due")
+      ? await warmWikiEmbeddingsIfDue(root)
+      : { ok: true, ...(await warmWikiEmbeddings(root)) },
   );
 }
 
@@ -131,4 +146,99 @@ export async function handleMoveLeaf(rest) {
   );
   out(res);
   process.exit(res.ok ? 0 : 2);
+}
+
+/**
+ * Save a leaf whose BODY comes from a file, so document size stops being an
+ * agent-side constraint: a large plan or investigation never has to be inlined in a
+ * tool-call argument (clients cap and truncate those — a ~46KB inline payload fails
+ * to parse), and re-saving an edited doc costs a file write rather than re-emitting
+ * the whole body.
+ *
+ * save-leaf --file <path> --dataset <name> [--name <leaf.md>] [--path <dir>]
+ *           [--area=…] [--atom-type=…] [--task-type=…] [--subject=…] [--tags=…]
+ * @param {string[]} rest
+ */
+export async function handleSaveLeaf(rest) {
+  /** @param {string} key @returns {string | undefined} */
+  const flag = (key) => {
+    const eq = rest.find((a) => a.startsWith(`--${key}=`));
+    if (eq) return eq.slice(key.length + 3);
+    const i = rest.indexOf(`--${key}`);
+    return i >= 0 && rest[i + 1] && !rest[i + 1].startsWith("--") ? rest[i + 1] : undefined;
+  };
+  const usage =
+    "usage: llm-wiki-memory save-leaf --file <path> --dataset <name> " +
+    "[--name <leaf.md>] [--path <dir>] [--area=…] [--atom-type=…] [--task-type=…] " +
+    "[--subject=…] [--tags=…]\n";
+
+  const file = flag("file");
+  const dataset = flag("dataset");
+  if (!file || !dataset) {
+    process.stderr.write(usage);
+    process.exit(64);
+  }
+  // The consent gate lives in the MCP layer, so a CLI door must not become a way
+  // around it for the one category that requires an in-turn human yes.
+  if (dataset === "self_improvement") {
+    process.stderr.write(
+      "save-leaf refuses self_improvement: that category is write-gated and needs " +
+        "the MCP save_lesson tool so the consent prompt is recorded.\n",
+    );
+    process.exit(2);
+  }
+
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  let text;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch (err) {
+    process.stderr.write(
+      `save-leaf: cannot read ${file}: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    process.exit(66);
+  }
+  if (!text.trim()) {
+    process.stderr.write(`save-leaf: ${file} is empty\n`);
+    process.exit(65);
+  }
+
+  const name = flag("name") || path.basename(file);
+  const subject = flag("subject");
+  const metadata = {
+    ...(flag("area") ? { area: flag("area") } : {}),
+    ...(flag("atom-type") ? { atom_type: flag("atom-type") } : {}),
+    ...(flag("task-type") ? { task_type: flag("task-type") } : {}),
+    ...(subject
+      ? {
+          subject: subject
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+        }
+      : {}),
+    ...(flag("tags") ? { tags: flag("tags") } : {}),
+  };
+  const placementOverride = flag("path");
+
+  const { saveDocument } = await import("./lib/wiki-store.mjs");
+  const { withWikiCommit } = await import("./lib/wiki-commit.mjs");
+  try {
+    const res = /** @type {Record<string, unknown>} */ (
+      await withWikiCommit({ op: "cli-save-leaf", actor: "cli" }, () =>
+        saveDocument({
+          name,
+          text,
+          datasetId: dataset,
+          metadata,
+          ...(placementOverride ? { placementOverride } : {}),
+        }),
+      )
+    );
+    out({ ok: true, bytes: Buffer.byteLength(text), ...res });
+  } catch (err) {
+    out({ ok: false, reason: err instanceof Error ? err.message : String(err) });
+    process.exit(2);
+  }
 }

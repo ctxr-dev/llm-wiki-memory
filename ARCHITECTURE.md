@@ -120,7 +120,7 @@ The single tree in the seam picture is one *level*. The shipped engine is
 | Layout contract — **body interpretation** (placement facets, `topology:`) | ❌ | ✅ |
 | Facet placement (`area`, `atom_type`/`task_type`) + **subject axis** | ❌ | ✅ |
 | Custom tracker topology (`issues/JIRA/…` tree, `to_path`/`from_path`) | ❌ | ✅ |
-| Embeddings (Xenova `bge-large`) + vector cache + throttled GC | ❌ | ✅ |
+| Embeddings (EmbeddingGemma-300m ONNX) + vector cache + throttled GC | ❌ | ✅ |
 | Semantic recall + the drop-rung recall ladder | ❌ | ✅ |
 | Memory atoms / atom types / lessons / datasets | ❌ | ✅ |
 | Plan lifecycle sync (checkbox → status/progress → folder move) | ❌ | ✅ |
@@ -177,7 +177,7 @@ memory/atom/lesson/Jira concepts. Leaf `type` is only `primary | overlay`.
 | `topology-runtime` + `path-compiler` | Load a layout's `topology:` block; run forward `to_path` / reverse `from_path` (tracker `issues/…` trees) with a mandatory **round-trip** check; inline JS runs in a locked-down `vm` sandbox. |
 | `layout-validator` | Strict Zod schema over `layout.yaml` with line:col errors. |
 | `topology-validator` | Sample-facet round-trip pre-flight for a topology. |
-| `embed` | Xenova `bge-large-en-v1.5` (lexical fallback); model-stamped on-disk vector cache; throttled GC (`gc-embeddings --if-due`, `gc.intervalDays` in `settings.yaml`, `.embed-gc.json`). |
+| `embed` | `onnx-community/embeddinggemma-300m-ONNX` via `@huggingface/transformers`, inference in a worker thread (lexical fallback); model-stamped on-disk vector cache; throttled GC (`gc-embeddings --if-due`, `gc.intervalDays` in `settings.yaml`, `.embed-gc.json`). |
 | `recall` | Drop-rung recall ladder (error_pattern → language → task_type → area → project_module), fanned out across the federated scope chain (per-repo levels + the brain), with knowledge cross-refs appended. |
 | `plan-sync` + `plan-frontmatter` + `tracker-parse` | Rewrite plan status/progress/flip-log from checkboxes; relocate the leaf into the matching lifecycle folder. |
 | `fs-prune` | Remove ancestor dirs a move/delete emptied (no orphan `index.md`). |
@@ -187,7 +187,7 @@ memory/atom/lesson/Jira concepts. Leaf `type` is only `primary | overlay`.
 | `bootstrap.sh` (macOS/Linux) · `bootstrap.ps1` (Windows) + `cli init` | Install: deps, wiki materialization (engine `index-rebuild` + layout template — never the whole-tree `build`), settings/MCP merge, rule/skill distribution, and an optional **hourly refinement cron** (`--schedule hourly` / `-Schedule hourly` installs a launchd (macOS) / crontab (Linux) / Task Scheduler (Windows) job firing at minute 0 that runs `cli.mjs cron-job` = `compile` + `consolidate --if-due`; `daily` is a deprecated alias for the same hourly job). Both installers call the SAME Node step modules under `scripts/bootstrap/`, so the produced install is identical across platforms. |
 
 **User-facing surfaces:**
-- **MCP tools:** `get_memory_config`, `reload_provider`, `list_datasets`, `search_memory`, `recall_lessons`, `save_lesson`, `save_to_dataset`, `write_memory`, `disable_document`, `enable_document`, `delete_document`, `move_document`, `audit_memory`, `consolidate_memory`, `reload_layout`, `validate_layout`, `validate_topology`, `test_path_compiler`.
+- **MCP tools:** `get_memory_config`, `reload_provider`, `list_datasets`, `search_memory`, `recall_lessons`, `save_lesson`, `save_to_dataset`, `write_memory`, `disable_document`, `enable_document`, `delete_document`, `move_document`, `update_document_metadata`, `audit_memory`, `consolidate_memory`, `reload_layout`, `validate_layout`, `validate_topology`, `test_path_compiler`.
 - **Hooks:** `SessionStart`, `PreCompact`, `PostCompact`, `SessionEnd` (flush + plan-frontmatter-sync + embed-gc), `PostToolUse` (`ExitPlanMode`, `Write|Edit`), `PreToolUse` (`pretooluse-gate-memory-writes.sh` — matcher `save_lesson|save_to_dataset|write_memory`, the L2 write-gate; `pretooluse-deny-client-memory-path.sh` — matcher `Write|Edit|NotebookEdit`).
 - **CLI:** `init`, `validate`, `validate-layout`, `validate-topology`, `test-path-compiler`, `heal`, `gc-embeddings`, `consolidate`, `where`, `cron-job`, `cron-health`, `recall`, `search`, `compile`, `redistill`, `nest`, `migrate`, `migrate-identity`, `doctor`, `backfill-priority`, `move-leaf`, `monitor`, `monitoring-health`, `gate-audit`.
 
@@ -254,7 +254,11 @@ envelope; `validate` degrades gracefully by scraping `"N error(s)"`.
 - Seam: `scripts/lib/wiki-cli.mjs` (every engine call).
 - Leaf authoring + placement: `scripts/lib/wiki-store.mjs`.
 - Custom topology: `scripts/lib/topology-runtime.mjs`, `scripts/lib/path-compiler.mjs`.
-- Embeddings: `scripts/lib/embed.mjs`.
+- Embeddings: `scripts/lib/embed.mjs` (public facade + orchestration), split into
+  `embed-backend-state.mjs` (lexical-fallback state machine), `embed-runner.mjs`
+  (single worker thread + in-process inference), `embed-cache-dims.mjs` (one vector
+  dimension per cache file), `embed-cache-io.mjs` (vector-cache stamp,
+  memo, load/save).
 - Engine recognition (path-only): `skill-llm-wiki/scripts/lib/paths.mjs`.
 - Engine index generation: `skill-llm-wiki/scripts/lib/indices.mjs`.
 - Engine contract / grammar: `skill-llm-wiki/scripts/lib/contract.mjs`.

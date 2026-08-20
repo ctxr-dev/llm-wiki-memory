@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { saveDocument, WikiStoreUnavailable } from "../lib/wiki-store.mjs";
 import { syncPlanFile } from "../lib/plan-sync.mjs";
 import { wikiRoot } from "../lib/env.mjs";
@@ -8,11 +7,16 @@ import { withBrainContextSafe } from "../lib/wiki-context.mjs";
 import { hookExitPlanModeDisable, hookExitPlanModeMaxBytes } from "../lib/settings.mjs";
 import {
   DEFAULT_MAX_PLAN_BYTES,
+  describeToolResponse,
   extractTitle,
   fencePlanBody,
   planDocSpec,
   resolvePlanBody,
 } from "./exit-plan-mode-spec.mjs";
+import { logBreadcrumb } from "./flush-state.mjs";
+import { warnBelowNodeFloor } from "../lib/node-floor.mjs";
+
+warnBelowNodeFloor("exit-plan-mode.mjs");
 
 // Pure plan-body resolution + doc-spec building live in ./exit-plan-mode-spec.mjs.
 // Re-exported here so the module's public surface is unchanged for importers/tests.
@@ -64,7 +68,11 @@ async function main() {
   const maxBytes = hookExitPlanModeMaxBytes() || DEFAULT_MAX_PLAN_BYTES;
   const hookInput = /** @type {HookInput} */ (parseJsonMaybe(readStdin()) || {});
   const spec = planDocSpec(hookInput, { maxBytes });
-  if (spec.skip) throw new SkipPlanCapture(spec.skip);
+  if (spec.skip) {
+    // stderr alone is invisible in Claude Code, which is how a silent
+    // "not-approved" skip went unnoticed and lost every captured plan.
+    throw new SkipPlanCapture(`${spec.skip} [${describeToolResponse(hookInput?.tool_response)}]`);
+  }
 
   // Refuse cleanly if the wiki hasn't been materialised yet.
   const wiki = wikiRoot();
@@ -116,10 +124,11 @@ async function main() {
     }
 
     const note = notes.length ? ` (${notes.join("; ")})` : "";
-    console.error(
-      `exit-plan-mode.mjs: wrote ${spec.name} to ${spec.datasetSlot}` +
-        `${lifecycleStatus ? ` [status=${lifecycleStatus}]` : ""}${note}`,
-    );
+    const outcome =
+      `exit-plan-mode: captured ${spec.name} -> ${spec.datasetSlot}` +
+      `${lifecycleStatus ? ` [status=${lifecycleStatus}]` : ""}${note}`;
+    logBreadcrumb(outcome);
+    console.error(`exit-plan-mode.mjs: ${outcome}`);
   } catch (err) {
     if (err instanceof WikiStoreUnavailable) {
       throw new SkipPlanCapture(`wiki store unavailable: ${err.message || err}`);
@@ -128,23 +137,8 @@ async function main() {
   }
 }
 
-// CLI guard: importing the module (e.g. from the test file) MUST NOT
-// trigger stdin reads or bridge calls. pathToFileURL handles Windows
-// drive letters / UNC paths / percent-encoding correctly.
-const invokedAsCli = (() => {
-  if (!process.argv[1]) return false;
-  try {
-    // path.resolve normalises a relative argv[1] (`node scripts/hooks/
-    // exit-plan-mode.mjs`) to an absolute path before comparison, so the
-    // guard matches the absolute import.meta.url regardless of how the
-    // launcher passed the path. Same pattern as scripts/compile.mjs.
-    return import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
-  } catch {
-    return false;
-  }
-})();
-
-if (invokedAsCli) {
+// Importing the module (the test file does) MUST NOT trigger stdin reads or bridge calls.
+if (import.meta.main) {
   try {
     // Scope the plan-capture write to the brain wiki. Behavior-neutral in the
     // single-tree case; a resolve failure falls through so main()'s own
@@ -152,12 +146,13 @@ if (invokedAsCli) {
     await withBrainContextSafe(() => main());
   } catch (err) {
     if (err instanceof SkipPlanCapture) {
+      logBreadcrumb(`exit-plan-mode: skipped (${err.message})`);
       console.error(`exit-plan-mode.mjs: skipped (${err.message})`);
       process.exit(0);
     }
-    console.error(
-      `exit-plan-mode.mjs: failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    const reason = err instanceof Error ? err.message : String(err);
+    logBreadcrumb(`exit-plan-mode: FAILED ${reason}`);
+    console.error(`exit-plan-mode.mjs: failed: ${reason}`);
     // Hooks must NEVER block the agent. Exit 0 even on unexpected
     // errors; the stderr message is the breadcrumb for diagnosis.
     process.exit(0);

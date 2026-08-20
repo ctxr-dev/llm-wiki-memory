@@ -35,7 +35,8 @@ consolidate-side can never drift apart.
 
 ### Long leaves — length-aware chunking (recall only)
 
-The model reads only the first ~512 tokens of a leaf's embed text, so a long
+The model reads only its input window — 2048 tokens for the default
+EmbeddingGemma, 512 for the BERT-family models — so a long
 leaf (a plan, investigation, tracker issue, or daily capture) would otherwise
 lose the rest — its later sections become unfindable, and even its early content
 retrieves poorly because one mean-pooled vector over a long multi-topic body
@@ -82,21 +83,114 @@ false everywhere).
 
 | Backend | What it is | When |
 |---|---|---|
-| `transformers` (default) | `Xenova/bge-large-en-v1.5`, mean-pooled, L2-normalized, quantized ONNX via `@xenova/transformers` (onnxruntime-node). ~340 MB, downloaded once, then offline. | Default. |
+| `transformers` (default) | `onnx-community/embeddinggemma-300m-ONNX` — Google EmbeddingGemma-300m (308M params, 768-dim, 2048-token window), quantized ONNX (q4; ~219 MB fetched on first run — 197 MB of weights plus a 20 MB tokenizer, which every earlier figure here omitted) via `@huggingface/transformers` v4 (onnxruntime-node). Downloaded once, then offline. BERT-family alternatives (`bge-*`, MiniLM) run mean-pooled + L2-normalized. | Default. |
 | `lexical` (fallback) | Deterministic hashed bag-of-tokens into a fixed 256-dim vector. Not semantic, but stable and dependency-free. | When the model can't load (offline first run, download failure), or forced via `embed.backend: lexical`. |
 
 The backend is resolved once per process and latched: a mid-run
 transformer→lexical fallback sticks for the rest of the process, and the cache
 records which backend produced its vectors (see caching).
 
-Change the model with `embed.model` in `settings.yaml` (e.g. a lighter
-`Xenova/bge-small-en-v1.5`); the old `MEMORY_EMBED_MODEL` env var was folded into
-settings and is now ignored. A model change invalidates the vector cache (it is
-stamped with the model), so vectors recompute on the next search.
+Change the model with `embed.model` in `settings.yaml` (e.g. the previous
+default `Xenova/bge-large-en-v1.5`, or a lighter `Xenova/bge-small-en-v1.5` —
+see the model table in [configuration.md](configuration.md)); the old
+`MEMORY_EMBED_MODEL` env var was folded into settings and is now ignored. A
+model change invalidates the per-category vector caches (each is stamped with
+model + backend + dim), so vectors recompute via the gradual warm or the next
+search.
+
+EmbeddingGemma's retrieval prompts (query: `task: search result | query: `,
+document: `title: none | text: `) are applied automatically at inference time
+and never enter cache hashes, so leaf identity stays content-based; BERT-family
+models embed the raw text. Two further knobs: `embed.dtype` (`""` resolves per
+model family — EmbeddingGemma → `q4`, BERT-family → `q8`) and `embed.threads`
+(ONNX intra-op threads per forward pass, default 2 — a background warm then sits
+near 200% CPU instead of saturating the machine; `0` = all cores), and
+`embed.maxColdPerRead` (default 32) which caps how many texts ONE read may
+cold-embed before it leaves the rest to the background warm.
+
+Recall latency is shielded two ways: inference runs in a worker thread, so a
+forward pass never blocks the event loop (a search issued mid-warm stays
+responsive), and a cold cache re-embeds via a **gradual warm** — small
+duty-cycled slices with persisted progress — while any search embeds only the
+leaves it actually touches.
+
+### Who runs the gradual warm
+
+The warm is offered by two schedulers, and `embed.warmIntervalMinutes`
+(default 30, `0` = off) decides whether a given offer actually runs. A per-wiki-root
+stamp in `state/.embed-warm.json` throttles it and a lock in the same directory
+stops two schedulers warming one wiki at once:
+
+- **the hourly cron job** — this is the one that matters for correctness. It runs
+  the warm step **before** the `consolidate.enabled` master switch, so it works on
+  a default install where consolidate is off. Install it with
+  `bootstrap.sh --schedule hourly`.
+- **the webapp daemon** — once ~15s after boot, then on its own timer. This is a
+  latency optimisation for a machine that happens to be running the web client;
+  opt out with `LWM_WEBAPP_NO_WARM=1`.
+- **`cli.mjs warm [--if-due]`** — the manual form. Without `--if-due` it ignores
+  the interval and the stamp, which is what you want after a model change or a
+  bulk import.
+
+**If you run neither the cron job nor the webapp, nothing warms in the
+background.** Recall still self-heals — a cold leaf is embedded the first time a
+search touches it — but that cost lands inside somebody's request, bounded by
+`embed.maxColdPerRead` and with the leaves over that bound dropped from that one
+result set. An MCP-only install should install the cron job.
+
+The warm never warms from the MCP server itself: N connected clients would mean N
+concurrent warms, each competing with its own requests for the inference threads.
 
 ---
 
 ## Caching
+
+> **Two behaviours changed (2026-08-02).**
+>
+> **1. Configuring `embed.backend: lexical` now discards the transformers cache.**
+> The old code refused to persist, which was self-perpetuating — the stamp never
+> updated, so every later save was refused too and recall scored at most
+> `embed.maxColdPerRead` leaves of the corpus, permanently. It now persists. Be aware
+> of the cost that buys: a lexical-stamped load rejects the transformers-stamped file,
+> so the first save writes back **only the leaves that call embedded** — 32 after a
+> single search, or zero via a category with no active leaves. **Switching to lexical
+> and back therefore costs a full `cli.mjs warm`**, where the old refusal made the
+> round-trip free. The vectors are always recomputable (a pure function of leaf text +
+> model, and the leaves are the source of truth), so this is lost CPU and degraded
+> recall until you re-warm — never lost data. A one-shot stderr line names the file
+> and the vector count whenever this discard happens.
+> A run that merely *fell back* to lexical is still refused persistence entirely; that
+> is the protection that was always intended, and it is unchanged.
+>
+> **2. The embedder and tokenizer are keyed on the settings that built them.**
+> Editing `embed.model` or `embed.dtype` on a running process used to change the cache
+> *stamp* without changing the embedder, writing (say) q4 vectors labelled `q8` — which
+> then validated forever, because a q4→q8 flip preserves the vector dimension and the
+> load-time check had nothing to catch. Relatedly, `saveCache` no longer re-labels a
+> cache whose config changed while it was open: those vectors are dropped (with a
+> stderr line) rather than persisted under a stamp that does not describe them, and the
+> run continues cleanly under the new config. **If you edited either on a live server
+> before this, run `cli.mjs warm` once** so the vectors are rebuilt under the correct
+> stamp — a mixed-precision cache is otherwise undetectable and silently degrades
+> ranking.
+
+**One dimension per cache file.** Every vector in a cache — whole-leaf AND the `chunks`
+refinement — must have the same length, because a cache file belongs to exactly one model and
+backend. A mix is silently destructive: `cosine` returns 0 for a length mismatch by design, and
+a chunked leaf scores NEGATIVE, so affected leaves rank below genuinely irrelevant ones and
+vanish from results while every content-hash check still calls them warm. `loadCache` and
+`saveCache` therefore drop whatever disagrees with the file's dominant whole-leaf dimension —
+an entry outright (it re-embeds on the next warm), or just its `chunks` array (it re-chunks) —
+and report it once per file. `cli.mjs doctor` reports any cache that still disagrees with
+itself under `cacheDimMixes`. A repair marks the cache dirty, so the first search or warm that
+touches it persists the fix and `doctor` goes green on its own — no operator action, and no
+migration needed on upgrade.
+
+`embed.threads` is **not** part of the INFERENCE MEMO key (the identity of the loaded model
+object — distinct from the on-disk cache stamp described above): it reaches only onnxruntime's
+`intraOpNumThreads`, so changing it applies at the next natural rebuild or restart rather than
+forcing a ~190MB model reload. See the thread-scaling measurement below for why that costs
+nothing.
 
 Vectors are cached per category at
 `<wikiRoot>/<category>/.embeddings/embeddings.json` (gitignored). Each entry is
@@ -129,25 +223,37 @@ next writable search is the correctness net.
 
 This is the load-bearing guarantee, verified in code and empirically.
 
-- **The pipeline is a per-process singleton.** `embed.mjs` holds one memoized
-  `_extractorPromise`; every `embed()` / `embedMany()` call reuses it. ES modules
-  are per-process singletons, so there is exactly **one** model instance per
-  Node process.
+- **The model is a per-process singleton.** Inference runs in one dedicated
+  worker thread (the onnxruntime forward pass is a synchronous native call that
+  would otherwise block the event loop); `embed-runner.mjs` holds one worker handle,
+  plus one memoized in-process fallback embedder, and every `embed()` /
+  `embedMany()` call reuses them — exactly **one** model instance per Node
+  process. Changing `embed.model`/`embed.dtype` on a live process rebuilds that
+  instance rather than adding one: the memo hands the superseded embedder to
+  `dispose()`, which is what releases the onnxruntime session (upstream has no
+  finalizer for it). The memo retains exactly ONE entry; the superseded instance is released
+  once its last in-flight request finishes, so two can briefly coexist during a handover —
+  that deferral is deliberate, because releasing a session mid-forward-pass failed every
+  concurrent embed. A burst of config edits can transiently start more; see the hazard note in
+  `.agents/rules/module-state-ownership.md`.
 - **Federated fan-out reuses that one model.** A multi-level search
   (`searchMemoryFiltered` → per-level `searchOneTree`) runs each level inside a
   `withWikiRoot` frame that swaps only the wiki *path* (an AsyncLocalStorage
   value) — it never re-imports or re-instantiates the pipeline. N levels = N
   searches, **1 model**. Measured: RSS stays flat across a full multi-level run.
 
-### Why not a worker-thread pool
+### One worker thread — never a pool
 
-Each Node `worker_thread` is a separate V8 isolate with its own module
-registry, so importing the model inside each worker loads its **own** ~340 MB
+Inference lives in a **single** worker thread so the event loop never blocks
+(opt out with `LWM_EMBED_NO_WORKER=1`, in the shell or in `settings/.env`); a worker failure routes to the same
+lexical-fallback window as a model failure. A **pool** of workers stays
+rejected: each Node `worker_thread` is a separate V8 isolate with its own
+module registry, so importing the model inside each worker loads its **own**
 copy — RAM ≈ pool size × model. A live onnxruntime session cannot be shared
 across workers (it's a native handle bound to one isolate). A worker pool would
 therefore multiply the model, and it would not even be faster (see the
 thread-scaling result below — a single inference does not speed up with more
-threads on this stack). **Rejected by design.**
+threads on this stack).
 
 ### Batching (the safe parallelism)
 
@@ -171,6 +277,11 @@ into `ceil(N / batch)` forward passes.
 Measured on an **Apple M4 Pro (14 cores), Node v25, `@xenova/transformers`
 2.17.2**, model `Xenova/bge-large-en-v1.5` already downloaded (warm), the
 content-hash cache **bypassed** to measure raw embed cost.
+
+*These measurements predate the current `onnx-community/embeddinggemma-300m-ONNX`
+/ `@huggingface/transformers` v4 default and remain representative of the
+BERT-family (`bge-*`) path; the shape of the findings (batching, thread scaling,
+single-model memory) carries over.*
 
 ### Embedding the same document 1000× (one model, no reload)
 
@@ -213,15 +324,17 @@ baseline across every batch size** (B=8 → 64). One model, regardless of batch.
 4. **The biggest single speed lever is model size**, not parallelism. `bge-large`
    is the heavy end (~45–87 ms/doc); a quantized `bge-small`/MiniLM is ~3–5×
    faster per doc at a small quality cost — set `embed.model` in `settings.yaml` to switch.
-   The default stays `bge-large` for retrieval quality.
+   (`bge-large` was the default when these numbers were measured; the default is
+   now EmbeddingGemma-300m.)
 
 ### Reproducing
 
 Load the pipeline once, warm it, then time N serial `extractor(doc, {pooling:
 'mean', normalize: true})` calls and the same N split into batched array calls;
 track `process.memoryUsage().rss` at each stage. Run from inside the engine's
-`src/` (so `@xenova/transformers` resolves) against the already-downloaded model
-cache under `node_modules/@xenova/transformers/.cache`.
+`src/` (so the transformers library resolves) against the already-downloaded
+model cache — its location is resolved via `@huggingface/transformers`, and
+`MEMORY_EMBED_CACHE_DIR` still overrides it.
 
 ---
 

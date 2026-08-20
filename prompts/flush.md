@@ -20,7 +20,7 @@ Produce a small set of typed atoms that will be useful to a different agent in a
         "task_type": "planning | implementation | debugging | refactor | review | deploy | docs | unknown",
         "error_pattern": "short kebab-case slug (only for self-improvement-lesson and bug-root-cause)"
       },
-      "evidence": "optional: a ≤240-char (auto-truncated) 1-line excerpt or reference from the transcript that justifies this atom"
+      "evidence": "optional: a ≤240-char (auto-truncated) 1-line DE-PERSONALIZED technical fact that justifies this atom (ticket key / root cause / stable identifier; a file path only as a re-verifiable hint, NEVER a line number) — never a user quote or attribution ('the user said', names)"
     }
   ]
 }
@@ -35,7 +35,7 @@ If nothing in the transcript is durable, return exactly: `{"atoms": []}`.
 - **feedback-rule**: a workflow rule the user gave you about HOW to do work on this project. Conventions, do/don't, exit predicates.
 - **project-lore**: who is doing what, deadlines, blockers, integration quirks not in the code. Decays fast - include dates.
 - **reference**: a pointer to an external resource (dashboard, runbook, Linear/Jira project, doc URL) and what it is for.
-- **pattern-gotcha**: a reusable code-level lesson. API quirk, framework footgun, library behavior. Reusable across sessions and codebases.
+- **pattern-gotcha**: a reusable lesson about a library / framework / API behaviour — a quirk or footgun. Reusable across sessions and codebases: state the BEHAVIOUR conceptually, never a code position.
 - **self-improvement-lesson**: extract ONLY when the user gave NEGATIVE OR CORRECTIVE feedback that reveals a behaviour the AI should change next time. Triggers include:
   - Direct correction: "no", "stop doing X", "you should have done Y", reverting your work, "wrong".
   - Repeat correction: "I told you before", "again", "same mistake", "we've covered this".
@@ -75,6 +75,8 @@ Each atom must:
 5. For `self-improvement-lesson`: have `metadata.area`, `metadata.task_type`, AND `metadata.error_pattern` set.
 6. Consolidate aggressively: if multiple findings share the same topic AND the same actionable rule, emit ONE atom that captures the rule with its supporting evidence. Prefer fewer, richer atoms over many thin near-duplicates.
 7. Clear a real signal bar: a future agent would genuinely act differently for having read it. Marginal, "nice to note", or obvious items do NOT qualify.
+8. Be de-personalized + professional: state the reusable fact impersonally — NEVER quote or attribute the user ("the user said", "you told me", names, verbatim quotes) and drop irrelevant / off-topic / unprofessional specifics. Keep the substantive technical evidence (tickets, root cause, versions, stable identifiers). De-personalize is NOT reducing technical specificity.
+9. Be durable — survive refactors. Write the CONCEPT plus its `Why:` / `How to apply:`, never a code POSITION. NEVER record a line number, `~line N`, `Lnn`, or a byte offset — one edit above it makes the atom a lie. Do NOT make an atom's correctness hinge on a file path or a private symbol name (they get renamed and moved); if a pointer genuinely aids navigation, include it only as a clearly-subordinate, dated HINT ("as of 2026-07, in the X module") that a reader must re-verify — never the load-bearing fact. KEEP the truly immutable anchors: ticket keys, released versions, commit SHAs, stable published/contract identifiers (Avro fields, public APIs, config keys), and reproducible error messages. Litmus test: if a teammate refactored this code next week without changing its behaviour, the atom must still be true.
 
 Writing NOTHING is a good outcome: when a session produced nothing durable, an empty `{"atoms": []}` is strongly preferred over thin, low-signal atoms. When unsure whether an atom clears the bar, omit it.
 

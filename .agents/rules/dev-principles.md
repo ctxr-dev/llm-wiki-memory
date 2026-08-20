@@ -5,6 +5,10 @@ relax one without a review and (if user-visible) a release runbook.
 
 ## Durability
 
+- This tree is executed live by the MCP server, hooks and cron, so an EDIT can destroy data
+  no bug would have touched — `.agents/rules/live-runtime-safety.md` is the P0 rule and
+  governs on conflict.
+
 - Every whole-file write of a durable artifact — wiki leaves, the failed-distill stash,
   gc-state, `settings.yaml`, the rewritten `.env`, merged client configs — goes through
   `writeFileAtomic` (`scripts/lib/atomic-write.mjs`): temp file in the SAME directory +
@@ -14,6 +18,10 @@ relax one without a review and (if user-visible) a release runbook.
   their full REWRITES (front-truncation) go through `writeFileAtomic`.
 
 ## Parsing
+
+- Which posture applies to a NEW artifact — fail loud, or warn and fall back — is decided by
+  cost asymmetry (how cheap the check is against how recoverable the artifact is), not by
+  taste: `.agents/rules/defensive-invariants.md`.
 
 - USER-supplied files (`settings.yaml`, `.env`, stash JSON, client configs): safe-parse →
   loud warning + fallback to the shipped template, or quarantine. Never throw-and-wedge the
@@ -42,6 +50,10 @@ relax one without a review and (if user-visible) a release runbook.
 
 ## Configuration
 
+- Anything built from `settings()` is built from LIVE config and must be keyed on it; a
+  retired key must be swept from tests and docs in the same change
+  (`.agents/rules/module-state-ownership.md`, `.agents/rules/verification-completeness.md`).
+
 - NO provider/model name string literals in `.mjs`. Chains and model lists live in
   `templates/settings.yaml` (user copy under `<data>/settings/`). The single sanctioned
   exception is `DEFAULT_EMBED_MODEL` in `scripts/lib/settings.mjs` (structural fallback for
@@ -51,6 +63,9 @@ relax one without a review and (if user-visible) a release runbook.
   exported from `settings.mjs`. A re-hardcoded copy is a review-failing drift hazard.
 
 ## Failure observability
+
+- A check that should never fire is a TRIPWIRE, not dead code, and firing is an incident —
+  `.agents/rules/defensive-invariants.md`.
 
 - A failure that an operator or runbook is told to react to must be observable on the
   documented path: no `|| true` around a command whose non-zero exit is a documented
@@ -62,6 +77,36 @@ relax one without a review and (if user-visible) a release runbook.
 
 - `.mjs` is ESM: static `import` only (`require` does not exist here). Every script guards
   its CLI entrypoint so importing it for exports has zero side effects.
+- **That guard is `if (import.meta.main)` — never a path comparison.** Node resolves
+  `import.meta.url` to the PHYSICAL path but leaves `process.argv[1]` exactly as typed, so any
+  comparison of the two disagrees on a symlinked launch and the script SILENTLY DOES NOTHING
+  while exiting 0. That reproduced through a symlinked install dir, an `npm link` / `npm i -g`
+  bin shim, and every Windows launch; the worst case was the MCP server exiting 0 before the
+  handshake, so every memory tool vanished with no error. The bare form
+  (`pathToFileURL(process.argv[1])`) additionally THREW on import from `node -e` / piped stdin,
+  where `argv[1]` is undefined. `import.meta.main` has neither failure and needs no
+  `path.resolve`, no `|| ""`, and no try/catch. It requires **Node >=22.18** (added 24.2,
+  backported 22.18) — the floor `package.json` declares, `scripts/lib/node-floor.mjs` refuses
+  below at runtime, and both bootstrap scripts feature-test at install.
+  `import.meta.main` is true for exactly what Node was HANDED as the entry: `argv[1]`, the
+  `-e` / piped-stdin source **text**, or a **Worker's entry module**. A file that is *imported*
+  is never main, however its importer was launched — so "an entrypoint imported as the `-e` main"
+  cannot happen, and the `-e` inversion bites only if an entrypoint's own source text is fed to
+  `-e`. The Worker case is the one to keep in mind: the guard means "I am an entry point", NOT
+  "a human launched me", so moving an importer into a Worker, or converting a self-respawn to
+  `worker_threads`, would run an imported entrypoint's body.
+  Enforced by `test/entrypoint-main-guard.test.mjs`, which derives the entrypoint list rather
+  than hard-coding it. A hook that must run unconditionally simply has no guard — do not add
+  one to the PreToolUse gates, whose opposite fail modes are pinned by `test/fatal-guard.test.mjs`.
+- **Never feature-test `import.meta.main` to detect an old Node.** A bundler erases it: Vite /
+  Vitest's SSR transform replaces `import.meta` with a synthesised object holding only
+  `{ url, env, filename, dirname }`, so the property reads `undefined` on a perfectly supported
+  Node. "Too old" and "transformed source" are indistinguishable through that property, so a
+  feature-test-only check would `process.exit` inside a vitest worker. `scripts/lib/node-floor.mjs`
+  therefore requires the feature to be missing AND `process.versions.node` to be below the floor,
+  and a test pins that nothing beyond the launch-policy owners imports it. (A shell probe has no
+  bundler, so `bootstrap.*` may feature-test freely — and must, before any path that shells out to
+  a guarded `.mjs`, including `--uninstall`.)
 - Comments only where the code is genuinely non-obvious, and they explain WHY. No dead
   code, no banners.
 

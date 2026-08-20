@@ -21,6 +21,18 @@ const FacetInputSchema = z
   })
   .strict();
 
+// Optional per-facet help metadata (top-level `facet_meta`). Surfaced by the
+// webapp editor as a field-label tooltip. `description` is the human-readable
+// explanation; `examples` are illustrative values. Both optional so a facet may
+// declare either, and a wiki may override just the fields it cares about over
+// the engine's built-in defaults.
+const FacetMetaSchema = z
+  .object({
+    description: z.string().optional(),
+    examples: z.array(z.string()).optional(),
+  })
+  .strict();
+
 const FileKindSchema = z
   .object({
     required_facets: z.array(z.string()).min(1, "file_kind must list at least one required_facet"),
@@ -134,6 +146,16 @@ const LayoutEntrySchema = z
     // atomic (today's default). A wiki-level `full` at the layout root is the
     // fallback when a category omits it.
     full: z.boolean().optional(),
+    // Per-category write-gating: leaves saved here need explicit user consent
+    // (the propose-then-confirm write-gate). Optional; a name-keyed code default
+    // seeds self_improvement=true and every other category false, so a layout
+    // that omits the key keeps historical behaviour. An explicit value overrides.
+    gated: z.boolean().optional(),
+    // Per-category auto-distill eligibility: whether `compile` may auto-promote
+    // daily captures into this category. Optional; defaults true for every
+    // category (a wiki opts a category OUT with auto_distill:false for
+    // human-only knowledge).
+    auto_distill: z.boolean().optional(),
   })
   .strict()
   .superRefine((entry, ctx) => {
@@ -171,6 +193,7 @@ export const LayoutYamlSchema = z
     // unless the category sets its own `full`. Absent = atomic (today).
     full: z.boolean().optional(),
     vocabularies: z.record(z.string(), z.array(z.string().min(1)).min(1)).optional(),
+    facet_meta: z.record(z.string(), FacetMetaSchema).optional(),
     layout: z.array(LayoutEntrySchema).min(1, "`layout` must declare at least one entry"),
   })
   .passthrough()

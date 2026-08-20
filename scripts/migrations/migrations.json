@@ -1,0 +1,7 @@
+{
+  "$comment": "ORDER IS THE CONTRACT — this array, not the filesystem. `id` is both the module path under this directory and the ledger key. `phase` picks the bootstrap slot: settings runs BEFORE the wiki exists, data AFTER. Engine-internal: this structure is llm-wiki-memory's own and applies to no other project.",
+  "migrations": [
+    { "id": "2026/06/03/001-settings-yaml", "phase": "settings" },
+    { "id": "2026/06/11/002-project-identity", "phase": "data" }
+  ]
+}

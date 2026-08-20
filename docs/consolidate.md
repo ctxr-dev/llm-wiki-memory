@@ -31,7 +31,7 @@ flowchart TD
 
 ## Where local embedding runs vs where the LLM runs
 
-**(1) Local embedding** lights up only inside the per-leaf cluster lookup. The bge model runs on-device; nothing leaves your machine to find which leaves are similar. Cosine similarity then ranks the cluster — also local.
+**(1) Local embedding** lights up only inside the per-leaf cluster lookup. The embedding model runs on-device; nothing leaves your machine to find which leaves are similar. Cosine similarity then ranks the cluster — also local.
 
 **(2) LLM · merge near-duplicates** runs once per `(keeper, loser)` pair found by the dedup passes — but only when a provider is reachable. The LLM sees both bodies + frontmatter and decides whether to merge them into one fresher body or leave the keeper as-is. If the provider is missing, consolidate falls back to "archive the loser unchanged" so the run never blocks.
 

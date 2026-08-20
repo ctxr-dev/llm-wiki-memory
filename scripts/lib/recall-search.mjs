@@ -1,6 +1,7 @@
 import { defaultProjectModule } from "./env.mjs";
 import { recallScoreThreshold } from "./settings.mjs";
 import { searchMemoryFiltered, scopedCategories } from "./wiki-store.mjs";
+import { defaultColdBudget, openColdDraw, coldPartial } from "./cold-budget.mjs";
 
 /** @typedef {import("./types.mjs").SearchResponse} SearchResponse */
 /** @typedef {import("./types.mjs").SearchHit} SearchHit */
@@ -47,10 +48,17 @@ export async function searchMemory({
 
   const all = [];
   const errors = [];
+  // One cold-embed ledger for the whole cross-category search, so scanning N
+  // categories cannot cost N times the bound.
+  const coldBudget = defaultColdBudget();
   for (const slot of slots) {
     try {
+      // Reserve a tail for the categories after this one: without it the first category could
+      // spend the whole bound and the rest returned ZERO hits, not fewer.
+      openColdDraw(coldBudget);
       const { records } = /** @type {{ records: SearchHit[] }} */ (
         await searchMemoryFiltered({
+          coldBudget,
           query,
           datasetId: slot,
           filters: /** @type {Record<string, unknown> | undefined} */ (
@@ -73,6 +81,7 @@ export async function searchMemory({
   all.sort((a, b) => rankOf(b) - rankOf(a));
   return {
     query,
+    ...coldPartial(coldBudget),
     datasetsSearched: slots,
     filters: filters || null,
     injectedFilters:

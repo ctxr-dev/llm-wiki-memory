@@ -1,84 +1,17 @@
 import { cosine } from "./embed-lexical.mjs";
 import { embedMany, contentHash, getTokenizer } from "./embed.mjs";
+import { chunkTexts, scoreLeaf } from "./embed-chunk-text.mjs";
 import { embedChunk } from "./settings.mjs";
+import { COLD_SKIP_SCORE, defaultColdBudget } from "./cold-budget.mjs";
 
 /** @typedef {import("./embed.mjs").EmbedCache} EmbedCache */
 /** @typedef {import("./embed.mjs").EmbedCacheEntry} EmbedCacheEntry */
+/** @typedef {{ take: (n: number) => boolean, spent: number, skipped: number, skipLeaf?: (key?: string) => void, openDraw?: () => void }} ColdBudget */
 
-// Length-aware chunking for the recall read path. The transformer model reads
-// only WINDOW tokens of a leaf's embed text; a long leaf loses the rest. We
-// split its body into <=maxChunks windows (each carrying the title.tags.subject
-// header so a chunk keeps the leaf's identity signal) and, at recall, score the
-// leaf by its best chunk minus a per-extra-chunk penalty so a long leaf can't
-// out-rank atomic leaves just by having more chances. Short leaves are one
-// chunk and score exactly as before.
-
-export const EMBED_WINDOW = 512;
-
-/**
- * Token count as the model sees it (special tokens included) — matches where
- * the model truncates, so the chunk trigger fires exactly when text is lost.
- * @param {{ encode: (t: string) => unknown[] }} tokenizer @param {string} text @returns {number}
- */
-export function tokenCount(tokenizer, text) {
-  return tokenizer.encode(String(text || "")).length;
-}
-
-/**
- * Split a leaf's embed text into chunk texts. Returns `[embedText]` (one chunk,
- * unchanged behavior) when there is no tokenizer (lexical backend), the text
- * fits the window, or the header alone leaves no body budget. Otherwise: the
- * header + successive body-token windows sized so each chunk stays within the
- * window after the header + special tokens, capped at maxChunks.
- * @param {string} embedText the full title.tags.subject header + body
- * @param {string} body the raw body (embedText ends with it)
- * @param {{ encode: (t: string, pair?: unknown, opts?: unknown) => unknown[], decode: (ids: unknown[], opts?: unknown) => string } | null} tokenizer
- * @param {{ window?: number, maxChunks?: number, margin?: number }} [opts]
- * @returns {string[]}
- */
-export function chunkTexts(embedText, body, tokenizer, opts = {}) {
-  const window = opts.window ?? EMBED_WINDOW;
-  const maxChunks = opts.maxChunks ?? 6;
-  const margin = opts.margin ?? 8;
-  if (!tokenizer) return [embedText];
-  if (tokenCount(tokenizer, embedText) <= window) return [embedText];
-
-  const text = String(body || "");
-  const header = embedText.slice(0, embedText.length - text.length);
-  const headerTokens = tokenizer.encode(header, null, { add_special_tokens: false }).length;
-  const budget = window - headerTokens - margin;
-  if (budget <= 0) return [embedText];
-
-  const bodyIds = tokenizer.encode(text, null, { add_special_tokens: false });
-  /** @type {string[]} */
-  const chunks = [];
-  for (let i = 0; i < bodyIds.length && chunks.length < maxChunks; i += budget) {
-    chunks.push(
-      header + tokenizer.decode(bodyIds.slice(i, i + budget), { skip_special_tokens: true }),
-    );
-  }
-  return chunks.length ? chunks : [embedText];
-}
-
-/**
- * Recall score for a leaf: its best chunk's cosine, minus a small penalty per
- * extra chunk. A single-chunk (short) leaf scores exactly `cosine(q, vec)` —
- * penalty is 0 — so short-leaf ranking is unchanged.
- * @param {number[]} queryVec
- * @param {number[][]} vecList the leaf's chunk vectors (>=1)
- * @param {number} penalty
- * @param {(a: number[], b: number[]) => number} [cos]
- * @returns {number}
- */
-export function scoreLeaf(queryVec, vecList, penalty, cos = cosine) {
-  if (!vecList || vecList.length === 0) return 0;
-  let best = -Infinity;
-  for (const v of vecList) {
-    const s = cos(queryVec, v);
-    if (s > best) best = s;
-  }
-  return best - penalty * (vecList.length - 1);
-}
+// The cache-filling half of length-aware recall: fill/reuse per-leaf vectors and
+// chunk sets, bounded by a shared cold-embed ledger. The pure text/geometry half
+// (chunkTexts / scoreLeaf) lives in embed-chunk-text.mjs; the ledger itself, and how its
+// allowance is divided between the reads that share it, lives in cold-budget.mjs.
 
 /**
  * Convenience wrapper: resolve the chunk config + tokenizer (from settings) and
@@ -88,9 +21,10 @@ export function scoreLeaf(queryVec, vecList, penalty, cos = cosine) {
  * @param {(cat: string) => EmbedCache} cacheFor
  * @param {number[]} queryVec
  * @param {boolean} chunkAware
+ * @param {ColdBudget | null} [budget]
  * @returns {Promise<Map<string, number>>}
  */
-export async function scoreCandidates(candidates, cacheFor, queryVec, chunkAware) {
+export async function scoreCandidates(candidates, cacheFor, queryVec, chunkAware, budget) {
   const { enabled, maxChunks, penalty, fullMaxChunks, fullPenalty } = embedChunk();
   const tokenizer = chunkAware && enabled ? await getTokenizer() : null;
   return scoreTree(candidates, cacheFor, queryVec, {
@@ -100,6 +34,18 @@ export async function scoreCandidates(candidates, cacheFor, queryVec, chunkAware
     maxChunks,
     fullMaxChunks,
     fullPenalty,
+    // A caller that spans several reads (the federated fanout, a recall ladder)
+    // passes ONE ledger so the whole request shares the bound. A lone read gets
+    // its own. Maintenance (consolidate) is exempt: it needs every vector or its
+    // dedup clustering silently under-merges, and it runs detached where a long
+    // embed costs nobody's latency.
+    //
+    // A caller that supplies NO ledger cannot report a shortfall: the one made here is
+    // discarded with the call, so `coldShortfall` has nothing to read and the search looks
+    // complete however many leaves were dropped. Any read path that wants the advisory must
+    // OWN its ledger — recall.mjs, recall-search.mjs and the webapp's searchWiki all do. The
+    // webapp did not, which is exactly why its results were silently truncated.
+    budget: budget ?? defaultColdBudget(),
   });
 }
 
@@ -113,7 +59,7 @@ export async function scoreCandidates(candidates, cacheFor, queryVec, chunkAware
  * @param {{ id: string, datasetId: string, embedText: string, text: string, full?: boolean }[]} candidates
  * @param {(cat: string) => EmbedCache} cacheFor
  * @param {number[]} queryVec
- * @param {{ chunkAware: boolean, tokenizer: import("./embed.mjs").Tokenizer | null, penalty: number, maxChunks: number, fullPenalty?: number, fullMaxChunks?: number }} opts
+ * @param {{ chunkAware: boolean, tokenizer: import("./embed.mjs").Tokenizer | null, penalty: number, maxChunks: number, fullPenalty?: number, fullMaxChunks?: number, budget?: ColdBudget | null }} opts
  * @returns {Promise<Map<string, number>>}
  */
 export async function scoreTree(candidates, cacheFor, queryVec, opts) {
@@ -141,9 +87,20 @@ export async function scoreTree(candidates, cacheFor, queryVec, opts) {
       needChunks: chunkAware,
       maxChunks,
       fullMaxChunks,
+      budget: opts.budget,
+      // The ledger is shared across categories and rungs, so a dropped leaf needs a namespaced
+      // identity or two categories' same-named leaves would dedupe into one.
+      keyPrefix: cat,
     });
     items.forEach((it, i) => {
       const v = perLeaf[i];
+      // A budget-skipped leaf is UNKNOWN, not irrelevant: scoring it 0 would let
+      // it through a `scoreThreshold: 0` gate and occupy a result slot. The
+      // sentinel lets the caller drop it instead.
+      if (v.skipped) {
+        scoreByKey.set(`${cat}\0${it.id}`, COLD_SKIP_SCORE);
+        return;
+      }
       const pen = it.full ? fullPenalty : penalty;
       const score = chunkAware
         ? scoreLeaf(queryVec, v.chunks ?? [v.vector], pen)
@@ -167,28 +124,34 @@ export async function scoreTree(candidates, cacheFor, queryVec, opts) {
  * byte-identical and a full leaf becomes fully searchable.
  * @param {EmbedCache} cache
  * @param {{ id: string, embedText: string, body: string, full?: boolean }[]} items
- * @param {{ tokenizer: import("./embed.mjs").Tokenizer | null, needChunks: boolean, window?: number, maxChunks?: number, margin?: number, fullMaxChunks?: number }} opts
- * @returns {Promise<{ vector: number[], chunks?: number[][] }[]>}
+ * `budget` (a makeColdBudget ledger) bounds how many TEXTS this call may embed;
+ * omit it for the unlimited path the background warm relies on. A leaf the budget
+ * refuses comes back `{ skipped: true }` and is left out of the cache.
+ * @param {{ tokenizer: import("./embed.mjs").Tokenizer | null, needChunks: boolean, window?: number, maxChunks?: number, margin?: number, fullMaxChunks?: number, batchSize?: number, budget?: ColdBudget | null, keyPrefix?: string }} opts
+ * @returns {Promise<{ vector: number[], chunks?: number[][], skipped?: boolean }[]>}
  */
 export async function cachedLeafVectors(cache, items, opts) {
   const list = Array.isArray(items) ? items : [];
-  const { tokenizer = null, needChunks = false } = opts || {};
+  const { tokenizer = null, needChunks = false, keyPrefix = "" } = opts || {};
   /** @type {string[]} */
   const missTexts = [];
   /** @type {{ kind: "vector" | "chunk", i: number, k?: number }[]} */
   const missRefs = [];
-  /** @typedef {{ id: string, hash: string, vector?: number[], chunkHashes?: string[], chunkVecs?: number[][], preserve?: import("./embed.mjs").EmbedChunkVec[] }} LeafStage */
+  /** @typedef {{ id: string, hash: string, vector?: number[], chunkHashes?: string[], chunkVecs?: number[][], preserve?: import("./embed.mjs").EmbedChunkVec[], skipped?: boolean }} LeafStage */
   /** @type {LeafStage[]} */
   const staged = new Array(list.length);
 
+  const budget = opts?.budget ?? null;
+  /** @type {({ existing: EmbedCacheEntry | undefined, vectorHit: number[] | null } | null)[]} */
+  const pending = new Array(list.length);
+
+  // Pass 1 — every leaf's WHOLE-LEAF vector, before any chunk refinement. Ordering
+  // matters under a bounded budget: interleaving the two let one long leaf spend
+  // `1 + n` up front and left later leaves with nothing, so they came back
+  // `skipped` and were DROPPED from the result set. Vectors first means the same
+  // budget ranks strictly more leaves; only chunk refinement defers.
   for (let i = 0; i < list.length; i += 1) {
-    const { id, embedText, body, full } = list[i];
-    // A full leaf embeds its whole body (fullMaxChunks); others cap at maxChunks.
-    const chunkOpts = {
-      window: opts?.window,
-      maxChunks: full ? (opts?.fullMaxChunks ?? opts?.maxChunks) : opts?.maxChunks,
-      margin: opts?.margin,
-    };
+    const { id, embedText } = list[i];
     const hash = contentHash(embedText);
     const existing = cache.entries[id];
     const vectorHit =
@@ -196,12 +159,40 @@ export async function cachedLeafVectors(cache, items, opts) {
     /** @type {LeafStage} */
     const stage = { id, hash };
     staged[i] = stage;
+    pending[i] = null;
     if (vectorHit) stage.vector = vectorHit;
-    else {
+    else if (!budget || budget.take(1)) {
       missRefs.push({ kind: "vector", i });
       missTexts.push(embedText);
+    } else {
+      // Budget spent: leave this leaf unembedded AND uncached, so it ranks last
+      // for this one read (cosine returns 0 on a length mismatch) and the next
+      // background warm still sees it as a miss. Skipping the chunk work below
+      // also skips its tokenization, keeping the read off the CPU entirely.
+      stage.skipped = true;
+      if (budget && typeof budget.skipLeaf === "function") {
+        // Namespaced by category exactly as scoreByKey is: leaf ids are category-relative,
+        // so a bare id would merge two different leaves that share a path.
+        budget.skipLeaf(keyPrefix ? `${keyPrefix}\0${id}` : id);
+      }
+      continue;
     }
+    pending[i] = { existing, vectorHit };
+  }
 
+  // Pass 2 — chunk sets, funded by whatever pass 1 left.
+  for (let i = 0; i < list.length; i += 1) {
+    const p = pending[i];
+    if (!p) continue;
+    const { embedText, body, full } = list[i];
+    const { existing, vectorHit } = p;
+    const stage = staged[i];
+    // A full leaf embeds its whole body (fullMaxChunks); others cap at maxChunks.
+    const chunkOpts = {
+      window: opts?.window,
+      maxChunks: full ? (opts?.fullMaxChunks ?? opts?.maxChunks) : opts?.maxChunks,
+      margin: opts?.margin,
+    };
     const texts =
       needChunks && tokenizer ? chunkTexts(embedText, body, tokenizer, chunkOpts) : null;
     if (texts && texts.length > 1) {
@@ -211,16 +202,20 @@ export async function cachedLeafVectors(cache, items, opts) {
         prev &&
         prev.length === chunkHashes.length &&
         chunkHashes.every((h, k) => prev[k]?.hash === h && Array.isArray(prev[k]?.vector));
-      stage.chunkHashes = chunkHashes;
-      if (hit) stage.chunkVecs = prev.map((c) => c.vector);
-      else {
+      if (hit) {
+        stage.chunkHashes = chunkHashes;
+        stage.chunkVecs = prev.map((c) => c.vector);
+      } else if (!budget || budget.take(texts.length)) {
+        stage.chunkHashes = chunkHashes;
         stage.chunkVecs = new Array(texts.length);
         texts.forEach((t, k) => {
           missRefs.push({ kind: "chunk", i, k });
           missTexts.push(t);
         });
       }
-    } else if (vectorHit && existing.chunks) {
+      // Budget spent on a leaf whose WHOLE-LEAF vector is warm: keep that vector
+      // and skip only the chunk refinement, so the leaf still scores normally.
+    } else if (vectorHit && existing?.chunks) {
       // Not chunking this call (consolidate/compile, or not truncated) but the
       // body is unchanged (vector hit) — keep the chunks a prior recall built.
       stage.preserve = existing.chunks;
@@ -228,7 +223,8 @@ export async function cachedLeafVectors(cache, items, opts) {
   }
 
   if (missTexts.length > 0) {
-    const vecs = await embedMany(missTexts);
+    cache._dirty = true;
+    const vecs = await embedMany(missTexts, { batchSize: opts?.batchSize, kind: "document" });
     missRefs.forEach((ref, m) => {
       if (ref.kind === "vector") staged[ref.i].vector = vecs[m];
       else
@@ -237,10 +233,16 @@ export async function cachedLeafVectors(cache, items, opts) {
     });
   }
 
-  /** @type {{ vector: number[], chunks?: number[][] }[]} */
+  /** @type {{ vector: number[], chunks?: number[][], skipped?: boolean }[]} */
   const out = new Array(list.length);
   for (let i = 0; i < list.length; i += 1) {
     const s = staged[i];
+    if (s.skipped) {
+      // Writing NO cache entry keeps the leaf a genuine miss for the next warm —
+      // caching a zero vector under a matching hash would poison it permanently.
+      out[i] = { vector: [], skipped: true };
+      continue;
+    }
     const vector = /** @type {number[]} */ (s.vector);
     const chunkVecs = s.chunkVecs;
     /** @type {EmbedCacheEntry} */

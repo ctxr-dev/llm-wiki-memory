@@ -27,11 +27,13 @@ function makeWorkspace({ writeGate } = {}) {
     LLM_WIKI_FIXED_TIMESTAMP: "1700000000",
     LLM_WIKI_NO_PROMPT: "1",
   };
-  // Pin settings via the YAML — embed backend always lexical for tests, and
-  // the write-gate toggled per scenario.
+  // Pin settings via the YAML — embed backend always lexical for tests, the
+  // quality judge disabled (these exercise the write-GATE, not the judge; a
+  // judgeable write with no mocked verdict would otherwise fail-closed and hang
+  // on the real provider), and the write-gate toggled per scenario.
   fs.mkdirSync(path.join(dataDir, "settings"), { recursive: true });
   const settingsYaml =
-    "embed:\n  backend: lexical\n" +
+    "embed:\n  backend: lexical\nquality:\n  judgeEnabled: false\n" +
     (writeGate === "off" ? "gate:\n  selfImprovementEnabled: false\n" : "");
   fs.writeFileSync(path.join(dataDir, "settings", "settings.yaml"), settingsYaml);
   const init = spawnSync(process.execPath, [path.join(SRC, "scripts/cli.mjs"), "init"], {

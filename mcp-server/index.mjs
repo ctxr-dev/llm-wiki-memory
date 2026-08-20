@@ -1,7 +1,6 @@
+import { refuseBelowNodeFloor } from "../scripts/lib/node-floor.mjs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { envValue } from "../scripts/lib/env.mjs";
 import { INSTRUCTIONS } from "../scripts/lib/discipline.mjs";
 import { loadImpl, watchForReload } from "./mcp-reload.mjs";
@@ -10,6 +9,9 @@ import { registerSearchTools } from "./tools-search.mjs";
 import { registerWriteTools } from "./tools-write.mjs";
 import { registerDocumentTools } from "./tools-documents.mjs";
 import { registerMaintenanceTools } from "./tools-maintenance.mjs";
+import { installFatalGuard } from "../scripts/lib/fatal-guard.mjs";
+
+refuseBelowNodeFloor();
 
 async function main() {
   // Fold wiki-store.mjs + recall.mjs into the reloadable `impl` before the first
@@ -41,22 +43,12 @@ async function main() {
   void activeWatchers;
 }
 
-// Run main() only when invoked as a script (the `mcp` npm script / a test that
-// spawns this file), not when imported for its exports. Mirrors the hardened
-// isMainModule idiom in scripts/compile.mjs:
-//   - `!process.argv[1]` guards REPL / piped stdin where argv[1] is undefined.
-//   - `path.resolve(process.argv[1])` normalises a relative argv[1] to an
-//     absolute path before comparison with the absolute `import.meta.url`.
-//   - try/catch fails closed (no main()) on an exotic argv[1] shape.
-const invokedAsCli = (() => {
-  if (!process.argv[1]) return false;
-  try {
-    return import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
-  } catch {
-    return false;
-  }
-})();
-
-if (invokedAsCli) {
+// Run main() only when invoked as a script — the `mcp` npm script, or a test that spawns this
+// file (every test does spawn it; this module has no exports). The guard is what keeps a plain
+// import inert, which is what makes the server safe to reference from a test at all.
+if (import.meta.main) {
+  // Before main(), so a rejection during startup is reported rather than being a bare stack
+  // on a stream the client is not reading.
+  installFatalGuard("mcp-server");
   await main();
 }

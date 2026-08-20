@@ -188,9 +188,14 @@ function makeGateWorkspace() {
     LLM_WIKI_FIXED_TIMESTAMP: "1700000000",
     LLM_WIKI_NO_PROMPT: "1",
   };
-  // Pin lexical embed via settings.yaml (the subprocess reads it).
+  // Pin lexical embed + disable the quality judge via settings.yaml (the
+  // subprocess reads it): these are write-GATE tests, not judge tests, and a
+  // judgeable write with no mocked verdict would otherwise fail-closed.
   fs.mkdirSync(path.join(gateDir, "settings"), { recursive: true });
-  fs.writeFileSync(path.join(gateDir, "settings", "settings.yaml"), "embed:\n  backend: lexical\n");
+  fs.writeFileSync(
+    path.join(gateDir, "settings", "settings.yaml"),
+    "embed:\n  backend: lexical\nquality:\n  judgeEnabled: false\n",
+  );
   const init = spawnSync(process.execPath, [path.join(SRC, "scripts/cli.mjs"), "init"], {
     env,
     encoding: "utf8",
@@ -418,9 +423,12 @@ test("(5) prune-embeddings throttle: recent state -> skipped; backdated -> runs"
   const embed = await import("../scripts/lib/embed.mjs");
   const sPath = env.embedCacheFor(env.wikiRoot(), "self_improvement");
   const cache = embed.loadCache(sPath);
+  // Length matched to whatever this cache already holds: one cache file is one model, so
+  // one dimension, and a fabricated length would be pruned as an outlier.
+  const seeded = Object.values(cache.entries || {}).find((e) => Array.isArray(e?.vector));
   cache.entries["self_improvement/gone/refactor/orphan-throttle.md"] = {
     hash: "sha256:throttle-orphan",
-    vector: [0.1, 0.2],
+    vector: seeded ? new Array(seeded.vector.length).fill(0.1) : [0.1, 0.2],
   };
   embed.saveCache(sPath, cache);
 

@@ -65,6 +65,8 @@ test("work pending + providers unavailable -> exit 69 with the documented abort 
 
 test("work pending + provider answering -> exit 0 and the daily is promoted", () => {
   assert.ok(listActiveDailies().length > 0, "queued daily from the previous test");
+  // The harness disables the quality judge in tests, so compile makes a single
+  // LLM call (the decision) — a fixed response is sufficient here.
   const r = runScript("scripts/cli.mjs", ["compile", "--force"], {
     env: {
       MEMORY_LLM_PROVIDER: "mock",

@@ -10,7 +10,7 @@
 #   --upgrade        fetch + fast-forward-merge the engine, then re-run this
 #                    script (idempotent re-wire) with --migrate. One deterministic
 #                    command instead of a prose runbook.
-#   --migrate        run idempotent data migrations (migrate-identity) after install.
+#   --migrate        accepted for compatibility; a no-op (migrations always run).
 #   ./.llm-wiki-memory/src/bootstrap.sh --uninstall
 #
 #   --template       Layout template to install into a FRESH wiki (one of the
@@ -62,7 +62,6 @@ SCHEDULE=""
 TEMPLATE="default"
 UNINSTALL=0
 UPGRADE=0
-MIGRATE=0
 SELF_OBS=""   # "on" enables, "off" disables, "" leaves prior consent untouched
 REEXEC_ARGS=()   # every arg except --upgrade, replayed when --upgrade re-execs the fresh install
 while [[ $# -gt 0 ]]; do
@@ -75,7 +74,9 @@ while [[ $# -gt 0 ]]; do
     --enable-self-observability)  SELF_OBS="on";  REEXEC_ARGS+=("$1"); shift ;;
     --disable-self-observability) SELF_OBS="off"; REEXEC_ARGS+=("$1"); shift ;;
     --upgrade) UPGRADE=1; shift ;;
-    --migrate) MIGRATE=1; REEXEC_ARGS+=("$1"); shift ;;
+    # Accepted for compatibility (--upgrade re-execs with it) but a NO-OP:
+    # migrations now always run, because each one self-detects.
+    --migrate) REEXEC_ARGS+=("$1"); shift ;;
     --help | -h)
       echo "bootstrap.sh — install / upgrade llm-wiki-memory (global MCP + hooks, hosted wiki, config)."
       echo "Usage: ./.llm-wiki-memory/src/bootstrap.sh [--commit-memory] [--template <name>] [--provider <p>] [--schedule hourly|off] [--enable-self-observability|--disable-self-observability] [--upgrade] [--migrate] [--uninstall]"
@@ -90,13 +91,24 @@ done
 log() { printf '\033[1;36m[llm-wiki-memory]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[llm-wiki-memory] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 
+# --- node floor (must precede EVERY path that shells out to a guarded .mjs) ---
+# Each entrypoint's CLI guard is `if (import.meta.main)`, so on a Node lacking that property the
+# guard is falsy and the script exits 0 having done NOTHING. This has to sit above --uninstall:
+# unregister-global.mjs and uninstall.mjs are guarded too, so when the check lived further down, a
+# below-floor `--uninstall` printed "Uninstall complete" while removing nothing at all.
+# Feature-tested rather than version-parsed because comparing only the MAJOR would admit
+# 22.0-22.17, which lack it (added in 22.18 / 24.2). Kept quote-free to match bootstrap.ps1, where
+# embedded double quotes are actively unsafe.
+command -v node >/dev/null 2>&1 || die "node is required (>=22.18)."
+node --input-type=module -e 'process.exit(import.meta.main === undefined ? 1 : 0)' 2>/dev/null \
+  || die "node >=22.18 required, for import.meta.main (found $(node -v))."
+
 # --- uninstall (thin shell; fs reversals live in scripts/uninstall.mjs) ---
 # Remove the cron/launchd job (OS glue owned here), then hand the filesystem
 # reversals (MCP registration + chained git-hook block) to the Node helper,
 # which also prints the manual steps it deliberately does NOT perform. Never
 # deletes memory data. Idempotent.
 if [[ "$UNINSTALL" -eq 1 ]]; then
-  command -v node >/dev/null 2>&1 || die "node is required to uninstall."
   log "Uninstalling llm-wiki-memory from $WORKSPACE_DIR (memory data is left intact) ..."
   ws_hash="$(printf '%s' "$WORKSPACE_DIR" | cksum | awk '{print $1}')"
   # LWM_BOOTSTRAP_SKIP_SCHED_OS lets the e2e reverse the fs surfaces without
@@ -123,11 +135,8 @@ if [[ "$UNINSTALL" -eq 1 ]]; then
   exit 0
 fi
 
-# --- prereqs ---
-command -v node >/dev/null 2>&1 || die "node is required (>=20)."
+# --- prereqs (node + its floor are already checked above the uninstall path) ---
 command -v git  >/dev/null 2>&1 || die "git is required."
-NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-[[ "$NODE_MAJOR" -ge 20 ]] || die "node >=20 required (found $(node -v))."
 
 # --- upgrade (deterministic: fetch + ff-merge, then re-exec the fresh install + migrate) ---
 # One command replaces the prose runbook: pull the new engine, then re-run the
@@ -162,6 +171,23 @@ if ! ( cd "$SRC_DIR" && node -e "require('module').createRequire(process.cwd()+'
   die "@ctxr/skill-llm-wiki is not resolvable. Ensure it is installable from your registry (or vendor it)."
 fi
 
+# --- where may this install live? ---
+# A PRIVATE brain belongs at $HOME and nowhere else: the one per-machine install
+# already registers the MCP server + hooks globally and wires the rules/skills
+# into the user-level surfaces, so it serves EVERY directory. A second private
+# brain inside a repo would add no capability and only duplicate that wiring into
+# a project tree. A repo may still HOST a shared team wiki (--template repo), but
+# that presupposes the machine already has its one install.
+#
+# Placed here deliberately: after npm install (which touches only $SRC_DIR) and
+# BEFORE the first write into $WORKSPACE_DIR, so a refusal leaves the workspace
+# completely untouched. Fires only on a FRESH wiki — an existing install
+# re-running bootstrap is an upgrade, and must proceed.
+if ! node "$SRC_DIR/scripts/bootstrap/install-location.mjs" \
+  "$WORKSPACE_DIR" "$HOME" "$TEMPLATE"; then
+  exit 1
+fi
+
 # --- detect provider ---
 # The priority ladder (claude/codex CLI → API keys → base-url → ollama probe →
 # mock fallback) lives in scripts/bootstrap/detect-provider.mjs (unit-tested).
@@ -183,8 +209,12 @@ node "$SRC_DIR/scripts/bootstrap/setup-env.mjs" \
 # Run the migrator first. On a fresh install it's a no-op; on an upgrade it
 # carries old .env keys + old llm.yaml into the new settings.yaml, backs up
 # the old .env, and rewrites .env to the strict subset only.
-if ! node "$SRC_DIR/scripts/migrate-settings.mjs" "$DATA_DIR" >&2; then
-  log "ERROR: settings migration failed (see the '[migrate-settings] failed:' line above). Your existing .env is left intact; aborting before the settings.yaml defaults fallback so you don't silently run on default config. Fix the cause and re-run bootstrap."
+# Phase `settings`: migrations that must land BEFORE the wiki exists. Each one
+# self-detects, so this is a no-op on an install that is already current. A
+# FAILURE ABORTS: a half-migrated install that reports success is the worst
+# outcome, so we stop before anything downstream can run on a broken shape.
+if ! ( cd "$SRC_DIR" && MEMORY_DATA_DIR="$DATA_DIR" node scripts/cli.mjs migrations --phase settings >/dev/null ); then
+  log "ERROR: a settings-phase migration failed (see the error above). Your existing config is left intact; aborting before the defaults fallback so you don't silently run on default config. Fix the cause and re-run bootstrap."
   exit 1
 fi
 
@@ -264,13 +294,12 @@ node "$SRC_DIR/scripts/wire-memory-surfaces.mjs" \
   "$SRC_DIR" "$WORKSPACE_DIR" "$HOME" "$SELF_OBS_ENABLED"
 log "Wired memory rules/skills as @-pointers (.agents/rules, .claude/rules, .claude/skills, .cursor/rules) and AGENTS.md/CLAUDE.md @-includes → ~/.llm-wiki-memory/src."
 
-# --- data migrations (idempotent; run on --migrate / --upgrade) ---
-# migrate-identity restamps legacy basename project_module to the deterministic
-# git/file identity; a no-op on a fresh or already-migrated wiki.
-if [[ "$MIGRATE" -eq 1 ]]; then
-  log "Running data migrations (idempotent) ..."
-  ( cd "$SRC_DIR" && MEMORY_DATA_DIR="$DATA_DIR" node scripts/cli.mjs migrate-identity ) ||
-    log "WARNING: migrate-identity reported an issue (continuing)."
+# --- data migrations ---
+# Phase `data`: migrations that need the wiki to exist. Run UNCONDITIONALLY —
+# every migration self-detects, so there is nothing for a --migrate flag to gate,
+# and gating it was how an install could silently skip a needed migration.
+if ! ( cd "$SRC_DIR" && MEMORY_DATA_DIR="$DATA_DIR" node scripts/cli.mjs migrations --phase data >/dev/null ); then
+  die "a data-phase migration failed (see the error above); re-run bootstrap once the cause is fixed."
 fi
 
 # --- gitignore (marker-fenced block, mechanically reversible by uninstall) ---

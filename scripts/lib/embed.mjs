@@ -1,64 +1,54 @@
-import fs from "node:fs";
-import path from "node:path";
 import crypto from "node:crypto";
 import { envValue } from "./env.mjs";
-import { embedBackend, embedModel, DEFAULT_EMBED_MODEL } from "./settings.mjs";
-import { writeFileAtomic } from "./atomic-write.mjs";
-import { lexicalVector, tensorRows } from "./embed-lexical.mjs";
+import { embedModel, DEFAULT_EMBED_MODEL } from "./settings.mjs";
+import { lexicalVector } from "./embed-lexical.mjs";
+import { embedBatch, dropInProcessEmbedder, resetWorkerWarning } from "./embed-runner.mjs";
+import {
+  configuredBackend,
+  inFallbackWindow,
+  activeBackend,
+  noteSuccess,
+  noteForcedLexical,
+  noteFallback,
+} from "./embed-backend-state.mjs";
+import { applyPrompt, embedWindowFor, applyCacheDir } from "./embed-inference.mjs";
+import { keyedMemo, inferenceKey } from "./keyed-memo.mjs";
+import { makeDownloadReporter } from "./model-download-progress.mjs";
 
 export { cosine, tensorRows } from "./embed-lexical.mjs";
+// Facade: the embedding subsystem's public surface stays here, so no importer
+// cares that the implementation now lives in focused modules. Everything below is
+// consumed by production code — nothing is exported solely for a test. The state
+// machines' own reset/inspect helpers belong to their modules, where tests reach
+// them directly.
+export { activeBackend };
+export { loadCache, saveCache, removeFromCache } from "./embed-cache-io.mjs";
 
-// Local recall engine. The skill-llm-wiki package has NO query/search command
-// (retrieval is "walk the index tree" by design), so ranking a free-text query
-// against existing leaves is our job. Primary backend is transformer embeddings
-// (DEFAULT_EMBED_MODEL, from settings.mjs) via @xenova/transformers (already a transitive dep of the
-// skill); we fall back to a deterministic lexical cosine if the model can't load,
-// so the system never hard-fails on a missing model download.
-
-// bge-large-en-v1.5 is the strongest drop-in retrieval model for this engine
-// (mean-pooled, no query prefix); quantized ONNX via @xenova/transformers, ~340MB on
-// first download. Override with MEMORY_EMBED_MODEL (e.g. a lighter
-// Xenova/bge-small-en-v1.5 for a smaller footprint; see the README model table). A model
-// change invalidates the vector cache (loadCache stamps + checks the model), so vectors
-// recompute on next search. The default value (DEFAULT_EMBED_MODEL) is imported from
-// settings.mjs so the fallback model name lives in exactly one place.
-
-/** @typedef {import("@xenova/transformers").FeatureExtractionPipeline} FeatureExtractionPipeline */
+// Local recall engine: ranks a free-text query against wiki leaves by cosine over
+// transformer embeddings (DEFAULT_EMBED_MODEL via @huggingface/transformers, model
+// families + prompts resolved in embed-inference.mjs), with a deterministic
+// lexical fallback so the system never hard-fails on a missing model download.
+// A model change invalidates the vector cache (loadCache stamps + checks it), so
+// vectors recompute on the next search/warm; see the README model table.
 
 /**
  * @typedef {Object} Tokenizer
- * @property {(t: string, pair?: unknown, opts?: unknown) => unknown[]} encode
+ * @property {(t: string, opts?: unknown) => unknown[]} encode
  * @property {(ids: unknown[], opts?: unknown) => string} decode
  */
 
-/**
- * @typedef {Object} EmbedChunkVec
- * @property {string} hash
- * @property {number[]} vector
- */
+// Re-exported so embed.mjs stays the single type surface for the subsystem; the
+// cache format itself is owned by embed-cache-io.mjs.
+/** @typedef {import("./embed-cache-io.mjs").EmbedChunkVec} EmbedChunkVec */
+/** @typedef {import("./embed-cache-io.mjs").EmbedCacheEntry} EmbedCacheEntry */
+/** @typedef {import("./embed-cache-io.mjs").EmbedCache} EmbedCache */
 
-/**
- * @typedef {Object} EmbedCacheEntry
- * @property {string} hash
- * @property {number[]} vector
- * @property {EmbedChunkVec[]} [chunks] chunk vectors for a long (truncated) leaf; recall-only
- */
-
-/**
- * @typedef {Object} EmbedCache
- * @property {string} [model]
- * @property {string} [backend]
- * @property {number} [dim]
- * @property {Record<string, EmbedCacheEntry>} entries
- */
-
-/** @type {Promise<FeatureExtractionPipeline> | null} */
-let _extractorPromise = null;
-/** @type {string | null} */
-let _backend = null; // "transformers" | "lexical"
-
-function configuredBackend() {
-  return (embedBackend() || "").toLowerCase();
+// The two state machines are reset TOGETHER here rather than reaching into each
+// other: backend recovery clears the fallback window, and separately re-arms the
+// runner's one-shot warning so a later outage is still reported.
+function noteTransformerSuccess() {
+  noteSuccess();
+  resetWorkerWarning();
 }
 
 /**
@@ -73,95 +63,49 @@ export function contentHash(text) {
 }
 
 /**
- * @returns {Promise<FeatureExtractionPipeline>}
- */
-async function getExtractor() {
-  if (_extractorPromise) return _extractorPromise;
-  _extractorPromise = (async () => {
-    const model = embedModel() || DEFAULT_EMBED_MODEL;
-    const { pipeline, env } = await import("@xenova/transformers");
-    // Keep model cache local + offline-friendly once downloaded. Read via
-    // envValue (not process.env) so a value set only in settings/.env — not the
-    // live shell — is still honoured, consistent with every other strict key.
-    const embedCacheDir = envValue("MEMORY_EMBED_CACHE_DIR");
-    if (embedCacheDir) {
-      env.cacheDir = embedCacheDir;
-    }
-    return pipeline("feature-extraction", model);
-  })();
-  return _extractorPromise;
-}
-
-// Model download / load failed: degrade to lexical for the rest of the process.
-// Surface once on stderr for forensics, then latch the backend.
-/**
  * @param {unknown} err
  * @returns {void}
  */
 function noteLexicalFallback(err) {
-  if (_backend !== "lexical") {
-    process.stderr.write(
-      `embed.mjs: transformer backend unavailable (${err instanceof Error ? err.message : err}); falling back to lexical similarity\n`,
-    );
-  }
-  _backend = "lexical";
+  noteFallback(err);
+  dropInProcessEmbedder(); // the rejected embedder must not be reused on retry
 }
 
-// Embed a single string. Resolves the backend once and sticks with it.
 /**
  * @param {string} text
+ * @param {"query" | "document"} [kind]
  * @returns {Promise<number[]>}
  */
-export async function embed(text) {
-  const forced = configuredBackend();
-  if (forced === "lexical") {
-    _backend = "lexical";
-    return lexicalVector(text);
-  }
-  if (_backend === "lexical") return lexicalVector(text);
-  try {
-    const extractor = await getExtractor();
-    const out = await extractor(String(text || ""), { pooling: "mean", normalize: true });
-    _backend = "transformers";
-    return Array.from(out.data);
-  } catch (err) {
-    noteLexicalFallback(err);
-    return lexicalVector(text);
-  }
+export async function embed(text, kind = "query") {
+  const [vector] = await embedMany([String(text || "")], { kind });
+  return vector || lexicalVector(text);
 }
 
 // Batch-embed many strings through ONE model, returning vectors aligned to input
-// order. The transformer pipeline takes an array and runs each chunk as a single
-// padded forward pass — one model in memory, never duplicated (a worker pool
-// would load the ~340MB model once PER worker; see docs/embeddings.md). Chunking
-// bounds the working-set tensor; the batch is a throughput win of ~10% on
-// bge-large (the model dominates), larger on lighter models. Same backend
-// resolution + lexical fallback as embed().
+// order. `kind` selects the model's retrieval prompt (query vs document) — the
+// prefix is applied at inference time only, never in cache hashes, so leaf
+// identity stays content-based. Lexical vectors always use the raw text.
 const EMBED_BATCH_SIZE = 32;
 /**
  * @param {string[]} texts
- * @param {number} [batchSize]
+ * @param {number | { batchSize?: number, kind?: "query" | "document" }} [opts]
  * @returns {Promise<number[][]>}
  */
-export async function embedMany(texts, batchSize = EMBED_BATCH_SIZE) {
+export async function embedMany(texts, opts = {}) {
+  const { batchSize = EMBED_BATCH_SIZE, kind = "document" } =
+    typeof opts === "number" ? { batchSize: opts } : opts;
   const list = Array.isArray(texts) ? texts.map((t) => String(t || "")) : [];
   if (list.length === 0) return [];
   const forced = configuredBackend();
-  if (forced === "lexical" || _backend === "lexical") {
-    _backend = "lexical";
+  if (forced === "lexical") {
+    noteForcedLexical();
     return list.map(lexicalVector);
   }
+  if (inFallbackWindow()) return list.map(lexicalVector);
   try {
-    const extractor = await getExtractor();
-    const size = batchSize > 0 ? batchSize : list.length;
-    /** @type {number[][]} */
-    const vectors = [];
-    for (let i = 0; i < list.length; i += size) {
-      const chunk = list.slice(i, i + size);
-      const out = await extractor(chunk, { pooling: "mean", normalize: true });
-      vectors.push(...tensorRows(out, chunk.length));
-    }
-    _backend = "transformers";
+    const prompted = applyPrompt(embedModel() || DEFAULT_EMBED_MODEL, kind, list);
+    const vectors = await embedBatch(prompted, batchSize);
+    noteTransformerSuccess();
     return vectors;
   } catch (err) {
     noteLexicalFallback(err);
@@ -169,114 +113,77 @@ export async function embedMany(texts, batchSize = EMBED_BATCH_SIZE) {
   }
 }
 
-export function activeBackend() {
-  return _backend || configuredBackend() || "transformers";
+// The configured model's input window, for length-aware chunking.
+/** @returns {number} */
+export function embedWindow() {
+  return embedWindowFor(embedModel() || DEFAULT_EMBED_MODEL);
 }
 
-// The transformer pipeline's own tokenizer, for length-aware chunking (no second
-// load). Returns null in lexical mode (no fixed window, so nothing to chunk) or
-// if the model can't load — the chunker then treats every leaf as a single
-// chunk, i.e. today's behavior.
+// AutoTokenizer standalone (vocab only, no ONNX weights) — inference lives in the
+// worker, so loading the full pipeline here would double the model in memory.
+// KEYED on the model. embedWindow() re-reads embedModel() on every call, so an
+// unkeyed tokenizer meant that after a live model change the window and the vocab
+// came from DIFFERENT models — chunk boundaries computed against the wrong
+// tokenizer, silently truncating.
+const _tokenizerMemo = keyedMemo(
+  /** @param {string} model @returns {Promise<Tokenizer>} */
+  async (model) => {
+    const { AutoTokenizer, env } = await import("@huggingface/transformers");
+    applyCacheDir(env, envValue("MEMORY_EMBED_CACHE_DIR") || undefined);
+    // A SECOND fetch, on this thread: tokenizer.json is ~20MB and is unaccounted for in every
+    // documented model size. Labelled distinctly because it streams concurrently with the
+    // worker's weights, onto the same stderr.
+    return /** @type {Tokenizer} */ (
+      /** @type {unknown} */ (
+        await AutoTokenizer.from_pretrained(model, {
+          progress_callback: makeDownloadReporter({ label: "tokenizer" }),
+        })
+      )
+    );
+  },
+);
 /**
  * @returns {Promise<Tokenizer | null>}
  */
 export async function getTokenizer() {
-  if (configuredBackend() === "lexical" || _backend === "lexical") return null;
+  if (configuredBackend() === "lexical" || inFallbackWindow()) return null;
+  const model = embedModel() || DEFAULT_EMBED_MODEL;
   try {
-    const extractor = await getExtractor();
-    _backend = "transformers";
-    return /** @type {Tokenizer} */ (/** @type {unknown} */ (extractor.tokenizer));
-  } catch (err) {
-    noteLexicalFallback(err);
+    // Keyed on cacheDir too: the build reads it, so it is part of this artefact's
+    // identity, exactly as it is for the embedders.
+    return await _tokenizerMemo.get(
+      inferenceKey({ model, cacheDir: envValue("MEMORY_EMBED_CACHE_DIR") || undefined }),
+      model,
+    );
+  } catch {
     return null;
   }
 }
 
-// embedding cache keyed by leaf id + content hash
-
-// The signature a cache is stamped with: the embed model AND the resolved
-// backend. Vectors from a different model OR a different backend are not
-// comparable (a lexical-256 vector and a transformer vector share neither
-// dimension nor geometry), so a change in either invalidates the cache. The
-// backend must be resolved (call after the first embed) for the comparison to
-// be meaningful; before then it is the optimistic default.
+// Downloads the model and immediately releases it, so the first recall does not pay ~219MB inside
+// an MCP call where the wait is invisible and indistinguishable from a hang. Run by `init`.
+//
+// Fails SOFT by contract: an offline or air-gapped install must still be able to initialise, so a
+// download failure is reported, never thrown. Skipped entirely unless the backend is transformers —
+// a lexical install has no model, and the e2e harness runs lexical.
 /**
- * @returns {{ model: string, backend: string }}
+ * @param {{ onProgress?: (info: unknown) => void }} [opts]
+ * @returns {Promise<{ ok?: boolean, skipped?: string, model?: string, dtype?: string, error?: string }>}
  */
-function cacheStamp() {
-  return { model: embedModel() || DEFAULT_EMBED_MODEL, backend: activeBackend() };
-}
-
-// The dimension of the first cached vector, or 0 when the cache is empty. Used
-// to stamp the cache's `dim` at save time; a per-entry dim mismatch at score
-// time is caught by `cosine`.
-/**
- * @param {EmbedCache} cache
- * @returns {number}
- */
-function cacheDim(cache) {
-  for (const e of Object.values(cache.entries || {})) {
-    if (Array.isArray(e?.vector)) return e.vector.length;
-  }
-  return 0;
-}
-
-// Load the cache, invalidating (returning an empty cache) when it was built by
-// a different model, a different backend, or — when the caller passes the dim
-// it is about to score against — a different vector dimension. Invalidation is
-// safe: lazy-embed rebuilds a dropped cache on first use (m7 self-heal).
-/**
- * @param {string} cachePath
- * @param {number} [expectedDim] the current query/scoring dim; 0/omitted skips the dim check
- * @returns {EmbedCache}
- */
-export function loadCache(cachePath, expectedDim = 0) {
-  const { model, backend } = cacheStamp();
+export async function prefetchEmbedModel({ onProgress } = {}) {
+  if (configuredBackend() === "lexical") return { skipped: "lexical" };
   try {
-    const raw = JSON.parse(fs.readFileSync(cachePath, "utf8"));
-    const stampOk =
-      raw &&
-      typeof raw === "object" &&
-      raw.entries &&
-      raw.model === model &&
-      raw.backend === backend;
-    const dimOk = !(expectedDim > 0) || raw.dim === expectedDim;
-    if (stampOk && dimOk) return raw;
-  } catch {
-    /* fresh cache */
+    const { inferenceConfig } = await import("./embed-runner.mjs");
+    const { createEmbedder } = await import("./embed-inference.mjs");
+    const cfg = inferenceConfig();
+    const embedder = await createEmbedder({ ...cfg, onProgress });
+    // The weights are on disk now; the native session is not wanted here.
+    embedder.dispose?.();
+    // tokenizer.json is a SECOND fetch (~20MB) that the first recall would otherwise pay for
+    // separately, on a different thread. getTokenizer swallows its own failures.
+    await getTokenizer();
+    return { ok: true, model: cfg.model, dtype: cfg.dtype };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
-  return { model, backend, dim: 0, entries: {} };
-}
-
-/**
- * @param {string} cachePath
- * @param {EmbedCache} cache
- * @returns {void}
- */
-export function saveCache(cachePath, cache) {
-  // This is the ONLY persistence path for the recall vector store, and it is
-  // written off-lock by BOTH the long-running MCP server (every search +
-  // every save) and the hourly cron (compile / consolidate / detached flush
-  // workers). A fixed shared `.tmp` name guarantees those writer populations
-  // collide and rename a byte-interleaved (invalid-JSON) file into place;
-  // loadCache then silently swallows the parse error and resets to an empty
-  // cache, forcing a full-corpus cold re-embed. writeFileAtomic's unique
-  // pid+uuid temp + data fsync eliminates both the collision and the torn
-  // write — the same discipline every other durable write here already uses.
-  fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-  // Re-stamp from the current (resolved) signature so the persisted file
-  // records the model/backend/dim that actually produced its vectors — a
-  // mid-run transformer→lexical fallback thus self-heals on the next load.
-  const { model, backend } = cacheStamp();
-  const stamped = { model, backend, dim: cacheDim(cache), entries: cache.entries || {} };
-  writeFileAtomic(cachePath, JSON.stringify(stamped));
-}
-
-/**
- * @param {EmbedCache} cache
- * @param {string} id
- * @returns {void}
- */
-export function removeFromCache(cache, id) {
-  if (cache.entries[id]) delete cache.entries[id];
 }

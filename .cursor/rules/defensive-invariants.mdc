@@ -1,0 +1,8 @@
+---
+description: "Defensive invariants — when a check may be deleted — Deleting a defensive check because a proof says it cannot fire is the most expensive class of mistake made in this codebase. Canonical file is .agents/rules/defensive-invariants.md."
+alwaysApply: true
+---
+
+Follow the canonical rule (edit that file, never this shadow):
+
+@.agents/rules/defensive-invariants.md

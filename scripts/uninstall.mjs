@@ -5,11 +5,10 @@
 //
 //   node scripts/uninstall.mjs <workspaceDir> [repoDir ...]
 
-import { pathToFileURL } from "node:url";
 import { uninstall } from "./lib/uninstall.mjs";
 import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "./lib/cli-args.mjs";
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   const args = process.argv.slice(2);
   const HELP = formatHelp({
     name: "uninstall",

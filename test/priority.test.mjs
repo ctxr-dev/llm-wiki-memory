@@ -183,13 +183,13 @@ test("integration: gated saveLesson renders the user-picked priority (P0) into f
   assert.match(leaf, /priority:\s*P0/, "gated lesson keeps the user-picked P0");
 });
 
-test("metadataForDify: passes priority through when present, omits when absent", async () => {
-  const { metadataForDify } = await import("../scripts/lib/datasets.mjs");
+test("metadataForLeaf: passes priority through when present, omits when absent", async () => {
+  const { metadataForLeaf } = await import("../scripts/lib/datasets.mjs");
   assert.equal(
-    metadataForDify({ type: "feedback-rule", metadata: { priority: "P0", area: "x" } }).priority,
+    metadataForLeaf({ type: "feedback-rule", metadata: { priority: "P0", area: "x" } }).priority,
     "P0",
   );
-  assert.equal(metadataForDify({ type: "reference", metadata: { area: "x" } }).priority, undefined);
+  assert.equal(metadataForLeaf({ type: "reference", metadata: { area: "x" } }).priority, undefined);
 });
 
 test("integration: recallLessons exposes priority on its records", async () => {

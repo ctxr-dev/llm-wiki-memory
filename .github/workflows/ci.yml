@@ -20,11 +20,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          # >= 22.8: `node --test` isolates each test FILE in its own process by
-          # default. The suite's harness assumes that (per-file dataDir / env /
-          # signal handlers); Node 20 ran all files in ONE process, so cross-file
-          # cleanups + a shared MEMORY_DATA_DIR collided and flaked the flush/
-          # brain-context tests. The RUNTIME still supports Node >= 20.
+          # The RUNTIME floor is Node >= 22.18, for `import.meta.main` (every entrypoint's CLI
+          # guard). Below it that property is undefined, so each command would exit 0 having
+          # silently done nothing — see .agents/rules/dev-principles.md. "22" resolves to the
+          # newest 22.x, which is above the floor.
+          # Independently, >= 22.8 is needed because `node --test` isolates each test FILE in its
+          # own process by default; the harness assumes that (per-file dataDir / env / signal
+          # handlers), and Node 20 ran all files in ONE process, so cross-file cleanups and a
+          # shared MEMORY_DATA_DIR collided and flaked the flush / brain-context tests.
           node-version: "22"
           cache: npm
       - name: Install
@@ -70,3 +73,34 @@ jobs:
           npm run test:e2e
         env:
           MEMORY_EMBED_BACKEND: lexical
+
+  webapp:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm ci --no-audit --no-fund
+      - name: Configure git identity (fixture wiki init)
+        run: |
+          git config --global user.email "ci@llm-wiki-memory.local"
+          git config --global user.name "ci"
+      - name: Webapp gates (typecheck, lint, no-comments, build, vitest)
+        run: |
+          rm -rf "${TMPDIR:-/tmp}"/lwm-* 2>/dev/null || true
+          npm run -w src/webapp gates
+        env:
+          MEMORY_EMBED_BACKEND: lexical
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Webapp E2E (Playwright, real browser + axe)
+        run: npm run -w src/webapp test:e2e
+        env:
+          MEMORY_EMBED_BACKEND: lexical
+          LWM_WEBAPP_OPEN: "0"

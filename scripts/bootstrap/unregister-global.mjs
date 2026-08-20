@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import {
   removeServerFromJson,
   stripCodexServer,
@@ -55,7 +54,7 @@ export function removeStalePerRepo({ workspace, home }) {
   return { mcp, agents, hooks };
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+if (import.meta.main) {
   const args = process.argv.slice(2);
   const HELP = formatHelp({
     name: "unregister-global",

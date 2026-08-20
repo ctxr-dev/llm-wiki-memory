@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { writeFileAtomic } from "../lib/atomic-write.mjs";
 import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "../lib/cli-args.mjs";
 
@@ -47,7 +46,7 @@ export function writeEnvFile({ dataDir, templatePath, provider, baseUrlHint }) {
   return { action: "wrote", provider };
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+if (import.meta.main) {
   const args = process.argv.slice(2);
   const HELP = formatHelp({
     name: "setup-env",

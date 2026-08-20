@@ -19,6 +19,7 @@ import { detectAvailableProviders } from "./settings-providers.mjs";
  * @property {RawSection} [recall]
  * @property {RawSection} [compile]
  * @property {RawSection} [gc]
+ * @property {RawSection} [quality]
  * @property {RawSection} [gate]
  * @property {RawSection} [wiki]
  * @property {Record<string, unknown>} [providers]
@@ -34,7 +35,7 @@ import { detectAvailableProviders } from "./settings-providers.mjs";
  */
 export function applyYamlOverlay(sections, raw) {
   const { providers } = sections;
-  const { consolidate, flush, hook, embed, recall, compile, gc, gate, wiki } =
+  const { consolidate, flush, hook, embed, recall, compile, gc, quality, gate, wiki } =
     /** @type {Record<string, Record<string, unknown>>} */ (/** @type {unknown} */ (sections));
 
   if (raw.consolidate) {
@@ -68,21 +69,37 @@ export function applyYamlOverlay(sections, raw) {
     }
   }
   if (raw.gc && raw.gc.intervalDays !== undefined) gc.intervalDays = raw.gc.intervalDays;
-  if (raw.gate && raw.gate.selfImprovementEnabled !== undefined) {
-    // Copy the raw value through UNCOERCED and let coerceBool(..., true) below
-    // finalise it. Do NOT Boolean()-coerce here: Boolean(null) is a real
-    // `false` that coerceBool then accepts, so an empty / commented-out /
-    // null `selfImprovementEnabled:` in settings.yaml would silently DISABLE
-    // the write-gate (fail-open). Passing null through makes coerceBool fall
-    // back to the safe default (true), while an explicit `false` still
-    // disables. The write-gate must fail CLOSED.
-    gate.selfImprovementEnabled = raw.gate.selfImprovementEnabled;
+  if (raw.quality && raw.quality.judgeEnabled !== undefined) {
+    // Fail-closed like the gate flags: pass the raw value uncoerced so a
+    // null/empty `judgeEnabled:` falls back to the safe default (true) in
+    // coerceBool below, while an explicit `false` still disables the judge.
+    quality.judgeEnabled = raw.quality.judgeEnabled;
+  }
+  if (raw.quality && raw.quality.maxRounds !== undefined) {
+    quality.maxRounds = raw.quality.maxRounds;
+  }
+  // gate.enabled is the canonical write-gate switch (governs ALL layout-gated
+  // categories); gate.selfImprovementEnabled is the pre-rename ALIAS. Map either
+  // YAML key onto gate.enabled (explicit `enabled` wins). Copy the raw value
+  // through UNCOERCED and let coerceBool(..., true) below finalise it: do NOT
+  // Boolean()-coerce here — Boolean(null) is a real `false` that coerceBool then
+  // accepts, so an empty / commented-out / null value would silently DISABLE the
+  // gate (fail-open). Passing null through falls back to the safe default (true)
+  // while an explicit `false` still disables. The write-gate must fail CLOSED.
+  if (raw.gate && raw.gate.enabled !== undefined) {
+    gate.enabled = raw.gate.enabled;
+  } else if (raw.gate && raw.gate.selfImprovementEnabled !== undefined) {
+    gate.enabled = raw.gate.selfImprovementEnabled;
   }
   if (raw.gate && raw.gate.claudeHookEnabled !== undefined) {
     // Same fail-closed rule as selfImprovementEnabled above: pass the raw
     // value through uncoerced so null/empty falls back to the safe default
     // (true) in the coerceBool below, while an explicit false still disables.
     gate.claudeHookEnabled = raw.gate.claudeHookEnabled;
+  }
+  if (raw.gate && raw.gate.recallFirstEnabled !== undefined) {
+    // Same fail-closed rule: a null/empty value keeps the recall-first nudge ON.
+    gate.recallFirstEnabled = raw.gate.recallFirstEnabled;
   }
   if (raw.gate && raw.gate.auditTrailEnabled !== undefined) {
     // Fail-closed like the gate flags above: pass the raw value uncoerced so a
@@ -95,6 +112,9 @@ export function applyYamlOverlay(sections, raw) {
   }
   if (raw.gate && raw.gate.auditKeep !== undefined) {
     gate.auditKeep = raw.gate.auditKeep;
+  }
+  if (raw.gate && raw.gate.maxInlineBodyBytes !== undefined) {
+    gate.maxInlineBodyBytes = raw.gate.maxInlineBodyBytes;
   }
   if (raw.wiki && raw.wiki.autoCommit !== undefined) {
     wiki.autoCommit = raw.wiki.autoCommit;

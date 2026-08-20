@@ -8,16 +8,17 @@ import { defangFenceMarkers } from "../lib/fence.mjs";
 /**
  * @typedef {Object} HookInput
  * @property {{ plan?: unknown }} [tool_input]
- * @property {{ approved?: boolean }} [tool_response]
+ * @property {unknown} [tool_response] prose string, content blocks, or a legacy `{approved}` flag
  * @property {string} [transcript_path]
  */
 
 export const PLANS_SLOT = "plans";
-// 256KB default cap on plan body size. Dify create-by-text accepts
-// larger but the API gateway in front of it (nginx) typically caps at
-// 1MB; bigger bodies also burn embedding budget for marginal recall
-// value. Tunable via MEMORY_HOOK_EXITPLANMODE_MAX_BYTES.
-export const DEFAULT_MAX_PLAN_BYTES = 256_000;
+// 1MB cap on plan body size. This is a sanity bound only: a wiki write is local
+// file I/O, so there is no gateway or request limit to respect (the former 256KB
+// figure was sized for an HTTP bridge that no longer exists). The remaining cost of
+// a very large plan is embedding it, which chunks and is paid once. Tunable via
+// hook.exitPlanModeMaxBytes.
+export const DEFAULT_MAX_PLAN_BYTES = 1_048_576;
 
 // Origin marker fenced around the persisted plan body. Future agents
 // reading this doc via search_memory / recall_lessons see explicit
@@ -147,13 +148,73 @@ export function resolvePlanBody(hookInput) {
   return planFromToolInput(hookInput) ?? planFromScratchDir() ?? planFromTranscript(hookInput);
 }
 
+const PLAN_APPROVED_RE = /\buser has approved your plan\b/i;
+const PLAN_REJECTED_RE =
+  /tool use was rejected|does(?:n't| not) want to proceed|user (?:rejected|declined)/i;
+
+/**
+ * Flatten a hook `tool_response` to text. Claude Code has sent it as a bare
+ * string, as `{ content }`, and as content blocks, so accept all three.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function responseText(value) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(responseText).join("\n");
+  if (value && typeof value === "object") {
+    const o = /** @type {Record<string, unknown>} */ (value);
+    if (typeof o.content === "string") return o.content;
+    if (Array.isArray(o.content)) return responseText(o.content);
+    if (typeof o.text === "string") return o.text;
+  }
+  return "";
+}
+
+/**
+ * Whether the user approved the plan. Claude Code reports the outcome as PROSE
+ * ("User has approved your plan…" / "The tool use was rejected…"), NOT as a flag,
+ * so the original strict `approved === true` test skipped every real plan and the
+ * hook captured nothing. A rejection is decisive; the boolean is still honoured so
+ * a structured caller (and the existing tests) keep working.
+ * @param {unknown} toolResponse
+ * @returns {boolean}
+ */
+export function planApproved(toolResponse) {
+  if (toolResponse && typeof toolResponse === "object" && !Array.isArray(toolResponse)) {
+    const flag = /** @type {Record<string, unknown>} */ (toolResponse).approved;
+    if (flag === true) return true;
+    if (flag === false) return false;
+  }
+  const text = responseText(toolResponse);
+  if (!text || PLAN_REJECTED_RE.test(text)) return false;
+  return PLAN_APPROVED_RE.test(text);
+}
+
+/**
+ * A short, non-sensitive description of what arrived, so a skip is diagnosable
+ * from the log without dumping the plan body.
+ * @param {unknown} toolResponse
+ * @returns {string}
+ */
+export function describeToolResponse(toolResponse) {
+  if (toolResponse === undefined) return "tool_response absent";
+  if (toolResponse === null) return "tool_response null";
+  if (typeof toolResponse === "string") {
+    return `string(${toolResponse.length}) ${JSON.stringify(toolResponse.slice(0, 60))}`;
+  }
+  if (Array.isArray(toolResponse)) return `array(${toolResponse.length})`;
+  if (typeof toolResponse === "object") {
+    return `object keys=[${Object.keys(toolResponse).join(",")}]`;
+  }
+  return typeof toolResponse;
+}
+
 /**
  * @param {HookInput} hookInput
  * @param {{ maxBytes?: number }} [opts]
  */
 export function planDocSpec(hookInput, { maxBytes = DEFAULT_MAX_PLAN_BYTES } = {}) {
-  const tool_response = hookInput?.tool_response ?? {};
-  if (tool_response.approved !== true) return { skip: "not-approved" };
+  if (!planApproved(hookInput?.tool_response)) return { skip: "not-approved" };
   const raw = resolvePlanBody(hookInput);
   if (raw == null) return { skip: "empty-plan" };
   // Coercing { foo: 1 } would yield "[object Object]" garbage; skip cleanly.
@@ -161,7 +222,7 @@ export function planDocSpec(hookInput, { maxBytes = DEFAULT_MAX_PLAN_BYTES } = {
   // Redact secrets BEFORE slugifying or persisting (parity with flush.mjs).
   const plan = redact(raw).trim();
   if (!plan) return { skip: "empty-plan" };
-  // Size cap: refuse outsized bodies before they hit the bridge / Dify.
+  // Sanity cap: refuse an absurd body before it is written.
   if (Buffer.byteLength(plan, "utf8") > maxBytes) {
     return { skip: `plan-too-large (>${maxBytes} bytes)` };
   }

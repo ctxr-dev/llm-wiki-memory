@@ -25,8 +25,19 @@ export function isOurPointer(abs) {
     const body = fs.readFileSync(abs, "utf8");
     // Both signals: a leading @-include line AND the fallback note. A user's doc that
     // merely MENTIONS the note (but isn't an @-pointer) no longer trips the prune.
-    return body.trimStart().startsWith("@") && body.includes(POINTER_FALLBACK_NOTE);
+    // A generated Claude Code SKILL.md leads with YAML frontmatter (the `name` +
+    // `description` that make the skill discoverable), so the @-line is checked after
+    // stripping it — both signals are still required.
+    return afterFrontmatter(body).startsWith("@") && body.includes(POINTER_FALLBACK_NOTE);
   } catch {
     return false;
   }
+}
+
+/** @param {string} body @returns {string} */
+function afterFrontmatter(body) {
+  const trimmed = body.trimStart();
+  if (!trimmed.startsWith("---")) return trimmed;
+  const end = trimmed.indexOf("\n---", 3);
+  return end === -1 ? trimmed : trimmed.slice(end + 4).trimStart();
 }

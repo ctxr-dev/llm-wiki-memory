@@ -48,6 +48,7 @@ export const MCP_OPS = Object.freeze({
   ENABLE: "mcp-enable",
   DELETE: "mcp-delete",
   MOVE: "mcp-move",
+  UPDATE_METADATA: "mcp-update-metadata",
 });
 
 /**

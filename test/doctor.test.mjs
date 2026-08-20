@@ -8,8 +8,15 @@ const { dataDir, wiki } = setupWorkspace();
 after(() => cleanup(dataDir));
 
 const store = await import("../scripts/lib/wiki-store.mjs");
-const { doctor, findBrokenIndexRefs, findStrayLeaves, findUnlistedChildren } =
-  await import("../scripts/lib/doctor.mjs");
+const { embedBackend } = await import("../scripts/lib/settings.mjs");
+const {
+  doctor,
+  findBrokenIndexRefs,
+  findStrayLeaves,
+  findUnlistedChildren,
+  findBackendMismatchedCaches,
+  findDimInconsistentCaches,
+} = await import("../scripts/lib/doctor.mjs");
 
 // Add a flat curated (consolidate:none) category + a topology category, so we
 // can exercise both the curated heuristics AND the topology-skip.
@@ -101,6 +108,92 @@ test("a real child missing from its index is flagged unlisted", () => {
   assert.ok(
     unlisted.some((u) => u.unlisted.some((x) => x.name === "Extra.md")),
     `Extra.md unlisted; got ${JSON.stringify(unlisted)}`,
+  );
+});
+
+test("a cache whose vectors disagree with EACH OTHER is flagged (internal inconsistency)", () => {
+  // The silent failure this makes visible: `cosine` returns 0 for a length mismatch and
+  // `scoreLeaf` goes NEGATIVE over a mismatched chunk set, so the affected leaves stop
+  // appearing in results while every content-hash check still calls them warm. Deliberately
+  // NOT compared against the configured model's dimension — that is unknowable without a
+  // forward pass and would cry wolf mid-migration, exactly as the backend scan avoids.
+  resetNotes();
+  w("Notes/Real.md", FM("Real"));
+  w("Notes/index.md", INDEX("| [Real.md](Real.md) | primary | Real |"));
+  const configured = embedBackend();
+  const cachePath = path.join(wiki, "Notes", ".embeddings", "embeddings.json");
+  fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+
+  fs.writeFileSync(
+    cachePath,
+    JSON.stringify({
+      backend: configured,
+      dim: 3,
+      entries: {
+        a: { hash: "ha", vector: [1, 0, 0] },
+        b: { hash: "hb", vector: [0, 1, 0] },
+        bad: { hash: "hz", vector: [9, 9] },
+      },
+    }),
+  );
+  const mixed = findDimInconsistentCaches(wiki);
+  assert.ok(
+    mixed.some((m) => m.cache.includes("Notes") && m.entries === 3),
+    `dim mix flagged; got ${JSON.stringify(mixed)}`,
+  );
+  assert.match(mixed[0].dims, /2x3 1x2|1x2 2x3/, "reports the shape it found");
+  assert.equal(doctor(wiki).ok, false, "an internally inconsistent cache makes doctor unhealthy");
+
+  // A CHUNK vector disagreeing with its leaf counts too — chunk vectors are the half a
+  // top-level-only scan would miss.
+  fs.writeFileSync(
+    cachePath,
+    JSON.stringify({
+      backend: configured,
+      dim: 3,
+      entries: { a: { hash: "ha", vector: [1, 0, 0], chunks: [{ hash: "c", vector: [1, 1] }] } },
+    }),
+  );
+  assert.equal(findDimInconsistentCaches(wiki).length, 1, "a ragged chunk set is flagged");
+
+  fs.writeFileSync(
+    cachePath,
+    JSON.stringify({
+      backend: configured,
+      dim: 3,
+      entries: { a: { hash: "ha", vector: [1, 0, 0], chunks: [{ hash: "c", vector: [0, 1, 0] }] } },
+    }),
+  );
+  assert.equal(findDimInconsistentCaches(wiki).length, 0, "a coherent cache is not flagged");
+  fs.writeFileSync(cachePath, JSON.stringify({ backend: configured, dim: 0, entries: {} }));
+  assert.equal(findDimInconsistentCaches(wiki).length, 0, "an empty cache is not flagged");
+});
+
+test("backend-mismatched embed cache is flagged; a matching cache is not", () => {
+  resetNotes();
+  w("Notes/Real.md", FM("Real"));
+  w("Notes/index.md", INDEX("| [Real.md](Real.md) | primary | Real |"));
+  const configured = embedBackend();
+  const other = configured === "lexical" ? "transformers" : "lexical";
+  const cachePath = path.join(wiki, "Notes", ".embeddings", "embeddings.json");
+  fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+  fs.writeFileSync(
+    cachePath,
+    JSON.stringify({ backend: other, dim: 999, entries: { a: { hash: "h", vector: [] } } }),
+  );
+  const mismatched = findBackendMismatchedCaches(wiki);
+  assert.ok(
+    mismatched.some(
+      (m) => m.cache.includes("Notes") && m.backend === other && m.expected === configured,
+    ),
+    `mismatch flagged; got ${JSON.stringify(mismatched)}`,
+  );
+  assert.equal(doctor(wiki).ok, false, "a backend mismatch makes doctor unhealthy");
+  fs.writeFileSync(cachePath, JSON.stringify({ backend: configured, dim: 1, entries: {} }));
+  assert.equal(
+    findBackendMismatchedCaches(wiki).length,
+    0,
+    "a matching-backend cache is not flagged",
   );
 });
 

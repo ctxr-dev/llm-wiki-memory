@@ -220,8 +220,7 @@ function migrate(dataDir, { dryRun = false, log = console.error } = {}) {
   };
 }
 
-// CLI entrypoint.
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (import.meta.main) {
   const dataDir = process.argv[2] || process.env.MEMORY_DATA_DIR;
   if (!dataDir) {
     process.stderr.write("usage: migrate-settings.mjs <data-dir>\n");

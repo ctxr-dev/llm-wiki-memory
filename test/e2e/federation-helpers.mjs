@@ -166,12 +166,19 @@ export function cliEnv(dataDir, extra = {}) {
 
 /**
  * @param {string} dataDir
- * @returns {void} write a lexical settings.yaml so no embedding model downloads.
+ * @returns {void} write a settings.yaml so the subprocess server needs no
+ * external services: a lexical embed backend (no model download) and the
+ * quality judge disabled (these tests exercise routing/gating, not quality, and
+ * provide no LLM provider — the judge is fail-closed, so leaving it on would
+ * block every interactive knowledge/self_improvement save).
  */
 export function writeLexicalSettings(dataDir) {
   const dir = path.join(dataDir, "settings");
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "settings.yaml"), "embed:\n  backend: lexical\n");
+  fs.writeFileSync(
+    path.join(dir, "settings.yaml"),
+    "embed:\n  backend: lexical\nquality:\n  judgeEnabled: false\n",
+  );
 }
 
 /**

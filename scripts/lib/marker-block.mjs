@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import { writeFileAtomic } from "./atomic-write.mjs";
+import { withFsRetry } from "./fs-retry.mjs";
+
 // Remove marker-fenced blocks from a text file safely. The one invariant that
 // matters: NEVER delete non-marker content. A well-formed START…END pair (with
 // no nested START between them) is removed whole; a stray/orphan START or END
@@ -81,4 +85,27 @@ export function stripManagedBlocks(content, startMarker, endMarker) {
     i += 1;
   }
   return out.join("\n");
+}
+
+/**
+ * Remove our marker-fenced block from `file`. Exact and reversible: only the
+ * fenced region goes, every other line survives. A file that held NOTHING BUT our
+ * block is DELETED rather than left as an empty husk — that is what makes an
+ * install we authored fully reversible, and it is why a repo whose team wrote real
+ * AGENTS.md content keeps that file with only our block removed.
+ * @param {string} file @param {string} startMarker @param {string} endMarker
+ * @returns {boolean} whether anything was removed
+ */
+export function stripBlockFromFile(file, startMarker, endMarker) {
+  if (!fs.existsSync(file)) return false;
+  const content = fs.readFileSync(file, "utf8");
+  const stripped = stripManagedBlocks(content, startMarker, endMarker);
+  if (stripped === content) return false;
+  const normalized = stripped
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^\n+/, "")
+    .replace(/[ \t\n]+$/, "");
+  if (normalized === "") withFsRetry(() => fs.rmSync(file, { force: true }));
+  else writeFileAtomic(file, `${normalized}\n`);
+  return true;
 }

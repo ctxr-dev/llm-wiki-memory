@@ -43,8 +43,7 @@ export {
 // declared in .env (provider switches + paths + identity + secrets). Every
 // other MEMORY_* env var is silently IGNORED — application config lives in
 // the YAML, period. This is a deliberate breaking change from earlier
-// versions; see docs/releases/2026/06/03/v2/update-prompt.md for the
-// migration runbook.
+// versions (shipped 2026-06-03).
 
 export const KNOWN_PROVIDERS = [
   "mock",
@@ -60,7 +59,7 @@ export const KNOWN_PROVIDERS = [
 // The canonical default ships in templates/settings.yaml; this is the one model
 // name that legitimately lives in code, because it backstops a missing config
 // rather than being a swappable provider/model choice.
-export const DEFAULT_EMBED_MODEL = "Xenova/bge-large-en-v1.5";
+export const DEFAULT_EMBED_MODEL = "onnx-community/embeddinggemma-300m-ONNX";
 
 // Structural-only fallback (no model name strings here). The provider chain
 // priority IS a structural choice — it controls auto-detect ORDER, not which
@@ -154,6 +153,7 @@ function buildSettings({ configPath, cmdProbe } = {}) {
     recall: sections.recall,
     compile: sections.compile,
     gc: sections.gc,
+    quality: sections.quality,
     gate: sections.gate,
     wiki: sections.wiki,
     providers: sections.providers,
@@ -174,6 +174,7 @@ function buildSettings({ configPath, cmdProbe } = {}) {
       recall: Object.freeze(built.recall),
       compile: Object.freeze(built.compile),
       gc: Object.freeze(built.gc),
+      quality: Object.freeze(built.quality),
       gate: Object.freeze(built.gate),
       wiki: Object.freeze(built.wiki),
       providers: Object.freeze({

@@ -103,6 +103,15 @@
  */
 
 /**
+ * Set when the cold-embed bound cut a read short: leaves with no cached vector were EXCLUDED from
+ * the results rather than ranked low, so the record set is incomplete. Absent on a complete read.
+ * @typedef {Object} ColdShortfall
+ * @property {number} skippedLeaves
+ * @property {number} embeddedTexts
+ * @property {string} remedy
+ */
+
+/**
  * The `searchMemory` cross-category envelope.
  * @typedef {Object} SearchResponse
  * @property {string} [query]
@@ -111,6 +120,7 @@
  * @property {{ project_module: string } | null} injectedFilters
  * @property {number | null} scoreThreshold
  * @property {Array<{ datasetId: string, message: string }>} errors
+ * @property {ColdShortfall} [partial]
  * @property {number} totalRecords
  * @property {SearchHit[]} records
  */
@@ -125,6 +135,7 @@
  * @property {number} scoreThreshold
  * @property {number} lessonHits
  * @property {number} supplementaryHits
+ * @property {ColdShortfall} [partial]
  * @property {number} totalRecords
  * @property {RecallRecord[]} records
  */
@@ -167,6 +178,7 @@
  * @property {boolean} [deleted]
  * @property {{ from: string, to: string }} [relocated]
  * @property {{ existing?: string, destination: string }} [conflict]
+ * @property {string} [field] - the offending frontmatter field on a refusal (e.g. "status").
  * @property {string} [error]
  */
 

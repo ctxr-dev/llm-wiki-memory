@@ -21,8 +21,8 @@ export const ATOM_TYPES = new Set(ATOM_TYPES_LIST);
 
 // Atom-type -> default dataset slot when promoted by compile.
 // Inline `save_lesson` writes go directly to "self_improvement"; everything
-// else routes through this table. Falls back to DIFY_COMPILE_DATASET when
-// the type is not listed (forward-compat for new atom types).
+// else routes through this table. An unlisted type falls back to settings
+// compile.slot (see targetDatasetForAtom) — forward-compat for new atom types.
 export const ATOM_TYPE_TO_DATASET = {
   decision: "knowledge",
   "bug-root-cause": "knowledge",
@@ -123,7 +123,7 @@ export const TASK_TYPES_LIST = Object.freeze([
 ]);
 export const TASK_TYPES = new Set(TASK_TYPES_LIST);
 
-// Normalise an atom's metadata block into the exact fields Dify will store.
+// Normalise an atom's metadata block into the exact fields a leaf stores.
 // Tags array is joined with commas. Empty/absent fields are OMITTED so
 // downstream filters never match `is ""` against entries that simply lack
 // the field. atom_type is always present since the atom has a type.
@@ -131,7 +131,7 @@ export const TASK_TYPES = new Set(TASK_TYPES_LIST);
  * @param {{ metadata?: import("./types.mjs").MetadataInput, tags?: unknown, type?: unknown } | null | undefined} atom
  * @returns {Record<string, string>}
  */
-export function metadataForDify(atom) {
+export function metadataForLeaf(atom) {
   const md = /** @type {import("./types.mjs").MetadataInput} */ (
     (atom && typeof atom.metadata === "object" && atom.metadata) || {}
   );

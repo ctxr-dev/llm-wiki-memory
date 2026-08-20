@@ -55,6 +55,7 @@ test("vocabulary constants carry the exact pre-refactor literal values", () => {
       ENABLE: "mcp-enable",
       DELETE: "mcp-delete",
       MOVE: "mcp-move",
+      UPDATE_METADATA: "mcp-update-metadata",
     },
   );
 });

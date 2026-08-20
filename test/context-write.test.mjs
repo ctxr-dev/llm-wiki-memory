@@ -59,6 +59,29 @@ test("isGatedWrite: the OR of both signals (C4 — both bypass directions closed
   assert.equal(isGatedWrite("knowledge", null), false);
 });
 
+test("isGatedWrite: layout-driven — a wiki that opts knowledge in gates it; opt SI out frees it", () => {
+  const optIn = {
+    layout: [
+      { path: "knowledge", placement_facets: ["area", "atom_type"], gated: true },
+      { path: "self_improvement", placement_facets: ["area", "task_type"], gated: false },
+    ],
+  };
+  assert.equal(isGatedWrite("knowledge", undefined, optIn), true, "opt-in gates knowledge");
+  assert.equal(
+    isGatedWrite("knowledge", "knowledge/x.md", optIn),
+    true,
+    "path into an opted-in category gates",
+  );
+  assert.equal(
+    isGatedWrite("self_improvement", undefined, optIn),
+    false,
+    "explicit opt-out frees SI",
+  );
+  // With no layout arg, the name-keyed default still gates self_improvement only.
+  assert.equal(isGatedWrite("self_improvement", undefined), true);
+  assert.equal(isGatedWrite("knowledge", undefined), false);
+});
+
 test("parseWriteRequest: a valid non-gated write parses; gated=false; frozen", () => {
   const { ctx, brain } = makeCtx();
   const req = parseWriteRequest(ctx, baseArgs({ name: "n", text: "t" }));

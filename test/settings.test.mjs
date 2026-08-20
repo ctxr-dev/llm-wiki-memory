@@ -17,11 +17,12 @@ const {
   embedChunk,
   flushChunkTargetK,
   hookMaxTurns,
-  writeGateSelfImprovementEnabled,
+  writeGateEnabled,
   writeGateClaudeHookEnabled,
   writeGateAuditTrailEnabled,
   writeGatePerLessonConsent,
   writeGateAuditKeep,
+  writeGateMaxInlineBodyBytes,
   resolvedChain,
   pickStrongerModel,
   isCliProvider,
@@ -71,7 +72,7 @@ test("defaults: no user YAML -> loader falls back to shipped templates/settings.
     assert.equal(s.flush.chunkTargetK, 5);
     assert.equal(s.hook.maxTurns, 30);
     assert.equal(s.embed.backend, "transformers");
-    assert.equal(s.gate.selfImprovementEnabled, true);
+    assert.equal(s.gate.enabled, true);
     assert.equal(s.gate.claudeHookEnabled, true);
     // Provider model lists sourced from the shipped template (don't assert
     // specific names — they live in the YAML, not in code).
@@ -115,6 +116,34 @@ test("gate: null/bare audit + per-lesson keys FAIL CLOSED to true (not Boolean(n
   });
 });
 
+test("gate.maxInlineBodyBytes: default, explicit, 0=unlimited, and fail-closed on garbage", () => {
+  clearEnv();
+  withYaml(null, () => {
+    settings({ cmdProbe: () => false });
+    assert.equal(writeGateMaxInlineBodyBytes(), 32768, "ships a finite default");
+  });
+  withYaml(`gate:\n  maxInlineBodyBytes: 4096\n`, () => {
+    settings({ cmdProbe: () => false });
+    assert.equal(writeGateMaxInlineBodyBytes(), 4096, "an explicit cap is honoured");
+  });
+  withYaml(`gate:\n  maxInlineBodyBytes: 0\n`, () => {
+    settings({ cmdProbe: () => false });
+    assert.equal(writeGateMaxInlineBodyBytes(), Infinity, "only a literal 0 removes the bound");
+  });
+  // Each of these must fall back to the DEFAULT, never to Infinity: failing open
+  // here would silently delete the bound a typo was meant to adjust.
+  for (const bad of ["nonsense", "", "-1", "true"]) {
+    withYaml(`gate:\n  maxInlineBodyBytes: ${bad}\n`, () => {
+      settings({ cmdProbe: () => false });
+      assert.equal(
+        writeGateMaxInlineBodyBytes(),
+        32768,
+        `malformed value ${JSON.stringify(bad)} must fail CLOSED to the default`,
+      );
+    });
+  }
+});
+
 test("user YAML overrides template", () => {
   clearEnv();
   withYaml(
@@ -138,7 +167,7 @@ test("malformed USER YAML does NOT throw — falls back to shipped defaults (sys
       s = settings({ cmdProbe: () => false });
     }, "must not throw on a malformed user file");
     // Served the shipped default, not garbage.
-    assert.equal(s.consolidate.cosineThreshold, 0.97);
+    assert.equal(s.consolidate.cosineThreshold, 0.975);
     assert.equal(s.flush.chunkTargetK, 5);
   });
 });
@@ -512,7 +541,7 @@ test("coercion: a string cosineThreshold falls back to the default (NOT a corrup
   withYaml(`consolidate:\n  cosineThreshold: high\n`, () => {
     assert.equal(
       consolidateCosineThreshold(),
-      0.97,
+      0.975,
       "string → structural default, not NaN/garbage",
     );
   });
@@ -521,17 +550,17 @@ test("coercion: a string cosineThreshold falls back to the default (NOT a corrup
 test("coercion: empty-string / null cosineThreshold does NOT become 0 (would archive everything)", () => {
   clearEnv();
   withYaml(`consolidate:\n  cosineThreshold: ""\n`, () => {
-    assert.equal(consolidateCosineThreshold(), 0.97, "empty string must NOT coerce to 0");
+    assert.equal(consolidateCosineThreshold(), 0.975, "empty string must NOT coerce to 0");
   });
   withYaml(`consolidate:\n  cosineThreshold:\n`, () => {
-    assert.equal(consolidateCosineThreshold(), 0.97, "null (bare key) must NOT coerce to 0");
+    assert.equal(consolidateCosineThreshold(), 0.975, "null (bare key) must NOT coerce to 0");
   });
 });
 
 test("coercion: out-of-range float (>1) falls back; in-range survives", () => {
   clearEnv();
   withYaml(`consolidate:\n  cosineThreshold: 1.5\n`, () => {
-    assert.equal(consolidateCosineThreshold(), 0.97);
+    assert.equal(consolidateCosineThreshold(), 0.975);
   });
   withYaml(`consolidate:\n  cosineThreshold: 0.6\n`, () => {
     assert.equal(consolidateCosineThreshold(), 0.6);
@@ -576,7 +605,7 @@ test("coercion: a quoted-string bool does NOT become truthy at the accessor", ()
     );
   });
   withYaml(`gate:\n  selfImprovementEnabled: false\n`, () => {
-    assert.equal(settings().gate.selfImprovementEnabled, false, "real YAML bool false honored");
+    assert.equal(settings().gate.enabled, false, "real YAML bool false honored");
   });
 });
 
@@ -593,16 +622,16 @@ test("write-gate fails CLOSED: a null/empty/commented selfImprovementEnabled sta
   ]) {
     withYaml(yaml, () => {
       assert.equal(
-        settings().gate.selfImprovementEnabled,
+        settings().gate.enabled,
         true,
         `must fail CLOSED (enabled) for: ${JSON.stringify(yaml)}`,
       );
-      assert.equal(writeGateSelfImprovementEnabled(), true, "accessor agrees the gate is enabled");
+      assert.equal(writeGateEnabled(), true, "accessor agrees the gate is enabled");
     });
   }
   // Explicit disable still works (operator override is not clobbered).
   withYaml(`gate:\n  selfImprovementEnabled: false\n`, () => {
-    assert.equal(writeGateSelfImprovementEnabled(), false, "explicit false still disables");
+    assert.equal(writeGateEnabled(), false, "explicit false still disables");
   });
 });
 
@@ -623,11 +652,7 @@ test("L2 hook knob fails CLOSED: null/empty claudeHookEnabled stays ENABLED; exp
   }
   withYaml(`gate:\n  claudeHookEnabled: false\n`, () => {
     assert.equal(writeGateClaudeHookEnabled(), false, "explicit false disables the L2 hook");
-    assert.equal(
-      settings().gate.selfImprovementEnabled,
-      true,
-      "L3 knob unaffected by the L2 toggle",
-    );
+    assert.equal(settings().gate.enabled, true, "L3 knob unaffected by the L2 toggle");
   });
 });
 
@@ -738,9 +763,9 @@ test("BREAKING: every removed MEMORY_* env var is a no-op (table-driven over the
       expect: 555,
       env: "1",
     },
-    "gate.selfImprovementEnabled": {
-      yaml: `gate:\n  selfImprovementEnabled: false\n`,
-      read: () => settings().gate.selfImprovementEnabled,
+    "gate.enabled": {
+      yaml: `gate:\n  enabled: false\n`,
+      read: () => settings().gate.enabled,
       expect: false,
       env: "on",
     },
@@ -827,7 +852,7 @@ test("cosineBandFloor: valid value passes, invalid/out-of-range values fail-safe
   clearEnv();
   withYaml("consolidate:\n  cosineBandFloor: 0.9\n", () => {
     const s = settings();
-    assert.equal(s.consolidate.cosineBandFloor, 0.9, "0.9 under the 0.97 threshold is accepted");
+    assert.equal(s.consolidate.cosineBandFloor, 0.9, "0.9 under the 0.975 threshold is accepted");
   });
   withYaml("consolidate:\n  cosineBandFloor: 0.5\n", () => {
     assert.equal(settings().consolidate.cosineBandFloor, null, "below 0.8 disables the band");

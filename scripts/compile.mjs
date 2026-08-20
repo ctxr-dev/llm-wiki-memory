@@ -1,12 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { COMPILE_LOCK_PATH } from "./lib/env.mjs";
 import { compileLockStaleMs, flushSlotName } from "./lib/settings.mjs";
 import { acquireLock, installLockReleaseHandlers } from "./lib/lock.mjs";
 import { withWikiCommit } from "./lib/wiki-commit.mjs";
 import { withBrainContextSafe } from "./lib/wiki-context.mjs";
-import { listDocuments, WikiStoreUnavailable as DifyBridgeUnavailable } from "./lib/wiki-store.mjs";
+import { listDocuments, WikiStoreUnavailable } from "./lib/wiki-store.mjs";
 import { parseDailyDocName } from "./lib/slug.mjs";
 import { FORCE, DRY_RUN } from "./compile-flags.mjs";
 import { loadPrompt } from "./compile-atoms.mjs";
@@ -42,7 +41,7 @@ async function main() {
     const result = await listDocuments(listOpts);
     dailies = Array.isArray(result?.documents) ? result.documents : [];
   } catch (err) {
-    if (err instanceof DifyBridgeUnavailable) {
+    if (err instanceof WikiStoreUnavailable) {
       console.error(`compile.mjs: bridge unavailable: ${err.message}`);
       process.exit(0);
     }
@@ -99,26 +98,7 @@ async function main() {
 }
 
 // Run main() only when invoked as a script, not when imported by tests.
-// Mirrors the hardened isMainModule idiom in scripts/hooks/exit-plan-mode.mjs:
-//   - `!process.argv[1]` guards REPL / `node -e '...'` / piped stdin where
-//     argv[1] is undefined (pathToFileURL(undefined) would throw).
-//   - `path.resolve(process.argv[1])` normalises a relative argv[1]
-//     (`node scripts/compile.mjs`) to an absolute path before comparison,
-//     so it matches the absolute `import.meta.url` regardless of how the
-//     launcher passed the path.
-//   - try/catch makes the guard fail closed (no main()) if pathToFileURL
-//     ever throws on an exotic argv[1] shape, rather than crashing import.
-// pathToFileURL handles Windows drive letters / UNC paths / percent-encoding.
-const invokedAsCli = (() => {
-  if (!process.argv[1]) return false;
-  try {
-    return import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
-  } catch {
-    return false;
-  }
-})();
-
-if (invokedAsCli) {
+if (import.meta.main) {
   // One compile run = one wiki commit (promotions + superseded dailies). The
   // exit-hook in wiki-commit flushes the batch even when main() bails out via
   // process.exit (bridge-gone aborts). DRY_RUN writes nothing; noCommit is

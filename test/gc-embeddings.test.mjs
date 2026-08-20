@@ -31,13 +31,14 @@ test("pruneEmbeddingCache drops orphan ids per category and keeps live-leaf ids"
   const orphanK = "knowledge/gone/reference/orphan-a.md";
   const kCache = embed.loadCache(kPath); // correct stamp for this env
   kCache.entries[liveId] = { hash: "sha256:live", vector: [0.1, 0.2] };
-  kCache.entries[orphanK] = { hash: "sha256:a", vector: [0.3] };
+  // Same length as its sibling: one cache file is one model, so one dimension.
+  kCache.entries[orphanK] = { hash: "sha256:a", vector: [0.3, 0.4] };
   embed.saveCache(kPath, kCache);
 
   const sPath = env.embedCacheFor(env.wikiRoot(), "self_improvement");
   const orphanS = "self_improvement/gone/refactor/orphan-b.md";
   const sCache = embed.loadCache(sPath);
-  sCache.entries[orphanS] = { hash: "sha256:b", vector: [0.4] };
+  sCache.entries[orphanS] = { hash: "sha256:b", vector: [0.4, 0.5] };
   embed.saveCache(sPath, sCache);
 
   // Dry-run: reports both orphans across categories, writes nothing.

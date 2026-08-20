@@ -1,4 +1,3 @@
-import { pathToFileURL } from "node:url";
 import { sharedCategories, mergedLayoutForRoot } from "../lib/wiki-ownership.mjs";
 import { helpGuard, refuseFlagAsPath, formatHelp, docsUrl } from "../lib/cli-args.mjs";
 
@@ -23,7 +22,7 @@ export function isSharedWiki(wikiDir) {
 // CLI: prints "1" for a shared wiki, "0" otherwise — the single-source-of-truth
 // bootstrap uses (replacing the old ad-hoc grep, which missed layout.local.yaml
 // and could misfire on malformed YAML; this agrees with gitUsable).
-if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+if (import.meta.main) {
   const args = process.argv.slice(2);
   const HELP = formatHelp({
     name: "shared-wiki",

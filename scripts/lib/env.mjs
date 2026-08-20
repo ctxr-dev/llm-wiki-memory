@@ -1,8 +1,15 @@
-import fs from "node:fs";
+import {
+  parseEnvValue,
+  readEnvValueFrom,
+  envFileHas,
+  __resetEnvFileCache,
+  __envFileCacheSnapshot,
+} from "./env-file.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { canonicalRepoId, gitOriginUrl } from "./project-identity.mjs";
+import { assertTestBrainIsolation } from "./real-brain-guard.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // scripts/lib/env.mjs -> project clone root is two levels up.
@@ -27,6 +34,10 @@ export const MEMORY_DATA_DIR =
   process.env.MEMORY_DATA_DIR && process.env.MEMORY_DATA_DIR !== ""
     ? process.env.MEMORY_DATA_DIR
     : path.join(WORKSPACE_DIR, ".llm-wiki-memory");
+
+// TEST-SAFETY GUARD (production-inert): refuse the developer's real brain in a test
+// context. See scripts/lib/real-brain-guard.mjs for the contract.
+assertTestBrainIsolation(MEMORY_DATA_DIR);
 
 const ENV_PATH = path.join(MEMORY_DATA_DIR, "settings", ".env");
 // Runtime compile state/lock live under the durable data dir (not the repo
@@ -60,56 +71,24 @@ export const SAVE_GATE_AUDIT_PATH = path.join(MEMORY_DATA_DIR, "state", ".save-g
 export const SYNC_QUEUE_PATH = path.join(MEMORY_DATA_DIR, "state", "sync-queue.sqlite");
 export const PROMPTS_DIR = path.join(MEMORY_DIR, "prompts");
 
-// Parse one .env value. Deliberately small (NOT a full dotenv parser): it
-// trims, honours a simple pair of surrounding single or double quotes (the
-// content from the first quote to the next matching quote is taken literally,
-// including a '#'; escaped quotes / backslashes are NOT handled, which is fine
-// for the simple values this project stores), and otherwise drops an inline
-// "# comment" (a '#' at the start, or preceded by whitespace). Without this, an
-// inline comment on a value line (e.g. `MEMORY_FLUSH_SLOT=daily   # ...`) leaks
-// into the value, so the slot name becomes "daily   # ..." and every consumer
-// silently reads a polluted string.
 /**
- * @param {unknown} raw
+ * @param {string} name
+ * @param {string} [fallback]
  * @returns {string}
  */
-export function parseEnvValue(raw) {
-  let v = String(raw ?? "").trim();
-  if (!v) return "";
-  // Quoted value: return the literal inside the first matching quote pair and
-  // ignore anything after the closing quote (e.g. a trailing inline comment,
-  // `"value" # note`). A '#' inside the quotes is kept.
-  const q = v[0];
-  if (q === '"' || q === "'") {
-    const end = v.indexOf(q, 1);
-    if (end !== -1) return v.slice(1, end);
-    // Unterminated quote (malformed): return the trimmed value literally rather
-    // than guessing, so a stray '#' inside it is not mistaken for a comment.
-    return v;
-  }
-  if (v[0] === "#") return "";
-  // Unquoted: a '#' preceded by whitespace starts an inline comment.
-  const hash = v.search(/\s#/);
-  if (hash !== -1) v = v.slice(0, hash);
-  return v.trim();
-}
+export { parseEnvValue, __resetEnvFileCache, __envFileCacheSnapshot };
 
+// Whether a value is configured, WITHOUT materialising it. For a credential this is the only form
+// that is both cached and safe: `settings()` builds its cache key from these booleans, so routing
+// them through envValue would take the uncached secret path twice per settings() hit.
 /**
- * @param {string} [file]
- * @returns {Record<string, string>}
+ * @param {string} name
+ * @returns {boolean}
  */
-function readEnvFile(file = ENV_PATH) {
-  if (!fs.existsSync(file)) return {};
-  /** @type {Record<string, string>} */
-  const out = {};
-  for (const raw of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const i = line.indexOf("=");
-    if (i === -1) continue;
-    out[line.slice(0, i).trim()] = parseEnvValue(line.slice(i + 1));
-  }
-  return out;
+export function envHas(name) {
+  const fromProcess = process.env[name];
+  if (fromProcess != null && String(fromProcess).trim() !== "") return true;
+  return envFileHas(ENV_PATH, name);
 }
 
 /**
@@ -120,8 +99,8 @@ function readEnvFile(file = ENV_PATH) {
 export function envValue(name, fallback = "") {
   if (process.env[name] != null && process.env[name] !== "")
     return /** @type {string} */ (process.env[name]);
-  const file = readEnvFile();
-  return file[name] ?? fallback;
+  // Routed per key: a secret-named lookup takes a fresh read and is never retained.
+  return readEnvValueFrom(ENV_PATH, name) ?? fallback;
 }
 
 /**
@@ -277,6 +256,6 @@ export function llmModel() {
 
 // NOTE: all OTHER configuration (consolidate / flush / hook / embed / recall /
 // compile / gc / gate / providers) lives in <data>/settings/settings.yaml.
-// Read via scripts/lib/settings.mjs. The 2026-06-03/v2 release removed every
+// Read via scripts/lib/settings.mjs. The 2026-06-03 release removed every
 // MEMORY_FOO env var on the non-strict surface — setting them at the shell
-// is now a SILENT no-op. See docs/releases/2026/06/03/v2/update-prompt.md.
+// is now a SILENT no-op.

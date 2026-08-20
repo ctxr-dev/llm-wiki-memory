@@ -112,7 +112,7 @@ export function renameEmbedding(oldId, newId) {
 // Returns { ok, before, after, removed, removedIds } (removedIds capped at 50
 // for reporting). A `dryRun` reports what WOULD be removed without writing.
 //
-// `ifDue` throttles the sweep: it runs only when at least MEMORY_GC_INTERVAL_DAYS
+// `ifDue` throttles the sweep: it runs only when at least gc.intervalDays
 // have elapsed since the last recorded sweep (state/.embed-gc.json). When the
 // interval is 0/off the sweep is disabled; when not yet due it is skipped. This
 // is the path the SessionEnd embed-gc hook (and hook-less agents, per the rule)

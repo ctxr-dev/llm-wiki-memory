@@ -1,13 +1,18 @@
 # Performance characteristics
 
 Empirical latency for `llm-wiki-memory` — the Xenova `bge-large-en-v1.5`
-embedder + the `@ctxr/skill-llm-wiki` index pipeline.
+embedder (the default at the time of measurement) + the `@ctxr/skill-llm-wiki`
+index pipeline.
 
 > **Measured:** Apple **M4 Pro** (14 cores) · **Node 25.9** · macOS · production
 > backend (real `bge-large`, model already cached on disk) · an **isolated**
 > throwaway wiki grown to **~280 leaves** (the live install is never touched).
 > Numbers are medians of repeated runs. Re-measure on your own hardware for
 > absolute values — the *shape* (what dominates what) is what transfers.
+
+*These measurements predate the current `onnx-community/embeddinggemma-300m-ONNX`
+/ `@huggingface/transformers` v4 default and remain representative of the
+BERT-family (`bge-*`) path.*
 
 ---
 
@@ -22,7 +27,7 @@ embedder + the `@ctxr/skill-llm-wiki` index pipeline.
 | **recall_lessons** | **~65 ms** | Drop-rung ladder over `self_improvement`. |
 | **validate** (full wiki, 280 leaves) | **~210 ms** | One `skill-llm-wiki validate` subprocess. |
 | **gc-embeddings** (sweep 280 entries) | **~15 ms** | Pure in-memory set diff + cache rewrite. |
-| **Cold model load** | **~500 ms** | One-time per process; decode of the locally-cached 340 MB model. |
+| **Cold model load** | **~500 ms** | One-time per process; decode of the locally-cached model. HISTORICAL: measured against the previous default (`bge-large-en-v1.5`, 340 MB q8), not the current EmbeddingGemma q4. |
 
 **No LLM is involved in writes, search, or lookup.** Claude only *generates*
 content; absorbing it is pure local code + on-device embeddings.
@@ -38,7 +43,7 @@ content; absorbing it is pure local code + on-device embeddings.
 | Warm leaf embed (leaf-sized body, ~150 chars) | **~24 ms** |
 
 The model loads **once per process**. The MCP server stays alive, so it pays the
-~500 ms exactly once and every later call is warm. (Historically this was ~8.5 s
+~500 ms exactly once and every later call is warm. (These figures predate the EmbeddingGemma default and were measured against `bge-large-en-v1.5`; treat them as historical. Historically the download was ~8.5 s
 because the model was downloaded on first use; once cached on disk it's ~500 ms.)
 
 ---
@@ -141,6 +146,37 @@ Worst-case browse for the deepest layout: **7 `index.md` reads**, even at
 100 k+ issues per tracker.
 
 ---
+
+## Config reads (measured 2026-08-04, real 724-leaf brain)
+
+`envValue()` re-read and re-parsed `settings/.env` from disk on **every call**, uncached. That was
+the real cost behind a "slow" settings lookup: `settings()` already caches its parsed YAML by mtime,
+but building that cache KEY calls `envValue` 4-6 times, so a settings() cache *hit* paid six full
+file reads of a 695-byte file (~33 µs each; a `statSync` is ~0.8 µs).
+
+Caching the parse by `(path, mtime, size)` — the same shape as `ownerConfiguredBackend` — changes
+nothing semantically: `envValue` still checks `process.env` first on every call, and a `.env` edit is
+still picked up on the next one.
+
+| Operation | Before | After | |
+| --- | --- | --- | --- |
+| `settings()` cache hit | 187.9 µs | **6.6 µs** | 28x |
+| `loadCache()` memo hit | 620.1 µs | **75.6 µs** | 8.2x |
+
+Reproduce with `node scripts/bench-config-reads.mjs` (it refuses to run against a real brain, and
+synthesises a representative `settings/.env` — the file's size IS the cost being measured). It
+creates its throwaway dir under `$HOME` on purpose: macOS `/var/folders` stats ~16x slower than a
+user volume, which alone swings the reported ratio from ~35x to ~4x. Compare the RATIO across
+machines rather than the microseconds. The figures above were taken against the real 695-byte
+`.env`; the script's synthesised one is smaller, so it reports a slightly cheaper `settings()` hit.
+
+`loadCache` improves because `cacheStamp()` calls `settings()` 2-3 times per call. A search performs
+roughly one `loadCache` per category, so this removes ~3 ms from a warm cross-category search — set
+against the ~30-80 ms above. The residual 75.6 µs is the one-dimension repair scan over 724 entries,
+not config I/O.
+
+Every `settings()` consumer benefits, not just recall: 46 `envValue` call sites and 63 settings
+accessors sat behind the same cost.
 
 ## Open performance follow-ups
 

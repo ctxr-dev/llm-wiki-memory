@@ -23,6 +23,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import { wikiRoot } from "./env.mjs";
+import {
+  findBackendMismatchedCaches,
+  findDimInconsistentCaches,
+  findStaleStampCaches,
+  findOrphanLeaves,
+  readCacheStamps,
+} from "./doctor-cache-scan.mjs";
+
+// Re-exported so doctor.mjs stays the single public surface for every scan, even
+// though the derived-state pair now lives in its own module.
+export { findBackendMismatchedCaches, findDimInconsistentCaches, findStaleStampCaches };
 import { indexRebuildOne } from "./wiki-cli.mjs";
 import { recordWikiChange } from "./wiki-commit.mjs";
 import {
@@ -42,6 +53,9 @@ import {
  * @typedef {{ stray: string, reason: string }} StrayEntry
  * @typedef {{ orphan: string }} OrphanEntry
  * @typedef {{ index: string, fixed: string[] }} FixedEntry
+ * @typedef {{ cache: string, backend: string, expected: string, dim: number, entries: number }} CacheMismatchEntry
+ * @typedef {{ cache: string, stampDim: number, dims: string, entries: number }} CacheDimEntry
+ * @typedef {{ cache: string, changed: Array<{ name: string, was: string, now: string }>, entries: number }} StaleStampEntry
  * @typedef {{
  *   ok: boolean,
  *   wiki: string,
@@ -50,7 +64,10 @@ import {
  *   unlisted: UnlistedEntry[],
  *   strays: StrayEntry[],
  *   orphans: OrphanEntry[],
- *   summary: { brokenRefs: number, unlisted: number, strays: number, orphans: number },
+ *   cacheMismatches: CacheMismatchEntry[],
+ *   cacheDimMixes: CacheDimEntry[],
+ *   staleStamps: StaleStampEntry[],
+ *   summary: { brokenRefs: number, unlisted: number, strays: number, orphans: number, cacheMismatches: number, cacheDimMixes: number, staleStamps: number },
  *   fixed?: FixedEntry[]
  * }} DoctorReport
  */
@@ -154,39 +171,6 @@ export function findStrayLeaves(wiki = wikiRoot()) {
   return found;
 }
 
-// A curated leaf that no index.md anywhere references (the inverse of a broken ref).
-/**
- * @param {string} [wiki]
- * @returns {OrphanEntry[]}
- */
-function findOrphanLeaves(wiki = wikiRoot()) {
-  /** @type {Set<string>} */
-  const referenced = new Set();
-  for (const cat of curatedCategories()) {
-    for (const idx of indexFilesUnder(path.join(wiki, cat))) {
-      const dir = path.dirname(idx);
-      let raw;
-      try {
-        raw = fs.readFileSync(idx, "utf8");
-      } catch {
-        continue;
-      }
-      for (const r of refsFromIndex(raw)) {
-        if (/^https?:|^obsidian:/.test(r)) continue;
-        referenced.add(path.resolve(dir, r));
-      }
-    }
-  }
-  /** @type {OrphanEntry[]} */
-  const found = [];
-  for (const cat of curatedCategories()) {
-    for (const leaf of leavesUnder(path.join(wiki, cat))) {
-      if (!referenced.has(path.resolve(leaf))) found.push({ orphan: rel(wiki, leaf) });
-    }
-  }
-  return found;
-}
-
 // Orchestrator: run all detectors, return a structured report. Read-only unless
 // `fix` is set, in which case it rebuilds every broken-ref parent and re-scans;
 // the returned `brokenRefs` then reflects the POST-fix state and `fixed` lists
@@ -236,13 +220,26 @@ export function doctor(wiki = wikiRoot(), { fix = false } = {}) {
   const unlisted = findUnlistedChildren(w);
   const strays = findStrayLeaves(w);
   const orphans = findOrphanLeaves(w);
+  // Parsed once, shared by both cache scans — each parsing independently made doctor 27.5%
+  // slower for no extra information.
+  const cacheStamps = readCacheStamps(w);
+  const cacheMismatches = findBackendMismatchedCaches(w, cacheStamps);
+  const cacheDimMixes = findDimInconsistentCaches(w, cacheStamps);
+  const staleStamps = findStaleStampCaches(w, cacheStamps);
   const summary = {
     brokenRefs: brokenRefs.reduce((n, r) => n + r.broken.length, 0),
     unlisted: unlisted.reduce((n, r) => n + r.unlisted.length, 0),
     strays: strays.length,
     orphans: orphans.length,
+    cacheMismatches: cacheMismatches.length,
+    cacheDimMixes: cacheDimMixes.length,
+    staleStamps: staleStamps.length,
   };
-  const ok = Object.values(summary).every((n) => n === 0);
+  // staleStamps is REPORTED but never fails the check: a model/dtype change legitimately
+  // mismatches every cache until the warm finishes, so counting it would make `doctor` exit 3
+  // on a healthy install mid-transition and break anything gating on it. Same rationale as the
+  // backend-only scan in doctor-cache-scan.mjs. Every other counter still governs.
+  const ok = Object.entries(summary).every(([key, n]) => key === "staleStamps" || n === 0);
   /** @type {DoctorReport} */
   const report = {
     ok,
@@ -252,6 +249,9 @@ export function doctor(wiki = wikiRoot(), { fix = false } = {}) {
     unlisted,
     strays,
     orphans,
+    cacheMismatches,
+    cacheDimMixes,
+    staleStamps,
     summary,
   };
   if (fix) report.fixed = fixed || [];
