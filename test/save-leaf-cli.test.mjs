@@ -77,3 +77,135 @@ test("save-leaf fails clearly on a missing or empty file", () => {
   const r = runScript("scripts/cli.mjs", ["save-leaf", "--file", empty, "--dataset", "plans"]);
   assert.equal(r.status, 65);
 });
+
+import { splitLeafFrontmatter } from "../scripts/lib/leaf-frontmatter.mjs";
+
+const LEAF = [
+  "---",
+  "id: probe",
+  "focus: 'A probe leaf'",
+  "memory:",
+  "  atom_type: project-lore",
+  "  project_module: repos",
+  "  area: bumblebee",
+  "  language: scala",
+  "  task_type: debugging",
+  "  status: active",
+  "  priority: P2",
+  "  tags: 'a,b'",
+  "  subject:",
+  "    - general",
+  "---",
+  "",
+  "# A probe leaf",
+  "",
+  "Body prose.",
+  "",
+].join("\n");
+
+test("splitting a leaf strips its frontmatter so a re-save cannot stack a second block", () => {
+  const { body } = splitLeafFrontmatter(LEAF);
+  assert.ok(!body.includes("id: probe"), "frontmatter must not survive into the body");
+  assert.ok(body.startsWith("# A probe leaf"), `body starts at the heading: ${body.slice(0, 40)}`);
+});
+
+test("splitting a leaf inherits the facets that decide placement, plus language and priority", () => {
+  const { inherited } = splitLeafFrontmatter(LEAF);
+  assert.equal(inherited.area, "bumblebee");
+  assert.equal(inherited.atom_type, "project-lore");
+  assert.equal(inherited.task_type, "debugging");
+  assert.equal(inherited.language, "scala");
+  assert.equal(inherited.priority, "P2");
+  assert.equal(inherited.tags, "a,b");
+  assert.deepEqual(inherited.subject, ["general"]);
+});
+
+test("a body with no frontmatter is passed through untouched and inherits nothing", () => {
+  const plain = "# Just a body\n\nprose\n";
+  const { body, inherited } = splitLeafFrontmatter(plain);
+  assert.equal(body, plain);
+  assert.deepEqual(inherited, {});
+});
+
+test("keys outside the memory block are not mistaken for facets", () => {
+  const { inherited } = splitLeafFrontmatter(LEAF);
+  assert.equal(inherited.id, undefined);
+  assert.equal(inherited.focus, undefined);
+  assert.equal(inherited.status, undefined);
+  assert.equal(inherited.project_module, undefined);
+});
+
+test("re-saving an edited leaf in place keeps it at the same documentId", () => {
+  const first = runScript("scripts/cli.mjs", [
+    "save-leaf",
+    "--file",
+    (() => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-inplace-"));
+      const f = path.join(dir, "placement-probe.md");
+      fs.writeFileSync(f, "# Placement probe\n\nOriginal prose.\n");
+      return f;
+    })(),
+    "--dataset",
+    "knowledge",
+    "--name",
+    "placement-probe.md",
+    "--area=bumblebee",
+    "--atom-type=project-lore",
+    "--task-type=debugging",
+    "--language=scala",
+  ]);
+  assert.equal(first.status, 0, `first save: ${first.stderr}`);
+  const created = JSON.parse(first.stdout).created.document.id;
+  assert.match(created, /^knowledge\/bumblebee\/project-lore\//, `placed by facets: ${created}`);
+
+  const leafPath = path.join(dataDir, "wiki", created);
+  fs.appendFileSync(leafPath, "\n## Related\n\n- a back-reference\n");
+
+  // The failure this guards: re-saving with NO facet flags used to fall back to
+  // defaults, relocating the leaf and changing its id.
+  const second = runScript("scripts/cli.mjs", [
+    "save-leaf",
+    "--file",
+    leafPath,
+    "--dataset",
+    "knowledge",
+  ]);
+  assert.equal(second.status, 0, `second save: ${second.stderr}`);
+  const out2 = JSON.parse(second.stdout);
+  assert.equal(out2.created.document.id, created, "documentId must not change");
+  assert.equal(out2.placement, "unchanged");
+  assert.equal(out2.frontmatterStripped, true);
+
+  const saved = fs.readFileSync(path.join(dataDir, "wiki", created), "utf8");
+  assert.equal(saved.match(/^memory:$/gm).length, 1, "exactly one memory block");
+  assert.match(saved, /language: scala/, "language survives a re-save");
+  assert.match(saved, /priority: P2/, "priority survives a re-save");
+  assert.match(saved, /back-reference/, "the body edit is persisted");
+});
+
+test("--dry-run reports the resolved facets and writes nothing", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-dry-"));
+  const f = path.join(dir, "dry-probe.md");
+  fs.writeFileSync(f, LEAF);
+  const r = runScript("scripts/cli.mjs", [
+    "save-leaf",
+    "--file",
+    f,
+    "--dataset",
+    "knowledge",
+    "--dry-run",
+  ]);
+  assert.equal(r.status, 0, `dry-run: ${r.stderr}`);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.dryRun, true);
+  assert.equal(out.metadata.area, "bumblebee");
+  assert.equal(out.frontmatterStripped, true);
+  const written = runScript("scripts/cli.mjs", ["doctor"]);
+  assert.ok(
+    !fs
+      .readdirSync(path.join(dataDir, "wiki", "knowledge", "bumblebee", "project-lore", "general"))
+      .includes("dry-probe.md"),
+    "a dry run must not write the leaf",
+  );
+  assert.ok(written.status === 0 || written.status === 3, "doctor still runs after a dry run");
+});

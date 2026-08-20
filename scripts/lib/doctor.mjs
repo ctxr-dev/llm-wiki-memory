@@ -1,3 +1,4 @@
+import { scanBodyReferences } from "./doctor-body-refs.mjs";
 // Read-only health scan for the curated wiki: detects the damage a cloud-sync
 // daemon (Drive/iCloud/Dropbox/OneDrive) inflicts by relocating files —
 // index.md references that no longer resolve (Obsidian then materialises phantom
@@ -67,7 +68,9 @@ import {
  *   cacheMismatches: CacheMismatchEntry[],
  *   cacheDimMixes: CacheDimEntry[],
  *   staleStamps: StaleStampEntry[],
- *   summary: { brokenRefs: number, unlisted: number, strays: number, orphans: number, cacheMismatches: number, cacheDimMixes: number, staleStamps: number },
+ *   brokenBodyRefs: import("./doctor-body-refs.mjs").BrokenBodyRefEntry[],
+ *   labelDrift: import("./doctor-body-refs.mjs").LabelDriftEntry[],
+ *   summary: { brokenRefs: number, unlisted: number, strays: number, orphans: number, cacheMismatches: number, cacheDimMixes: number, staleStamps: number, brokenBodyRefs: number, labelDrift: number },
  *   fixed?: FixedEntry[]
  * }} DoctorReport
  */
@@ -226,6 +229,7 @@ export function doctor(wiki = wikiRoot(), { fix = false } = {}) {
   const cacheMismatches = findBackendMismatchedCaches(w, cacheStamps);
   const cacheDimMixes = findDimInconsistentCaches(w, cacheStamps);
   const staleStamps = findStaleStampCaches(w, cacheStamps);
+  const { brokenBodyRefs, labelDrift } = scanBodyReferences(w);
   const summary = {
     brokenRefs: brokenRefs.reduce((n, r) => n + r.broken.length, 0),
     unlisted: unlisted.reduce((n, r) => n + r.unlisted.length, 0),
@@ -234,12 +238,19 @@ export function doctor(wiki = wikiRoot(), { fix = false } = {}) {
     cacheMismatches: cacheMismatches.length,
     cacheDimMixes: cacheDimMixes.length,
     staleStamps: staleStamps.length,
+    brokenBodyRefs: brokenBodyRefs.reduce((n, r) => n + r.broken.length, 0),
+    labelDrift: labelDrift.length,
   };
   // staleStamps is REPORTED but never fails the check: a model/dtype change legitimately
   // mismatches every cache until the warm finishes, so counting it would make `doctor` exit 3
   // on a healthy install mid-transition and break anything gating on it. Same rationale as the
   // backend-only scan in doctor-cache-scan.mjs. Every other counter still governs.
-  const ok = Object.entries(summary).every(([key, n]) => key === "staleStamps" || n === 0);
+  // labelDrift joins staleStamps as REPORTED-but-not-failing: a drifted label still
+  // resolves, so the reference works and only its text is stale — failing the check on
+  // cosmetics would make doctor exit 3 on a healthy wiki. brokenBodyRefs DOES fail:
+  // a dangling reference is a real defect and the whole reason this scan exists.
+  const advisory = new Set(["staleStamps", "labelDrift"]);
+  const ok = Object.entries(summary).every(([key, n]) => advisory.has(key) || n === 0);
   /** @type {DoctorReport} */
   const report = {
     ok,
@@ -252,6 +263,8 @@ export function doctor(wiki = wikiRoot(), { fix = false } = {}) {
     cacheMismatches,
     cacheDimMixes,
     staleStamps,
+    brokenBodyRefs,
+    labelDrift,
     summary,
   };
   if (fix) report.fixed = fixed || [];
