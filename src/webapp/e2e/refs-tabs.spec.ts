@@ -55,8 +55,14 @@ test("pasting a reference into search jumps straight to the document", async ({ 
   await palette(page)
     .getByPlaceholder(/Search or jump/)
     .fill(KAFKA_REF);
-  await expect(palette(page).getByText("Reference", { exact: true })).toBeVisible();
-  await palette(page).getByText(KAFKA_ID).click();
+  // Target the reference ROW, not the id text: any result whose snippet quotes
+  // that id also matches it, and the seeded Reference Demo leaf exists precisely
+  // to contain references. Only a ref-kind row carries an exact "Reference" badge.
+  const referenceRow = palette(page)
+    .getByRole("button")
+    .filter({ has: page.getByText("Reference", { exact: true }) });
+  await expect(referenceRow).toBeVisible();
+  await referenceRow.click();
   await expect(page.getByRole("heading", { name: "Kafka", level: 1 })).toBeVisible();
 });
 

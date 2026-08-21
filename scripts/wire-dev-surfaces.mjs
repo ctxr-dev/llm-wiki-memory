@@ -123,22 +123,26 @@ export function expectedShadows(srcDir) {
   const { rules, skills } = surfaceInventory(dir);
   /** @type {Map<string, string>} */
   const out = new Map();
+  // Keys are platform-stable identifiers, not filesystem paths: callers compare them
+  // against "/"-style prefixes. path.join would emit "\\" on Windows and make every
+  // such comparison false. Node still resolves a "/" key correctly when joining.
+  const key = (/** @type {string[]} */ ...parts) => parts.join("/");
 
   for (const name of rules) {
     const canonical = `${RULES_DIR}/${name}.md`;
     const body = readOrEmpty(path.join(dir, canonical));
-    const cursorRel = path.join(CURSOR_RULES_DIR, `${name}.mdc`);
+    const cursorRel = key(CURSOR_RULES_DIR, `${name}.mdc`);
     const description =
       readDescription(readOrEmpty(path.join(dir, cursorRel))) || deriveDescription(body, canonical);
-    out.set(path.join(CLAUDE_RULES_DIR, `${name}.md`), claudeRuleShadow(name));
+    out.set(key(CLAUDE_RULES_DIR, `${name}.md`), claudeRuleShadow(name));
     out.set(cursorRel, cursorShadow(name, description, "rules"));
   }
 
   for (const name of skills) {
     const canonical = `${SKILLS_DIR}/${name}.md`;
     const body = readOrEmpty(path.join(dir, canonical));
-    const claudeRel = path.join(CLAUDE_SKILLS_DIR, name, "SKILL.md");
-    const cursorRel = path.join(CURSOR_RULES_DIR, `${name}.mdc`);
+    const claudeRel = key(CLAUDE_SKILLS_DIR, name, "SKILL.md");
+    const cursorRel = key(CURSOR_RULES_DIR, `${name}.mdc`);
     const description =
       readDescription(readOrEmpty(path.join(dir, claudeRel))) ||
       readDescription(readOrEmpty(path.join(dir, cursorRel))) ||

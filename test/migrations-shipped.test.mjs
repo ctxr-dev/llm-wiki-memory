@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { SRC } from "./harness.mjs";
 import { runMigrations } from "../scripts/lib/migration-runner.mjs";
 import { readLedger } from "../scripts/lib/migration-ledger.mjs";
@@ -89,7 +90,7 @@ test("detect() is READ-ONLY — a detection pass alone never mutates the install
   const snapshot = fs.readdirSync(path.join(dataDir, "settings")).sort();
   const { loadRegistry } = await import("../scripts/lib/migration-registry.mjs");
   for (const entry of loadRegistry(MIGRATIONS, { phase: "settings" })) {
-    const mod = await import(entry.file);
+    const mod = await import(pathToFileURL(entry.file).href);
     await mod.detect({ dataDir });
   }
   assert.deepEqual(

@@ -60,7 +60,7 @@ test("migration: a stale pre-global per-repo .mcp.json is stripped; our entry mo
   assert.ok(global.mcpServers["llm-wiki-memory"], "server registered globally");
 });
 
-test("shared mount (-Template repo -CommitMemory): zero ~/ leakage, remote-read block, no wiki/.git", () => {
+test("shared mount (-Template repo -CommitMemory): writes NOTHING outside the mount; no wiki/.git", () => {
   const h = buildBootstrapHome("bootstrap-ps-shared", tmps);
   const r = runBootstrapPs(h, ["-Provider", "mock", "-Template", "repo", "-CommitMemory"]);
   assert.equal(r.status, 0, `bootstrap.ps1 failed:\n${r.stdout}\n${r.stderr}`);
@@ -72,9 +72,16 @@ test("shared mount (-Template repo -CommitMemory): zero ~/ leakage, remote-read 
       : [];
     assert.deepEqual(ptrs, [], `${s}: no ~/ pointer files in a shared repo`);
   }
-  const agents = read(path.join(h.home, "AGENTS.md"));
-  assert.match(agents, /raw\.githubusercontent\.com\/ctxr-dev\/llm-wiki-memory\/main\//);
-  assert.ok(!agents.includes("~/"), "no ~/ machine path leaked into the shared repo");
+  // And no AGENTS.md / CLAUDE.md at all. A shared mount is somebody else's
+  // repository; the one per-machine engine install already supplies the rules,
+  // skills and discipline to every directory on the box, so injecting a per-repo
+  // copy would only duplicate them into a teammate's tree. This mirrors the bash
+  // twin in bootstrap-install.e2e.test.mjs, which was updated when wireSharedRepo
+  // became strip-only while this Windows-only test was left asserting the old
+  // contract — invisible because the windows job never reached the E2E step.
+  for (const doc of ["AGENTS.md", "CLAUDE.md"]) {
+    assert.ok(!exists(path.join(h.home, doc)), `${doc}: never written into a shared repo`);
+  }
 });
 
 test("-Schedule hourly: renders the Task Scheduler .cmd wrapper under state/ (OS call skipped)", () => {
