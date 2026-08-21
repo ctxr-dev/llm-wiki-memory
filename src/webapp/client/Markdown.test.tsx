@@ -203,3 +203,19 @@ test("strips remote iframes from raw HTML", () => {
   expect(container.querySelector("iframe")).toBeNull();
   expect(screen.getByText(/after/)).toBeTruthy();
 });
+
+test("a raw-HTML pre block is offered as a diagram, so a wide topology tree can be opened full", () => {
+  render(<Markdown body={"<pre>root\n  └─ leaf</pre>"} />);
+  expect(screen.getByRole("button", { name: "open diagram full screen" })).toBeTruthy();
+  expect(screen.getByText(/root/).closest("pre")).toBeTruthy();
+});
+
+test("a fenced code block is NOT offered as a diagram", () => {
+  render(<Markdown body={"```text\nplain code\n```"} />);
+  expect(screen.queryByRole("button", { name: "open diagram full screen" })).toBeNull();
+});
+
+test("a fenced mermaid block renders a diagram rather than a code block", () => {
+  const { container } = render(<Markdown body={"```mermaid\nflowchart LR\n  a --> b\n```"} />);
+  expect(container.querySelector("pre code")).toBeNull();
+});

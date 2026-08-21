@@ -90,3 +90,45 @@ test("escape and the close button both dismiss the viewer", async ({ page }) => 
   await viewer(page).getByRole("button", { name: "close diagram" }).click();
   await expect(viewer(page)).toBeHidden();
 });
+
+test("the diagram can be dragged with the mouse, and the cursor shows the grab state", async ({
+  page,
+}) => {
+  await openDiagramDoc(page);
+  await page.locator("[data-diagram-preview]").hover();
+  await expand(page).click();
+  const zoomIn = viewer(page).getByRole("button", { name: "zoom in" });
+  for (let i = 0; i < 8; i += 1) await zoomIn.click();
+
+  const scroller = viewer(page).locator("div.overflow-auto").first();
+  await expect(scroller).toHaveCSS("cursor", "grab");
+  const offsets = () => scroller.evaluate((el) => ({ x: el.scrollLeft, y: el.scrollTop }));
+
+  const box = await scroller.boundingBox();
+  const cx = (box?.x ?? 0) + (box?.width ?? 0) / 2;
+  const cy = (box?.y ?? 0) + (box?.height ?? 0) / 2;
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await expect(scroller).toHaveCSS("cursor", "grabbing");
+  const start = await offsets();
+  await page.mouse.move(cx - 180, cy - 120, { steps: 6 });
+  await expect.poll(async () => (await offsets()).x).toBeGreaterThan(start.x);
+  expect((await offsets()).y).toBeGreaterThan(start.y);
+  await page.mouse.up();
+  await expect(scroller).toHaveCSS("cursor", "grab");
+});
+
+test("a raw-HTML topology tree opens in the viewer and is fitted", async ({ page }) => {
+  await page.goto("/#brain:investigations/general/refs-demo.md");
+  await expect(page.getByRole("heading", { name: "Reference Demo", level: 1 })).toBeVisible({
+    timeout: 20000,
+  });
+  const tree = page.locator("pre[data-diagram-preview]").first();
+  await expect(tree).toBeVisible();
+  await tree.hover();
+  await page.getByRole("button", { name: "open diagram full screen" }).first().click();
+  await expect(viewer(page)).toBeVisible();
+  await expect(viewer(page).locator("pre[data-diagram-full]")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(viewer(page)).toBeHidden();
+});

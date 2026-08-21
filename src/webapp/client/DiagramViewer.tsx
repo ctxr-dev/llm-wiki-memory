@@ -7,6 +7,7 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { Button } from "./Button";
+import { usePan } from "./diagramPan";
 
 export const ZOOM_MIN = 0.1;
 export const ZOOM_MAX = 8;
@@ -63,11 +64,27 @@ export function DiagramOverlay({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
+  const [measured, setMeasured] = useState<Size | null>(natural);
+  const pan = usePan(scrollRef);
+
+  useEffect(() => {
+    if (natural) {
+      setMeasured(natural);
+      return;
+    }
+    const content = contentRef.current;
+    if (!content) return;
+    const { scrollWidth, scrollHeight } = content;
+    if (scrollWidth > 0 && scrollHeight > 0) {
+      setMeasured({ width: scrollWidth, height: scrollHeight });
+    }
+  }, [natural]);
 
   const fitToViewport = useCallback(() => {
-    if (natural) setZoom(fitZoom(natural, viewportSize()));
-  }, [natural]);
+    if (measured) setZoom(fitZoom(measured, viewportSize()));
+  }, [measured]);
 
   useEffect(() => {
     fitToViewport();
@@ -99,8 +116,8 @@ export function DiagramOverlay({
     return () => scroller.removeEventListener("wheel", onWheel, options);
   }, []);
 
-  const scaled = natural
-    ? { width: natural.width * zoom, height: natural.height * zoom }
+  const scaled = measured
+    ? { width: measured.width * zoom, height: measured.height * zoom }
     : undefined;
 
   return (
@@ -151,14 +168,19 @@ export function DiagramOverlay({
           />
         </div>
       </div>
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto p-6">
+      <div
+        ref={scrollRef}
+        {...pan.handlers}
+        className={`min-h-0 flex-1 touch-none overflow-auto p-6 ${pan.cursorClass}`}
+      >
         <div style={scaled}>
           <div
+            ref={contentRef}
             style={{
               transform: `scale(${zoom})`,
               transformOrigin: "top left",
-              width: natural?.width,
-              height: natural?.height,
+              width: measured?.width,
+              height: measured?.height,
             }}
           >
             {children}

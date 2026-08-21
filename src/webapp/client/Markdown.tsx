@@ -11,6 +11,7 @@ import { rehypeDefTokens } from "./rehypeDefTokens";
 import { DEF_TOKEN_ATTR, hasDefTokenClass } from "./defTokens";
 import { cancelDefinitionFlash } from "./defFlash";
 import { DefTokenLink, PlainLink, WikiRefLink } from "./mdAnchors";
+import { DiagramFrame } from "./DiagramViewer";
 import type { OpenRef } from "./mdAnchors";
 import type { Wiki } from "./api";
 
@@ -28,6 +29,14 @@ type MdNode = { type: string; value?: string; url?: string; children?: MdNode[] 
 const REF_TOKEN = /[A-Za-z0-9._/-]+:[A-Za-z0-9._/-]+\.md\b/g;
 
 const ANCHOR_NODE_TYPES = new Set(["link", "linkReference"]);
+
+type HastElement = { type: string; tagName?: string; children?: HastElement[] };
+
+function holdsFencedCode(node: unknown): boolean {
+  const children = (node as HastElement | undefined)?.children ?? [];
+  const elements = children.filter((child) => child.type === "element");
+  return elements.length === 1 && elements[0].tagName === "code";
+}
 
 function linkifyText(value: string, wikis: Wiki[]): MdNode[] | null {
   REF_TOKEN.lastIndex = 0;
@@ -115,6 +124,21 @@ export function Markdown({
               <PlainLink {...rest} href={href}>
                 {children}
               </PlainLink>
+            );
+          },
+          pre({ children, node }) {
+            if (holdsFencedCode(node)) return <pre>{children}</pre>;
+            return (
+              <DiagramFrame
+                label="diagram"
+                natural={null}
+                preview={
+                  <pre data-diagram-preview="" className="overflow-x-auto">
+                    {children}
+                  </pre>
+                }
+                full={<pre data-diagram-full="">{children}</pre>}
+              />
             );
           },
           code({ className, children }) {
