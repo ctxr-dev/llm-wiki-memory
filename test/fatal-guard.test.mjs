@@ -13,11 +13,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const GUARD = path.join(SRC, "scripts/lib/fatal-guard.mjs");
+const GUARD = pathToFileURL(path.join(SRC, "scripts/lib/fatal-guard.mjs")).href;
 
 /**
  * Runs a snippet in a child with an isolated data dir, so a capture cannot touch real state.

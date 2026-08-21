@@ -67,7 +67,7 @@ function entrypoints() {
     for (const abs of mjsFiles(path.join(SRC_DIR, root))) {
       const body = fs.readFileSync(abs, "utf8");
       if (NEW_GUARD.test(body) || hasOldGuard(body)) {
-        found.push(path.relative(SRC_DIR, abs));
+        found.push(path.relative(SRC_DIR, abs).split(path.sep).join("/"));
       }
     }
   }
