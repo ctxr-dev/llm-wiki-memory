@@ -21,6 +21,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { isNodeVersionBelowFloor } from "../scripts/lib/node-floor.mjs";
@@ -173,7 +174,7 @@ test("importing an entrypoint has no side effects", () => {
       const abs = path.join(SRC_DIR, rel);
       const r = spawnSync(
         process.execPath,
-        ["-e", `import(${JSON.stringify(abs)}).then(() => {})`],
+        ["-e", `import(${JSON.stringify(pathToFileURL(abs).href)}).then(() => {})`],
         {
           encoding: "utf8",
           stdio: ["ignore", "pipe", "pipe"],
@@ -283,7 +284,7 @@ test("only the entrypoints that own a launch policy import the Node floor", () =
   const unexpected = [];
   for (const root of SCAN_ROOTS) {
     for (const abs of mjsFiles(path.join(SRC_DIR, root))) {
-      const rel = path.relative(SRC_DIR, abs);
+      const rel = path.relative(SRC_DIR, abs).split(path.sep).join("/");
       if (allowed.has(rel)) continue;
       if (fs.readFileSync(abs, "utf8").includes("node-floor.mjs")) unexpected.push(rel);
     }
