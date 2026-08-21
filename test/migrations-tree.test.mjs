@@ -7,6 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { SRC } from "./harness.mjs";
 import { loadRegistry, PHASES } from "../scripts/lib/migration-registry.mjs";
 
@@ -35,7 +36,7 @@ test("the shipped registry loads, and every entry resolves + declares a known ph
 
 test("every registered migration exports the full contract", async () => {
   for (const e of loadRegistry(MIGRATIONS)) {
-    const mod = await import(e.file);
+    const mod = await import(pathToFileURL(e.file).href);
     assert.equal(typeof mod.detect, "function", `${e.id} exports detect()`);
     assert.equal(typeof mod.apply, "function", `${e.id} exports apply()`);
     assert.equal(typeof mod.id, "string", `${e.id} exports its id`);
