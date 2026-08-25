@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import {
   DiagramFrame,
   clampZoom,
+  contentBox,
   fitZoom,
   svgNaturalSize,
   zoomFromWheel,
@@ -35,10 +36,43 @@ test("zoom is clamped to the supported range", () => {
   expect(clampZoom(0)).toBe(ZOOM_MIN);
 });
 
-test("fit shrinks a diagram wider than the viewport but never enlarges a small one", () => {
-  const wide = fitZoom({ width: 4000, height: 200 }, { width: 1000, height: 800 });
-  expect(wide).toBeLessThan(1);
-  expect(fitZoom({ width: 50, height: 50 }, { width: 1000, height: 800 })).toBe(1);
+test("fit shrinks a diagram larger than the box and enlarges one smaller than it", () => {
+  expect(fitZoom({ width: 4000, height: 200 }, { width: 1000, height: 800 })).toBeCloseTo(0.25, 5);
+  expect(fitZoom({ width: 100, height: 100 }, { width: 400, height: 800 })).toBeCloseTo(4, 5);
+});
+
+test("fit fills one axis exactly and never crops the other", () => {
+  const natural = { width: 200, height: 100 };
+  const available = { width: 1000, height: 1000 };
+  const zoom = fitZoom(natural, available);
+  expect(natural.width * zoom).toBeCloseTo(available.width, 5);
+  expect(natural.height * zoom).toBeLessThanOrEqual(available.height);
+});
+
+test("fit fills both axes when the aspect ratios match", () => {
+  const zoom = fitZoom({ width: 100, height: 50 }, { width: 800, height: 400 });
+  expect(100 * zoom).toBeCloseTo(800, 5);
+  expect(50 * zoom).toBeCloseTo(400, 5);
+});
+
+test("fit respects the zoom ceiling rather than enlarging without bound", () => {
+  expect(fitZoom({ width: 1, height: 1 }, { width: 8000, height: 8000 })).toBe(ZOOM_MAX);
+});
+
+test("fit is degenerate-safe when the available box has not been measured yet", () => {
+  expect(fitZoom({ width: 100, height: 100 }, { width: 0, height: 0 })).toBe(1);
+});
+
+test("contentBox reports the padding-free box, or null when unmeasurable", () => {
+  expect(contentBox(null)).toBeNull();
+  const element = document.createElement("div");
+  document.body.appendChild(element);
+  expect(contentBox(element)).toBeNull();
+  Object.defineProperty(element, "clientWidth", { value: 500, configurable: true });
+  Object.defineProperty(element, "clientHeight", { value: 300, configurable: true });
+  element.style.padding = "24px";
+  expect(contentBox(element)).toEqual({ width: 452, height: 252 });
+  element.remove();
 });
 
 test("fit accounts for BOTH axes, so a very tall diagram is bounded by height", () => {
@@ -143,4 +177,10 @@ test("closing the overlay removes its key handler, so later keys do not act on i
   fireEvent.click(screen.getByRole("button", { name: "close diagram" }));
   fireEvent.keyDown(window, { key: "+" });
   expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+test("a small diagram opens enlarged to fill the window, not pinned at 100%", () => {
+  openFrame({ width: 50, height: 50 });
+  const shown = Number(screen.getByText(/%$/).textContent?.replace("%", ""));
+  expect(shown).toBeGreaterThan(100);
 });

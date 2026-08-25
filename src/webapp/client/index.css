@@ -92,4 +92,18 @@ html.dark .def-token-flash {
   .md-body img {
     @apply my-3 max-w-full rounded;
   }
+  .md-diagram > svg,
+  .md-diagram > img {
+    @apply mx-auto block h-auto max-w-full;
+  }
+  .md-diagram-full {
+    @apply h-full w-full;
+  }
+  .md-diagram-full > svg {
+    @apply block h-full w-full;
+  }
+  .md-diagram-full > img {
+    @apply m-0 block h-full w-full max-w-none rounded-none;
+    object-fit: contain;
+  }
 }
