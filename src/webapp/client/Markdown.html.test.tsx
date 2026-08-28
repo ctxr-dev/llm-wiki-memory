@@ -94,9 +94,7 @@ test("a data image renders with its source intact and is framed", () => {
 });
 
 test("a non-image data url is still refused on an image source", () => {
-  const { container } = render(
-    <Markdown body={`![x](data:text/html;base64,PHNjcmlwdD4=)\n`} />,
-  );
+  const { container } = render(<Markdown body={`![x](data:text/html;base64,PHNjcmlwdD4=)\n`} />);
   expect(container.querySelector("img")?.getAttribute("src")).toBe("");
 });
 

@@ -42,7 +42,8 @@
     "wire:dev-surfaces": "node scripts/wire-dev-surfaces.mjs",
     "check:size": "find scripts mcp-server src/webapp \\( -path '*/node_modules/*' -o -path '*/dist/*' \\) -prune -o \\( -name '*.mjs' -o -name '*.ts' -o -name '*.tsx' \\) -print0 | xargs -0 wc -l | awk '$2!=\"total\" && $1>300 {print $1\"  \"$2; c++} END{exit c>0?1:0}'",
     "check:comments": "test -z \"$(grep -rnE '^[[:space:]]*//[[:space:]]*[-=*]{3,}|^[[:space:]]*/\\*[[:space:]]*[-=*]{3,}' scripts mcp-server test src/webapp --include='*.mjs' --include='*.ts' --include='*.tsx' --exclude-dir=node_modules --exclude-dir=dist)\"",
-    "gates": "npm run typecheck && npx eslint . --max-warnings 0 && npm run format:check && npm run deadcode && npm run check:size && npm run check:comments && npm test && npm run test:e2e"
+    "gates": "npm run typecheck && npx eslint . --max-warnings 0 && npm run format:check && npm run deadcode && npm run check:size && npm run check:comments && npm test && npm run test:e2e",
+    "docs:gallery": "node scripts/cli.mjs gallery"
   },
   "dependencies": {
     "@ctxr/skill-llm-wiki": "^1.4.4",

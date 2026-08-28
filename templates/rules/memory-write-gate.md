@@ -20,7 +20,7 @@ This rule applies to every AI agent connected to the local LLM wiki memory throu
 >
 > > `Save (P1)` · `Save as guardrail (P0)` · `Save as contextual (P2)` · `Skip`
 > >
-> > the question text stating NEW vs UPDATE (from the rule-16 dedup) + the proposed title.
+> > the question text stating NEW vs UPDATE (the server's duplicate check, rule 16) + the proposed title.
 >
 > On a client WITHOUT AskUserQuestion, use its equivalent structured prompt, else propose in **one short sentence** and wait for the yes. Then:
 >

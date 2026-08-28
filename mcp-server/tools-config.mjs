@@ -44,7 +44,7 @@ function registerConfigTools(server) {
     {
       title: "Get memory configuration",
       description:
-        "Inspect the local LLM-wiki memory configuration (wiki root, embed backend, categories, active LLM provider, and the resolved scope `levels`). The `levels` array lists every level in your resolved scope chain — `{root, mountDir, projectModule, ownership, depth, gated, autoDistillOff}` — so you can choose an explicit write `target` by path (the ONLY way to distinguish two identical sibling clones, which share a projectModule but differ by root) AND know each level's write policy: `gated` names the categories that require the consent gate at that level (CHECK it before a write — self_improvement is gated by default; a wiki may opt others in), and `autoDistillOff` names categories compile will not auto-promote into. The `llm` block reports the resolved provider, model, baseUrl (for openai / openai-compatible), and a cheap local-only `available` probe (CLI on PATH / API key in env). It does NOT touch the network. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.",
+        "Inspect the local LLM-wiki memory configuration (wiki root, embed backend, categories, active LLM provider, the resolved scope `levels`, and the `diagrams` / `dedupe` policy you must honour). The `levels` array lists every level in your resolved scope chain — `{root, mountDir, projectModule, ownership, depth, gated, autoDistillOff}` — so you can choose an explicit write `target` by path (the ONLY way to distinguish two identical sibling clones, which share a projectModule but differ by root) AND know each level's write policy: `gated` names the categories that require the consent gate at that level (CHECK it before a write — self_improvement is gated by default; a wiki may opt others in), and `autoDistillOff` names categories compile will not auto-promote into. The `llm` block reports the resolved provider, model, baseUrl (for openai / openai-compatible), and a cheap local-only `available` probe (CLI on PATH / API key in env). It does NOT touch the network. REQUIRES `scopes`: the directories you are working in (your cwd and any repos in play); the engine walks up to your home wiki.",
       inputSchema: z.object({ scopes: ScopesSchema }).strict(),
     },
     async (args) =>
@@ -56,6 +56,9 @@ function registerConfigTools(server) {
             available: false,
             reason: err?.message || String(err),
           }));
+          const { diagrams, dedupe } = await import("../scripts/lib/settings.mjs").then((m) =>
+            m.settings(),
+          );
           return jsonResponse({
             wikiRoot: wikiRoot(),
             embedCache: embedCachePath(),
@@ -63,6 +66,12 @@ function registerConfigTools(server) {
             defaultProjectModule: defaultProjectModule(),
             levels: resolvedLevels(),
             categories: getImpl().scopedCategories(),
+            // Policy an AGENT has to honour, so it has to be readable BY the
+            // agent: a setting nothing can read instructs nobody. `diagrams.mode`
+            // decides SVG vs mermaid; the dedupe thresholds explain why a save
+            // was refused as a duplicate or reported a near neighbour.
+            diagrams,
+            dedupe,
             llm: llmHealth,
           });
         } catch (error) {

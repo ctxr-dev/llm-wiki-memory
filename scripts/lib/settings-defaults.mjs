@@ -135,6 +135,27 @@ export function structuralDefaults() {
     maxInlineBodyBytes: 32_768,
   };
   const wiki = { autoCommit: true };
+  // Write-time duplicate detection. Thresholds are the SAME calibrated numbers
+  // consolidate already uses (see the consolidate block above, remapped for
+  // EmbeddingGemma on a 537-leaf corpus: true near-duplicates scored >= 0.9925,
+  // the closest non-duplicate pair < 0.956). Reusing them keeps one definition of
+  // "these are the same note" across the write path and the offline pass.
+  //
+  // `probeThreshold` is the floor for "worth mentioning"; below it a save is
+  // silent. `duplicateThreshold` is the ceiling for "almost certainly the same
+  // leaf"; at or above it a save is REFUSED and names the existing leaf, unless
+  // the caller asserts a new leaf is intended. enabled:false skips the probe
+  // entirely (one embedding plus one category scan per write).
+  const dedupe = {
+    enabled: true,
+    probeThreshold: 0.7,
+    duplicateThreshold: 0.975,
+  };
+  // Which diagram form an agent should reach for. `auto` means the agent decides
+  // per the diagram rule (inline SVG for a wiki leaf, mermaid for a non-wiki
+  // surface or a trivial diagram); the other two force one form. Surfaced through
+  // get_memory_config, because a setting no agent can read instructs nobody.
+  const diagrams = { mode: /** @type {"auto" | "svg" | "mermaid"} */ ("auto") };
   const providers = {
     chain: [],
     anthropic: { models: [] },
@@ -158,6 +179,8 @@ export function structuralDefaults() {
     quality,
     gate,
     wiki,
+    dedupe,
+    diagrams,
     providers,
     crossCuttingAreas,
   };

@@ -23,7 +23,20 @@ import {
  * @returns {void}
  */
 export function coerceSections(sections) {
-  const { consolidate, flush, hook, embed, recall, compile, gc, quality, gate, wiki } = sections;
+  const {
+    consolidate,
+    flush,
+    hook,
+    embed,
+    recall,
+    compile,
+    gc,
+    quality,
+    gate,
+    wiki,
+    dedupe,
+    diagrams,
+  } = sections;
 
   consolidate.intervalDays = coerceNonNeg(consolidate.intervalDays, 1);
   consolidate.cosineThreshold = coerceFloat01(consolidate.cosineThreshold, 0.975);
@@ -109,4 +122,17 @@ export function coerceSections(sections) {
   gate.auditKeep = coercePos(gate.auditKeep, 1000);
   gate.maxInlineBodyBytes = coerceNonNeg(gate.maxInlineBodyBytes, 32_768);
   wiki.autoCommit = coerceBool(wiki.autoCommit, true);
+
+  dedupe.enabled = coerceBool(dedupe.enabled, true);
+  dedupe.probeThreshold = coerceFloat01(dedupe.probeThreshold, 0.7);
+  dedupe.duplicateThreshold = coerceFloat01(dedupe.duplicateThreshold, 0.975);
+  // An inverted pair would make every save either silent or refused, so repair
+  // it rather than trusting the order the user typed.
+  if (dedupe.probeThreshold > dedupe.duplicateThreshold) {
+    dedupe.probeThreshold = 0.7;
+    dedupe.duplicateThreshold = 0.975;
+  }
+  diagrams.mode = ["auto", "svg", "mermaid"].includes(String(diagrams.mode))
+    ? diagrams.mode
+    : "auto";
 }

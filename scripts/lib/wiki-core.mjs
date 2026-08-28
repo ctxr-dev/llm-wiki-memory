@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
 import { wikiRoot } from "./env.mjs";
+import { stripDiagramMarkup } from "./diagram-markup.mjs";
 
 /** @typedef {import("./types.mjs").LeafFrontmatter} LeafFrontmatter */
 /** @typedef {import("./types.mjs").MemoryMetadata} MemoryMetadata */
@@ -72,10 +73,15 @@ function leafTags(data, mem) {
 }
 
 // The text we EMBED for a leaf: a curated `title · tags · subject` header
-// (the semantically useful frontmatter) prepended to the body. Ids, timestamps,
-// source hashes, parents and cover boilerplate are deliberately excluded. The
-// consolidate cluster probe embeds a leaf AS its query, so it uses this too —
-// both sides see the same shape; the user's free-text query does NOT.
+// (the semantically useful frontmatter) prepended to the body, with diagram
+// markup reduced to its labels. Ids, timestamps, source hashes, parents and
+// cover boilerplate are deliberately excluded. The consolidate cluster probe
+// embeds a leaf AS its query, so it uses this too — both sides see the same
+// shape; the user's free-text query does NOT.
+//
+// `chunkTexts` recovers the header by removing this body suffix, so it applies
+// `stripDiagramMarkup` to its own `body` argument for the same reason. Keep the
+// two in agreement: the invariant is asserted there.
 /**
  * @param {LeafFrontmatter | null | undefined} data
  * @param {string} body
@@ -96,7 +102,7 @@ export function embedTextForLeaf(data, body) {
     : [];
   if (subject.length) parts.push(subject.join(" / "));
   const header = parts.join(" · ");
-  const text = String(body || "");
+  const text = stripDiagramMarkup(body);
   return header ? `${header}\n\n${text}` : text;
 }
 

@@ -31,6 +31,8 @@ import { handleWhere, handleRecall, handleSearch } from "./cli-query.mjs";
 import { handleCronJob, handleCronHealth } from "./cli-cron.mjs";
 import { handleRedistill } from "./cli-redistill.mjs";
 import { handleMonitor, handleMonitoringHealth, handleGateAudit } from "./cli-monitor.mjs";
+import { handleRenderDiagram } from "./cli-render-diagram.mjs";
+import { handleGallery } from "./cli-gallery.mjs";
 
 refuseBelowNodeFloor();
 
@@ -46,7 +48,7 @@ function cmdCompile(args) {
 }
 
 const USAGE =
-  "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|warm [--if-due]|migrations [--explain|--remigrate|--phase <settings|data>]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|migrate-identity [--dry-run|--check]|doctor|save-leaf --file <path> --dataset <name> [--name|--path|--area=|--atom-type=|--task-type=|--subject=|--tags=|--language=|--priority=|--error-pattern=|--dry-run]|move-leaf <from> <to>|absorb <path...> --category=<name> [--match=<glob>]... [--area=|--subject=|--atom-type=] [--target=<sel>] [--dry-run]|monitor --title <t> [...] | --resolve <file>|monitoring-health|gate-audit [--limit N]|recall <q>|search <q>|redistill --leaf <path> | --session <id> | --all>\n\n" +
+  "Usage: llm-wiki-memory <init|validate|validate-layout [path]|validate-topology [wiki-root] [category]|test-path-compiler <file_kind> [--category <name>] [--layout <wiki-root>] key=val ...|heal|gc-embeddings [--dry-run]|warm [--if-due]|migrations [--explain|--remigrate|--phase <settings|data>]|where|compile|nest [--dry-run|--check]|migrate [--dry-run|--check]|migrate-identity [--dry-run|--check]|doctor|save-leaf --file <path> --dataset <name> [--name|--path|--area=|--atom-type=|--task-type=|--subject=|--tags=|--language=|--priority=|--error-pattern=|--dry-run|--allow-duplicate]|move-leaf <from> <to>|render-diagram --list [--table] | --spec <file> [--out <file>] [--html] [--strict]|gallery [--png]|absorb <path...> --category=<name> [--match=<glob>]... [--area=|--subject=|--atom-type=] [--target=<sel>] [--dry-run]|monitor --title <t> [...] | --resolve <file>|monitoring-health|gate-audit [--limit N]|recall <q>|search <q>|redistill --leaf <path> | --session <id> | --all>\n\n" +
   `Docs (any OS, via WebFetch): ${REPO_RAW_BASE}/ — README.md · AI-INSTALL-PROMPT.md · ARCHITECTURE.md · docs/{shared-wikis,consolidate,embeddings}.md`;
 
 async function main() {
@@ -103,6 +105,10 @@ async function main() {
       return handleSaveLeaf(rest);
     case "move-leaf":
       return handleMoveLeaf(rest);
+    case "render-diagram":
+      return handleRenderDiagram(rest);
+    case "gallery":
+      return handleGallery(rest);
     case "monitor":
       return handleMonitor(rest);
     case "monitoring-health":

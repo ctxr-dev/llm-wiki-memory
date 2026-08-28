@@ -21,6 +21,7 @@ const { cachedLeafVectors, scoreTree, scoreCandidates } =
 const { makeColdBudget, COLD_SKIP_SCORE } = await import("../scripts/lib/cold-budget.mjs");
 const { chunkTexts, scoreLeaf, tokenCount, EMBED_WINDOW } =
   await import("../scripts/lib/embed-chunk-text.mjs");
+const { stripDiagramMarkup } = await import("../scripts/lib/diagram-markup.mjs");
 const { embed } = await import("../scripts/lib/embed.mjs");
 
 // A word-per-token fake tokenizer: deterministic, round-trips, no specials — so
@@ -83,6 +84,28 @@ test("chunkTexts: no header (body-only) still windows correctly", () => {
   const chunks = chunkTexts(body, body, fakeTok, { window: 512, maxChunks: 6, margin: 8 });
   assert.ok(chunks.length > 1);
   for (const c of chunks) assert.ok(tokenCount(fakeTok, c) <= 512);
+});
+
+test("chunkTexts: strips diagram markup from the body it chunks", () => {
+  const svg = `<svg viewBox="0 0 10 10"><path d="${"M0,0 L9,9 ".repeat(400)}"/><text>edgelabel</text></svg>`;
+  const body = `${bodyOf(1500)} ${svg} tail`;
+  const et = HEADER + stripDiagramMarkup(body);
+  const chunks = chunkTexts(et, body, fakeTok, { window: 512, maxChunks: 6, margin: 8 });
+  assert.ok(chunks.length > 1, "expected the stripped prose to still need chunking");
+  for (const c of chunks) {
+    assert.ok(!c.includes("M0,0"), "path geometry reached a chunk");
+    assert.ok(!c.includes("viewBox"), "svg attributes reached a chunk");
+  }
+  assert.ok(chunks.join(" ").includes("edgelabel"), "the diagram label was dropped");
+});
+
+test("chunkTexts: throws when embedText does not end with the stripped body", () => {
+  // embedText must be over the window, or the early single-chunk return fires
+  // before the coupling is ever checked.
+  assert.throws(
+    () => chunkTexts(HEADER + bodyOf(1500), bodyOf(1200), fakeTok, { window: 512 }),
+    /must end with the stripped body/,
+  );
 });
 
 const fakeCos = (_q, v) => v[0];
@@ -151,6 +174,39 @@ test("a text budget bounds one call: budgeted leaves embed, the rest are skipped
   assert.equal(skipped, 3, "the rest returned an empty vector (scores 0 via cosine)");
   assert.equal(Object.keys(cache.entries).length, 2, "skipped leaves wrote NO cache entry");
   assert.ok(cache.entries["b1.md"] && cache.entries["b2.md"], "the first two were cached");
+});
+
+test("a broken embedText/body coupling degrades ONE leaf and is reported, never thrown", async () => {
+  // searchOneTree is explicit that a search must not throw, so the chunkTexts
+  // tripwire has to be contained here: the bad leaf loses its chunk set (falling
+  // back to the whole-leaf vector) while every sibling still scores.
+  const cache = { entries: {} };
+  const items = [
+    item("good.md", bodyOf(60)),
+    { id: "broken.md", embedText: HEADER + bodyOf(60), body: bodyOf(40) },
+  ];
+  const errs = [];
+  const realError = console.error;
+  console.error = (m) => errs.push(String(m));
+  let out;
+  try {
+    out = await cachedLeafVectors(cache, items, opts(true));
+  } finally {
+    console.error = realError;
+  }
+  assert.equal(out.length, 2, "the whole call survived the bad leaf");
+  const [good, broken] = out;
+  assert.ok(good.vector.length > 0, "the healthy sibling still embedded");
+  assert.ok(good.chunks && good.chunks.length > 1, "the healthy sibling still got a chunk set");
+  assert.ok(broken.vector.length > 0, "the bad leaf fell back to a whole-leaf vector");
+  assert.ok(
+    !broken.chunks || broken.chunks.length <= 1,
+    "the bad leaf must NOT get a chunk set built from a mis-sliced header",
+  );
+  assert.ok(
+    errs.some((e) => e.includes("chunking refused for broken.md")),
+    `the refusal must name the leaf; got ${JSON.stringify(errs)}`,
+  );
 });
 
 test("a skipped leaf stays a miss, so a later unlimited call embeds it", async () => {

@@ -10,7 +10,8 @@
         "test/**/*.test.mjs",
         "test/setup-guard.mjs"
       ],
-      "project": ["scripts/**/*.mjs", "mcp-server/**/*.mjs"]
+      "project": ["scripts/**/*.mjs", "mcp-server/**/*.mjs"],
+      "ignoreDependencies": ["playwright", "@playwright/test"]
     }
   },
   "ignoreBinaries": ["awk", "playwright"]

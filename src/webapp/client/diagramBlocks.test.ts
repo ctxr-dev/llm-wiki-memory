@@ -8,7 +8,11 @@ import {
 } from "./diagramBlocks";
 import type { HastNode } from "./defTokens";
 
-function element(tagName: string, properties: Record<string, unknown> = {}, children: HastNode[] = []): HastNode {
+function element(
+  tagName: string,
+  properties: Record<string, unknown> = {},
+  children: HastNode[] = [],
+): HastNode {
   return { type: "element", tagName, properties, children };
 }
 
@@ -53,7 +57,9 @@ test("a paragraph holding only an image is unwrapped so the frame is not nested 
 });
 
 test("an image sitting inside a sentence is left inline and unframed", () => {
-  const tree = root(element("p", {}, [text("before "), element("img", { src: "a.png" }), text(" after")]));
+  const tree = root(
+    element("p", {}, [text("before "), element("img", { src: "a.png" }), text(" after")]),
+  );
   markDiagramBlocks(tree);
   expect(framed(tree)).toHaveLength(0);
   expect(tree.children?.[0].tagName).toBe("p");
@@ -104,9 +110,15 @@ test("running the pass twice does not wrap the same diagram again", () => {
 });
 
 test("svg natural size falls back to width and height when there is no viewBox", () => {
-  expect(svgNaturalFromProperties({ viewBox: "0 0 1024 768" })).toEqual({ width: 1024, height: 768 });
+  expect(svgNaturalFromProperties({ viewBox: "0 0 1024 768" })).toEqual({
+    width: 1024,
+    height: 768,
+  });
   expect(svgNaturalFromProperties({ viewBox: "0,0,20,10" })).toEqual({ width: 20, height: 10 });
-  expect(svgNaturalFromProperties({ width: "300", height: "150" })).toEqual({ width: 300, height: 150 });
+  expect(svgNaturalFromProperties({ width: "300", height: "150" })).toEqual({
+    width: 300,
+    height: 150,
+  });
   expect(svgNaturalFromProperties({ viewBox: "0 0 0 0" })).toBeNull();
   expect(svgNaturalFromProperties({ viewBox: "nope" })).toBeNull();
   expect(svgNaturalFromProperties({})).toBeNull();

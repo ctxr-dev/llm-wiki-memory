@@ -1,5 +1,6 @@
 import { cosine } from "./embed-lexical.mjs";
 import { embedWindow } from "./embed.mjs";
+import { stripDiagramMarkup } from "./diagram-markup.mjs";
 
 // Length-aware chunking for the recall read path. The transformer model reads
 // only WINDOW tokens of a leaf's embed text; a long leaf loses the rest. We
@@ -31,8 +32,13 @@ export function tokenCount(tokenizer, text) {
  * fits the window, or the header alone leaves no body budget. Otherwise: the
  * header + successive body-token windows sized so each chunk stays within the
  * window after the header + special tokens, capped at maxChunks.
+ *
+ * The header is recovered by removing the body suffix, so `body` is put through
+ * `stripDiagramMarkup` HERE exactly as `embedTextForLeaf` does when it builds
+ * `embedText`. Doing it on both sides keeps the two consistent no matter what a
+ * caller passes, and the suffix check below is the tripwire if they ever diverge.
  * @param {string} embedText the full title.tags.subject header + body
- * @param {string} body the raw body (embedText ends with it)
+ * @param {string} body the raw body (embedText ends with its stripped form)
  * @param {{ encode: (t: string, opts?: unknown) => unknown[], decode: (ids: unknown[], opts?: unknown) => string } | null} tokenizer
  * @param {{ window?: number, maxChunks?: number, margin?: number }} [opts]
  * @returns {string[]}
@@ -46,7 +52,12 @@ export function chunkTexts(embedText, body, tokenizer, opts = {}) {
   if (!tokenizer) return [embedText];
   if (tokenCount(tokenizer, embedText) <= window) return [embedText];
 
-  const text = String(body || "");
+  const text = stripDiagramMarkup(body);
+  if (!embedText.endsWith(text)) {
+    throw new Error(
+      "chunkTexts: embedText must end with the stripped body (build it with embedTextForLeaf)",
+    );
+  }
   const header = embedText.slice(0, embedText.length - text.length);
   const headerTokens = tokenizer.encode(header, { add_special_tokens: false }).length;
   const budget = window - headerTokens - margin;

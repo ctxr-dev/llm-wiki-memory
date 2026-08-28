@@ -98,7 +98,10 @@ export function svgNaturalFromProperties(
 ): Size | null {
   const viewBox = properties?.viewBox;
   if (typeof viewBox === "string") {
-    const parts = viewBox.trim().split(/[\s,]+/).map(Number);
+    const parts = viewBox
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number);
     if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
       const [, , width, height] = parts;
       if (width > 0 && height > 0) return { width, height };

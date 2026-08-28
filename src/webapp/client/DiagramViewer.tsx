@@ -34,10 +34,8 @@ function numeric(value: string): number {
 export function contentBox(element: HTMLElement | null): Size | null {
   if (!element) return null;
   const style = window.getComputedStyle(element);
-  const width =
-    element.clientWidth - numeric(style.paddingLeft) - numeric(style.paddingRight);
-  const height =
-    element.clientHeight - numeric(style.paddingTop) - numeric(style.paddingBottom);
+  const width = element.clientWidth - numeric(style.paddingLeft) - numeric(style.paddingRight);
+  const height = element.clientHeight - numeric(style.paddingTop) - numeric(style.paddingBottom);
   return width > 0 && height > 0 ? { width, height } : null;
 }
 

@@ -3,6 +3,8 @@ import { withWikiCommit } from "../scripts/lib/wiki-commit.mjs";
 import { isSystemMaintenance } from "../scripts/lib/maintenance-tag.mjs";
 import { getImpl } from "./mcp-reload.mjs";
 import { jsonResponse } from "./mcp-responses.mjs";
+import { settings } from "../scripts/lib/settings.mjs";
+import { probeForDuplicate, duplicateRefusal } from "../scripts/lib/dedupe-probe.mjs";
 import {
   assertTopologyPathValid,
   refuseWriteGate,
@@ -113,11 +115,13 @@ function gateLabel(tool, dataset, path) {
 // body we were never going to store.
 //
 // Returns `{ blocked }` with the response to return early (a consent refusal, a
-// size refusal, or a judge rejection), else `{ writeMetadata }` — the metadata to
-// persist, stamped `quality:"unverified"` when the judge kept a flagged best attempt.
+// size refusal, a judge rejection, or a suspected duplicate), else
+// `{ writeMetadata }` — the metadata to persist, stamped `quality:"unverified"`
+// when the judge kept a flagged best attempt — plus `related` when a near
+// neighbour exists that is NOT close enough to refuse.
 /**
- * @param {{ tool: string, dataset: string, path?: string, name: string, text: string, metadata?: MetadataInput, userRequested?: boolean, target: string, acceptQuality?: boolean }} a
- * @returns {Promise<{ blocked?: ReturnType<typeof refuseWriteGate>, writeMetadata?: MetadataInput }>}
+ * @param {{ tool: string, dataset: string, path?: string, name: string, text: string, metadata?: MetadataInput, userRequested?: boolean, target: string, acceptQuality?: boolean, allowDuplicate?: boolean }} a
+ * @returns {Promise<{ blocked?: ReturnType<typeof refuseWriteGate>, writeMetadata?: MetadataInput, related?: import("../scripts/lib/dedupe-probe.mjs").DuplicateVerdict }>}
  */
 export async function runWriteGates(a) {
   const refusal = gateRefusal({
@@ -144,7 +148,36 @@ export async function runWriteGates(a) {
   const writeMetadata = judgeGate.flagged
     ? { ...(a.metadata || {}), quality: "unverified" }
     : a.metadata;
-  return { writeMetadata };
+
+  // Duplicate probe, LAST of the gates: it costs an embedding plus a category
+  // scan, so it runs only after the cheap refusals (consent, oversize body,
+  // quality) have passed. It lives in this shared seam rather than in each tool
+  // handler so every write door is covered by construction; a probe wired
+  // per-handler is a probe that one door eventually forgets.
+  const { dedupe } = settings();
+  const dup = a.allowDuplicate
+    ? /** @type {import("../scripts/lib/dedupe-probe.mjs").DuplicateVerdict} */ ({
+        verdict: "none",
+        score: 0,
+      })
+    : await probeForDuplicate({
+        dataset: a.dataset,
+        name: a.name,
+        text: a.text,
+        metadata: a.metadata,
+        thresholds: dedupe,
+      });
+  if (dup.verdict === "duplicate") {
+    return {
+      blocked: jsonResponse({
+        error: "duplicate-suspected",
+        detail: duplicateRefusal(dup),
+        documentId: dup.documentId,
+        score: dup.score,
+      }),
+    };
+  }
+  return { writeMetadata, related: dup.verdict === "related" ? dup : undefined };
 }
 
 /**

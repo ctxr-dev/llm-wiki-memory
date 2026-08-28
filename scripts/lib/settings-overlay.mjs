@@ -22,6 +22,8 @@ import { detectAvailableProviders } from "./settings-providers.mjs";
  * @property {RawSection} [quality]
  * @property {RawSection} [gate]
  * @property {RawSection} [wiki]
+ * @property {RawSection} [dedupe]
+ * @property {RawSection} [diagrams]
  * @property {Record<string, unknown>} [providers]
  * @property {string[] | string} [crossCuttingAreas]
  */
@@ -35,12 +37,37 @@ import { detectAvailableProviders } from "./settings-providers.mjs";
  */
 export function applyYamlOverlay(sections, raw) {
   const { providers } = sections;
-  const { consolidate, flush, hook, embed, recall, compile, gc, quality, gate, wiki } =
-    /** @type {Record<string, Record<string, unknown>>} */ (/** @type {unknown} */ (sections));
+  const {
+    consolidate,
+    flush,
+    hook,
+    embed,
+    recall,
+    compile,
+    gc,
+    quality,
+    gate,
+    wiki,
+    dedupe,
+    diagrams,
+  } = /** @type {Record<string, Record<string, unknown>>} */ (/** @type {unknown} */ (sections));
 
   if (raw.consolidate) {
     for (const k of Object.keys(consolidate)) {
       if (raw.consolidate[k] !== undefined) consolidate[k] = raw.consolidate[k];
+    }
+  }
+  // Each section is copied EXPLICITLY, and that is the trap to remember: a
+  // section added to structuralDefaults but not here is accepted in the YAML,
+  // silently ignored, and the user's setting never takes effect.
+  if (raw.dedupe) {
+    for (const k of Object.keys(dedupe)) {
+      if (raw.dedupe[k] !== undefined) dedupe[k] = raw.dedupe[k];
+    }
+  }
+  if (raw.diagrams) {
+    for (const k of Object.keys(diagrams)) {
+      if (raw.diagrams[k] !== undefined) diagrams[k] = raw.diagrams[k];
     }
   }
   if (raw.flush) {
