@@ -99,14 +99,21 @@ test("INSTRUCTIONS encodes the required-scopes discipline (rule 12)", () => {
   assert.match(INSTRUCTIONS, /NEVER optional/);
 });
 
-test("INSTRUCTIONS encodes the search-before-save dedup discipline (rule 16)", () => {
-  assert.match(INSTRUCTIONS, /SEARCH BEFORE YOU SAVE/);
-  assert.match(INSTRUCTIONS, /across EVERY dataset and every topology path/);
-  assert.match(INSTRUCTIONS, /DELEGATE this to a SUBAGENT/);
-  assert.match(INSTRUCTIONS, /CREATE-NEW vs UPDATE/);
+test("INSTRUCTIONS encodes the server-side duplicate discipline (rule 16)", () => {
+  assert.match(INSTRUCTIONS, /THE SERVER CHECKS FOR DUPLICATES/);
+  // The agent must be told NOT to do the work the write path now does; leaving
+  // the old exhaustive-search wording in place would have every client running
+  // several searches plus a subagent before every save, for nothing.
+  assert.match(INSTRUCTIONS, /do not run a pre-save search/);
+  assert.doesNotMatch(INSTRUCTIONS, /across EVERY dataset and every topology path/);
+  // Each of the three outcomes has to be actionable on its own.
+  assert.match(INSTRUCTIONS, /duplicate-suspected/);
+  assert.match(INSTRUCTIONS, /allowDuplicate:true/);
   assert.match(INSTRUCTIONS, /PREFER UPDATING an existing leaf/);
-  // The gated proposal must disclose new-vs-update (rule 2 cross-ref).
-  assert.match(INSTRUCTIONS, /FIRST run the rule-16 dedup search/);
+  // Fail-open is a promise to the caller, so it belongs in the contract text.
+  assert.match(INSTRUCTIONS, /FAILS OPEN/);
+  // The gated proposal must still disclose new-vs-update (rule 2 cross-ref).
+  assert.match(INSTRUCTIONS, /the server's duplicate check \(rule 16\) is what tells you/);
 });
 
 test("INSTRUCTIONS encodes the absorb discipline (rule 17)", () => {

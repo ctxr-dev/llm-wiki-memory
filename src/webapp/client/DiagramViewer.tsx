@@ -20,13 +20,23 @@ export function clampZoom(zoom: number): number {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
 }
 
-export function fitZoom(natural: Size, viewport: Size): number {
+export function fitZoom(natural: Size, available: Size): number {
   if (natural.width <= 0 || natural.height <= 0) return 1;
-  const available = {
-    width: Math.max(1, viewport.width - VIEWPORT_MARGIN),
-    height: Math.max(1, viewport.height - VIEWPORT_MARGIN),
-  };
-  return clampZoom(Math.min(available.width / natural.width, available.height / natural.height, 1));
+  if (available.width <= 0 || available.height <= 0) return 1;
+  return clampZoom(Math.min(available.width / natural.width, available.height / natural.height));
+}
+
+function numeric(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function contentBox(element: HTMLElement | null): Size | null {
+  if (!element) return null;
+  const style = window.getComputedStyle(element);
+  const width = element.clientWidth - numeric(style.paddingLeft) - numeric(style.paddingRight);
+  const height = element.clientHeight - numeric(style.paddingTop) - numeric(style.paddingBottom);
+  return width > 0 && height > 0 ? { width, height } : null;
 }
 
 export function svgNaturalSize(svg: string): Size | null {
@@ -48,7 +58,14 @@ export function zoomFromWheel(event: {
 }
 
 function viewportSize(): Size {
-  return { width: window.innerWidth, height: window.innerHeight };
+  return {
+    width: Math.max(1, window.innerWidth - VIEWPORT_MARGIN),
+    height: Math.max(1, window.innerHeight - VIEWPORT_MARGIN),
+  };
+}
+
+function availableSize(element: HTMLElement | null): Size {
+  return contentBox(element) ?? viewportSize();
 }
 
 export function DiagramOverlay({
@@ -72,23 +89,38 @@ export function DiagramOverlay({
   useEffect(() => {
     if (natural) {
       setMeasured(natural);
-      return;
+      return undefined;
     }
     const content = contentRef.current;
-    if (!content) return;
-    const { scrollWidth, scrollHeight } = content;
-    if (scrollWidth > 0 && scrollHeight > 0) {
-      setMeasured({ width: scrollWidth, height: scrollHeight });
-    }
+    if (!content) return undefined;
+    const read = () => {
+      const { scrollWidth, scrollHeight } = content;
+      if (scrollWidth <= 0 || scrollHeight <= 0) return;
+      setMeasured((prev) =>
+        prev && prev.width === scrollWidth && prev.height === scrollHeight
+          ? prev
+          : { width: scrollWidth, height: scrollHeight },
+      );
+    };
+    read();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(read);
+    observer.observe(content);
+    return () => observer.disconnect();
   }, [natural]);
 
   const fitToViewport = useCallback(() => {
-    if (measured) setZoom(fitZoom(measured, viewportSize()));
+    if (measured) setZoom(fitZoom(measured, availableSize(scrollRef.current)));
   }, [measured]);
 
   useEffect(() => {
     fitToViewport();
     surfaceRef.current?.focus();
+  }, [fitToViewport]);
+
+  useEffect(() => {
+    window.addEventListener("resize", fitToViewport);
+    return () => window.removeEventListener("resize", fitToViewport);
   }, [fitToViewport]);
 
   useEffect(() => {
@@ -179,8 +211,8 @@ export function DiagramOverlay({
             style={{
               transform: `scale(${zoom})`,
               transformOrigin: "top left",
-              width: measured?.width,
-              height: measured?.height,
+              width: natural?.width,
+              height: natural?.height,
             }}
           >
             {children}

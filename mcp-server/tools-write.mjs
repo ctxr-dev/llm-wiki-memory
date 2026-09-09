@@ -81,6 +81,7 @@ function registerWriteTools(server) {
               tags: z.array(z.string().trim().min(1)).optional(),
               evidence: z.string().trim().max(500).optional(),
               acceptQuality: z.boolean().optional(),
+              allowDuplicate: z.boolean().optional(),
             })
             .strict(),
           gate: GateSchema,
@@ -91,7 +92,7 @@ function registerWriteTools(server) {
     async (args) =>
       withToolScopes(args, async () => {
         const { write, gate, target } = args;
-        const { title, body, metadata, tags, evidence, acceptQuality } = write;
+        const { title, body, metadata, tags, evidence, acceptQuality, allowDuplicate } = write;
         const userRequested = gate.userRequested;
         try {
           const gates = await runWriteGates({
@@ -103,6 +104,7 @@ function registerWriteTools(server) {
             userRequested,
             target,
             acceptQuality,
+            allowDuplicate,
           });
           if (gates.blocked) return gates.blocked;
           const req = parseWriteRequest(getActiveWikiContext(), {
@@ -145,6 +147,7 @@ function registerWriteTools(server) {
               path: z.string().trim().min(1).max(500).optional(),
               metadata: MetadataSchema.optional(),
               acceptQuality: z.boolean().optional(),
+              allowDuplicate: z.boolean().optional(),
             })
             .strict(),
           gate: GateSchema.optional(),
@@ -155,7 +158,7 @@ function registerWriteTools(server) {
     async (args) =>
       withToolScopes(args, async () => {
         const { write, gate, target } = args;
-        const { dataset, name, text, path, metadata, acceptQuality } = write;
+        const { dataset, name, text, path, metadata, acceptQuality, allowDuplicate } = write;
         const userRequested = gate?.userRequested;
         try {
           const gates = await runWriteGates({
@@ -168,6 +171,7 @@ function registerWriteTools(server) {
             userRequested,
             target,
             acceptQuality,
+            allowDuplicate,
           });
           if (gates.blocked) return gates.blocked;
           const req = parseWriteRequest(getActiveWikiContext(), {
@@ -220,6 +224,7 @@ function registerWriteTools(server) {
               path: z.string().trim().min(1).max(500).optional(),
               metadata: MetadataSchema.optional(),
               acceptQuality: z.boolean().optional(),
+              allowDuplicate: z.boolean().optional(),
             })
             .strict(),
           gate: GateSchema.optional(),
@@ -239,6 +244,7 @@ function registerWriteTools(server) {
           path,
           metadata,
           acceptQuality,
+          allowDuplicate,
         } = write;
         const userRequested = gate?.userRequested;
         try {
@@ -252,6 +258,7 @@ function registerWriteTools(server) {
             userRequested,
             target,
             acceptQuality,
+            allowDuplicate,
           });
           if (gates.blocked) return gates.blocked;
           const req = parseWriteRequest(getActiveWikiContext(), {

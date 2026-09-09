@@ -34,6 +34,7 @@
     "github-slugger": "^2.0.0",
     "lexical": "^0.21.0",
     "mermaid": "^11.16.0",
+    "property-information": "7.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.1.0",

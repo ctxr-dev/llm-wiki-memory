@@ -124,6 +124,35 @@ ${WIDE_CHART}
 \`\`\`
 `;
 
+const RICH = `focus: Rich Html Demo
+memory:
+  atom_type: investigation
+  status: active
+`;
+
+const RICH_BODY = `# Rich Html Demo
+
+A small svg, deliberately far smaller than the window.
+
+<svg viewBox="0 0 200 100" role="img" aria-label="small diagram">
+  <defs>
+    <linearGradient id="grad"><stop offset="0" stop-color="#eb6c36" /></linearGradient>
+  </defs>
+  <rect x="2" y="2" width="196" height="96" rx="6" fill="url(#grad)"
+        stroke="#2d3142" stroke-width="2" stroke-linejoin="round" />
+  <text x="100" y="56" text-anchor="middle" font-size="14">usher</text>
+</svg>
+
+<section class="rich-block">
+  <figure><figcaption>A caption</figcaption></figure>
+  <details><summary>Show more</summary><p>Hidden detail</p></details>
+</section>
+
+<script>window.__xssRan = true;</script>
+
+<div class="diagram"><p>opted in by class</p></div>
+`;
+
 const REFS = `focus: Reference Demo
 memory:
   atom_type: investigation
@@ -219,6 +248,7 @@ export function createFixtureWiki() {
   leaf("investigations/general/probe.md", PROBE, "# Probe\n\nA lone investigation.\n");
   leaf("investigations/general/refs-demo.md", REFS, REFS_BODY);
   leaf("investigations/general/diagram-demo.md", DIAGRAM, DIAGRAM_BODY);
+  leaf("investigations/general/rich-html-demo.md", RICH, RICH_BODY);
   leaf(
     "self_improvement/workflow/planning/general/lesson-preserve-detail.md",
     LESSON,

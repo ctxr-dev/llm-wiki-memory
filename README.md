@@ -81,11 +81,19 @@ RAG memory stacks are powerful but heavy: a vector database, a container, an emb
 
 ![05](https://img.shields.io/badge/05-OFFLINE_UPKEEP-0D0D14?style=flat-square&labelColor=FCEE0A)  An opt-in offline pass dedupes near-identical notes and refreshes stale ones — reversible, never a hard delete. → [consolidate.md](docs/consolidate.md)
 
+![05b](https://img.shields.io/badge/05b-DEDUPE_AT_WRITE-0D0D14?style=flat-square&labelColor=FCEE0A)  Every save is compared to the corpus first, using the same calibrated thresholds: a near-certain duplicate is refused and names the existing leaf, a near neighbour is reported, everything else saves silently. No pre-save search for the agent to run, and it fails open if the embedder is down.
+
 ![06](https://img.shields.io/badge/06-LOCAL_RECALL-0D0D14?style=flat-square&labelColor=FCEE0A)  Transformer embeddings rank queries on-device (default `onnx-community/embeddinggemma-300m-ONNX`); nothing leaves your machine. → [embeddings.md](docs/embeddings.md)
 
 ![07](https://img.shields.io/badge/07-PRIORITY_AWARE-0D0D14?style=flat-square&labelColor=FCEE0A)  Every atom carries an apply-strength — `P0` (guardrail) / `P1` (default) / `P2` (contextual). Relevance ranks first; priority only breaks near-ties.
 
 ![08](https://img.shields.io/badge/08-ONE_PROMPT_INSTALL-0D0D14?style=flat-square&labelColor=FCEE0A)  Paste one prompt or run one script. Idempotent.
+
+![09](https://img.shields.io/badge/09-DIAGRAMS_BUILT_IN-0D0D14?style=flat-square&labelColor=FCEE0A)  A leaf can carry a real diagram, not a screenshot: 29 diagram types render to inline SVG that themes with the page and self-checks its own geometry. → [diagrams-examples.md](docs/diagrams-examples.md)
+
+[![One of 29 diagram types: the engine's own trust boundaries, drawn by the engine](docs/img/diagrams/trust-boundary-map.png)](docs/diagrams-examples.html)
+
+<sub>Every diagram type, drawn by the engine itself — **[browse the live gallery](docs/diagrams-examples.html)** (full screen, dark mode) or read [the examples page](docs/diagrams-examples.md). The renderer refuses a diagram whose labels collide, whose runs cut through unrelated boxes, or whose content falls outside the frame.</sub>
 
 ## Works with your agent
 

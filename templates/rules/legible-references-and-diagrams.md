@@ -121,7 +121,81 @@ Keep diagrams individually small and focused. One diagram per flow, with labelle
 single all-encompassing graph that is technically complete and practically unreadable. When a
 diagram grows past roughly a dozen nodes, split it by flow rather than shrinking the labels.
 
-## 4. Verify the diagrams parse before saving
+## 4. Choosing a diagram type
+
+A diagram is only worth its tokens if the shape it draws matches the relationship you are
+describing. Picking the wrong type costs the reader more than prose would.
+
+**First decide whether a diagram is warranted at all.** A list of things is a table. A
+before-and-after is a table. One shape is a sentence. Reach for a diagram only when the
+RELATIONSHIPS between things carry the meaning.
+
+**Then pick the type from the table below and stop reading.** Do not scan every row; find the
+`pick it when` cue that matches what you are describing and use that kind. If two cues fit, the
+relationship is probably two diagrams.
+
+<!-- BEGIN GENERATED diagram-kinds (source: scripts/lib/diagrams/registry.mjs; regenerate with
+     `node .llm-wiki-memory/src/scripts/cli.mjs render-diagram --list --table`) -->
+
+| kind | use it for | pick it when |
+|---|---|---|
+| `architecture` | a system overview grouped into tiers or trust boundaries | you need boundary frames drawn around groups of components |
+| `bar` | comparing a magnitude across a few named things | the categories have no order and you are ranking them |
+| `er` | entities, their fields, and how they relate | the reader needs the field names, not just the boxes |
+| `fishbone` | candidate causes of one effect, grouped | you are still diagnosing and the causes group naturally |
+| `flow` | services and stores exchanging messages | the edges carry a payload worth naming |
+| `flowchart` | branching logic with decisions | a reader has to answer a question to know where they go next |
+| `gantt` | work items across a time axis | each item has a start and an end, and overlap matters |
+| `high-level` | an end-to-end stack across named phases | you need the whole platform on one page, phase by phase |
+| `kanban` | work items grouped by state | a census of what sits where, with no flow between items |
+| `layers` | a strict hierarchy of abstraction levels | each band sits ON the one below and nothing skips |
+| `line` | how one or more measures move over an ordered axis | the x axis has a direction, usually time |
+| `loop` | a cycle where each stage feeds the next | the last stage returns to the first |
+| `medallion` | data tiers of the same dataset by quality level | each tier is a refined copy, with a writer and a format |
+| `nested` | containment: what runs inside what | the relationship is inside, not talks-to |
+| `org-chart` | who owns what: people, teams, or agents | the nodes are owners and the reader needs the invocation path |
+| `polar` | magnitude around a cycle | the axis wraps: hours, months, compass headings |
+| `pyramid` | stages that shed volume, or a layered hierarchy | each stage is a subset of the one above |
+| `quadrant` | placing options on two judgement axes | you are prioritising and the four corners have names |
+| `radar` | one or two options scored on the same few criteria | the SHAPE of a trade-off is the point, not exact values |
+| `sankey` | quantities flowing and splitting between stages | you need to see where the volume goes, not just the path |
+| `scatter` | whether two measures relate | you are looking for correlation, not comparing categories |
+| `sequence` | an ordered exchange between a few actors | the ORDER of the steps is the point |
+| `state` | a lifecycle: the states a thing can be in | the same entity changes status over time |
+| `swimlane` | one process crossing several owners | WHO does each step matters as much as the order |
+| `timeline` | dated events along one axis | WHEN each thing happened is the point |
+| `tree` | parent-to-child hierarchy, one parent each | no node has two parents; otherwise use flow |
+| `treemap` | how a total divides into parts, by area | the relative SIZE of the parts is the message |
+| `venn` | two or three sets and what they share | the OVERLAP is the thing you are describing |
+| `wardley` | a value chain against how evolved each part is | you are arguing about build versus buy |
+
+<!-- END GENERATED diagram-kinds -->
+
+That table is GENERATED from the renderer registry, so it is always what the engine can actually
+draw. `render-diagram --list` prints the same catalogue as JSON at any time; a kind that is not
+listed does not exist, and asking for it fails loudly rather than rendering something else.
+A drift test fails the build if this copy and the registry disagree, so trust the table.
+
+**Authoring is one command**, and it self-checks:
+
+```
+node .llm-wiki-memory/src/scripts/cli.mjs render-diagram --spec <file.mjs> --strict
+```
+
+`--strict` refuses to emit a diagram with geometric defects (a label sitting on a box, a run
+cutting through an unrelated node, content clipped outside the frame). Use `--html --out <file>`
+to produce a page you can actually LOOK at before saving; the mechanical check and the eye catch
+different failures, and a diagram that passes one can still be unreadable.
+
+Inline SVG is the default for a wiki leaf. Fall back to a ```mermaid fence only when the diagram
+is trivial, when the renderer refuses it, or when the target is not a wiki leaf (a README, a PR
+body). **Put prose before the diagram**: a search hit returns a leaf's first 600 characters, so a
+leaf that opens with `<svg` returns markup and no information. And state the portability cost
+honestly: an SVG leaf renders richly in the wiki app, renders as NOTHING on GitHub (its sanitizer
+drops inline `<svg>` outright), and is a screenful of raw markup in a terminal. The legend and the
+surrounding prose therefore have to carry the facts on their own.
+
+## 5. Verify the diagrams parse before saving
 
 A diagram that fails to render is worse than no diagram: it occupies the place the reader looks
 first and yields an error box. Mermaid syntax is easy to get subtly wrong — especially inside

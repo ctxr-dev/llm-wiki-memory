@@ -46,13 +46,12 @@ Do NOT invoke when:
    file edits, or transcript references — note the key(s). Multiple
    issues OK.
 
-2. **For each active issue, decide what to record.** Search-before-save
-   (discipline rule 16): find the issue's EXISTING wiki knowledge file and
-   UPDATE it in place rather than creating a duplicate — use `search_memory`
-   with the issue key + the topic across every path (delegate the search to a
-   subagent when available so it can scan broadly without bloating the main
-   chat), or compute the path if you know the topology, and read it. Ask
-   yourself:
+2. **For each active issue, decide what to record.** Prefer UPDATING the
+   issue's existing wiki file over creating a second one: read it (compute the
+   path if you know the topology) and re-save under its own name. You do not
+   need a pre-save search for safety — the write path checks for duplicates and
+   refuses one naming the existing leaf (discipline rule 16) — but reading the
+   current file is still how you know what is already recorded. Ask yourself:
    - Is there a finding from this session that isn't already in the
      issue's body?
    - Did the plan's `## Reasons` section gain new entries that should be

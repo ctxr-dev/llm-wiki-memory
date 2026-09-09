@@ -184,7 +184,7 @@ export async function cachedLeafVectors(cache, items, opts) {
   for (let i = 0; i < list.length; i += 1) {
     const p = pending[i];
     if (!p) continue;
-    const { embedText, body, full } = list[i];
+    const { id, embedText, body, full } = list[i];
     const { existing, vectorHit } = p;
     const stage = staged[i];
     // A full leaf embeds its whole body (fullMaxChunks); others cap at maxChunks.
@@ -193,8 +193,26 @@ export async function cachedLeafVectors(cache, items, opts) {
       maxChunks: full ? (opts?.fullMaxChunks ?? opts?.maxChunks) : opts?.maxChunks,
       margin: opts?.margin,
     };
-    const texts =
-      needChunks && tokenizer ? chunkTexts(embedText, body, tokenizer, chunkOpts) : null;
+    // `chunkTexts` throws if its embedText/body coupling ever breaks, rather than
+    // slicing a wrong header and persisting vectors for text no leaf contains.
+    // That refusal is per-LEAF here on purpose: this runs on the recall path, where
+    // `searchOneTree` is explicit that a search must not throw, so letting it
+    // propagate would trade one leaf's degraded chunking for the whole query's
+    // failure across every category. `null` is the already-supported "no chunk set"
+    // state — the leaf falls back to its whole-leaf vector, exactly as it behaved
+    // before chunking existed — and the reason is named loudly for the operator.
+    /** @type {string[] | null} */
+    let texts = null;
+    if (needChunks && tokenizer) {
+      try {
+        texts = chunkTexts(embedText, body, tokenizer, chunkOpts);
+      } catch (err) {
+        texts = null;
+        console.error(
+          `[embed] chunking refused for ${id}: ${err instanceof Error ? err.message : String(err)} — falling back to the whole-leaf vector; this leaf's long-body recall is degraded until the cause is fixed`,
+        );
+      }
+    }
     if (texts && texts.length > 1) {
       const chunkHashes = texts.map(contentHash);
       const prev = existing && Array.isArray(existing.chunks) ? existing.chunks : null;

@@ -156,6 +156,8 @@ function buildSettings({ configPath, cmdProbe } = {}) {
     quality: sections.quality,
     gate: sections.gate,
     wiki: sections.wiki,
+    dedupe: sections.dedupe,
+    diagrams: sections.diagrams,
     providers: sections.providers,
     crossCuttingAreas: sections.crossCuttingAreas,
   };
@@ -177,6 +179,8 @@ function buildSettings({ configPath, cmdProbe } = {}) {
       quality: Object.freeze(built.quality),
       gate: Object.freeze(built.gate),
       wiki: Object.freeze(built.wiki),
+      dedupe: Object.freeze(built.dedupe),
+      diagrams: Object.freeze(built.diagrams),
       providers: Object.freeze({
         chain: Object.freeze(built.providers.chain.slice()),
         ...Object.fromEntries(

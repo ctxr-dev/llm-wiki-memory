@@ -41,6 +41,7 @@ export function NavPanel({
     <CollapsibleColumn
       ariaLabel="browse"
       railLabel="Categories"
+      storageKey="categories"
       railContext={railContext}
       expandedWidthClass="w-64"
       collapseBelowPx={1024}

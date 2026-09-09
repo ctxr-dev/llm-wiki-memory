@@ -811,6 +811,8 @@ test("parity: every scalar structural default in buildSettings matches templates
   // Every scalar knob (excludes providers model-lists + chain + crossCuttingAreas,
   // which intentionally differ: code ships [], template ships the model lists).
   const scalarSections = [
+    "dedupe",
+    "diagrams",
     "consolidate",
     "flush",
     "hook",

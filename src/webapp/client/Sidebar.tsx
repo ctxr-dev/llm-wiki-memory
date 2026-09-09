@@ -39,6 +39,7 @@ export function Sidebar({
     <CollapsibleColumn
       ariaLabel="wikis"
       railLabel="Wikis"
+      storageKey="wikis"
       railContext={activeWiki?.label}
       expandedWidthClass="w-56"
       collapseBelowPx={1280}

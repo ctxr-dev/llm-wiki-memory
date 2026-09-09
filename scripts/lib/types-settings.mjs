@@ -131,6 +131,18 @@
  */
 
 /**
+ * @typedef {Object} DedupeSection
+ * @property {boolean} enabled
+ * @property {number} probeThreshold below this cosine a save is silent
+ * @property {number} duplicateThreshold at or above this a save is refused
+ */
+
+/**
+ * @typedef {Object} DiagramsSection
+ * @property {"auto" | "svg" | "mermaid"} mode
+ */
+
+/**
  * The fully-resolved settings object (also the shape of the mutable working
  * `sections` object the overlay/validate passes mutate before it is frozen).
  * @typedef {Object} Settings
@@ -144,6 +156,8 @@
  * @property {GateSection} gate
  * @property {QualitySection} quality
  * @property {WikiSection} wiki
+ * @property {DedupeSection} dedupe
+ * @property {DiagramsSection} diagrams
  * @property {ProvidersSection} providers
  * @property {string[]} crossCuttingAreas
  */

@@ -114,6 +114,29 @@ export async function handleSaveLeaf(rest) {
     return;
   }
 
+  // The same probe the MCP write door runs. Rule 21 routes every LARGE body
+  // through this command, so a probe wired only into the MCP tools would exempt
+  // exactly the biggest leaves — the ones a duplicate costs most.
+  const { settings } = await import("./lib/settings.mjs");
+  const { probeForDuplicate, duplicateRefusal } = await import("./lib/dedupe-probe.mjs");
+  const dup = rest.includes("--allow-duplicate")
+    ? /** @type {import("./lib/dedupe-probe.mjs").DuplicateVerdict} */ ({
+        verdict: "none",
+        score: 0,
+      })
+    : await probeForDuplicate({
+        dataset,
+        name,
+        text,
+        metadata,
+        thresholds: settings().dedupe,
+      });
+  if (dup.verdict === "duplicate") {
+    out({ ok: false, error: "duplicate-suspected", detail: duplicateRefusal(dup) });
+    process.exitCode = 1;
+    return;
+  }
+
   const { saveDocument } = await import("./lib/wiki-store.mjs");
   const { withWikiCommit } = await import("./lib/wiki-commit.mjs");
   try {

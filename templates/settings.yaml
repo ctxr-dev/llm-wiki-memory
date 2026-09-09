@@ -238,6 +238,30 @@ wiki:
   # is not its own repo toplevel (so it can never commit into your project).
   autoCommit: true
 
+# Write-time duplicate detection: one cheap similarity probe per save, so the
+# exhaustive multi-angle search only runs when a duplicate is actually likely.
+dedupe:
+  # false skips the probe entirely (one embedding + one category scan per write).
+  enabled: true
+  # Below this cosine nothing related exists: the save is silent. Between the two
+  # thresholds the save proceeds and reports its nearest neighbour so the author
+  # can reconcile. At or above duplicateThreshold the save is REFUSED and names
+  # the existing leaf, unless the caller asserts a new leaf is intended.
+  #
+  # These are the SAME calibrated numbers consolidate uses (empirically remapped
+  # for EmbeddingGemma on a 537-leaf corpus: true near-duplicates scored >= 0.9925,
+  # the closest non-duplicate pair < 0.956), so "the same note" means one thing
+  # across the write path and the offline pass. Retune both together.
+  probeThreshold: 0.7
+  duplicateThreshold: 0.975
+
+# Which diagram form to author. `auto` lets the agent follow the diagram rule
+# (inline SVG for a wiki leaf; mermaid for a README/PR body or a trivial
+# diagram); `svg` and `mermaid` force one form. Readable by an agent via
+# get_memory_config, since a setting nothing can read instructs nobody.
+diagrams:
+  mode: auto
+
 # Provider chain + per-provider model fallback lists.
 providers:
   # Tried head-to-tail when MEMORY_LLM_PROVIDER (env) isn't set. EMPTY here

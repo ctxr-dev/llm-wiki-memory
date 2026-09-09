@@ -3,7 +3,7 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSlug from "rehype-slug";
 import rehypeRaw from "rehype-raw";
-import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import rehypeSanitize from "rehype-sanitize";
 import { CodeBlock } from "./CodeBlock";
 import { Mermaid } from "./Mermaid";
 import { resolveRef, resolveRefHref } from "./refs";
@@ -12,19 +12,23 @@ import { DEF_TOKEN_ATTR, hasDefTokenClass } from "./defTokens";
 import { cancelDefinitionFlash } from "./defFlash";
 import { DefTokenLink, PlainLink, WikiRefLink } from "./mdAnchors";
 import { DiagramFrame } from "./DiagramViewer";
+import { SANITIZE_SCHEMA, isSafeDataImage } from "./sanitizeSchema";
+import {
+  DIAGRAM_NATURAL_ATTR,
+  isDiagramBlockNode,
+  parseNatural,
+  rehypeDiagramBlocks,
+} from "./diagramBlocks";
 import type { OpenRef } from "./mdAnchors";
 import type { Wiki } from "./api";
 
-const SANITIZE_SCHEMA: typeof defaultSchema = {
-  ...defaultSchema,
-  clobberPrefix: "",
-  protocols: {
-    ...defaultSchema.protocols,
-    href: [...(defaultSchema.protocols?.href ?? []), "brain"],
-  },
-};
-
 type MdNode = { type: string; value?: string; url?: string; children?: MdNode[] };
+
+function transformUrl(wikis: Wiki[], url: string, key: string): string {
+  if (resolveRefHref(wikis, url)) return url;
+  if (key === "src" && isSafeDataImage(url)) return url;
+  return defaultUrlTransform(url);
+}
 
 const REF_TOKEN = /[A-Za-z0-9._/-]+:[A-Za-z0-9._/-]+\.md\b/g;
 
@@ -100,8 +104,14 @@ export function Markdown({
     <div className="md-body min-w-0">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkRefs]}
-        rehypePlugins={[rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], rehypeSlug, rehypeDefTokens]}
-        urlTransform={(url) => (resolveRefHref(wikis, url) ? url : defaultUrlTransform(url))}
+        rehypePlugins={[
+          rehypeRaw,
+          [rehypeSanitize, SANITIZE_SCHEMA],
+          rehypeSlug,
+          rehypeDefTokens,
+          rehypeDiagramBlocks,
+        ]}
+        urlTransform={(url, key) => transformUrl(wikis, url, key)}
         components={{
           a({ href, className, children, node, ...rest }) {
             const resolved = resolveRefHref(wikis, href);
@@ -138,6 +148,26 @@ export function Markdown({
                   </pre>
                 }
                 full={<pre data-diagram-full="">{children}</pre>}
+              />
+            );
+          },
+          div({ children, node, ...rest }) {
+            if (!isDiagramBlockNode(node)) return <div {...rest}>{children}</div>;
+            const natural = parseNatural(node?.properties?.[DIAGRAM_NATURAL_ATTR]);
+            return (
+              <DiagramFrame
+                label="diagram"
+                natural={natural}
+                preview={
+                  <div data-diagram-preview="" className="md-diagram overflow-x-auto">
+                    {children}
+                  </div>
+                }
+                full={
+                  <div data-diagram-full="" className={natural ? "md-diagram-full" : ""}>
+                    {children}
+                  </div>
+                }
               />
             );
           },

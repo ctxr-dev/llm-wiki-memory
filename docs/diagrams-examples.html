@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>llm-wiki-memory diagram gallery</title>
+<style>
+.dd{margin:0}
+.dd svg{--paper:#f5f5f5;--paper2:#ececec;--card:#ffffff;--ink:#2d3142;--muted:#4f5d75;
+--soft:#7a8399;--rule:rgba(45,49,66,.12);--wash:rgba(45,49,66,.04);--zone:rgba(45,49,66,.02);
+--zone-line:rgba(45,49,66,.10);--accent:#eb6c36;--accent-tint:rgba(235,108,54,.10);
+--sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
+html.dark .dd svg{--paper:#2d3142;--paper2:#393e53;--card:#39405a;--ink:#f5f5f5;--muted:#bfc0c0;
+--soft:#9aa3b6;--rule:rgba(245,245,245,.14);--wash:rgba(245,245,245,.05);--zone:rgba(245,245,245,.03);
+--zone-line:rgba(245,245,245,.12);--accent:#f08a59;--accent-tint:rgba(240,138,89,.14)}
+.dd .bg{fill:var(--paper)}
+.dd .zone{fill:var(--zone);stroke:var(--zone-line);stroke-width:.8}
+.dd .zlab{fill:var(--soft);font:500 8px var(--mono);letter-spacing:.16em}
+.dd .zmask{fill:var(--paper)}
+.dd .nb{fill:var(--card);stroke:var(--ink);stroke-width:1}
+.dd .nb.focal{fill:var(--accent-tint);stroke:var(--accent);stroke-width:1.4}
+.dd .nb.store{fill:var(--wash);stroke:var(--muted);stroke-width:1}
+.dd .nb.external{fill:var(--wash);stroke:var(--rule);stroke-width:1}
+.dd .nb.ghost{fill:none;stroke:var(--rule);stroke-width:1;stroke-dasharray:4 3}
+.dd .nn{fill:var(--ink);font:600 12px var(--sans)}
+.dd .nn.on-focal{fill:var(--ink)}
+.dd .ns{fill:var(--soft);font:400 9px var(--mono)}
+.dd .e{fill:none;stroke:var(--muted);stroke-width:1.2;stroke-linecap:round}
+.dd .e.async{stroke-dasharray:5 4;stroke-width:1}
+.dd .e.store{stroke:var(--ink);stroke-width:2.4;opacity:.8}
+.dd .e.focal{stroke:var(--accent);stroke-width:1.6}
+.dd .el{fill:var(--muted);font:400 8.5px var(--mono);letter-spacing:.04em}
+.dd .el.focal{fill:var(--accent)}
+.dd .emask{fill:var(--paper)}
+.dd .note{fill:var(--soft);font:italic 400 11px var(--sans)}
+.dd .life{stroke:var(--rule);stroke-width:1;stroke-dasharray:3 4}
+.dd .seqnote{fill:var(--wash);stroke:var(--rule);stroke-width:.8}
+.dd .seqdiv{stroke:var(--rule);stroke-width:.8}
+.dd .dot{fill:var(--ink)}
+.dd .ring{fill:none;stroke:var(--ink);stroke-width:1.2}
+.dd .tag{fill:var(--soft);font:500 8.5px var(--mono);letter-spacing:.14em}
+.dd .bus{fill:none;stroke:var(--muted);stroke-width:1}
+.dd .lay{fill:var(--card);stroke:var(--ink);stroke-width:1}
+.dd .lay.alt{fill:var(--paper2)}
+.dd .lay.focal{fill:var(--accent-tint);stroke:var(--accent);stroke-width:1.4}
+.dd .hair{stroke:var(--rule);stroke-width:1}
+.dd .lname{fill:var(--ink);font:600 14px var(--sans)}
+.dd .lnote{fill:var(--soft);font:400 9.5px var(--mono)}
+.dd .grid{fill:none;stroke:var(--rule);stroke-width:.8;opacity:.55}
+.dd .axis{fill:none;stroke:var(--muted);stroke-width:1;opacity:.7}
+.dd .tick{fill:var(--soft);font:400 8px var(--mono)}
+.dd .clab{fill:var(--ink);font:600 11px var(--sans)}
+.dd .atitle{fill:var(--muted);font:500 9px var(--mono);letter-spacing:.12em}
+.dd .vlab{fill:var(--muted);font:400 8px var(--mono)}
+.dd .vlab.focal{fill:var(--accent)}
+.dd .mark{fill:var(--wash);stroke:var(--muted);stroke-width:1}
+.dd .mark.focal{fill:var(--accent-tint);stroke:var(--accent);stroke-width:1.4}
+.dd .mark.s1{fill:rgba(79,93,117,.18);stroke:var(--muted)}
+.dd .mark.s2{fill:rgba(122,131,153,.18);stroke:var(--soft)}
+.dd .mark.s3{fill:rgba(45,49,66,.12);stroke:var(--ink)}
+.dd .mark.s4{fill:rgba(45,49,66,.06);stroke:var(--rule)}
+.dd .ser{fill:none;stroke:var(--muted);stroke-width:1.2;stroke-linejoin:round}
+.dd .ser.focal{stroke:var(--accent);stroke-width:1.8}
+.dd .ser.s1{stroke:var(--muted)}
+.dd .ser.s2{stroke:var(--soft)}
+.dd .ser.s3{stroke:var(--ink);opacity:.75}
+.dd .ser.s4{stroke:var(--rule)}
+.dd .band{fill:var(--accent-tint);opacity:.5}
+.dd .flow{fill:var(--muted);opacity:.22}
+.dd .flow.focal{fill:var(--accent);opacity:.4}
+.dd .swatch{fill:var(--wash);stroke:var(--muted);stroke-width:1}
+.dd .swatch.focal{fill:var(--accent);stroke:var(--accent)}
+.dd .swatch.s1{fill:rgba(79,93,117,.5)}
+.dd .swatch.s2{fill:rgba(122,131,153,.5)}
+.dd .swatch.s3{fill:rgba(45,49,66,.35)}
+.dd .swatch.s4{fill:rgba(45,49,66,.18)}
+</style>
+<style>
+:root{color-scheme:light}
+html.dark{color-scheme:dark}
+body{margin:0;padding:0 24px 64px;background:#f5f5f5;color:#2d3142;
+font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+html.dark body{background:#22252f;color:#f5f5f5}
+.top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;
+padding:32px 0 16px;position:sticky;top:0;background:inherit;z-index:5}
+h1{margin:0;font-size:22px}
+.top p{margin:4px 0 0;opacity:.65;font-size:13px}
+.btn{appearance:none;border:1px solid rgba(45,49,66,.2);background:#fff;color:inherit;
+border-radius:6px;padding:6px 12px;font:inherit;font-size:12px;cursor:pointer;text-decoration:none}
+html.dark .btn{background:#2d3142;border-color:rgba(245,245,245,.2)}
+.toc{display:flex;flex-wrap:wrap;gap:6px;padding:0 0 24px}
+.toc a{font:500 11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em;
+text-decoration:none;color:inherit;opacity:.7;border:1px solid rgba(45,49,66,.15);
+border-radius:999px;padding:3px 10px}
+html.dark .toc a{border-color:rgba(245,245,245,.15)}
+.toc a:hover{opacity:1;border-color:#eb6c36}
+.card{margin:0 0 28px;border:1px solid rgba(45,49,66,.14);border-radius:10px;background:#fff;
+overflow:hidden;scroll-margin-top:96px}
+html.dark .card{background:#2d3142;border-color:rgba(245,245,245,.14)}
+.card header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
+padding:14px 16px;border-bottom:1px solid rgba(45,49,66,.1)}
+html.dark .card header{border-color:rgba(245,245,245,.1)}
+.card h2{margin:0;font:600 13px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em}
+.card header p{margin:4px 0 0;font-size:13px;opacity:.7;max-width:70ch}
+.tools{display:flex;gap:6px;flex:none}
+.stage{padding:16px}
+.stage .dd svg{width:100%;height:auto;display:block}
+.card:fullscreen,.card.maxed{background:#f5f5f5;overflow:auto}
+html.dark .card:fullscreen,html.dark .card.maxed{background:#22252f}
+.card:fullscreen .stage,.card.maxed .stage{display:flex;align-items:center;
+justify-content:center;height:calc(100vh - 64px);padding:24px}
+.card:fullscreen .stage .dd,.card.maxed .stage .dd{width:100%}
+.card:fullscreen .stage .dd svg,.card.maxed .stage .dd svg{max-height:calc(100vh - 112px)}
+.card.maxed{position:fixed;inset:0;z-index:20;margin:0;border-radius:0}
+</style>
+</head><body>
+<header class="top">
+<div><h1>Diagram gallery</h1><p>29 diagram types, every one rendered by the engine in this repo.</p></div>
+<button class="btn" id="theme" type="button">Dark</button>
+</header>
+<nav class="toc"><a href="#ingest-path">flow</a><a href="#trust-boundary-map">architecture</a><a href="#gated-save-handshake">sequence</a><a href="#recall-ladder">flowchart</a><a href="#leaf-lifecycle">state</a><a href="#capture-to-recall-lanes">swimlane</a><a href="#embedding-module-tree">tree</a><a href="#surface-ownership">org-chart</a><a href="#deployment-containment">nested</a><a href="#wiki-data-model">er</a><a href="#leaves-by-category">bar</a><a href="#recall-latency-percentiles">line</a><a href="#embed-cost-vs-accuracy">scatter</a><a href="#engine-build-phases">gantt</a><a href="#embed-backend-scorecard">radar</a><a href="#captures-by-hour">polar</a><a href="#capture-funnel">pyramid</a><a href="#corpus-bytes-treemap">treemap</a><a href="#leaf-lifecycle-venn">venn</a><a href="#capture-routing-sankey">sankey</a><a href="#quadrant-effort-impact-roadmap">quadrant</a><a href="#wardley-memory-engine-value-chain">wardley</a><a href="#timeline-release-history">timeline</a><a href="#loop-memory-flywheel">loop</a><a href="#fishbone-recall-returned-nothing">fishbone</a><a href="#layers-recall-stack">layers</a><a href="#kanban-diagram-engine-board">kanban</a><a href="#medallion-captured-corpus-tiers">medallion</a><a href="#highlevel-platform-end-to-end">high-level</a></nav>
+<section class="card" id="ingest-path">
+<header>
+<div><h2>flow</h2><p>How a captured session becomes a durable leaf: hook, flush, distill, compile, and promotion into the wiki.</p></div>
+<div class="tools">
+<a class="btn" href="#ingest-path" title="permalink">#</a>
+<button class="btn" data-full="0" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="-4 -88 968 532" role="img" aria-label="Capture-to-wiki ingest path">
+<defs>
+<marker id="gx-ingest-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--muted)"/></marker>
+<marker id="gx-ingest-af" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--accent)"/></marker>
+<marker id="gx-ingest-as" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--ink)"/></marker>
+</defs>
+<rect class="bg" x="-4" y="-88" width="968" height="532" rx="10"/>
+<rect class="zone" x="14" y="-6" width="204" height="208" rx="8"/><rect class="zone" x="294" y="-6" width="204" height="320" rx="8"/><rect class="zone" x="574" y="-6" width="204" height="432" rx="8"/>
+<path class="e" d="M116,76 V140" marker-end="url(#gx-ingest-a)"/><path class="e store" d="M204,164 H248 Q256,164 256,156 V60 Q256,52 264,52 H308" marker-end="url(#gx-ingest-as)"/><path class="e focal" d="M396,76 V140" marker-end="url(#gx-ingest-af)"/><path class="e async" d="M396,252 V188" marker-end="url(#gx-ingest-a)"/><path class="e store" d="M484,164 H528 Q536,164 536,156 V60 Q536,52 544,52 H588" marker-end="url(#gx-ingest-as)"/><path class="e store" d="M484,164 H588" marker-end="url(#gx-ingest-as)"/><path class="e" d="M764,52 H796 Q804,52 804,60 V268 Q804,276 796,276 H764" marker-end="url(#gx-ingest-a)"/><path class="e" d="M676,188 V252" marker-end="url(#gx-ingest-a)"/><path class="e async" d="M676,300 V364" marker-end="url(#gx-ingest-a)"/><path class="e async" d="M396,252 V242 H294 V-24 Q294,-32 302,-32 H668 Q676,-32 676,-24 V28" marker-end="url(#gx-ingest-a)"/>
+<rect class="nb backend" x="28" y="28" width="176" height="48" rx="6"/><text class="nn" x="116" y="55.5" text-anchor="middle"><tspan x="116" dy="0">SessionEnd hook</tspan></text><rect class="nb backend" x="28" y="140" width="176" height="48" rx="6"/><text class="nn" x="116" y="162" text-anchor="middle"><tspan x="116" dy="0">flush worker</tspan></text><text class="ns" x="116" y="162" text-anchor="middle"><tspan x="116" dy="13">distill-by-chunks, map-reduce</tspan></text><rect class="nb store" x="308" y="28" width="176" height="48" rx="6"/><text class="nn" x="396" y="50" text-anchor="middle"><tspan x="396" dy="0">daily atom file</tspan></text><text class="ns" x="396" y="50" text-anchor="middle"><tspan x="396" dy="13">daily/2026-08-28.md</tspan></text><rect class="nb focal" x="308" y="140" width="176" height="48" rx="6"/><text class="nn" x="396" y="167.5" text-anchor="middle"><tspan x="396" dy="0">compile step</tspan></text><rect class="nb backend" x="308" y="252" width="176" height="48" rx="6"/><text class="nn" x="396" y="274" text-anchor="middle"><tspan x="396" dy="0">hourly cron tick</tspan></text><text class="ns" x="396" y="274" text-anchor="middle"><tspan x="396" dy="13">cron-job.mjs</tspan></text><rect class="nb store" x="588" y="28" width="176" height="48" rx="6"/><text class="nn" x="676" y="55.5" text-anchor="middle"><tspan x="676" dy="0">knowledge leaf</tspan></text><rect class="nb store" x="588" y="140" width="176" height="48" rx="6"/><text class="nn" x="676" y="167.5" text-anchor="middle"><tspan x="676" dy="0">self_improvement leaf</tspan></text><rect class="nb backend" x="588" y="252" width="176" height="48" rx="6"/><text class="nn" x="676" y="274" text-anchor="middle"><tspan x="676" dy="0">git-backed wiki</tspan></text><text class="ns" x="676" y="274" text-anchor="middle"><tspan x="676" dy="13">auto-commit</tspan></text><rect class="nb store" x="588" y="364" width="176" height="48" rx="6"/><text class="nn" x="676" y="386" text-anchor="middle"><tspan x="676" dy="0">embedding cache</tspan></text><text class="ns" x="676" y="386" text-anchor="middle"><tspan x="676" dy="13">.embeddings/embeddings.json</tspan></text>
+<rect class="emask" x="130" y="94" width="97.3" height="28" rx="3"/><text class="el" x="178.65" y="105" text-anchor="middle"><tspan x="178.65" dy="0">spawn worker (pid,</tspan><tspan x="178.65" dy="11">session, turns)</tspan></text><rect class="emask" x="322" y="89" width="97.3" height="28" rx="3"/><text class="el" x="370.65" y="100" text-anchor="middle"><tspan x="370.65" dy="0">write N atom(s) to</tspan><tspan x="370.65" dy="11">daily/*.md</tspan></text><rect class="emask" x="410" y="117" width="121.55" height="17" rx="3"/><text class="el focal" x="470.775" y="128" text-anchor="middle"><tspan x="470.775" dy="0">promote candidate atoms</tspan></text><rect class="emask" x="410" y="206" width="121.55" height="28" rx="3"/><text class="el" x="470.775" y="217" text-anchor="middle"><tspan x="470.775" dy="0">hourly trigger: cli.mjs</tspan><tspan x="470.775" dy="11">compile</tspan></text><rect class="emask" x="602" y="89" width="111.85" height="17" rx="3"/><text class="el" x="657.925" y="100" text-anchor="middle"><tspan x="657.925" dy="0">promote decision atom</tspan></text><rect class="emask" x="484.925" y="138" width="102.14999999999999" height="17" rx="3"/><text class="el" x="536" y="149" text-anchor="middle"><tspan x="536" dy="0">promote lesson atom</tspan></text><rect class="emask" x="818" y="155.5" width="126.39999999999999" height="17" rx="3"/><text class="el" x="881.2" y="166.5" text-anchor="middle"><tspan x="881.2" dy="0">write leaf + auto-commit</tspan></text><rect class="emask" x="690" y="211.5" width="126.39999999999999" height="17" rx="3"/><text class="el" x="753.2" y="222.5" text-anchor="middle"><tspan x="753.2" dy="0">write leaf + auto-commit</tspan></text><rect class="emask" x="690" y="318" width="126.39999999999999" height="28" rx="3"/><text class="el" x="753.2" y="329" text-anchor="middle"><tspan x="753.2" dy="0">cli.mjs warm: embed cold</tspan><tspan x="753.2" dy="11">leaves</tspan></text><rect class="emask" x="436.35" y="-69" width="97.3" height="28" rx="3"/><text class="el" x="485" y="-58" text-anchor="middle"><tspan x="485" dy="0">consolidate merges</tspan><tspan x="485" dy="11">duplicate clusters</tspan></text>
+<rect class="zmask" x="23" y="-11.5" width="51.199999999999996" height="11" rx="2"/><text class="zlab" x="28" y="-3">CAPTURE</text><rect class="zmask" x="303" y="-11.5" width="79.19999999999999" height="11" rx="2"/><text class="zlab" x="308" y="-3">DISTILLATION</text><rect class="zmask" x="583" y="-11.5" width="84.8" height="11" rx="2"/><text class="zlab" x="588" y="-3">DURABLE STORE</text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="trust-boundary-map">
+<header>
+<div><h2>architecture</h2><p>The engine's processes, external calls, and disk storage grouped by trust boundary, from caller to git-backed wiki.</p></div>
+<div class="tools">
+<a class="btn" href="#trust-boundary-map" title="permalink">#</a>
+<button class="btn" data-full="1" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="-4 -40 1080 360" role="img" aria-label="Engine surfaces by trust boundary">
+<defs>
+<marker id="gx-arch-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--muted)"/></marker>
+<marker id="gx-arch-af" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--accent)"/></marker>
+<marker id="gx-arch-as" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--ink)"/></marker>
+</defs>
+<rect class="bg" x="-4" y="-40" width="1080" height="360" rx="10"/>
+<rect class="zone" x="14" y="-6" width="204" height="208" rx="8"/><rect class="zone" x="294" y="-6" width="204" height="304" rx="8"/><rect class="zone" x="574" y="-6" width="204" height="208" rx="8"/><rect class="zone" x="854" y="-6" width="204" height="208" rx="8"/>
+<path class="e" d="M204,52 H308" marker-end="url(#gx-arch-a)"/><path class="e async" d="M204,164 H248 Q256,164 256,172 V260 Q256,268 264,268 H308" marker-end="url(#gx-arch-a)"/><path class="e" d="M396,76 V140" marker-end="url(#gx-arch-a)"/><path class="e focal" d="M484,52 H516 Q524,52 524,60 V260 Q524,268 516,268 H484" marker-end="url(#gx-arch-af)"/><path class="e async" d="M484,164 H588" marker-end="url(#gx-arch-a)"/><path class="e store" d="M396,188 V206 Q396,214 404,214 H948 Q956,214 956,206 V188" marker-end="url(#gx-arch-as)"/><path class="e async" d="M484,268 H528 Q536,268 536,260 V60 Q536,52 544,52 H588" marker-end="url(#gx-arch-a)"/><path class="e store" d="M396,252 V242 H294 V10 Q294,2 302,2 H948 Q956,2 956,10 V28" marker-end="url(#gx-arch-as)"/><path class="e" d="M764,164 H868" marker-end="url(#gx-arch-a)"/>
+<rect class="nb backend" x="28" y="28" width="176" height="48" rx="6"/><text class="nn" x="116" y="55.5" text-anchor="middle"><tspan x="116" dy="0">chat session</tspan></text><rect class="nb backend" x="28" y="140" width="176" height="48" rx="6"/><text class="nn" x="116" y="167.5" text-anchor="middle"><tspan x="116" dy="0">PostToolUse hook</tspan></text><rect class="nb focal" x="308" y="28" width="176" height="48" rx="6"/><text class="nn" x="396" y="55.5" text-anchor="middle"><tspan x="396" dy="0">MCP tool router</tspan></text><rect class="nb backend" x="308" y="140" width="176" height="48" rx="6"/><text class="nn" x="396" y="167.5" text-anchor="middle"><tspan x="396" dy="0">recall engine</tspan></text><rect class="nb backend" x="308" y="252" width="176" height="32" rx="6"/><text class="nn" x="396" y="271.5" text-anchor="middle"><tspan x="396" dy="0">compile engine</tspan></text><rect class="nb backend" x="588" y="28" width="176" height="48" rx="6"/><text class="nn" x="676" y="50" text-anchor="middle"><tspan x="676" dy="0">LLM provider</tspan></text><text class="ns" x="676" y="50" text-anchor="middle"><tspan x="676" dy="13">chat completion API</tspan></text><rect class="nb backend" x="588" y="140" width="176" height="48" rx="6"/><text class="nn" x="676" y="162" text-anchor="middle"><tspan x="676" dy="0">embedding backend</tspan></text><text class="ns" x="676" y="162" text-anchor="middle"><tspan x="676" dy="13">embeddinggemma-300m</tspan></text><rect class="nb backend" x="868" y="28" width="176" height="48" rx="6"/><text class="nn" x="956" y="55.5" text-anchor="middle"><tspan x="956" dy="0">git-backed wiki</tspan></text><rect class="nb backend" x="868" y="140" width="176" height="48" rx="6"/><text class="nn" x="956" y="167.5" text-anchor="middle"><tspan x="956" dy="0">embedding cache</tspan></text>
+<rect class="emask" x="207.35" y="15" width="97.3" height="28" rx="3"/><text class="el" x="256" y="26" text-anchor="middle"><tspan x="256" dy="0">MCP stdio: recall_</tspan><tspan x="256" dy="11">lessons</tspan></text><rect class="emask" x="226.075" y="208" width="111.85" height="28" rx="3"/><text class="el" x="282" y="219" text-anchor="middle"><tspan x="282" dy="0">in-process import, no</tspan><tspan x="282" dy="11">MCP hop</tspan></text><rect class="emask" x="410" y="99.5" width="111.85" height="17" rx="3"/><text class="el" x="465.925" y="110.5" text-anchor="middle"><tspan x="465.925" dy="0">chunked vector search</tspan></text><rect class="emask" x="538" y="116.5" width="102.14999999999999" height="17" rx="3"/><text class="el focal" x="589.075" y="127.5" text-anchor="middle"><tspan x="589.075" dy="0">save_lesson (gated)</tspan></text><rect class="emask" x="492.2" y="138" width="87.6" height="17" rx="3"/><text class="el" x="536" y="149" text-anchor="middle"><tspan x="536" dy="0">embed query text</tspan></text><rect class="emask" x="629.775" y="200" width="92.44999999999999" height="28" rx="3"/><text class="el" x="676" y="211" text-anchor="middle"><tspan x="676" dy="0">read per-category</tspan><tspan x="676" dy="11">vectors</tspan></text><rect class="emask" x="602" y="97.5" width="111.85" height="17" rx="3"/><text class="el" x="657.925" y="108.5" text-anchor="middle"><tspan x="657.925" dy="0">distill + judge calls</tspan></text><rect class="emask" x="561.8" y="-24" width="126.39999999999999" height="17" rx="3"/><text class="el" x="625" y="-13" text-anchor="middle"><tspan x="625" dy="0">write leaf + auto-commit</tspan></text><rect class="emask" x="772.2" y="138" width="87.6" height="17" rx="3"/><text class="el" x="816" y="149" text-anchor="middle"><tspan x="816" dy="0">embedding vector</tspan></text>
+<rect class="zmask" x="23" y="-11.5" width="84.8" height="11" rx="2"/><text class="zlab" x="28" y="-3">AGENT PROCESS</text><rect class="zmask" x="303" y="-11.5" width="68" height="11" rx="2"/><text class="zlab" x="308" y="-3">MCP SERVER</text><rect class="zmask" x="583" y="-11.5" width="112.8" height="11" rx="2"/><text class="zlab" x="588" y="-3">EXTERNAL PROVIDERS</text><rect class="zmask" x="863" y="-11.5" width="68" height="11" rx="2"/><text class="zlab" x="868" y="-3">LOCAL DISK</text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="gated-save-handshake">
+<header>
+<div><h2>sequence</h2><p>The gated save handshake: a duplicate probe runs first, so a near-duplicate becomes an update instead of a new leaf.</p></div>
+<div class="tools">
+<a class="btn" href="#gated-save-handshake" title="permalink">#</a>
+<button class="btn" data-full="2" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="0 0 716 464" role="img" aria-label="Gated save with duplicate probe">
+<defs>
+<marker id="gx-save-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--muted)"/></marker>
+<marker id="gx-save-af" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--accent)"/></marker>
+<marker id="gx-save-as" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--ink)"/></marker>
+</defs>
+<rect class="bg" x="0" y="0" width="716" height="464" rx="10"/>
+<line class="life" x1="91" y1="70" x2="91" y2="441"/><line class="life" x1="269" y1="70" x2="269" y2="441"/><line class="life" x1="447" y1="70" x2="447" y2="441"/><line class="life" x1="625" y1="70" x2="625" y2="441"/>
+<line class="seqdiv" x1="22" y1="110" x2="694" y2="110"/><rect class="zmask" x="32" y="104" width="68" height="12" rx="2"/><text class="zlab" x="38" y="113">GATE CHECK</text><path class="e" d="M95,160 H264" marker-end="url(#gx-save-a)"/><path class="e" d="M269,176 H295 Q303,176 303,185 V193 Q303,202 295,202 H273" marker-end="url(#gx-save-a)"/><line class="seqdiv" x1="22" y1="216" x2="694" y2="216"/><rect class="zmask" x="32" y="210" width="73.6" height="12" rx="2"/><text class="zlab" x="38" y="219">DEDUP PROBE</text><path class="e" d="M273,255 H442" marker-end="url(#gx-save-a)"/><path class="e" d="M443,290 H274" marker-end="url(#gx-save-a)"/><rect class="seqnote" x="206" y="306" width="304" height="34" rx="4"/><text class="el" x="358" y="320" text-anchor="middle"><tspan x="358" dy="0">similarity above threshold: propose an update, not a new</tspan><tspan x="358" dy="11">leaf</tspan></text><path class="e store" d="M273,373 H620" marker-end="url(#gx-save-as)"/><path class="e" d="M265,419 H96" marker-end="url(#gx-save-a)"/>
+<rect class="nb backend" x="22" y="30" width="138" height="40" rx="6"/><text class="nn" x="91" y="53" text-anchor="middle"><tspan x="91" dy="0">chat session</tspan></text><rect class="nb focal" x="200" y="30" width="138" height="40" rx="6"/><text class="nn" x="269" y="53" text-anchor="middle"><tspan x="269" dy="0">MCP tool router</tspan></text><rect class="nb backend" x="378" y="30" width="138" height="40" rx="6"/><text class="nn" x="447" y="47.5" text-anchor="middle"><tspan x="447" dy="0">dedup probe</tspan></text><text class="ns" x="447" y="59.5" text-anchor="middle"><tspan x="447" dy="0">search_memory</tspan></text><rect class="nb backend" x="556" y="30" width="138" height="40" rx="6"/><text class="nn" x="625" y="53" text-anchor="middle"><tspan x="625" dy="0">git-backed wiki</tspan></text>
+<text class="el" x="180" y="139" text-anchor="middle"><tspan x="180" dy="0">save_lesson(title, body,</tspan><tspan x="180" dy="11">gate.userRequested)</tspan></text><text class="el" x="313" y="184"><tspan x="313" dy="0">verify gate.userRequested === true</tspan></text><text class="el" x="358" y="245" text-anchor="middle"><tspan x="358" dy="0">near-duplicate query</tspan></text><text class="el" x="358" y="280" text-anchor="middle"><tspan x="358" dy="0">candidate leaf + similarity 0.92</tspan></text><text class="el" x="447" y="363" text-anchor="middle"><tspan x="447" dy="0">write leaf + auto-commit</tspan></text><text class="el" x="180" y="398" text-anchor="middle"><tspan x="180" dy="0">saved: self_improvement/</tspan><tspan x="180" dy="11">gate-audit.md</tspan></text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="recall-ladder">
+<header>
+<div><h2>flowchart</h2><p>The recall decision ladder: warm the cache if needed, search, and flag any hit that needs validation as a prior.</p></div>
+<div class="tools">
+<a class="btn" href="#recall-ladder" title="permalink">#</a>
+<button class="btn" data-full="3" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="12 12 492 556" role="img" aria-label="Recall ladder">
+<defs>
+<marker id="gx-recall-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--muted)"/></marker>
+<marker id="gx-recall-af" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--accent)"/></marker>
+<marker id="gx-recall-as" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--ink)"/></marker>
+</defs>
+<rect class="bg" x="12" y="12" width="492" height="556" rx="10"/>
+<path class="e" d="M116,76 V110" marker-end="url(#gx-recall-a)"/><path class="e" d="M116,142 V176" marker-end="url(#gx-recall-a)"/><path class="e" d="M116,224 V258" marker-end="url(#gx-recall-a)"/><path class="e" d="M204,200 H308" marker-end="url(#gx-recall-a)"/><path class="e" d="M308,200 H264 Q256,200 256,208 V274 Q256,282 248,282 H204" marker-end="url(#gx-recall-a)"/><path class="e" d="M116,306 V340" marker-end="url(#gx-recall-a)"/><path class="e" d="M116,388 V422" marker-end="url(#gx-recall-a)"/><path class="e" d="M204,364 H308" marker-end="url(#gx-recall-a)"/><path class="e" d="M204,452 H308" marker-end="url(#gx-recall-a)"/><path class="e" d="M116,482 V516" marker-end="url(#gx-recall-a)"/><path class="e" d="M308,452 H264 Q256,452 256,460 V524 Q256,532 248,532 H204" marker-end="url(#gx-recall-a)"/><path class="e" d="M308,364 H264 Q256,364 256,372 V524 Q256,532 248,532 H204" marker-end="url(#gx-recall-a)"/>
+<rect class="nb backend" x="28" y="28" width="176" height="48" rx="24"/><text class="nn" x="116" y="48" text-anchor="middle"><tspan x="116" dy="0">recall_lessons(query,</tspan><tspan x="116" dy="15">filters)</tspan></text><rect class="nb backend" x="28" y="110" width="176" height="32" rx="6"/><text class="nn" x="116" y="129.5" text-anchor="middle"><tspan x="116" dy="0">embed query text</tspan></text><polygon class="nb backend" points="116,176 204,200 116,224 28,200"/><text class="nn" x="116" y="196" text-anchor="middle"><tspan x="116" dy="0">cache warm for</tspan><tspan x="116" dy="15">category?</tspan></text><rect class="nb backend" x="308" y="176" width="176" height="48" rx="6"/><text class="nn" x="396" y="196" text-anchor="middle"><tspan x="396" dy="0">cold-embed up to</tspan><tspan x="396" dy="15">maxColdPerRead</tspan></text><rect class="nb backend" x="28" y="258" width="176" height="48" rx="6"/><text class="nn" x="116" y="278" text-anchor="middle"><tspan x="116" dy="0">vector search top-k</tspan><tspan x="116" dy="15">chunks</tspan></text><polygon class="nb backend" points="116,340 204,364 116,388 28,364"/><text class="nn" x="116" y="360" text-anchor="middle"><tspan x="116" dy="0">any chunk above</tspan><tspan x="116" dy="15">similarity floor?</tspan></text><rect class="nb backend" x="308" y="340" width="176" height="48" rx="6"/><text class="nn" x="396" y="360" text-anchor="middle"><tspan x="396" dy="0">return empty: no</tspan><tspan x="396" dy="15">relevant memory</tspan></text><polygon class="nb backend" points="116,422 204,452 116,482 28,452"/><text class="nn" x="116" y="448" text-anchor="middle"><tspan x="116" dy="0">leaf references code</tspan><tspan x="116" dy="15">or system state?</tspan></text><rect class="nb focal" x="308" y="422" width="176" height="60" rx="6"/><text class="nn" x="396" y="440.5" text-anchor="middle"><tspan x="396" dy="0">flag as PRIOR:</tspan><tspan x="396" dy="15">validate before</tspan><tspan x="396" dy="15">relying</tspan></text><rect class="nb backend" x="28" y="516" width="176" height="32" rx="16"/><text class="nn" x="116" y="535.5" text-anchor="middle"><tspan x="116" dy="0">return scored chunks</tspan></text>
+<rect class="emask" x="130" y="232.5" width="24.549999999999997" height="17" rx="3"/><text class="el" x="142.275" y="243.5" text-anchor="middle"><tspan x="142.275" dy="0">yes</tspan></text><rect class="emask" x="246.15" y="174" width="19.7" height="17" rx="3"/><text class="el" x="256" y="185" text-anchor="middle"><tspan x="256" dy="0">no</tspan></text><rect class="emask" x="130" y="396.5" width="24.549999999999997" height="17" rx="3"/><text class="el" x="142.275" y="407.5" text-anchor="middle"><tspan x="142.275" dy="0">yes</tspan></text><rect class="emask" x="246.15" y="338" width="19.7" height="17" rx="3"/><text class="el" x="256" y="349" text-anchor="middle"><tspan x="256" dy="0">no</tspan></text><rect class="emask" x="243.725" y="426" width="24.549999999999997" height="17" rx="3"/><text class="el" x="256" y="437" text-anchor="middle"><tspan x="256" dy="0">yes</tspan></text><rect class="emask" x="130" y="490.5" width="19.7" height="17" rx="3"/><text class="el" x="139.85" y="501.5" text-anchor="middle"><tspan x="139.85" dy="0">no</tspan></text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="leaf-lifecycle">
+<header>
+<div><h2>state</h2><p>A leaf's lifecycle from a captured daily atom through distillation, promotion, consolidation, and archival.</p></div>
+<div class="tools">
+<a class="btn" href="#leaf-lifecycle" title="permalink">#</a>
+<button class="btn" data-full="4" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="12 20 492 412" role="img" aria-label="Leaf lifecycle">
+<defs>
+<marker id="gx-leaf-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--muted)"/></marker>
+<marker id="gx-leaf-af" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--accent)"/></marker>
+<marker id="gx-leaf-as" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--ink)"/></marker>
+</defs>
+<rect class="bg" x="12" y="20" width="492" height="412" rx="10"/>
+<path class="e" d="M116,50 V94" marker-end="url(#gx-leaf-a)"/><path class="e" d="M116,142 V176" marker-end="url(#gx-leaf-a)"/><path class="e async" d="M204,183 C230,176 230,208 204,201" marker-end="url(#gx-leaf-a)"/><path class="e" d="M116,208 V242" marker-end="url(#gx-leaf-a)"/><path class="e" d="M204,258 H308" marker-end="url(#gx-leaf-a)"/><path class="e" d="M308,258 H264 Q256,258 256,266 V324 Q256,332 248,332 H204" marker-end="url(#gx-leaf-a)"/><path class="e" d="M116,274 V308" marker-end="url(#gx-leaf-a)"/>
+<circle class="dot" cx="116" cy="44" r="5"/><rect class="nb backend" x="28" y="94" width="176" height="48" rx="8"/><text class="nn" x="116" y="116" text-anchor="middle"><tspan x="116" dy="0">captured</tspan></text><text class="ns" x="116" y="116" text-anchor="middle"><tspan x="116" dy="13">daily/2026-08-28.md</tspan></text><rect class="nb backend" x="28" y="176" width="176" height="32" rx="8"/><text class="nn" x="116" y="195.5" text-anchor="middle"><tspan x="116" dy="0">distilling</tspan></text><rect class="nb focal" x="28" y="242" width="176" height="32" rx="8"/><text class="nn" x="116" y="261.5" text-anchor="middle"><tspan x="116" dy="0">active</tspan></text><rect class="nb backend" x="308" y="242" width="176" height="32" rx="8"/><text class="nn" x="396" y="261.5" text-anchor="middle"><tspan x="396" dy="0">consolidating</tspan></text><rect class="nb backend" x="28" y="308" width="176" height="48" rx="8"/><text class="nn" x="116" y="330" text-anchor="middle"><tspan x="116" dy="0">archived</tspan></text><text class="ns" x="116" y="330" text-anchor="middle"><tspan x="116" dy="13">supersede-on-promote</tspan></text><circle class="ring" cx="116" cy="406" r="8"/><circle class="dot" cx="116" cy="406" r="4.5"/>
+<rect class="emask" x="130" y="150.5" width="68.19999999999999" height="17" rx="3"/><text class="el" x="164.1" y="161.5" text-anchor="middle"><tspan x="164.1" dy="0">flush worker</tspan></text><rect class="emask" x="236" y="184" width="85" height="16" rx="3"/><text class="el" x="241" y="195">retry [backoff]</text><rect class="emask" x="130" y="216.5" width="111.85" height="17" rx="3"/><text class="el" x="185.925" y="227.5" text-anchor="middle"><tspan x="185.925" dy="0">compile promotes atom</tspan></text><rect class="emask" x="212.2" y="249.5" width="87.6" height="17" rx="3"/><text class="el" x="256" y="260.5" text-anchor="middle"><tspan x="256" dy="0">hourly cron tick</tspan></text><rect class="emask" x="176.5" y="288.5" width="107" height="17" rx="3"/><text class="el" x="230" y="299.5" text-anchor="middle"><tspan x="230" dy="0">merged into survivor</tspan></text><rect class="emask" x="74.20000000000002" y="277" width="87.6" height="28" rx="3"/><text class="el" x="118.00000000000001" y="288" text-anchor="middle"><tspan x="118.00000000000001" dy="0">disable_document</tspan><tspan x="118.00000000000001" dy="11">(manual)</tspan></text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="capture-to-recall-lanes">
+<header>
+<div><h2>swimlane</h2><p>One capture-to-recall pass crossing four owners: the hook, the engine, the LLM, and the wiki.</p></div>
+<div class="tools">
+<a class="btn" href="#capture-to-recall-lanes" title="permalink">#</a>
+<button class="btn" data-full="5" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="-20 4 1068 368" role="img" aria-label="Capture-to-recall handoffs">
+<defs>
+<marker id="gx-lanes-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--muted)"/></marker>
+<marker id="gx-lanes-af" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--accent)"/></marker>
+<marker id="gx-lanes-as" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--ink)"/></marker>
+</defs>
+<rect class="bg" x="-20" y="4" width="1068" height="368" rx="10"/>
+<rect class="zone" x="148" y="24" width="836" height="64"/><text class="tag" x="14" y="59"><tspan x="14" dy="0">CLAUDE CODE HOOK</tspan></text><rect class="zone" x="148" y="88" width="836" height="80"/><line class="hair" x1="148" y1="88" x2="984" y2="88"/><text class="tag" x="14" y="131"><tspan x="14" dy="0">ENGINE</tspan></text><rect class="zone" x="148" y="168" width="836" height="80"/><line class="hair" x1="148" y1="168" x2="984" y2="168"/><text class="tag" x="14" y="211"><tspan x="14" dy="0">LLM PROVIDER</tspan></text><rect class="zone" x="148" y="248" width="836" height="104"/><line class="hair" x1="148" y1="248" x2="984" y2="248"/><text class="tag" x="14" y="303"><tspan x="14" dy="0">WIKI</tspan></text>
+<path class="e" d="M245,72 V104" marker-end="url(#gx-lanes-a)"/><path class="e async" d="M245,152 V160 Q245,168 253,168 H451 Q459,168 459,176 V184" marker-end="url(#gx-lanes-a)"/><path class="e store" d="M459,232 V240 Q459,248 467,248 H665 Q673,248 673,256 V264" marker-end="url(#gx-lanes-as)"/><path class="e async" d="M673,264 V152" marker-end="url(#gx-lanes-a)"/><path class="e store" d="M673,152 V200 Q673,208 681,208 H879 Q887,208 887,216 V264" marker-end="url(#gx-lanes-as)"/><path class="e focal" d="M887,264 V152" marker-end="url(#gx-lanes-af)"/>
+<rect class="nb backend" x="170" y="40" width="150" height="32" rx="6"/><text class="nn" x="245" y="59.5" text-anchor="middle"><tspan x="245" dy="0">PostToolUse fires</tspan></text><rect class="nb backend" x="170" y="104" width="150" height="48" rx="6"/><text class="nn" x="245" y="124" text-anchor="middle"><tspan x="245" dy="0">flush worker reads</tspan><tspan x="245" dy="15">turns</tspan></text><rect class="nb focal" x="598" y="104" width="150" height="48" rx="6"/><text class="nn" x="673" y="131.5" text-anchor="middle"><tspan x="673" dy="0">compile step</tspan></text><rect class="nb backend" x="812" y="104" width="150" height="48" rx="6"/><text class="nn" x="887" y="124" text-anchor="middle"><tspan x="887" dy="0">embed + chunked</tspan><tspan x="887" dy="15">vector search</tspan></text><rect class="nb backend" x="384" y="184" width="150" height="48" rx="6"/><text class="nn" x="459" y="206" text-anchor="middle"><tspan x="459" dy="0">distill-by-chunks</tspan></text><text class="ns" x="459" y="206" text-anchor="middle"><tspan x="459" dy="13">map-reduce</tspan></text><rect class="nb backend" x="598" y="264" width="150" height="72" rx="6"/><text class="nn" x="673" y="298" text-anchor="middle"><tspan x="673" dy="0">write daily atom</tspan></text><text class="ns" x="673" y="298" text-anchor="middle"><tspan x="673" dy="13">daily/2026-08-28.md</tspan></text><rect class="nb backend" x="812" y="264" width="150" height="72" rx="6"/><text class="nn" x="887" y="285" text-anchor="middle"><tspan x="887" dy="0">write leaf +</tspan><tspan x="887" dy="15">auto-commit</tspan></text><text class="ns" x="887" y="300" text-anchor="middle"><tspan x="887" dy="13">knowledge/,</tspan><tspan x="887" dy="11">self_improvement/</tspan></text>
+<rect class="emask" x="259" y="74" width="97.3" height="28" rx="3"/><text class="el" x="307.65" y="85" text-anchor="middle"><tspan x="307.65" dy="0">spawn worker (pid,</tspan><tspan x="307.65" dy="11">session, turns)</tspan></text><rect class="emask" x="378.675" y="158" width="53.65" height="17" rx="3"/><text class="el" x="405.5" y="169" text-anchor="middle"><tspan x="405.5" dy="0">raw turns</tspan></text><rect class="emask" x="592.675" y="238" width="53.65" height="17" rx="3"/><text class="el" x="619.5" y="249" text-anchor="middle"><tspan x="619.5" dy="0">N atom(s)</tspan></text><rect class="emask" x="687" y="194" width="107" height="28" rx="3"/><text class="el" x="740.5" y="205" text-anchor="middle"><tspan x="740.5" dy="0">hourly cron: cli.mjs</tspan><tspan x="740.5" dy="11">compile</tspan></text><rect class="emask" x="772.725" y="227" width="121.55" height="28" rx="3"/><text class="el" x="833.5" y="238" text-anchor="middle"><tspan x="833.5" dy="0">promote decision/lesson</tspan><tspan x="833.5" dy="11">atom</tspan></text><rect class="emask" x="901" y="194" width="126.39999999999999" height="28" rx="3"/><text class="el focal" x="964.2" y="205" text-anchor="middle"><tspan x="964.2" dy="0">cli.mjs warm: embed cold</tspan><tspan x="964.2" dy="11">leaves</tspan></text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="embedding-module-tree">
+<header>
+<div><h2>tree</h2><p>The embedding subsystem's module ownership: backends, cache, and chunking, each broken into concrete files.</p></div>
+<div class="tools">
+<a class="btn" href="#embedding-module-tree" title="permalink">#</a>
+<button class="btn" data-full="6" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="0 0 924 304" role="img" aria-label="Embedding subsystem ownership">
+<rect class="bg" x="0" y="0" width="924" height="304" rx="10"/>
+<path class="bus" d="M195,174 V201"/><path class="bus" d="M106,201 H284"/><path class="bus" d="M106,201 V228"/><path class="bus" d="M284,201 V228"/><path class="bus" d="M551,174 V201"/><path class="bus" d="M462,201 H640"/><path class="bus" d="M462,201 V228"/><path class="bus" d="M640,201 V228"/><path class="bus" d="M818,174 V201"/><path class="bus" d="M818,201 V228"/><path class="bus" d="M506.5,74 V101"/><path class="bus" d="M195,101 H818"/><path class="bus" d="M195,101 V128"/><path class="bus" d="M551,101 V128"/><path class="bus" d="M818,101 V128"/>
+<rect class="nb focal" x="28" y="228" width="156" height="46" rx="6"/><text class="nn" x="106" y="242.5" text-anchor="middle"><tspan x="106" dy="0">transformers.js</tspan><tspan x="106" dy="14">backend</tspan></text><text class="ns" x="106" y="268.5" text-anchor="middle"><tspan x="106" dy="0">embeddinggemma-300m</tspan></text><rect class="nb backend" x="206" y="228" width="156" height="46" rx="6"/><text class="nn" x="284" y="249.5" text-anchor="middle"><tspan x="284" dy="0">api backend</tspan></text><text class="ns" x="284" y="261.5" text-anchor="middle"><tspan x="284" dy="0">openai-compatible endpoint</tspan></text><rect class="nb backend" x="117" y="128" width="156" height="46" rx="6"/><text class="nn" x="195" y="149.5" text-anchor="middle"><tspan x="195" dy="0">backends</tspan></text><text class="ns" x="195" y="161.5" text-anchor="middle"><tspan x="195" dy="0">pluggable model runtime</tspan></text><rect class="nb backend" x="384" y="228" width="156" height="46" rx="6"/><text class="nn" x="462" y="249.5" text-anchor="middle"><tspan x="462" dy="0">per-category cache</tspan></text><text class="ns" x="462" y="261.5" text-anchor="middle"><tspan x="462" dy="0">.embeddings/embeddings.json</tspan></text><rect class="nb backend" x="562" y="228" width="156" height="46" rx="6"/><text class="nn" x="640" y="244" text-anchor="middle"><tspan x="640" dy="0">cache integrity</tspan></text><text class="ns" x="640" y="256" text-anchor="middle"><tspan x="640" dy="0">stamp: model, backend,</tspan><tspan x="640" dy="11">dtype, dim</tspan></text><rect class="nb backend" x="473" y="128" width="156" height="46" rx="6"/><text class="nn" x="551" y="149.5" text-anchor="middle"><tspan x="551" dy="0">cache</tspan></text><text class="ns" x="551" y="161.5" text-anchor="middle"><tspan x="551" dy="0">per-category, on disk</tspan></text><rect class="nb backend" x="740" y="228" width="156" height="46" rx="6"/><text class="nn" x="818" y="249.5" text-anchor="middle"><tspan x="818" dy="0">chunk splitter</tspan></text><text class="ns" x="818" y="261.5" text-anchor="middle"><tspan x="818" dy="0">embed-chunk.mjs</tspan></text><rect class="nb backend" x="740" y="128" width="156" height="46" rx="6"/><text class="nn" x="818" y="149.5" text-anchor="middle"><tspan x="818" dy="0">chunking</tspan></text><text class="ns" x="818" y="161.5" text-anchor="middle"><tspan x="818" dy="0">split before embed</tspan></text><rect class="nb backend" x="428.5" y="28" width="156" height="46" rx="6"/><text class="nn" x="506.5" y="49.5" text-anchor="middle"><tspan x="506.5" dy="0">embedding subsystem</tspan></text><text class="ns" x="506.5" y="61.5" text-anchor="middle"><tspan x="506.5" dy="0">scripts/lib/embed/</tspan></text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="surface-ownership">
+<header>
+<div><h2>org-chart</h2><p>Who owns each engine surface, and the exact command or trigger that invokes it.</p></div>
+<div class="tools">
+<a class="btn" href="#surface-ownership" title="permalink">#</a>
+<button class="btn" data-full="7" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="0 0 1104 304" role="img" aria-label="Surface ownership and invocation">
+<rect class="bg" x="0" y="0" width="1104" height="304" rx="10"/>
+<path class="bus" d="M195,174 V201"/><path class="bus" d="M106,201 H284"/><path class="bus" d="M106,201 V228"/><path class="bus" d="M284,201 V228"/><path class="bus" d="M551,174 V201"/><path class="bus" d="M462,201 H640"/><path class="bus" d="M462,201 V228"/><path class="bus" d="M640,201 V228"/><path class="bus" d="M907,174 V201"/><path class="bus" d="M818,201 H996"/><path class="bus" d="M818,201 V228"/><path class="bus" d="M996,201 V228"/><path class="bus" d="M551,74 V101"/><path class="bus" d="M195,101 H907"/><path class="bus" d="M195,101 V128"/><path class="bus" d="M551,101 V128"/><path class="bus" d="M907,101 V128"/>
+<rect class="nb backend" x="28" y="228" width="156" height="46" rx="6"/><text class="nn" x="106" y="249.5" text-anchor="middle"><tspan x="106" dy="0">flush worker</tspan></text><text class="ns" x="106" y="261.5" text-anchor="middle"><tspan x="106" dy="0">scripts/hooks/session-end.sh</tspan></text><rect class="nb backend" x="206" y="228" width="156" height="46" rx="6"/><text class="nn" x="284" y="249.5" text-anchor="middle"><tspan x="284" dy="0">distill pass</tspan></text><text class="ns" x="284" y="261.5" text-anchor="middle"><tspan x="284" dy="0">LLM smol model, map-reduce</tspan></text><rect class="nb backend" x="117" y="128" width="156" height="46" rx="6"/><text class="nn" x="195" y="144" text-anchor="middle"><tspan x="195" dy="0">capture owner</tspan></text><text class="ns" x="195" y="156" text-anchor="middle"><tspan x="195" dy="0">trigger: PostToolUse /</tspan><tspan x="195" dy="11">SessionEnd</tspan></text><rect class="nb backend" x="384" y="228" width="156" height="46" rx="6"/><text class="nn" x="462" y="249.5" text-anchor="middle"><tspan x="462" dy="0">judge gate</tspan></text><text class="ns" x="462" y="261.5" text-anchor="middle"><tspan x="462" dy="0">cli.mjs compile --dry-run</tspan></text><rect class="nb backend" x="562" y="228" width="156" height="46" rx="6"/><text class="nn" x="640" y="244" text-anchor="middle"><tspan x="640" dy="0">promote step</tspan></text><text class="ns" x="640" y="256" text-anchor="middle"><tspan x="640" dy="0">writes knowledge/,</tspan><tspan x="640" dy="11">self_improvement/</tspan></text><rect class="nb backend" x="473" y="128" width="156" height="46" rx="6"/><text class="nn" x="551" y="149.5" text-anchor="middle"><tspan x="551" dy="0">compile owner</tspan></text><text class="ns" x="551" y="161.5" text-anchor="middle"><tspan x="551" dy="0">trigger: cli.mjs compile</tspan></text><rect class="nb focal" x="740" y="228" width="156" height="46" rx="6"/><text class="nn" x="818" y="249.5" text-anchor="middle"><tspan x="818" dy="0">MCP tool router</tspan></text><text class="ns" x="818" y="261.5" text-anchor="middle"><tspan x="818" dy="0">node mcp-server/index.mjs</tspan></text><rect class="nb backend" x="918" y="228" width="156" height="46" rx="6"/><text class="nn" x="996" y="249.5" text-anchor="middle"><tspan x="996" dy="0">chunked search</tspan></text><text class="ns" x="996" y="261.5" text-anchor="middle"><tspan x="996" dy="0">search_memory tool</tspan></text><rect class="nb backend" x="829" y="128" width="156" height="46" rx="6"/><text class="nn" x="907" y="149.5" text-anchor="middle"><tspan x="907" dy="0">recall owner</tspan></text><text class="ns" x="907" y="161.5" text-anchor="middle"><tspan x="907" dy="0">trigger: MCP recall_lessons</tspan></text><rect class="nb backend" x="473" y="28" width="156" height="46" rx="6"/><text class="nn" x="551" y="49.5" text-anchor="middle"><tspan x="551" dy="0">engine maintainer</tspan></text><text class="ns" x="551" y="61.5" text-anchor="middle"><tspan x="551" dy="0">invoke: cli.mjs &lt;command&gt;</tspan></text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="deployment-containment">
+<header>
+<div><h2>nested</h2><p>What actually runs inside what: two OS processes on one workstation, each hosting its own components.</p></div>
+<div class="tools">
+<a class="btn" href="#deployment-containment" title="permalink">#</a>
+<button class="btn" data-full="8" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="-20 -20 760 268" role="img" aria-label="Engine deployment containment">
+<rect class="bg" x="-20" y="-20" width="760" height="268" rx="10"/>
+<rect class="zone" x="0" y="0" width="719" height="229" rx="8"/><text class="nn" x="24" y="20"><tspan x="24" dy="0">developer workstation</tspan></text><text class="ns" x="24" y="33"><tspan x="24" dy="0">macOS / Linux</tspan></text><rect class="zone" x="24" y="57" width="307" height="146" rx="8"/><text class="nn" x="48" y="77"><tspan x="48" dy="0">MCP server process</tspan></text><text class="ns" x="48" y="90"><tspan x="48" dy="0">node mcp-server/index.mjs</tspan></text><rect class="nb focal" x="48" y="114" width="112" height="67" rx="6"/><text class="nn" x="104" y="140" text-anchor="middle"><tspan x="104" dy="0">tool router</tspan></text><text class="ns" x="104" y="152" text-anchor="middle"><tspan x="104" dy="0">recall_lessons,</tspan><tspan x="104" dy="11">save_lesson</tspan></text><rect class="nb" x="180" y="114" width="127" height="56" rx="6"/><text class="nn" x="243.5" y="140" text-anchor="middle"><tspan x="243.5" dy="0">embed backend</tspan></text><text class="ns" x="243.5" y="152" text-anchor="middle"><tspan x="243.5" dy="0">transformers.js</tspan></text><rect class="zone" x="351" y="57" width="344" height="150" rx="8"/><text class="nn" x="375" y="77"><tspan x="375" dy="0">hourly cron process</tspan></text><text class="ns" x="375" y="90"><tspan x="375" dy="0">cron-job.mjs</tspan></text><rect class="nb" x="375" y="114" width="127" height="56" rx="6"/><text class="nn" x="438.5" y="140" text-anchor="middle"><tspan x="438.5" dy="0">compile stage</tspan></text><text class="ns" x="438.5" y="152" text-anchor="middle"><tspan x="438.5" dy="0">promote daily atoms</tspan></text><rect class="nb" x="522" y="114" width="149" height="71" rx="6"/><text class="nn" x="596.5" y="140" text-anchor="middle"><tspan x="596.5" dy="0">consolidate</tspan><tspan x="596.5" dy="15">stage</tspan></text><text class="ns" x="596.5" y="167" text-anchor="middle"><tspan x="596.5" dy="0">merge duplicate clusters</tspan></text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="wiki-data-model">
+<header>
+<div><h2>er</h2><p>The wiki's data model: leaves keyed by category, cached as embeddings, and split into recallable chunks.</p></div>
+<div class="tools">
+<a class="btn" href="#wiki-data-model" title="permalink">#</a>
+<button class="btn" data-full="9" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="12 12 896 360" role="img" aria-label="Wiki data model">
+<rect class="bg" x="12" y="12" width="896" height="360" rx="10"/>
+<path class="e" d="M350,110 H308 Q300,110 300,102 V84 Q300,76 292,76 H250"/><path class="e" d="M570,110 H612 Q620,110 620,102 V92 Q620,84 628,84 H670"/><path class="e" d="M460,190 V246"/>
+<rect class="nb backend" x="30" y="30" width="220" height="92" rx="6"/><text class="tag" x="42" y="43">ENTITY</text><text class="nn" x="42" y="59"><tspan x="42" dy="0">category</tspan></text><line class="hair" x1="30" y1="70" x2="250" y2="70"/><text class="tag" x="42" y="90">#</text><text class="ns" x="57" y="90">name</text><text class="ns" x="238" y="90" text-anchor="end">string</text><text class="ns" x="42" y="107">gated</text><text class="ns" x="238" y="107" text-anchor="end">boolean</text><rect class="nb focal" x="350" y="30" width="220" height="160" rx="6"/><text class="tag" x="362" y="43">ENTITY</text><text class="nn" x="362" y="59"><tspan x="362" dy="0">leaf</tspan></text><line class="hair" x1="350" y1="70" x2="570" y2="70"/><text class="tag" x="362" y="90">#</text><text class="ns" x="377" y="90">id</text><text class="ns" x="558" y="90" text-anchor="end">string</text><text class="tag" x="362" y="107">→</text><text class="ns" x="377" y="107">category</text><text class="ns" x="558" y="107" text-anchor="end">string</text><text class="ns" x="362" y="124">area</text><text class="ns" x="558" y="124" text-anchor="end">string</text><text class="ns" x="362" y="141">atom_type</text><text class="ns" x="558" y="141" text-anchor="end">string</text><text class="ns" x="362" y="158">content_hash</text><text class="ns" x="558" y="158" text-anchor="end">string</text><text class="ns" x="362" y="175">updated_at</text><text class="ns" x="558" y="175" text-anchor="end">timestamp</text><rect class="nb store" x="670" y="30" width="220" height="108" rx="6"/><text class="tag" x="682" y="43">ENTITY</text><text class="nn" x="682" y="59"><tspan x="682" dy="0">embedding_cache_entry</tspan></text><line class="hair" x1="670" y1="70" x2="890" y2="70"/><text class="tag" x="682" y="90">→</text><text class="ns" x="697" y="90">leaf_id</text><text class="ns" x="878" y="90" text-anchor="end">string</text><text class="ns" x="682" y="107">content_hash</text><text class="ns" x="878" y="107" text-anchor="end">string</text><text class="ns" x="682" y="124">dim</text><text class="ns" x="878" y="124" text-anchor="end">int</text><rect class="nb backend" x="350" y="246" width="220" height="108" rx="6"/><text class="tag" x="362" y="259">ENTITY</text><text class="nn" x="362" y="275"><tspan x="362" dy="0">chunk</tspan></text><line class="hair" x1="350" y1="286" x2="570" y2="286"/><text class="tag" x="362" y="306">→</text><text class="ns" x="377" y="306">leaf_id</text><text class="ns" x="558" y="306" text-anchor="end">string</text><text class="tag" x="362" y="323">#</text><text class="ns" x="377" y="323">chunk_index</text><text class="ns" x="558" y="323" text-anchor="end">int</text><text class="ns" x="362" y="340">text</text><text class="ns" x="558" y="340" text-anchor="end">string</text>
+<rect class="emask" x="253.775" y="67" width="92.44999999999999" height="17" rx="3"/><text class="el" x="300" y="78" text-anchor="middle"><tspan x="300" dy="0">belongs to · N..1</tspan></text><rect class="emask" x="576.2" y="71" width="87.6" height="17" rx="3"/><text class="el" x="620" y="82" text-anchor="middle"><tspan x="620" dy="0">cached as · 1..1</tspan></text><rect class="emask" x="474" y="209.5" width="97.3" height="17" rx="3"/><text class="el" x="522.65" y="220.5" text-anchor="middle"><tspan x="522.65" dy="0">splits into · 1..N</tspan></text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="leaves-by-category">
+<header>
+<div><h2>bar</h2><p>Knowledge leaves dominate the 90-day promotion count, with a long tail across the other six categories.</p></div>
+<div class="tools">
+<a class="btn" href="#leaves-by-category" title="permalink">#</a>
+<button class="btn" data-full="10" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="0 0 1000 500" role="img" aria-label="Leaves promoted per wiki category, last 90 days">
+<rect class="bg" x="0" y="0" width="1000" height="500" rx="10"/>
+<line class="grid" x1="80" y1="420" x2="960" y2="420"/><text class="tick" x="72" y="423" text-anchor="end">0</text><line class="grid" x1="80" y1="344" x2="960" y2="344"/><text class="tick" x="72" y="347" text-anchor="end">100</text><line class="grid" x1="80" y1="268" x2="960" y2="268"/><text class="tick" x="72" y="271" text-anchor="end">200</text><line class="grid" x1="80" y1="192" x2="960" y2="192"/><text class="tick" x="72" y="195" text-anchor="end">300</text><line class="grid" x1="80" y1="116" x2="960" y2="116"/><text class="tick" x="72" y="119" text-anchor="end">400</text><line class="grid" x1="80" y1="40" x2="960" y2="40"/><text class="tick" x="72" y="43" text-anchor="end">500</text><line class="axis" x1="80" y1="40" x2="80" y2="420"/><line class="axis" x1="80" y1="420" x2="960" y2="420"/><text class="clab" x="142.85714285714286" y="438" text-anchor="middle"><tspan x="142.85714285714286" dy="0">knowledge</tspan></text><text class="clab" x="268.57142857142856" y="438" text-anchor="middle"><tspan x="268.57142857142856" dy="0">daily</tspan></text><text class="clab" x="394.2857142857143" y="438" text-anchor="middle"><tspan x="394.2857142857143" dy="0">investigations</tspan></text><text class="clab" x="520" y="438" text-anchor="middle"><tspan x="520" dy="0">plans</tspan></text><text class="clab" x="645.7142857142857" y="438" text-anchor="middle"><tspan x="645.7142857142857" dy="0">self_improvement</tspan></text><text class="clab" x="771.4285714285714" y="438" text-anchor="middle"><tspan x="771.4285714285714" dy="0">issues</tspan></text><text class="clab" x="897.1428571428571" y="438" text-anchor="middle"><tspan x="897.1428571428571" dy="0">state</tspan></text><text class="atitle" x="520" y="466" text-anchor="middle">Wiki category</text><text class="atitle" x="26" y="230" text-anchor="middle" transform="rotate(-90 26 230)">Leaves promoted</text>
+<rect class="mark focal" x="102" y="50.639999999999986" width="81.71428571428571" height="369.36"/><rect class="mark" x="227.7142857142857" y="257.36" width="81.71428571428571" height="162.64"/><rect class="mark" x="353.42857142857144" y="353.12" width="81.71428571428571" height="66.88"/><rect class="mark" x="479.14285714285717" y="391.88" width="81.71428571428571" height="28.120000000000005"/><rect class="mark" x="604.8571428571428" y="404.04" width="81.71428571428571" height="15.95999999999998"/><rect class="mark" x="730.5714285714286" y="413.16" width="81.71428571428571" height="6.839999999999975"/><rect class="mark" x="856.2857142857142" y="417" width="81.71428571428571" height="3"/>
+<text class="vlab focal" x="142.85714285714286" y="42.639999999999986" text-anchor="middle">486</text><text class="vlab" x="268.57142857142856" y="249.36" text-anchor="middle">214</text><text class="vlab" x="394.2857142857143" y="345.12" text-anchor="middle">88</text><text class="vlab" x="520" y="383.88" text-anchor="middle">37</text><text class="vlab" x="645.7142857142857" y="396.04" text-anchor="middle">21</text><text class="vlab" x="771.4285714285714" y="405.16" text-anchor="middle">9</text><text class="vlab" x="897.1428571428571" y="409" text-anchor="middle">3</text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="recall-latency-percentiles">
+<header>
+<div><h2>line</h2><p>The p99 recall tail spikes during a week-5 lexical-fallback incident and recovers once the guard fix lands.</p></div>
+<div class="tools">
+<a class="btn" href="#recall-latency-percentiles" title="permalink">#</a>
+<button class="btn" data-full="11" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="0 0 1000 500" role="img" aria-label="MCP recall latency by percentile">
+<rect class="bg" x="0" y="0" width="1000" height="500" rx="10"/>
+<line class="grid" x1="80" y1="420" x2="960" y2="420"/><text class="tick" x="72" y="423" text-anchor="end">0</text><line class="grid" x1="80" y1="325" x2="960" y2="325"/><text class="tick" x="72" y="328" text-anchor="end">200</text><line class="grid" x1="80" y1="230" x2="960" y2="230"/><text class="tick" x="72" y="233" text-anchor="end">400</text><line class="grid" x1="80" y1="135" x2="960" y2="135"/><text class="tick" x="72" y="138" text-anchor="end">600</text><line class="grid" x1="80" y1="40" x2="960" y2="40"/><text class="tick" x="72" y="43" text-anchor="end">800</text><line class="axis" x1="80" y1="40" x2="80" y2="420"/>
+<line class="axis" x1="80" y1="420" x2="960" y2="420"/><text class="clab" x="124" y="438" text-anchor="middle"><tspan x="124" dy="0">W1</tspan></text><text class="clab" x="212" y="438" text-anchor="middle"><tspan x="212" dy="0">W2</tspan></text><text class="clab" x="300" y="438" text-anchor="middle"><tspan x="300" dy="0">W3</tspan></text><text class="clab" x="388" y="438" text-anchor="middle"><tspan x="388" dy="0">W4</tspan></text><text class="clab" x="476" y="438" text-anchor="middle"><tspan x="476" dy="0">W5</tspan></text><text class="clab" x="564" y="438" text-anchor="middle"><tspan x="564" dy="0">W6</tspan></text><text class="clab" x="652" y="438" text-anchor="middle"><tspan x="652" dy="0">W7</tspan></text><text class="clab" x="740" y="438" text-anchor="middle"><tspan x="740" dy="0">W8</tspan></text><text class="clab" x="828" y="438" text-anchor="middle"><tspan x="828" dy="0">W9</tspan></text><text class="clab" x="916" y="438" text-anchor="middle"><tspan x="916" dy="0">W10</tspan></text>
+<polygon class="band" points="124,420 124,306 212,296.5 300,310.75 388,291.75 476,173 564,130.25 652,258.5 740,296.5 828,308.375 916,313.125 916,420"/>
+<polyline class="ser s1" points="124,403.85 212,402.9 300,404.325 388,403.375 476,401.95 564,402.425 652,403.85 740,404.325 828,403.375 916,403.85"/><polyline class="ser s2" points="124,378.2 212,376.3 300,379.625 388,377.25 476,372.025 564,367.75 652,374.875 740,377.725 828,379.15 916,378.2"/>
+<polyline class="ser focal" points="124,306 212,296.5 300,310.75 388,291.75 476,173 564,130.25 652,258.5 740,296.5 828,308.375 916,313.125"/>
+<rect class="mark focal" x="120" y="302" width="8" height="8" rx="4" ry="4"/><rect class="mark focal" x="208" y="292.5" width="8" height="8" rx="4" ry="4"/><rect class="mark focal" x="296" y="306.75" width="8" height="8" rx="4" ry="4"/><rect class="mark focal" x="384" y="287.75" width="8" height="8" rx="4" ry="4"/><rect class="mark focal" x="472" y="169" width="8" height="8" rx="4" ry="4"/><rect class="mark focal" x="560" y="126.25" width="8" height="8" rx="4" ry="4"/><rect class="mark focal" x="648" y="254.5" width="8" height="8" rx="4" ry="4"/><rect class="mark focal" x="736" y="292.5" width="8" height="8" rx="4" ry="4"/><rect class="mark focal" x="824" y="304.375" width="8" height="8" rx="4" ry="4"/><rect class="mark focal" x="912" y="309.125" width="8" height="8" rx="4" ry="4"/>
+<text class="atitle" x="520" y="466" text-anchor="middle">Week</text><text class="atitle" x="26" y="230" text-anchor="middle" transform="rotate(-90 26 230)">Latency (ms)</text>
+<rect class="swatch s1" x="441.1" y="481" width="16" height="8" rx="2"/><text class="tick" x="463.1" y="488">p10</text><rect class="swatch s2" x="499.70000000000005" y="481" width="16" height="8" rx="2"/><text class="tick" x="521.7" y="488">p50</text><rect class="swatch focal" x="558.3000000000001" y="481" width="16" height="8" rx="2"/><text class="tick" x="580.3000000000001" y="488">p99</text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="embed-cost-vs-accuracy">
+<header>
+<div><h2>scatter</h2><p>Bigger embedding models buy accuracy at a steep cost premium; the shipped default sits near the elbow of that curve.</p></div>
+<div class="tools">
+<a class="btn" href="#embed-cost-vs-accuracy" title="permalink">#</a>
+<button class="btn" data-full="12" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="0 0 1000 500" role="img" aria-label="Embedding cost vs recall accuracy by model config">
+<rect class="bg" x="0" y="0" width="1000" height="500" rx="10"/><line class="hair" x1="278" y1="40" x2="278" y2="420" stroke-dasharray="3 4"/><line class="hair" x1="80" y1="179.33333333333334" x2="960" y2="179.33333333333334" stroke-dasharray="3 4"/><text class="vlab" x="86" y="54" text-anchor="start">LOW X · HIGH Y</text><text class="vlab" x="954" y="54" text-anchor="end">HIGH X · HIGH Y</text><text class="vlab" x="86" y="412" text-anchor="start">LOW X · LOW Y</text><text class="vlab" x="954" y="412" text-anchor="end">HIGH X · LOW Y</text><line class="grid" x1="80" y1="420" x2="960" y2="420"/><text class="tick" x="72" y="423" text-anchor="end">60</text><line class="grid" x1="80" y1="293.33333333333337" x2="960" y2="293.33333333333337"/><text class="tick" x="72" y="296.33333333333337" text-anchor="end">70</text><line class="grid" x1="80" y1="166.66666666666669" x2="960" y2="166.66666666666669"/><text class="tick" x="72" y="169.66666666666669" text-anchor="end">80</text><line class="grid" x1="80" y1="40" x2="960" y2="40"/><text class="tick" x="72" y="43" text-anchor="end">90</text><line class="axis" x1="80" y1="40" x2="80" y2="420"/><line class="axis" x1="80" y1="420" x2="960" y2="420"/><line class="grid" x1="80" y1="40" x2="80" y2="420"/><text class="tick" x="80" y="436" text-anchor="middle">0</text><line class="grid" x1="300" y1="40" x2="300" y2="420"/><text class="tick" x="300" y="436" text-anchor="middle">20</text><line class="grid" x1="520" y1="40" x2="520" y2="420"/><text class="tick" x="520" y="436" text-anchor="middle">40</text><line class="grid" x1="740" y1="40" x2="740" y2="420"/><text class="tick" x="740" y="436" text-anchor="middle">60</text><line class="grid" x1="960" y1="40" x2="960" y2="420"/><text class="tick" x="960" y="436" text-anchor="middle">80</text><text class="atitle" x="520" y="466" text-anchor="middle">Embed cost (ms/doc)</text><text class="atitle" x="26" y="230" text-anchor="middle" transform="rotate(-90 26 230)">Recall@10 accuracy (%)</text><line class="ser" x1="80" y1="279.6277030771065" x2="960" y2="40" stroke-dasharray="4 3"/><rect class="mark" x="108" y="402.3333333333333" width="10" height="10" rx="5" ry="5"/><rect class="mark" x="141" y="313.6666666666667" width="10" height="10" rx="5" ry="5"/><rect class="mark" x="152" y="275.6666666666667" width="10" height="10" rx="5" ry="5"/><rect class="mark" x="174" y="237.66666666666666" width="10" height="10" rx="5" ry="5"/><rect class="mark" x="207" y="212.33333333333334" width="10" height="10" rx="5" ry="5"/><rect class="mark" x="240" y="174.33333333333334" width="10" height="10" rx="5" ry="5"/><rect class="mark" x="273" y="187" width="10" height="10" rx="5" ry="5"/><rect class="mark focal" x="316" y="84.66666666666663" width="12" height="12" rx="6" ry="6"/><rect class="mark" x="394" y="98.33333333333331" width="10" height="10" rx="5" ry="5"/><rect class="mark" x="449" y="73" width="10" height="10" rx="5" ry="5"/><rect class="mark" x="746" y="60.333333333333314" width="10" height="10" rx="5" ry="5"/><rect class="mark" x="823" y="47.666666666666686" width="10" height="10" rx="5" ry="5"/><rect class="mark" x="889" y="47.666666666666686" width="10" height="10" rx="5" ry="5"/><rect class="emask" x="336" y="82.16666666666663" width="73.05" height="17" rx="3"/><text class="vlab focal" x="372.525" y="90.16666666666663" text-anchor="middle"><tspan x="372.525" dy="0">gemma-300m-q4</tspan></text><rect class="emask" x="126" y="398.8333333333333" width="43.949999999999996" height="17" rx="3"/><text class="vlab" x="147.975" y="406.8333333333333" text-anchor="middle"><tspan x="147.975" dy="0">lexical</tspan></text><rect class="emask" x="412" y="94.83333333333331" width="68.19999999999999" height="17" rx="3"/><text class="vlab" x="446.1" y="102.83333333333331" text-anchor="middle"><tspan x="446.1" dy="0">bge-large-q8</tspan></text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="engine-build-phases">
+<header>
+<div><h2>gantt</h2><p>The embed-cache guard rewrite is the critical middle block between baseline profiling and the consolidate rollout.</p></div>
+<div class="tools">
+<a class="btn" href="#engine-build-phases" title="permalink">#</a>
+<button class="btn" data-full="13" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="0 0 1000 540" role="img" aria-label="Embed-cache guard hardening, build to rollout">
+<rect class="bg" x="0" y="0" width="1000" height="540" rx="10"/>
+<line class="axis" x1="80" y1="460" x2="960" y2="460"/><line class="grid" x1="80" y1="40" x2="80" y2="460"/><text class="tick" x="80" y="476" text-anchor="middle">0</text><line class="grid" x1="226.66666666666666" y1="40" x2="226.66666666666666" y2="460"/><text class="tick" x="226.66666666666666" y="476" text-anchor="middle">3</text><line class="grid" x1="373.3333333333333" y1="40" x2="373.3333333333333" y2="460"/><text class="tick" x="373.3333333333333" y="476" text-anchor="middle">5</text><line class="grid" x1="520" y1="40" x2="520" y2="460"/><text class="tick" x="520" y="476" text-anchor="middle">8</text><line class="grid" x1="666.6666666666666" y1="40" x2="666.6666666666666" y2="460"/><text class="tick" x="666.6666666666666" y="476" text-anchor="middle">10</text><line class="grid" x1="813.3333333333334" y1="40" x2="813.3333333333334" y2="460"/><text class="tick" x="813.3333333333334" y="476" text-anchor="middle">13</text><line class="grid" x1="960" y1="40" x2="960" y2="460"/><text class="tick" x="960" y="476" text-anchor="middle">15</text>
+<text class="tag" x="8" y="37">CORE</text><text class="clab" x="72" y="54.5" text-anchor="end"><tspan x="72" dy="0">profile</tspan><tspan x="72" dy="11">cold-embed</tspan><tspan x="72" dy="11">baseline</tspan></text><text class="clab" x="72" y="97.5" text-anchor="end"><tspan x="72" dy="0">rewrite</tspan><tspan x="72" dy="11">embed-</tspan><tspan x="72" dy="11">cache</tspan><tspan x="72" dy="11">guards</tspan></text><text class="clab" x="72" y="151.5" text-anchor="end"><tspan x="72" dy="0">guard</tspan><tspan x="72" dy="11">merged to</tspan><tspan x="72" dy="11">main</tspan></text><line class="hair" x1="80" y1="188" x2="960" y2="188"/><text class="tag" x="8" y="193">CONSOLIDATE</text><text class="clab" x="72" y="210.5" text-anchor="end"><tspan x="72" dy="0">wire</tspan><tspan x="72" dy="11">search-</tspan><tspan x="72" dy="11">driven</tspan><tspan x="72" dy="11">clustering</tspan></text><text class="clab" x="72" y="264.5" text-anchor="end"><tspan x="72" dy="0">add</tspan><tspan x="72" dy="11">stale-</tspan><tspan x="72" dy="11">refresh</tspan><tspan x="72" dy="11">LLM pass</tspan></text><line class="hair" x1="80" y1="312" x2="960" y2="312"/><text class="tag" x="8" y="317">RELEASE</text><text class="clab" x="72" y="334.5" text-anchor="end"><tspan x="72" dy="0">write</tspan><tspan x="72" dy="11">update-</tspan><tspan x="72" dy="11">prompt</tspan><tspan x="72" dy="11">runbook</tspan></text><text class="clab" x="72" y="388.5" text-anchor="end"><tspan x="72" dy="0">re-warm</tspan><tspan x="72" dy="11">every</tspan><tspan x="72" dy="11">shared</tspan><tspan x="72" dy="11">wiki</tspan></text><text class="clab" x="72" y="448" text-anchor="end"><tspan x="72" dy="0">retro</tspan></text>
+<rect class="mark" x="80" y="50.5" width="117.33333333333331" height="22" rx="4"/><rect class="mark focal" x="197.33333333333331" y="99" width="234.66666666666669" height="22" rx="4"/><polygon class="mark" points="432,151.5 439,158.5 432,165.5 425,158.5"/><rect class="mark" x="432" y="212" width="176" height="22" rx="4"/><rect class="mark" x="608" y="266" width="117.33333333333326" height="22" rx="4"/><rect class="mark" x="725.3333333333333" y="336" width="58.66666666666674" height="22" rx="4"/><rect class="mark" x="784" y="390" width="58.66666666666674" height="22" rx="4"/><rect class="mark" x="842.6666666666667" y="433" width="58.66666666666663" height="22" rx="4"/>
+<text class="atitle" x="520" y="506" text-anchor="middle">day</text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="embed-backend-scorecard">
+<header>
+<div><h2>radar</h2><p>Lexical wins on speed, memory and cost; transformers wins only on accuracy, which keeps it the shipped default.</p></div>
+<div class="tools">
+<a class="btn" href="#embed-backend-scorecard" title="permalink">#</a>
+<button class="btn" data-full="14" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="-240 -204 468 444" role="img" aria-label="Embedding backend scorecard">
+<rect class="bg" x="-240" y="-204" width="468" height="444" rx="10"/>
+<polygon class="grid" points="0,-32 28,-16 28,16 0,32 -28,16 -28,-16"/><polygon class="grid" points="0,-64 55,-32 55,32 0,64 -55,32 -55,-32"/><polygon class="grid" points="0,-96 83,-48 83,48 0,96 -83,48 -83,-48"/><polygon class="grid" points="0,-128 111,-64 111,64 0,128 -111,64 -111,-64"/><polygon class="grid" points="0,-160 139,-80 139,80 0,160 -139,80 -139,-80"/><line class="grid" x1="0" y1="0" x2="0" y2="-160"/><line class="grid" x1="0" y1="0" x2="139" y2="-80"/><line class="grid" x1="0" y1="0" x2="139" y2="80"/><line class="grid" x1="0" y1="0" x2="0" y2="160"/><line class="grid" x1="0" y1="0" x2="-139" y2="80"/><line class="grid" x1="0" y1="0" x2="-139" y2="-80"/>
+<text class="clab" x="0" y="-178" text-anchor="middle">latency</text><text class="clab" x="152" y="-84" text-anchor="start">cost</text><text class="clab" x="152" y="92" text-anchor="start">accuracy</text><text class="clab" x="0" y="186" text-anchor="middle">memory</text><text class="clab" x="-152" y="92" text-anchor="end">cold start</text><text class="clab" x="-152" y="-84" text-anchor="end">offline</text>
+<text class="tick" x="-6" y="-29" text-anchor="end">1</text><text class="tick" x="-6" y="-61" text-anchor="end">2</text><text class="tick" x="-6" y="-93" text-anchor="end">3</text><text class="tick" x="-6" y="-125" text-anchor="end">4</text><text class="tick" x="-6" y="-157" text-anchor="end">5</text>
+<polygon class="ser s1" points="0,-160 139,-80 55,32 0,160 -139,80 -139,-80"/><polygon class="ser focal" points="0,-96 55,-32 139,80 0,64 -55,32 -111,-64"/>
+<rect class="mark focal" x="-4" y="-100" width="8" height="8" rx="2"/><rect class="mark focal" x="51" y="-36" width="8" height="8" rx="2"/><rect class="mark focal" x="135" y="76" width="8" height="8" rx="2"/><rect class="mark focal" x="-4" y="60" width="8" height="8" rx="2"/><rect class="mark focal" x="-59" y="28" width="8" height="8" rx="2"/><rect class="mark focal" x="-115" y="-68" width="8" height="8" rx="2"/>
+<rect class="swatch focal" x="-128" y="213" width="16" height="8" rx="2"/><text class="tick" x="-106" y="220">transformers (default)</text><rect class="swatch s1" x="19" y="213" width="16" height="8" rx="2"/><text class="tick" x="41" y="220">lexical (fallback)</text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="captures-by-hour">
+<header>
+<div><h2>polar</h2><p>Captures track the working day, peaking mid-afternoon and nearly silent overnight.</p></div>
+<div class="tools">
+<a class="btn" href="#captures-by-hour" title="permalink">#</a>
+<button class="btn" data-full="15" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="220 40 560 544" role="img" aria-label="Session captures by hour of day">
+<rect class="bg" x="220" y="40" width="560" height="544" rx="10"/>
+<line class="grid" x1="500" y1="320" x2="500.0" y2="130.0"/><line class="grid" x1="500" y1="320" x2="595.0" y2="155.5"/><line class="grid" x1="500" y1="320" x2="664.5" y2="225.0"/><line class="grid" x1="500" y1="320" x2="690.0" y2="320.0"/><line class="grid" x1="500" y1="320" x2="664.5" y2="415.0"/><line class="grid" x1="500" y1="320" x2="595.0" y2="484.5"/><line class="grid" x1="500" y1="320" x2="500.0" y2="510.0"/><line class="grid" x1="500" y1="320" x2="405.0" y2="484.5"/><line class="grid" x1="500" y1="320" x2="335.5" y2="415.0"/><line class="grid" x1="500" y1="320" x2="310.0" y2="320.0"/><line class="grid" x1="500" y1="320" x2="335.5" y2="225.0"/><line class="grid" x1="500" y1="320" x2="405.0" y2="155.5"/>
+<circle class="grid" cx="500" cy="320" r="38.0"/><circle class="grid" cx="500" cy="320" r="76.0"/><circle class="grid" cx="500" cy="320" r="114.0"/><circle class="grid" cx="500" cy="320" r="152.0"/><circle class="grid" cx="500" cy="320" r="190.0"/>
+<rect class="emask" x="474.5" y="274.3" width="15.7" height="12"/><text class="tick" x="487.2" y="286.3" text-anchor="end">10</text><rect class="emask" x="464.6" y="237.6" width="15.7" height="12"/><text class="tick" x="477.3" y="249.6" text-anchor="end">20</text><rect class="emask" x="454.8" y="200.9" width="15.7" height="12"/><text class="tick" x="467.5" y="212.9" text-anchor="end">30</text><rect class="emask" x="445.0" y="164.2" width="15.7" height="12"/><text class="tick" x="457.7" y="176.2" text-anchor="end">40</text><rect class="emask" x="435.1" y="127.5" width="15.7" height="12"/><text class="tick" x="447.8" y="139.5" text-anchor="end">50</text>
+<line class="ser" x1="500" y1="320" x2="500.0" y2="304.8"/><line class="ser" x1="500" y1="320" x2="503.8" y2="313.4"/><line class="ser" x1="500" y1="320" x2="503.3" y2="318.1"/><line class="ser" x1="500" y1="320" x2="519.0" y2="320.0"/><line class="ser" x1="500" y1="320" x2="575.7" y2="363.7"/><line class="ser" x1="500" y1="320" x2="577.9" y2="454.9"/><line class="ser" x1="500" y1="320" x2="500.0" y2="464.4"/><line class="ser focal" x1="500" y1="320" x2="410.7" y2="474.7"/><line class="ser" x1="500" y1="320" x2="391.4" y2="382.7"/><line class="ser" x1="500" y1="320" x2="427.8" y2="320.0"/><line class="ser" x1="500" y1="320" x2="470.4" y2="302.9"/><line class="ser" x1="500" y1="320" x2="488.6" y2="300.3"/>
+<circle class="mark" cx="500.0" cy="304.8" r="4"/><circle class="mark" cx="503.8" cy="313.4" r="4"/><circle class="mark" cx="503.3" cy="318.1" r="4"/><circle class="mark" cx="519.0" cy="320.0" r="4"/><circle class="mark" cx="575.7" cy="363.7" r="4"/><circle class="mark" cx="577.9" cy="454.9" r="4"/><circle class="mark" cx="500.0" cy="464.4" r="4"/><circle class="mark focal" cx="410.7" cy="474.7" r="5"/><circle class="mark" cx="391.4" cy="382.7" r="4"/><circle class="mark" cx="427.8" cy="320.0" r="4"/><circle class="mark" cx="470.4" cy="302.9" r="4"/><circle class="mark" cx="488.6" cy="300.3" r="4"/>
+<text class="clab" x="500.0" y="98.0" text-anchor="middle"><tspan x="500.0" dy="0">00:00</tspan></text><text class="clab" x="609.0" y="135.2" text-anchor="start"><tspan x="609.0" dy="0">02:00</tspan></text><text class="clab" x="688.8" y="215.0" text-anchor="start"><tspan x="688.8" dy="0">04:00</tspan></text><text class="clab" x="718.0" y="324.0" text-anchor="start"><tspan x="718.0" dy="0">06:00</tspan></text><text class="clab" x="688.8" y="433.0" text-anchor="start"><tspan x="688.8" dy="0">08:00</tspan></text><text class="clab" x="609.0" y="512.8" text-anchor="start"><tspan x="609.0" dy="0">10:00</tspan></text><text class="clab" x="500.0" y="551.0" text-anchor="middle"><tspan x="500.0" dy="0">12:00</tspan></text><text class="clab" x="391.0" y="512.8" text-anchor="end"><tspan x="391.0" dy="0">14:00</tspan></text><text class="clab" x="311.2" y="433.0" text-anchor="end"><tspan x="311.2" dy="0">16:00</tspan></text><text class="clab" x="282.0" y="324.0" text-anchor="end"><tspan x="282.0" dy="0">18:00</tspan></text><text class="clab" x="311.2" y="215.0" text-anchor="end"><tspan x="311.2" dy="0">20:00</tspan></text><text class="clab" x="391.0" y="135.2" text-anchor="end"><tspan x="391.0" dy="0">22:00</tspan></text>
+<text class="atitle" x="500" y="76" text-anchor="middle">CAPTURES</text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="capture-funnel">
+<header>
+<div><h2>pyramid</h2><p>Just a quarter of session turns get captured, and barely one in ten of those are ever recalled again.</p></div>
+<div class="tools">
+<a class="btn" href="#capture-funnel" title="permalink">#</a>
+<button class="btn" data-full="16" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="0 0 836 356" role="img" aria-label="Capture funnel: turns to durable recall">
+<rect class="bg" x="0" y="0" width="836" height="356" rx="10"/>
+<rect class="mark" x="110" y="28" width="620" height="60"/><rect class="mark" x="327.5" y="88" width="185" height="60"/><rect class="mark" x="339.9767441860465" y="148" width="160.04651162790697" height="60"/><rect class="mark focal" x="378.4186046511628" y="208" width="83.16279069767441" height="60"/><rect class="mark" x="392.9186046511628" y="268" width="54.16279069767442" height="60"/>
+<text class="nn" x="420" y="62" text-anchor="middle">session turns</text><text class="vlab" x="754" y="62">8,600</text><text class="nn" x="420" y="122" text-anchor="middle">captured</text><text class="vlab" x="754" y="122">2,150 (-75%)</text><text class="nn" x="420" y="182" text-anchor="middle">distilled</text><text class="vlab" x="754" y="182">1,780 (-17%)</text><path class="hair" d="M378.4186046511628,238 H90"/><text class="nn" x="82" y="242" text-anchor="end">promoted</text><text class="vlab focal" x="754" y="242">640 (-64%)</text><path class="hair" d="M392.9186046511628,298 H90"/><text class="nn" x="82" y="302" text-anchor="end">recalled</text><text class="vlab" x="754" y="302">210 (-67%)</text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="corpus-bytes-treemap">
+<header>
+<div><h2>treemap</h2><p>Knowledge dwarfs the other seven categories, though the gated self_improvement cell is the one worth watching.</p></div>
+<div class="tools">
+<a class="btn" href="#corpus-bytes-treemap" title="permalink">#</a>
+<button class="btn" data-full="17" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="0 0 1000 500" role="img" aria-label="Wiki corpus size by category (KB)">
+<rect class="bg" x="0" y="0" width="1000" height="500" rx="10"/>
+<rect class="mark s1" x="40" y="40" width="608.8023255813954" height="419.99999999999994"/><text class="nn" x="48" y="58">knowledge</text><text class="vlab" x="48" y="72">5,240</text><rect class="mark s2" x="649.8023255813954" y="40" width="310.1976744186046" height="216.41616766467067"/><text class="nn" x="657.8023255813954" y="58">daily</text><text class="vlab" x="657.8023255813954" y="72">1,380</text><rect class="mark s3" x="649.8023255813954" y="257.41616766467064" width="229.858953128375" height="202.58383233532933"/><text class="nn" x="657.8023255813954" y="275.41616766467064">investigations</text><text class="vlab" x="657.8023255813954" y="289.41616766467064">960</text><rect class="mark s4" x="880.6612787097704" y="257.41616766467064" width="79.33872129022961" height="127.45664093499758"/><text class="nn" x="888.6612787097704" y="275.41616766467064">plans</text><text class="vlab" x="888.6612787097704" y="289.41616766467064">210</text><rect class="mark s1" x="880.6612787097704" y="385.87280859966825" width="40.88260788995662" height="74.12719140033175"/><rect class="mark focal" x="922.543886599727" y="385.87280859966825" width="37.456113400273" height="59.473758548544986"/><rect class="mark s2" x="922.543886599727" y="446.34656714821324" width="30.05500187295142" height="13.653432851786768"/><rect class="mark s3" x="953.5988884726784" y="446.34656714821324" width="6.401111527321579" height="13.653432851788736"/>
+</svg>
+</div></div>
+</section>
+<section class="card" id="leaf-lifecycle-venn">
+<header>
+<div><h2>venn</h2><p>Most recalled leaves were not touched again this week; only a small core sits in all three sets.</p></div>
+<div class="tools">
+<a class="btn" href="#leaf-lifecycle-venn" title="permalink">#</a>
+<button class="btn" data-full="18" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="-396 -280 740 488" role="img" aria-label="Leaf lifecycle overlap, this week">
+<rect class="bg" x="-396" y="-280" width="740" height="488" rx="10"/>
+<circle class="mark s1" cx="75" cy="43" r="150"/><circle class="mark s2" cx="-75" cy="43" r="150"/><circle class="mark focal" cx="0" cy="-87" r="150"/>
+<text class="clab" x="0" y="-257" text-anchor="middle">recalled this week</text><text class="clab" x="220" y="131" text-anchor="start">saved this week</text><text class="clab" x="-220" y="131" text-anchor="end">consolidated this week</text>
+<text class="vlab" x="0" y="-159" text-anchor="middle">96</text><text class="vlab" x="140" y="84" text-anchor="middle">34</text><text class="vlab" x="-140" y="84" text-anchor="middle">11</text><text class="vlab" x="97" y="-53" text-anchor="middle">22</text><text class="vlab" x="-97" y="-53" text-anchor="middle">9</text><text class="vlab" x="0" y="116" text-anchor="middle">5</text><text class="vlab" x="0" y="3" text-anchor="middle">4</text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="capture-routing-sankey">
+<header>
+<div><h2>sankey</h2><p>Manual saves are a small but steady stream into the same captured pool that automatic turn-capture fills.</p></div>
+<div class="tools">
+<a class="btn" href="#capture-routing-sankey" title="permalink">#</a>
+<button class="btn" data-full="19" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="0 -16 976 500" role="img" aria-label="Where captured volume goes">
+<rect class="bg" x="0" y="-16" width="976" height="500" rx="10"/>
+<path class="flow" d="M142,32 C321,32 321,40 500,40 L500,289 C321,289 321,281 142,281 Z"/><path class="flow" d="M142,281 C321,281 321,376 500,376 L500,397 C321,397 321,300 142,300 Z"/><path class="flow" d="M142,365 C321,365 321,397 500,397 L500,400 C321,400 321,368 142,368 Z"/><path class="flow" d="M512,40 C691,40 691,32 870,32 L870,328 C691,328 691,336 512,336 Z"/><path class="flow" d="M512,376 C691,376 691,344 870,344 L870,368 C691,368 691,400 512,400 Z"/>
+<path class="flow focal" d="M142,316 C321,316 321,289 500,289 L500,336 C321,336 321,365 142,365 Z"/>
+<rect class="nb" x="130" y="32" width="12" height="268"/><rect class="nb" x="130" y="316" width="12" height="52"/><rect class="nb" x="500" y="40" width="12" height="296"/><rect class="nb" x="500" y="376" width="12" height="24"/><rect class="nb" x="870" y="32" width="12" height="296"/><rect class="nb" x="870" y="344" width="12" height="24"/>
+<text class="clab" x="118" y="162" text-anchor="end">session turns</text><text class="vlab" x="118" y="178" text-anchor="end">3,660</text><text class="clab" x="118" y="338" text-anchor="end">manual saves</text><text class="vlab" x="118" y="354" text-anchor="end">680</text><text class="clab" x="506" y="16" text-anchor="middle">captured</text><text class="vlab" x="506" y="32" text-anchor="middle">4,040</text><text class="clab" x="506" y="352" text-anchor="middle">stashed</text><text class="vlab" x="506" y="368" text-anchor="middle">300</text><text class="clab" x="894" y="176" text-anchor="start">promoted</text><text class="vlab" x="894" y="192" text-anchor="start">4,040</text><text class="clab" x="894" y="352" text-anchor="start">archived</text><text class="vlab" x="894" y="368" text-anchor="start">300</text>
+<rect class="swatch" x="411" y="449" width="16" height="8" rx="2"/><text class="tick" x="433" y="456">Flow</text><rect class="swatch focal" x="471" y="449" width="16" height="8" rx="2"/><text class="tick" x="493" y="456">Focal flow</text><rect class="swatch s3" x="559" y="449" width="16" height="8" rx="2"/><text class="tick" x="581" y="456">Node</text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="quadrant-effort-impact-roadmap">
+<header>
+<div><h2>quadrant</h2><p>Eight roadmap items scored by effort and impact, with cross-repo consolidation as the single flagship bet.</p></div>
+<div class="tools">
+<a class="btn" href="#quadrant-effort-impact-roadmap" title="permalink">#</a>
+<button class="btn" data-full="20" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="0 -4 1016 504" role="img" aria-label="Engine roadmap: effort vs impact">
+<rect class="bg" x="0" y="-4" width="1016" height="504" rx="10"/>
+<line class="axis" x1="80" y1="230" x2="960" y2="230"/><line class="axis" x1="520" y1="40" x2="520" y2="420"/><path class="dot" d="M960,226 L969,230 L960,234 Z"/><path class="dot" d="M516,40 L520,31 L524,40 Z"/><text class="atitle" x="520" y="466" text-anchor="middle">effort</text><text class="atitle" x="26" y="230" text-anchor="middle" transform="rotate(-90 26 230)">impact</text><text class="tick" x="68" y="233" text-anchor="end">LOW</text><text class="tick" x="981" y="233" text-anchor="start">HIGH</text><text class="tick" x="520" y="19" text-anchor="middle">HIGH</text><text class="tick" x="520" y="440" text-anchor="middle">LOW</text>
+<text class="tag" x="96" y="56" text-anchor="start">QUICK WINS</text><text class="tag" x="944" y="56" text-anchor="end">FLAGSHIP BETS</text><text class="tag" x="96" y="404" text-anchor="start">LATER</text><text class="tag" x="944" y="404" text-anchor="end">RECONSIDER</text>
+<rect class="mark" x="233.4" y="92" width="10" height="10" rx="5" ry="5"/><rect class="mark" x="356.6" y="156.59999999999997" width="10" height="10" rx="5" ry="5"/><rect class="mark focal" x="760.4" y="102.40000000000003" width="12" height="12" rx="6" ry="6"/><rect class="mark" x="603" y="164.2" width="10" height="10" rx="5" ry="5"/><rect class="mark" x="215.8" y="331.4" width="10" height="10" rx="5" ry="5"/><rect class="mark" x="339" y="369.4" width="10" height="10" rx="5" ry="5"/><rect class="mark" x="796.5999999999999" y="308.6" width="10" height="10" rx="5" ry="5"/><rect class="mark" x="655.8000000000001" y="361.8" width="10" height="10" rx="5" ry="5"/>
+<rect class="emask" x="251.39999999999998" y="88.5" width="107" height="17" rx="3"/><text class="vlab" x="304.9" y="96.5" text-anchor="middle"><tspan x="304.9" dy="0">warm cache preflight</tspan></text><rect class="emask" x="374.6" y="147.59999999999997" width="82.75" height="28" rx="3"/><text class="vlab" x="415.975" y="155.59999999999997" text-anchor="middle"><tspan x="415.975" dy="0">dedupe</tspan><tspan x="415.975" dy="11">near-duplicates</tspan></text><rect class="emask" x="780.4" y="94.40000000000003" width="73.05" height="28" rx="3"/><text class="vlab focal" x="816.925" y="102.40000000000003" text-anchor="middle"><tspan x="816.925" dy="0">cross-repo</tspan><tspan x="816.925" dy="11">consolidation</tspan></text><rect class="emask" x="621" y="155.2" width="97.3" height="28" rx="3"/><text class="vlab" x="669.65" y="163.2" text-anchor="middle"><tspan x="669.65" dy="0">llm-scored compile</tspan><tspan x="669.65" dy="11">judge</tspan></text><rect class="emask" x="233.8" y="322.4" width="82.75" height="28" rx="3"/><text class="vlab" x="275.175" y="330.4" text-anchor="middle"><tspan x="275.175" dy="0">colorize doctor</tspan><tspan x="275.175" dy="11">output</tspan></text><rect class="emask" x="357" y="360.4" width="82.75" height="28" rx="3"/><text class="vlab" x="398.375" y="368.4" text-anchor="middle"><tspan x="398.375" dy="0">rename cron-job</tspan><tspan x="398.375" dy="11">flags</tspan></text><rect class="emask" x="814.5999999999999" y="299.6" width="87.6" height="28" rx="3"/><text class="vlab" x="858.3999999999999" y="307.6" text-anchor="middle"><tspan x="858.3999999999999" dy="0">full-text search</tspan><tspan x="858.3999999999999" dy="11">fallback</tspan></text><rect class="emask" x="673.8000000000001" y="352.8" width="92.44999999999999" height="28" rx="3"/><text class="vlab" x="720.0250000000001" y="360.8" text-anchor="middle"><tspan x="720.0250000000001" dy="0">multi-tenant wiki</tspan><tspan x="720.0250000000001" dy="11">shards</tspan></text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="wardley-memory-engine-value-chain">
+<header>
+<div><h2>wardley</h2><p>The memory engine's value chain from a developer's question down to the commodity embedding model it depends on.</p></div>
+<div class="tools">
+<a class="btn" href="#wardley-memory-engine-value-chain" title="permalink">#</a>
+<button class="btn" data-full="21" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="0 -8 1000 508" role="img" aria-label="Memory engine value chain">
+<rect class="bg" x="0" y="-8" width="1000" height="508" rx="10"/>
+<line class="axis" x1="80" y1="40" x2="80" y2="420"/><line class="axis" x1="80" y1="420" x2="960" y2="420"/><line class="grid" x1="300" y1="40" x2="300" y2="420" stroke-dasharray="4 4"/><line class="grid" x1="520" y1="40" x2="520" y2="420" stroke-dasharray="4 4"/><line class="grid" x1="740" y1="40" x2="740" y2="420" stroke-dasharray="4 4"/><text class="tick" x="190" y="436" text-anchor="middle">GENESIS</text><text class="tick" x="410" y="436" text-anchor="middle">CUSTOM-BUILT</text><text class="tick" x="630" y="436" text-anchor="middle">PRODUCT</text><text class="tick" x="850" y="436" text-anchor="middle">COMMODITY</text><text class="atitle" x="72" y="24" text-anchor="end">VISIBLE TO</text><text class="atitle" x="72" y="36" text-anchor="end">THE USER</text><text class="atitle" x="72" y="432" text-anchor="end">INVISIBLE</text>
+<line class="e" x1="564" y1="59" x2="432" y2="116"/><line class="e" x1="432" y1="116" x2="476" y2="184.4"/><line class="e" x1="476" y1="184.4" x2="564" y2="230"/><line class="e" x1="564" y1="230" x2="678.4000000000001" y2="287"/><line class="e" x1="564" y1="230" x2="766.4" y2="336.4"/><line class="e" x1="766.4" y1="336.4" x2="872" y2="382"/>
+<rect class="mark" x="558" y="53" width="12" height="12" rx="6" ry="6"/><rect class="mark focal" x="424" y="108" width="16" height="16" rx="8" ry="8"/><rect class="mark" x="470" y="178.4" width="12" height="12" rx="6" ry="6"/><rect class="mark" x="558" y="224" width="12" height="12" rx="6" ry="6"/><rect class="mark" x="672.4000000000001" y="281" width="12" height="12" rx="6" ry="6"/><rect class="mark" x="760.4" y="330.4" width="12" height="12" rx="6" ry="6"/><rect class="mark" x="866" y="376" width="12" height="12" rx="6" ry="6"/>
+<rect class="emask" x="497.375" y="9" width="133.25" height="32" rx="3"/><text class="nn" x="564" y="19" text-anchor="middle"><tspan x="564" dy="0">developer asks in</tspan><tspan x="564" dy="13">chat</tspan></text><rect class="emask" x="361.75" y="64" width="140.5" height="32" rx="3"/><text class="nn" x="432" y="74" text-anchor="middle"><tspan x="432" dy="0">recall_lessons mcp</tspan><tspan x="432" dy="13">tool</tspan></text><rect class="emask" x="405.75" y="147.4" width="140.5" height="19" rx="3"/><text class="nn" x="476" y="157.4" text-anchor="middle"><tspan x="476" dy="0">mcp server process</tspan></text><rect class="emask" x="501" y="180" width="126" height="32" rx="3"/><text class="nn" x="564" y="190" text-anchor="middle"><tspan x="564" dy="0">chunked semantic</tspan><tspan x="564" dy="13">search</tspan></text><rect class="emask" x="619.0250000000001" y="237" width="118.75" height="32" rx="3"/><text class="nn" x="678.4000000000001" y="247" text-anchor="middle"><tspan x="678.4000000000001" dy="0">git-backed wiki</tspan><tspan x="678.4000000000001" dy="13">leaves</tspan></text><rect class="emask" x="707.025" y="299.4" width="118.75" height="19" rx="3"/><text class="nn" x="766.4" y="309.4" text-anchor="middle"><tspan x="766.4" dy="0">embedding cache</tspan></text><rect class="emask" x="812.625" y="332" width="118.75" height="32" rx="3"/><text class="nn" x="872" y="342" text-anchor="middle"><tspan x="872" dy="0">embeddinggemma-</tspan><tspan x="872" dy="13">300m</tspan></text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="timeline-release-history">
+<header>
+<div><h2>timeline</h2><p>Seven releases across the year, spaced by real elapsed time, with the local embedding swap as the turning point.</p></div>
+<div class="tools">
+<a class="btn" href="#timeline-release-history" title="permalink">#</a>
+<button class="btn" data-full="22" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="-124 -132 1688 252" role="img" aria-label="Release history">
+<rect class="bg" x="-124" y="-132" width="1688" height="252" rx="10"/>
+<line class="bus" x1="0" y1="0" x2="1440" y2="0"/>
+<line class="hair" x1="0" y1="0" x2="0" y2="-22"/><line class="hair" x1="163.5164835164835" y1="0" x2="163.5164835164835" y2="22"/><line class="hair" x1="323.5164835164835" y1="0" x2="323.5164835164835" y2="-22"/><line class="hair" x1="632.967032967033" y1="0" x2="632.967032967033" y2="22"/><line class="hair" x1="954.7252747252747" y1="0" x2="954.7252747252747" y2="-22"/><line class="hair" x1="1118.2417582417584" y1="0" x2="1118.2417582417584" y2="22"/><line class="hair" x1="1440" y1="0" x2="1440" y2="-22"/>
+<circle class="dot" cx="0" cy="0" r="4"/><circle class="dot" cx="163.5164835164835" cy="0" r="4"/><circle class="dot" cx="323.5164835164835" cy="0" r="6"/><circle class="dot" cx="632.967032967033" cy="0" r="4"/><circle class="dot" cx="954.7252747252747" cy="0" r="4"/><circle class="dot" cx="1118.2417582417584" cy="0" r="4"/><circle class="dot" cx="1440" cy="0" r="4"/>
+<rect class="nb" x="-84" y="-90" width="168" height="68" rx="6"/><text class="tag" x="0" y="-76" text-anchor="middle">2026-01</text><text class="nn" x="0" y="-60" text-anchor="middle"><tspan x="0" dy="0">captured hooks ship</tspan></text><text class="ns" x="0" y="-47" text-anchor="middle"><tspan x="0" dy="0">PostToolUse writes daily</tspan><tspan x="0" dy="11">atoms</tspan></text><rect class="nb" x="79.5164835164835" y="22" width="168" height="56" rx="6"/><text class="tag" x="163.5164835164835" y="36" text-anchor="middle">2026-02</text><text class="nn" x="163.5164835164835" y="52" text-anchor="middle"><tspan x="163.5164835164835" dy="0">compile step lands</tspan></text><text class="ns" x="163.5164835164835" y="65" text-anchor="middle"><tspan x="163.5164835164835" dy="0">atoms promoted to knowledge</tspan></text><rect class="nb focal" x="239.5164835164835" y="-94" width="168" height="72" rx="6"/><text class="tag" x="323.5164835164835" y="-80" text-anchor="middle">2026-03</text><text class="nn" x="323.5164835164835" y="-64" text-anchor="middle"><tspan x="323.5164835164835" dy="0">embeddinggemma</tspan><tspan x="323.5164835164835" dy="15">adopted</tspan></text><text class="ns" x="323.5164835164835" y="-36" text-anchor="middle"><tspan x="323.5164835164835" dy="0">local embed backend swap</tspan></text><rect class="nb" x="548.967032967033" y="22" width="168" height="56" rx="6"/><text class="tag" x="632.967032967033" y="36" text-anchor="middle">2026-05</text><text class="nn" x="632.967032967033" y="52" text-anchor="middle"><tspan x="632.967032967033" dy="0">mcp server ships</tspan></text><text class="ns" x="632.967032967033" y="65" text-anchor="middle"><tspan x="632.967032967033" dy="0">recall_lessons tool exposed</tspan></text><rect class="nb" x="870.7252747252747" y="-78" width="168" height="56" rx="6"/><text class="tag" x="954.7252747252747" y="-64" text-anchor="middle">2026-07</text><text class="nn" x="954.7252747252747" y="-48" text-anchor="middle"><tspan x="954.7252747252747" dy="0">consolidation pass</tspan></text><text class="ns" x="954.7252747252747" y="-35" text-anchor="middle"><tspan x="954.7252747252747" dy="0">autodream-style dedup</tspan></text><rect class="nb" x="1034.2417582417584" y="22" width="168" height="56" rx="6"/><text class="tag" x="1118.2417582417584" y="36" text-anchor="middle">2026-08</text><text class="nn" x="1118.2417582417584" y="52" text-anchor="middle"><tspan x="1118.2417582417584" dy="0">gallery viewer</tspan></text><text class="ns" x="1118.2417582417584" y="65" text-anchor="middle"><tspan x="1118.2417582417584" dy="0">diagram catalogue browsable</tspan></text><rect class="nb" x="1356" y="-78" width="168" height="56" rx="6"/><text class="tag" x="1440" y="-64" text-anchor="middle">2026-10</text><text class="nn" x="1440" y="-48" text-anchor="middle"><tspan x="1440" dy="0">v2 planning</tspan></text><text class="ns" x="1440" y="-35" text-anchor="middle"><tspan x="1440" dy="0">federation across repos</tspan></text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="loop-memory-flywheel">
+<header>
+<div><h2>loop</h2><p>The memory flywheel: capture feeds distillation, distillation feeds compile, and compile feeds the next recall.</p></div>
+<div class="tools">
+<a class="btn" href="#loop-memory-flywheel" title="permalink">#</a>
+<button class="btn" data-full="23" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="-364 -316 728 632" role="img" aria-label="Memory flywheel">
+<defs>
+<marker id="gx-positional-loop-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--muted)"/></marker>
+<marker id="gx-positional-loop-af" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--accent)"/></marker>
+<marker id="gx-positional-loop-as" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--ink)"/></marker>
+</defs>
+<rect class="bg" x="-364" y="-316" width="728" height="632" rx="10"/>
+<path class="e" d="M88,-223 C99,-251 266,-46 236,-41" marker-end="url(#gx-positional-loop-a)"/><path class="e" d="M236,41 C266,46 99,251 88,223" marker-end="url(#gx-positional-loop-a)"/><path class="e" d="M-88,223 C-99,251 -266,46 -236,41" marker-end="url(#gx-positional-loop-a)"/><path class="e" d="M-236,-41 C-266,-46 -99,-251 -88,-223" marker-end="url(#gx-positional-loop-a)"/>
+<rect class="nb" x="-80" y="-272" width="160" height="64" rx="6"/><text class="nn" x="0" y="-241" text-anchor="middle"><tspan x="0" dy="0">capture</tspan></text><text class="ns" x="0" y="-229" text-anchor="middle"><tspan x="0" dy="0">hooks flush daily atoms</tspan></text><rect class="nb" x="160" y="-32" width="160" height="64" rx="6"/><text class="nn" x="240" y="-1" text-anchor="middle"><tspan x="240" dy="0">distil</tspan></text><text class="ns" x="240" y="11" text-anchor="middle"><tspan x="240" dy="0">raw signal to atomic notes</tspan></text><rect class="nb focal" x="-80" y="208" width="160" height="64" rx="6"/><text class="nn" x="0" y="239" text-anchor="middle"><tspan x="0" dy="0">compile</tspan></text><text class="ns" x="0" y="251" text-anchor="middle"><tspan x="0" dy="0">atoms promoted to knowledge</tspan></text><rect class="nb" x="-320" y="-32" width="160" height="64" rx="6"/><text class="nn" x="-240" y="-1" text-anchor="middle"><tspan x="-240" dy="0">recall</tspan></text><text class="ns" x="-240" y="11" text-anchor="middle"><tspan x="-240" dy="0">chunked search via mcp</tspan></text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="fishbone-recall-returned-nothing">
+<header>
+<div><h2>fishbone</h2><p>Four root-cause categories for an empty recall, with an empty corpus as the most common culprit.</p></div>
+<div class="tools">
+<a class="btn" href="#fishbone-recall-returned-nothing" title="permalink">#</a>
+<button class="btn" data-full="24" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="-232 -192 1064 384" role="img" aria-label="Why recall returned nothing">
+<defs>
+<marker id="gx-positional-fishbone-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--muted)"/></marker>
+<marker id="gx-positional-fishbone-af" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--accent)"/></marker>
+<marker id="gx-positional-fishbone-as" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--ink)"/></marker>
+</defs>
+<rect class="bg" x="-232" y="-192" width="1064" height="384" rx="10"/>
+<line class="bus" x1="0" y1="0" x2="-80" y2="-139"/><line class="bus" x1="170" y1="0" x2="90" y2="139"/><line class="bus" x1="340" y1="0" x2="260" y2="-139"/><line class="bus" x1="510" y1="0" x2="430" y2="139"/>
+<path class="e" d="M-50,0 H580" marker-end="url(#gx-positional-fishbone-a)"/>
+<rect class="nb" x="-124" y="-153" width="88" height="28" rx="4"/><text class="nn" x="-80" y="-136" text-anchor="middle"><tspan x="-80" dy="0">embedding</tspan></text><rect class="nb" x="60" y="125" width="60" height="28" rx="4"/><text class="nn" x="90" y="142" text-anchor="middle"><tspan x="90" dy="0">query</tspan></text><rect class="nb focal" x="226" y="-153" width="68" height="28" rx="4"/><text class="nn" x="260" y="-136" text-anchor="middle"><tspan x="260" dy="0">corpus</tspan></text><rect class="nb" x="396" y="125" width="68" height="28" rx="4"/><text class="nn" x="430" y="142" text-anchor="middle"><tspan x="430" dy="0">config</tspan></text>
+<line class="hair" x1="-27" y1="-47" x2="-59" y2="-47"/><text class="ns" x="-63" y="-44" text-anchor="end">stale embeddings cache</text><line class="hair" x1="-40" y1="-70" x2="-72" y2="-70"/><text class="ns" x="-76" y="-67" text-anchor="end">backend/dim mismatch</text><line class="hair" x1="-53" y1="-92" x2="-85" y2="-92"/><text class="ns" x="-89" y="-89" text-anchor="end">lexical fallback used</text><line class="hair" x1="143" y1="47" x2="111" y2="47"/><text class="ns" x="107" y="50" text-anchor="end">wrong scopes passed</text><line class="hair" x1="130" y1="70" x2="98" y2="70"/><text class="ns" x="94" y="73" text-anchor="end">over-narrow filters</text><line class="hair" x1="117" y1="92" x2="85" y2="92"/><text class="ns" x="81" y="95" text-anchor="end">typoed area facet</text><line class="hair" x1="313" y1="-47" x2="281" y2="-47"/><text class="ns" x="277" y="-44" text-anchor="end">category is empty</text><line class="hair" x1="300" y1="-70" x2="268" y2="-70"/><text class="ns" x="264" y="-67" text-anchor="end">leaves all disabled</text><line class="hair" x1="287" y1="-92" x2="255" y2="-92"/><text class="ns" x="251" y="-89" text-anchor="end">wrong data dir</text><line class="hair" x1="483" y1="47" x2="451" y2="47"/><text class="ns" x="447" y="50" text-anchor="end">embed.backend wrong</text><line class="hair" x1="470" y1="70" x2="438" y2="70"/><text class="ns" x="434" y="73" text-anchor="end">missing model path</text><line class="hair" x1="457" y1="92" x2="425" y2="92"/><text class="ns" x="421" y="95" text-anchor="end">stale layout cache</text>
+<rect class="nb focal" x="580" y="-20" width="210" height="40" rx="6"/><text class="nn" x="685" y="4" text-anchor="middle"><tspan x="685" dy="0">recall returned nothing</tspan></text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="layers-recall-stack">
+<header>
+<div><h2>layers</h2><p>The recall stack from git-backed wiki leaves up to the MCP tool surface an agent actually calls.</p></div>
+<div class="tools">
+<a class="btn" href="#layers-recall-stack" title="permalink">#</a>
+<button class="btn" data-full="25" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="0 0 1072 440" role="img" aria-label="Recall stack: wiki leaves to MCP tools">
+<rect class="bg" x="0" y="0" width="1072" height="440" rx="10"/>
+<rect class="lay" x="96" y="28" width="880" height="64"/><text class="tag" x="114" y="63">L5</text><text class="lname" x="192" y="65">mcp tool surface</text><text class="lnote" x="958" y="64" text-anchor="end"><tspan x="958" dy="0">recall_lessons + search_memory</tspan></text><rect class="lay alt" x="96" y="92" width="880" height="64"/><text class="tag" x="114" y="127">L4</text><text class="lname" x="192" y="129">scope resolver</text><text class="lnote" x="958" y="128" text-anchor="end"><tspan x="958" dy="0">cwd + git root -&gt; scopes[]</tspan></text><rect class="lay focal" x="96" y="156" width="880" height="64"/><text class="tag" x="114" y="191">L3</text><text class="lname" x="192" y="193">chunked semantic search</text><text class="lnote" x="958" y="192" text-anchor="end"><tspan x="958" dy="0">cosine rank over chunks</tspan></text><rect class="lay alt" x="96" y="220" width="880" height="64"/><text class="tag" x="114" y="255">L2</text><text class="lname" x="192" y="257">embedding cache</text><text class="lnote" x="958" y="256" text-anchor="end"><tspan x="958" dy="0">embeddings.json per category</tspan></text><rect class="lay" x="96" y="284" width="880" height="64"/><text class="tag" x="114" y="319">L1</text><text class="lname" x="192" y="321">embed backend</text><text class="lnote" x="958" y="320" text-anchor="end"><tspan x="958" dy="0">embeddinggemma-300m</tspan></text><rect class="lay alt" x="96" y="348" width="880" height="64"/><text class="tag" x="114" y="383">L0</text><text class="lname" x="192" y="385">git-backed wiki leaves</text><text class="lnote" x="958" y="384" text-anchor="end"><tspan x="958" dy="0">markdown + frontmatter</tspan></text><path class="bus" d="M56,246 V194"/><path class="dot" d="M52,202 L56,194 L60,202 Z"/><text class="tag" x="44" y="220" text-anchor="middle" transform="rotate(-90 44 220)">ABSTRACTION</text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="kanban-diagram-engine-board">
+<header>
+<div><h2>kanban</h2><p>The diagram engine's own work board: a wide backlog, a WIP-limited pass in progress, an empty review lane, and settled work.</p></div>
+<div class="tools">
+<a class="btn" href="#kanban-diagram-engine-board" title="permalink">#</a>
+<button class="btn" data-full="26" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="0 0 1036 360" role="img" aria-label="Diagram engine board">
+<rect class="bg" x="0" y="0" width="1036" height="360" rx="10"/>
+<rect class="zone" x="28" y="28" width="224" height="302" rx="8"/><text class="nn" x="38" y="46">Backlog</text><text class="tag" x="242" y="45" text-anchor="end">3</text><line class="hair" x1="38" y1="56" x2="242" y2="56"/><rect class="nb" x="44" y="70" width="192" height="91" rx="6"/><text class="nn" x="54" y="93"><tspan x="54" dy="0">Add sankey 3-layer flow</tspan><tspan x="54" dy="14">presets to the gallery</tspan><tspan x="54" dy="14">module for a convincing</tspan><tspan x="54" dy="14">example</tspan></text><text class="ns" x="54" y="147"><tspan x="54" dy="0">needs: domain review</tspan></text><rect class="nb" x="44" y="173" width="192" height="52" rx="6"/><text class="nn" x="54" y="196"><tspan x="54" dy="0">Support radial</tspan><tspan x="54" dy="14">dendrogram kind</tspan></text><rect class="nb ghost" x="44" y="237" width="192" height="52" rx="6"/><text class="nn" x="54" y="260"><tspan x="54" dy="0">next quarter's diagram</tspan><tspan x="54" dy="14">kind</tspan></text><rect class="zone" x="280" y="28" width="224" height="302" rx="8"/><text class="nn" x="290" y="46">In Progress</text><text class="tag" x="494" y="45" text-anchor="end">2/3</text><line class="hair" x1="290" y1="56" x2="494" y2="56"/><rect class="nb focal" x="296" y="70" width="192" height="63" rx="6"/><text class="nn" x="306" y="93"><tspan x="306" dy="0">Write gallery specs for</tspan><tspan x="306" dy="14">29 kinds</tspan></text><text class="ns" x="306" y="119"><tspan x="306" dy="0">3 parallel agents</tspan></text><rect class="nb" x="296" y="145" width="192" height="52" rx="6"/><text class="nn" x="306" y="168"><tspan x="306" dy="0">Wire diagrams-examples.</tspan><tspan x="306" dy="14">md generator</tspan></text><rect class="zone" x="532" y="28" width="224" height="302" rx="8"/><text class="nn" x="542" y="46">Review</text><text class="tag" x="746" y="45" text-anchor="end">0</text><line class="hair" x1="542" y1="56" x2="746" y2="56"/><rect class="zone" x="784" y="28" width="224" height="302" rx="8"/><text class="nn" x="794" y="46">Shipped</text><text class="tag" x="998" y="45" text-anchor="end">4</text><line class="hair" x1="794" y1="56" x2="998" y2="56"/><rect class="nb store" x="800" y="70" width="192" height="52" rx="6"/><text class="nn" x="810" y="93"><tspan x="810" dy="0">validateSvg geometric</tspan><tspan x="810" dy="14">self-check</tspan></text><rect class="nb store" x="800" y="134" width="192" height="52" rx="6"/><text class="nn" x="810" y="157"><tspan x="810" dy="0">registerRenderer</tspan><tspan x="810" dy="14">catalogue + docs test</tspan></text><rect class="nb store" x="800" y="198" width="192" height="52" rx="6"/><text class="nn" x="810" y="221"><tspan x="810" dy="0">loop, fishbone, wardley</tspan><tspan x="810" dy="14">renderers</tspan></text><rect class="nb store" x="800" y="262" width="192" height="52" rx="6"/><text class="nn" x="810" y="285"><tspan x="810" dy="0">medallion, high-level</tspan><tspan x="810" dy="14">renderers</tspan></text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="medallion-captured-corpus-tiers">
+<header>
+<div><h2>medallion</h2><p>Five tiers of the captured corpus, from a hook's raw daily atom to a garbage-collected cold archive.</p></div>
+<div class="tools">
+<a class="btn" href="#medallion-captured-corpus-tiers" title="permalink">#</a>
+<button class="btn" data-full="27" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="0 0 1040 476" role="img" aria-label="Captured corpus data tiers">
+<defs>
+<marker id="gx-positional-medallion-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--muted)"/></marker>
+<marker id="gx-positional-medallion-af" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--accent)"/></marker>
+<marker id="gx-positional-medallion-as" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0.5 L8,4 L0,7.5 Z" fill="var(--ink)"/></marker>
+</defs>
+<rect class="bg" x="0" y="0" width="1040" height="476" rx="10"/>
+<path class="e" d="M102,80 C102,0 290,0 290,80" marker-end="url(#gx-positional-medallion-a)"/><path class="e focal" d="M290,80 C290,0 478,0 478,80" marker-end="url(#gx-positional-medallion-af)"/><path class="e" d="M478,80 C478,0 666,0 666,80" marker-end="url(#gx-positional-medallion-a)"/><path class="e async" d="M666,80 C666,0 854,0 854,80" marker-end="url(#gx-positional-medallion-a)"/>
+<rect class="nb store" x="16" y="80" width="172" height="380" rx="6"/><text class="nn" x="102" y="106" text-anchor="middle"><tspan x="102" dy="0">Daily</tspan></text><text class="vlab" x="102" y="144" text-anchor="middle"><tspan x="102" dy="0">raw daily atoms</tspan></text><text class="clab" x="32" y="180">Tool</text><text class="ns" x="32" y="196"><tspan x="32" dy="0">PostToolUse -&gt; flush</tspan></text><text class="clab" x="32" y="220">Format</text><text class="ns" x="32" y="236"><tspan x="32" dy="0">markdown + frontmatter</tspan></text><text class="clab" x="32" y="260">Writer</text><text class="ns" x="32" y="276"><tspan x="32" dy="0">capture hook</tspan></text><rect class="nb" x="204" y="80" width="172" height="380" rx="6"/><text class="nn" x="290" y="106" text-anchor="middle"><tspan x="290" dy="0">Distilled</tspan></text><text class="vlab" x="290" y="144" text-anchor="middle"><tspan x="290" dy="0">distilled atoms</tspan></text><text class="clab" x="220" y="180">Tool</text><text class="ns" x="220" y="196"><tspan x="220" dy="0">cli.mjs redistill</tspan></text><text class="clab" x="220" y="220">Format</text><text class="ns" x="220" y="236"><tspan x="220" dy="0">atomic note + metadata</tspan></text><text class="clab" x="220" y="260">Writer</text><text class="ns" x="220" y="276"><tspan x="220" dy="0">distill worker</tspan></text><rect class="nb focal" x="392" y="80" width="172" height="380" rx="6"/><text class="nn" x="478" y="106" text-anchor="middle"><tspan x="478" dy="0">Knowledge</tspan></text><text class="vlab focal" x="478" y="144" text-anchor="middle"><tspan x="478" dy="0">promoted knowledge</tspan></text><text class="clab" x="408" y="180">Tool</text><text class="ns" x="408" y="196"><tspan x="408" dy="0">cli.mjs cron-job compile</tspan></text><text class="clab" x="408" y="220">Format</text><text class="ns" x="408" y="236"><tspan x="408" dy="0">knowledge leaf + atom_type</tspan></text><text class="clab" x="408" y="260">Writer</text><text class="ns" x="408" y="276"><tspan x="408" dy="0">compile step</tspan></text><rect class="nb" x="580" y="80" width="172" height="380" rx="6"/><text class="nn" x="666" y="106" text-anchor="middle"><tspan x="666" dy="0">Aggregated</tspan></text><text class="vlab" x="666" y="144" text-anchor="middle"><tspan x="666" dy="0">aggregated stats</tspan></text><text class="clab" x="596" y="180">Tool</text><text class="ns" x="596" y="196"><tspan x="596" dy="0">consolidate_memory mcp</tspan></text><text class="clab" x="596" y="220">Format</text><text class="ns" x="596" y="236"><tspan x="596" dy="0">cluster summary json</tspan></text><text class="clab" x="596" y="260">Writer</text><text class="ns" x="596" y="276"><tspan x="596" dy="0">consolidate pass</tspan></text><rect class="nb ghost" x="768" y="80" width="172" height="380" rx="6"/><text class="nn" x="854" y="106" text-anchor="middle"><tspan x="854" dy="0">Archive</tspan></text><text class="vlab" x="854" y="144" text-anchor="middle"><tspan x="854" dy="0">cold archive</tspan></text><text class="clab" x="784" y="180">Tool</text><text class="ns" x="784" y="196"><tspan x="784" dy="0">embed-gc sweep</tspan></text><text class="clab" x="784" y="220">Format</text><text class="ns" x="784" y="236"><tspan x="784" dy="0">archived leaf, no recall</tspan></text><text class="clab" x="784" y="260">Writer</text><text class="ns" x="784" y="276"><tspan x="784" dy="0">gc sweep</tspan></text>
+</svg>
+</div></div>
+</section>
+<section class="card" id="highlevel-platform-end-to-end">
+<header>
+<div><h2>high-level</h2><p>The platform end to end: hooks capture, git stores, chunked search recalls, and the MCP server serves it back to the agent.</p></div>
+<div class="tools">
+<a class="btn" href="#highlevel-platform-end-to-end" title="permalink">#</a>
+<button class="btn" data-full="28" type="button">Full screen</button>
+</div>
+</header>
+<div class="stage"><div class="dd">
+<svg viewBox="0 0 1000 456" role="img" aria-label="Memory engine platform overview">
+<rect class="bg" x="0" y="0" width="1000" height="456" rx="10"/>
+<polygon class="mark s1" points="0,4 236,4 248,18 236,32 0,32"/><text class="tag" x="124" y="21" text-anchor="middle"><tspan x="124" dy="0">CAPTURE</tspan></text><polygon class="mark s2" points="248,4 484,4 496,18 484,32 248,32 260,18"/><text class="tag" x="372" y="21" text-anchor="middle"><tspan x="372" dy="0">STORE</tspan></text><polygon class="mark s1" points="496,4 732,4 744,18 732,32 496,32 508,18"/><text class="tag" x="620" y="21" text-anchor="middle"><tspan x="620" dy="0">RECALL</tspan></text><polygon class="mark s2" points="744,4 1000,4 1000,32 744,32 756,18"/><text class="tag" x="872" y="21" text-anchor="middle"><tspan x="872" dy="0">SERVE</tspan></text>
+<rect class="zone" x="4" y="40" width="992" height="336" rx="8"/><text class="tag" x="16" y="60">DEPLOYMENT BOUNDARY</text>
+<rect class="nb" x="16" y="52" width="968" height="44" rx="4"/><text class="tag" x="500" y="68" text-anchor="middle">ORCHESTRATION</text><text class="nn" x="500" y="85" text-anchor="middle">cron-job.mjs (hourly)</text>
+<rect class="nb" x="48" y="120" width="152" height="80" rx="6"/><text class="nn" x="124" y="164" text-anchor="middle"><tspan x="124" dy="0">PostToolUse hook</tspan></text><rect class="nb" x="48" y="216" width="152" height="80" rx="6"/><text class="nn" x="124" y="260" text-anchor="middle"><tspan x="124" dy="0">SessionEnd hook</tspan></text><rect class="nb" x="296" y="120" width="152" height="80" rx="6"/><text class="nn" x="372" y="164" text-anchor="middle"><tspan x="372" dy="0">git-backed wiki</tspan></text><rect class="nb" x="296" y="216" width="152" height="80" rx="6"/><text class="nn" x="372" y="253.5" text-anchor="middle"><tspan x="372" dy="0">embeddings.json</tspan><tspan x="372" dy="13">cache</tspan></text><rect class="nb focal" x="544" y="120" width="152" height="80" rx="6"/><text class="nn" x="620" y="157.5" text-anchor="middle"><tspan x="620" dy="0">chunked semantic</tspan><tspan x="620" dy="13">search</tspan></text><rect class="nb" x="796" y="120" width="152" height="80" rx="6"/><text class="nn" x="872" y="164" text-anchor="middle"><tspan x="872" dy="0">mcp server</tspan></text><rect class="nb" x="796" y="216" width="152" height="80" rx="6"/><text class="nn" x="872" y="253.5" text-anchor="middle"><tspan x="872" dy="0">gallery web</tspan><tspan x="872" dy="13">viewer</tspan></text>
+<rect class="nb" x="4" y="392" width="992" height="40" rx="4"/><text class="tag" x="500" y="407" text-anchor="middle">IDENTITY</text><text class="nn" x="500" y="424" text-anchor="middle">scopes[] + project identity</text>
+</svg>
+</div></div>
+</section>
+<script>
+document.getElementById("theme").addEventListener("click", (e) => {
+  const dark = document.documentElement.classList.toggle("dark");
+  e.target.textContent = dark ? "Light" : "Dark";
+});
+for (const btn of document.querySelectorAll("[data-full]")) {
+  btn.addEventListener("click", () => {
+    const card = btn.closest(".card");
+    if (card.classList.contains("maxed")) { card.classList.remove("maxed"); return; }
+    if (document.fullscreenElement) { document.exitFullscreen(); return; }
+    if (card.requestFullscreen) card.requestFullscreen().catch(() => card.classList.add("maxed"));
+    else card.classList.add("maxed");
+  });
+}
+</script>
+</body></html>

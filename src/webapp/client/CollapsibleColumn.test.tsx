@@ -1,31 +1,7 @@
 import { test, expect, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { CollapsibleColumn } from "./CollapsibleColumn";
-
-function mockMatchMedia(initialMatches: boolean) {
-  const listeners = new Set<(event: MediaQueryListEvent) => void>();
-  const mql = {
-    matches: initialMatches,
-    media: "",
-    onchange: null,
-    addEventListener: (_type: string, cb: (event: MediaQueryListEvent) => void) =>
-      listeners.add(cb),
-    removeEventListener: (_type: string, cb: (event: MediaQueryListEvent) => void) =>
-      listeners.delete(cb),
-    addListener: () => undefined,
-    removeListener: () => undefined,
-    dispatchEvent: () => false,
-  };
-  Object.defineProperty(globalThis, "matchMedia", { configurable: true, value: () => mql });
-  return {
-    cross(next: boolean) {
-      act(() => {
-        mql.matches = next;
-        listeners.forEach((cb) => cb({ matches: next } as MediaQueryListEvent));
-      });
-    },
-  };
-}
+import { mockMatchMedia } from "./matchMedia.testkit";
 
 function renderColumn(railContext?: string) {
   return render(
